@@ -17,7 +17,7 @@ interface SignUpInput {
 }
 
 export function useSignIn() {
-  const { setSession } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsGuest } = useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password }: SignInInput) => {
@@ -30,8 +30,34 @@ export function useSignIn() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        setSession(data.session);
+        // Store tokens first
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+
+        // Check if user has completed onboarding by checking if they have visited countries
+        // or other profile data that indicates they've been through onboarding before
+        try {
+          const { data: userCountries } = await supabase
+            .from('user_countries')
+            .select('id')
+            .eq('user_id', data.session.user.id)
+            .limit(1);
+
+          // If user has any countries saved, they've completed onboarding before
+          const hasOnboarded = userCountries && userCountries.length > 0;
+
+          // Clear guest mode since we're now logged in
+          setIsGuest(false);
+
+          // Set onboarding status based on whether they have data
+          if (hasOnboarded) {
+            setHasCompletedOnboarding(true);
+          }
+        } catch {
+          // If check fails, let them continue with current onboarding state
+        }
+
+        // Set session last to trigger navigation
+        setSession(data.session);
       }
     },
     onError: (error) => {

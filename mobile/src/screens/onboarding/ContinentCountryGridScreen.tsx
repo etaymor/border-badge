@@ -3,7 +3,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, CountryGridItem } from '@components/ui';
-import { useCountries } from '@hooks/useCountries';
+import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
@@ -14,7 +14,8 @@ const REGIONS = ['Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
 
 export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
-  const { data: countries, isLoading } = useCountries();
+  // Use region-specific hook for better performance (queries SQLite directly)
+  const { data: regionCountries, isLoading } = useCountriesByRegion(region);
   const {
     selectedCountries,
     toggleCountry,
@@ -22,14 +23,6 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     toggleBucketListCountry,
     visitedContinents,
   } = useOnboardingStore();
-
-  // Filter countries by region
-  const regionCountries = useMemo(() => {
-    if (!countries) return [];
-    return countries
-      .filter((c) => c.region === region)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [countries, region]);
 
   // Count selected countries in this region
   const selectedInRegion = useMemo(() => {

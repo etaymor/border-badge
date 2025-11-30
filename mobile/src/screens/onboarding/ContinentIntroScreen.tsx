@@ -19,7 +19,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     navigation.navigate('ContinentCountryGrid', { region });
   };
 
-  const handleSkip = () => {
+  const handleNo = () => {
     // Move to next continent or progress summary
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
@@ -44,7 +44,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
           <View style={styles.buttonContainer}>
             <Button title="Yes" onPress={handleYes} style={styles.yesButton} />
-            <Button title="Skip" onPress={handleSkip} variant="outline" style={styles.skipButton} />
+            <Button title="No" onPress={handleNo} variant="outline" style={styles.noButton} />
           </View>
         </View>
 
@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
   yesButton: {
     flex: 1,
   },
-  skipButton: {
+  noButton: {
     flex: 1,
   },
   progressContainer: {

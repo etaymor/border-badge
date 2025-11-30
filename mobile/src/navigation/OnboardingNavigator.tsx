@@ -1,5 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { ForgotPasswordScreen } from '@screens/auth/ForgotPasswordScreen';
+import { LoginScreen } from '@screens/auth/LoginScreen';
+import { SignUpScreen } from '@screens/auth/SignUpScreen';
 import { AccountCreationScreen } from '@screens/onboarding/AccountCreationScreen';
 import { ContinentCountryGridScreen } from '@screens/onboarding/ContinentCountryGridScreen';
 import { ContinentIntroScreen } from '@screens/onboarding/ContinentIntroScreen';
@@ -30,6 +33,10 @@ export function OnboardingNavigator() {
       <Stack.Screen name="ProgressSummary" component={ProgressSummaryScreen} />
       <Stack.Screen name="Paywall" component={PaywallScreen} />
       <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
+      {/* Auth screens accessible from onboarding */}
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="SignUp" component={SignUpScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 }

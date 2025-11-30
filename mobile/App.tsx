@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
 import { clearTokens, setSignOutCallback, storeTokens } from '@services/api';
 import { supabase } from '@services/supabase';
@@ -21,6 +22,10 @@ const queryClient = new QueryClient({
 
 export default function App() {
   const { signOut, setSession, setIsLoading } = useAuthStore();
+
+  // Sync countries to local SQLite database on app launch
+  // The hook runs on mount and syncs data to SQLite; we don't need the return value here
+  useCountriesSync();
 
   useEffect(() => {
     // Wire up API sign-out callback
