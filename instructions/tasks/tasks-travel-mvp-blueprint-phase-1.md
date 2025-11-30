@@ -93,3 +93,5 @@
   - [x] 6.5 Implement `backend/tests/test_entries_and_media.py` to cover entry creation/update/delete, signed-url generation for media, and status transitions.
   - [x] 6.6 Implement `backend/tests/test_error_format.py` to assert that error responses match the expected JSON structure.
   - [x] 6.7 Run the full test suite locally - 36 tests passing with no warnings.
+
+- [x] 7.0 Fix Supabase REST header alignment so `apikey` and bearer tokens use the same credential context to avoid authentication mismatches during service-role operations.

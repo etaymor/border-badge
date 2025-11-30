@@ -33,8 +33,7 @@ async def get_signed_upload_url(
     data: SignedUrlRequest,
     user: CurrentUser,
 ) -> SignedUrlResponse:
-    """
-    Get a signed URL for uploading a media file.
+    """Get a signed URL for uploading a media file.
 
     Creates a media record in 'processing' status and returns
     a presigned URL for direct upload to Supabase Storage.
@@ -42,6 +41,15 @@ async def get_signed_upload_url(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
     settings = get_settings()
+
+    # Ensure Supabase URL is configured before generating upload URLs.
+    # The Settings validator allows an empty URL for local development without Supabase,
+    # but this endpoint requires a fully qualified Supabase URL.
+    if not settings.supabase_url:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase URL is not configured on the server; media uploads are currently disabled.",
+        )
 
     # Validate that either trip_id or entry_id is provided
     if not data.trip_id and not data.entry_id:
@@ -73,8 +81,10 @@ async def get_signed_upload_url(
 
     media = rows[0]
 
-    # Generate signed upload URL via Supabase Storage API
-    # The actual URL format depends on Supabase Storage bucket setup
+    # Generate signed upload URL via Supabase Storage API.
+    # NOTE: The actual URL format depends on Supabase Storage bucket setup.
+    # We intentionally require a fully-qualified Supabase URL so that clients
+    # always receive an absolute URL rather than a relative path.
     upload_url = f"{settings.supabase_url}/storage/v1/object/media/{file_path}"
 
     return SignedUrlResponse(
