@@ -8,7 +8,9 @@ export interface Profile {
   email: string;
   display_name?: string;
   avatar_url?: string;
-  home_country?: string;
+  home_country_code?: string;
+  travel_motives?: string[];
+  persona_tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -16,7 +18,9 @@ export interface Profile {
 export interface UpdateProfileInput {
   display_name?: string;
   avatar_url?: string;
-  home_country?: string;
+  home_country_code?: string;
+  travel_motives?: string[];
+  persona_tags?: string[];
 }
 
 const PROFILE_QUERY_KEY = ['profile'];

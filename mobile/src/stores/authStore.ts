@@ -1,22 +1,15 @@
+import type { Session } from '@supabase/supabase-js';
 import { create } from 'zustand';
-
-export interface Session {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  user: {
-    id: string;
-    email: string;
-  };
-}
 
 interface AuthState {
   session: Session | null;
+  isGuest: boolean;
   hasCompletedOnboarding: boolean;
   isLoading: boolean;
 
   // Actions
   setSession: (session: Session | null) => void;
+  setIsGuest: (isGuest: boolean) => void;
   setHasCompletedOnboarding: (completed: boolean) => void;
   setIsLoading: (loading: boolean) => void;
   signOut: () => void;
@@ -24,11 +17,13 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   session: null,
+  isGuest: false,
   hasCompletedOnboarding: false,
   isLoading: true,
 
   setSession: (session) => set({ session }),
+  setIsGuest: (isGuest) => set({ isGuest }),
   setHasCompletedOnboarding: (completed) => set({ hasCompletedOnboarding: completed }),
   setIsLoading: (loading) => set({ isLoading: loading }),
-  signOut: () => set({ session: null, hasCompletedOnboarding: false }),
+  signOut: () => set({ session: null, isGuest: false, hasCompletedOnboarding: false }),
 }));

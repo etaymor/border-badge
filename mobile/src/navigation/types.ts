@@ -5,12 +5,30 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
-  Onboarding: undefined;
+  Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
 };
 
 // Auth stack screens
 export type AuthStackParamList = {
+  Welcome: undefined;
+  Login: undefined;
+  SignUp: undefined;
+  ForgotPassword: undefined;
+};
+
+// Onboarding stack screens
+export type OnboardingStackParamList = {
+  WelcomeCarousel: undefined;
+  Motivation: undefined;
+  HomeCountry: undefined;
+  DreamDestination: undefined;
+  ContinentIntro: { region: string; regionIndex: number };
+  ContinentCountryGrid: { region: string };
+  ProgressSummary: undefined;
+  Paywall: undefined;
+  AccountCreation: undefined;
+  // Auth screens accessible from onboarding
   Login: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
@@ -40,6 +58,12 @@ export type AuthStackScreenProps<T extends keyof AuthStackParamList> = Composite
   NativeStackScreenProps<AuthStackParamList, T>,
   RootStackScreenProps<keyof RootStackParamList>
 >;
+
+export type OnboardingStackScreenProps<T extends keyof OnboardingStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<OnboardingStackParamList, T>,
+    RootStackScreenProps<keyof RootStackParamList>
+  >;
 
 export type MainTabScreenProps<T extends keyof MainTabParamList> = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList, T>,
