@@ -1,4 +1,7 @@
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { getFlagEmoji } from '@utils/flags';
 
 interface CountryGridItemProps {
   code: string;
@@ -9,16 +12,7 @@ interface CountryGridItemProps {
   onToggleWishlist: () => void;
 }
 
-// Helper to get flag emoji from country code
-function getFlagEmoji(countryCode: string): string {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
-
-export function CountryGridItem({
+export const CountryGridItem = React.memo(function CountryGridItem({
   code,
   name,
   isSelected,
@@ -26,6 +20,9 @@ export function CountryGridItem({
   onToggleVisited,
   onToggleWishlist,
 }: CountryGridItemProps) {
+  // Memoize flag emoji calculation
+  const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
+
   return (
     <TouchableOpacity
       style={[styles.container, isSelected && styles.containerSelected]}
@@ -34,7 +31,7 @@ export function CountryGridItem({
     >
       {/* Grey placeholder for country illustration */}
       <View style={styles.illustrationPlaceholder}>
-        <Text style={styles.flagEmoji}>{getFlagEmoji(code)}</Text>
+        <Text style={styles.flagEmoji}>{flagEmoji}</Text>
       </View>
 
       <Text style={styles.countryName} numberOfLines={2}>
@@ -61,7 +58,7 @@ export function CountryGridItem({
       )}
     </TouchableOpacity>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

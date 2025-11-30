@@ -1,16 +1,14 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, CountryGridItem } from '@components/ui';
+import { REGIONS } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
-
-// Regions in order for continent loop
-const REGIONS = ['Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
 
 export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
@@ -44,15 +42,19 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     }
   };
 
-  const renderCountryItem = ({ item }: { item: (typeof regionCountries)[0] }) => (
-    <CountryGridItem
-      code={item.code}
-      name={item.name}
-      isSelected={selectedCountries.includes(item.code)}
-      isWishlisted={bucketListCountries.includes(item.code)}
-      onToggleVisited={() => toggleCountry(item.code)}
-      onToggleWishlist={() => toggleBucketListCountry(item.code)}
-    />
+  // Wrap in useCallback to prevent FlatList re-renders
+  const renderCountryItem = useCallback(
+    ({ item }: { item: (typeof regionCountries)[0] }) => (
+      <CountryGridItem
+        code={item.code}
+        name={item.name}
+        isSelected={selectedCountries.includes(item.code)}
+        isWishlisted={bucketListCountries.includes(item.code)}
+        onToggleVisited={() => toggleCountry(item.code)}
+        onToggleWishlist={() => toggleBucketListCountry(item.code)}
+      />
+    ),
+    [selectedCountries, bucketListCountries, toggleCountry, toggleBucketListCountry]
   );
 
   if (isLoading) {

@@ -3,6 +3,10 @@
  * Downloads countries once from Supabase and stores locally for fast offline queries.
  */
 
+// NOTE: FTS5 deferred - LIKE queries are fast enough for 197 countries.
+// FTS5 adds complexity (index rebuild on sync, different query syntax).
+// Revisit if search performance becomes an issue with larger datasets.
+
 import * as SQLite from 'expo-sqlite';
 
 export interface Country {
@@ -68,10 +72,10 @@ export async function getLastSyncTime(): Promise<number | null> {
  */
 export async function setLastSyncTime(timestamp: number): Promise<void> {
   const database = await getDb();
-  await database.runAsync(
-    'INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)',
-    [SYNC_KEY, timestamp.toString()]
-  );
+  await database.runAsync('INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)', [
+    SYNC_KEY,
+    timestamp.toString(),
+  ]);
 }
 
 /**
@@ -111,10 +115,11 @@ export async function saveCountries(countries: Country[]): Promise<void> {
 
     // Insert new countries
     for (const country of countries) {
-      await database.runAsync(
-        'INSERT INTO countries (code, name, region) VALUES (?, ?, ?)',
-        [country.code, country.name, country.region]
-      );
+      await database.runAsync('INSERT INTO countries (code, name, region) VALUES (?, ?, ?)', [
+        country.code,
+        country.name,
+        country.region,
+      ]);
     }
   });
 

@@ -2,13 +2,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
+import { REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentIntro'>;
-
-// Regions in order for continent loop
-const REGIONS = ['Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
 
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;

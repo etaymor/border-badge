@@ -3,23 +3,13 @@ import { FlatList, Keyboard, StyleSheet, Text, TouchableOpacity, View } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, SearchInput } from '@components/ui';
+import { REGIONS } from '@constants/regions';
 import { useCountries, type Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getFlagEmoji } from '@utils/flags';
 
 type Props = OnboardingStackScreenProps<'DreamDestination'>;
-
-// Regions in order for continent loop
-const REGIONS = ['Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
-
-// Helper to get flag emoji from country code
-function getFlagEmoji(countryCode: string): string {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
 
 export function DreamDestinationScreen({ navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
