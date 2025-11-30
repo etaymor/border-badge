@@ -10,13 +10,22 @@ from app.core.config import get_settings
 class SupabaseClient:
     """HTTP client for Supabase REST API operations."""
 
-    def __init__(self) -> None:
-        """Initialize the Supabase client."""
+    def __init__(self, user_token: str | None = None) -> None:
+        """
+        Initialize the Supabase client.
+
+        Args:
+            user_token: Optional JWT token for user-scoped queries (RLS).
+                       If None, uses service role key (bypasses RLS).
+        """
         self.settings = get_settings()
         self.base_url = self.settings.supabase_url
+
+        # Use user token for RLS, or service role for admin operations
+        auth_token = user_token or self.settings.supabase_service_role_key
         self.headers = {
-            "apikey": self.settings.supabase_service_role_key,
-            "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
+            "apikey": self.settings.supabase_anon_key,
+            "Authorization": f"Bearer {auth_token}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
@@ -126,6 +135,11 @@ class SupabaseClient:
             return response.json()
 
 
-def get_supabase_client() -> SupabaseClient:
-    """Get a Supabase client instance."""
-    return SupabaseClient()
+def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
+    """
+    Get a Supabase client instance.
+
+    Args:
+        user_token: Optional JWT for user-scoped queries with RLS.
+    """
+    return SupabaseClient(user_token=user_token)
