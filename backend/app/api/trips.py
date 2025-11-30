@@ -3,7 +3,9 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
@@ -18,6 +20,7 @@ from app.schemas.trips import (
     TripWithTags,
 )
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 
@@ -42,16 +45,24 @@ def format_daterange(start: str | None, end: str | None) -> str | None:
 async def list_trips(
     request: Request,
     user: CurrentUser,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ) -> list[Trip]:
     """List all trips accessible to the current user (owned or approved tags)."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    params = {"select": "*", "order": "created_at.desc"}
+    params = {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": limit,
+        "offset": offset,
+    }
     rows = await db.get("trip", params)
     return [Trip(**row) for row in rows]
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def create_trip(
     request: Request,
     data: TripCreate,
@@ -165,7 +176,9 @@ async def update_trip(
         # Need to fetch existing dates first
         existing = await db.get("trip", {"id": f"eq.{trip_id}", "select": "date_range"})
         if not existing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found"
+            )
 
         start = update_data.pop("date_start", None)
         end = update_data.pop("date_end", None)
@@ -241,23 +254,23 @@ async def _update_tag_status(
         )
 
     tag = tags[0]
-    if tag["status"] != TripTagStatus.PENDING.value:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Tag already {tag['status']}",
-        )
 
+    # Use optimistic locking - include status in WHERE clause to prevent race conditions
     responded_at = datetime.now(timezone.utc).isoformat()
     rows = await db.patch(
         "trip_tags",
         {"status": new_status.value, "responded_at": responded_at},
-        {"id": f"eq.{tag['id']}"},
+        {
+            "id": f"eq.{tag['id']}",
+            "status": f"eq.{TripTagStatus.PENDING.value}",  # Only update if still pending
+        },
     )
 
     if not rows:
+        # Either tag doesn't exist or status already changed
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update tag status",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tag has already been responded to",
         )
 
     return TripTagAction(

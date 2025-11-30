@@ -17,7 +17,9 @@ def test_list_countries_returns_empty_list(
     """Test listing countries returns empty list when no countries exist."""
     mock_supabase_client.get.return_value = []
 
-    with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/countries")
 
     assert response.status_code == 200
@@ -32,7 +34,9 @@ def test_list_countries_returns_countries(
     """Test listing countries returns available countries."""
     mock_supabase_client.get.return_value = [sample_country]
 
-    with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/countries")
 
     assert response.status_code == 200
@@ -48,15 +52,45 @@ def test_list_countries_with_search(
     sample_country: dict[str, Any],
 ) -> None:
     """Test filtering countries by search term."""
-    mock_supabase_client.get.return_value = [sample_country]
+    other_country = {
+        **sample_country,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "code": "CA",
+        "name": "Canada",
+    }
+    mock_supabase_client.get.return_value = [sample_country, other_country]
 
-    with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/countries?search=United")
 
     assert response.status_code == 200
-    # Verify search param was passed to client
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["code"] == sample_country["code"]
+
+    # Search filtering happens in application code, not PostgREST params
     call_args = mock_supabase_client.get.call_args
-    assert "or" in call_args[0][1]
+    assert "or" not in call_args[0][1]
+
+
+def test_list_countries_with_special_char_search(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Ensure search terms with PostgREST syntax chars do not inject filters."""
+    mock_supabase_client.get.return_value = []
+
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/countries?search=US),code.eq.null")
+
+    assert response.status_code == 200
+    params = mock_supabase_client.get.call_args[0][1]
+    assert "or" not in params
+    assert params == {"select": "*", "order": "name.asc"}
 
 
 def test_list_countries_with_region_filter(
@@ -67,7 +101,9 @@ def test_list_countries_with_region_filter(
     """Test filtering countries by region."""
     mock_supabase_client.get.return_value = [sample_country]
 
-    with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/countries?region=Americas")
 
     assert response.status_code == 200
@@ -86,7 +122,9 @@ def test_list_regions(
         {"region": "Americas"},  # Duplicate
     ]
 
-    with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/countries/regions")
 
     assert response.status_code == 200
@@ -115,7 +153,9 @@ def test_get_user_countries_authenticated(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get("/countries/user", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
@@ -145,7 +185,9 @@ def test_set_user_country(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.countries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 "/countries/user",
                 headers=auth_headers,

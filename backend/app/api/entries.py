@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -30,27 +30,35 @@ async def list_entries(
     request: Request,
     trip_id: UUID,
     user: CurrentUser,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ) -> list[EntryWithPlace]:
-    """List all entries for a trip."""
+    """List all entries for a trip with pagination."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch entries (RLS ensures trip access)
+    # Fetch entries with embedded places in single query (fixes N+1)
     entries = await db.get(
         "entry",
-        {"trip_id": f"eq.{trip_id}", "select": "*", "order": "date.asc.nullslast,created_at.asc"},
+        {
+            "trip_id": f"eq.{trip_id}",
+            "select": "*, place(*)",
+            "order": "date.asc.nullslast,created_at.asc",
+            "limit": limit,
+            "offset": offset,
+        },
     )
 
     results = []
     for entry_row in entries:
+        # Extract embedded place data
+        place_data = entry_row.pop("place", None)
         entry = Entry(**entry_row)
-        place = None
 
-        # Fetch associated place if exists
-        if entry.type.value == "place":
-            places = await db.get("place", {"entry_id": f"eq.{entry.id}"})
-            if places:
-                place = Place(**places[0])
+        # Parse place if it exists (place is an array from PostgREST)
+        place = None
+        if place_data and isinstance(place_data, list) and len(place_data) > 0:
+            place = Place(**place_data[0])
 
         results.append(EntryWithPlace(**entry.model_dump(), place=place))
 

@@ -1,5 +1,7 @@
 """Country and user_countries endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.core.security import CurrentUser
@@ -22,6 +24,13 @@ def get_token_from_request(request: Request) -> str | None:
     return None
 
 
+def _matches_country_search(row: dict[str, Any], term: str) -> bool:
+    """Return True if the country matches the normalized search term."""
+    name = (row.get("name") or "").lower()
+    code = (row.get("code") or "").lower()
+    return term in name or term in code
+
+
 @router.get("", response_model=list[Country])
 async def list_countries(
     search: str | None = Query(None, description="Search by name or code"),
@@ -37,12 +46,10 @@ async def list_countries(
     """
     db = get_supabase_client()
 
+    normalized_search = search.strip().lower() if search else None
+
     # Build query params for PostgREST
     params: dict[str, str] = {"select": "*", "order": "name.asc"}
-
-    if search:
-        # Search by name or code (case-insensitive)
-        params["or"] = f"(name.ilike.*{search}*,code.ilike.*{search}*)"
 
     if region:
         params["region"] = f"eq.{region}"
@@ -53,6 +60,10 @@ async def list_countries(
         params["recognition"] = f"in.({recognition_values})"
 
     rows = await db.get("country", params)
+
+    if normalized_search:
+        rows = [row for row in rows if _matches_country_search(row, normalized_search)]
+
     return [Country(**row) for row in rows]
 
 
