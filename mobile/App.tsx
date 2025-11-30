@@ -6,7 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { RootNavigator } from '@navigation/RootNavigator';
-import { setSignOutCallback } from '@services/api';
+import { clearTokens, setSignOutCallback, storeTokens } from '@services/api';
+import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 
 const queryClient = new QueryClient({
@@ -19,12 +20,48 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
-  const signOut = useAuthStore((state) => state.signOut);
+  const { signOut, setSession, setIsLoading } = useAuthStore();
 
-  // Wire up API sign-out callback on mount
   useEffect(() => {
+    // Wire up API sign-out callback
     setSignOutCallback(signOut);
-  }, [signOut]);
+
+    // Restore session on app launch
+    const restoreSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session) {
+          setSession(session);
+          await storeTokens(session.access_token, session.refresh_token ?? '');
+        }
+      } catch (error) {
+        console.error('Failed to restore session:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    restoreSession();
+
+    // Subscribe to auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      setSession(session);
+      if (session) {
+        await storeTokens(session.access_token, session.refresh_token ?? '');
+      } else {
+        await clearTokens();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [signOut, setSession, setIsLoading]);
 
   return (
     <QueryClientProvider client={queryClient}>

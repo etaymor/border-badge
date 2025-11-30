@@ -1,0 +1,237 @@
+import { useMemo } from 'react';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Button, CountryGridItem } from '@components/ui';
+import { useCountries } from '@hooks/useCountries';
+import type { OnboardingStackScreenProps } from '@navigation/types';
+import { useOnboardingStore } from '@stores/onboardingStore';
+
+type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
+
+// Regions in order for continent loop
+const REGIONS = ['Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
+
+export function ContinentCountryGridScreen({ navigation, route }: Props) {
+  const { region } = route.params;
+  const { data: countries, isLoading } = useCountries();
+  const {
+    selectedCountries,
+    toggleCountry,
+    bucketListCountries,
+    toggleBucketListCountry,
+    visitedContinents,
+  } = useOnboardingStore();
+
+  // Filter countries by region
+  const regionCountries = useMemo(() => {
+    if (!countries) return [];
+    return countries
+      .filter((c) => c.region === region)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [countries, region]);
+
+  // Count selected countries in this region
+  const selectedInRegion = useMemo(() => {
+    return regionCountries.filter((c) => selectedCountries.includes(c.code)).length;
+  }, [regionCountries, selectedCountries]);
+
+  const handleSaveAndContinue = () => {
+    // Find current region index and move to next
+    const currentIndex = REGIONS.indexOf(region);
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex < REGIONS.length) {
+      navigation.navigate('ContinentIntro', {
+        region: REGIONS[nextIndex],
+        regionIndex: nextIndex,
+      });
+    } else {
+      navigation.navigate('ProgressSummary');
+    }
+  };
+
+  const renderCountryItem = ({ item }: { item: (typeof regionCountries)[0] }) => (
+    <CountryGridItem
+      code={item.code}
+      name={item.name}
+      isSelected={selectedCountries.includes(item.code)}
+      isWishlisted={bucketListCountries.includes(item.code)}
+      onToggleVisited={() => toggleCountry(item.code)}
+      onToggleWishlist={() => toggleBucketListCountry(item.code)}
+    />
+  );
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading countries...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <Text style={styles.regionTitle}>{region}</Text>
+          <Button
+            title="Save & Continue"
+            onPress={handleSaveAndContinue}
+            variant="ghost"
+            style={styles.headerButton}
+          />
+        </View>
+        <Text style={styles.progressText}>
+          {selectedInRegion}/{regionCountries.length} logged
+        </Text>
+      </View>
+
+      {/* Floating selected badge */}
+      {selectedInRegion > 0 && (
+        <View style={styles.floatingBadge}>
+          <Text style={styles.floatingBadgeText}>{selectedInRegion} selected</Text>
+        </View>
+      )}
+
+      {/* Country grid */}
+      <FlatList
+        data={regionCountries}
+        renderItem={renderCountryItem}
+        keyExtractor={(item) => item.code}
+        numColumns={3}
+        contentContainerStyle={styles.gridContent}
+        showsVerticalScrollIndicator={false}
+      />
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <Button
+          title="Save & Continue"
+          onPress={handleSaveAndContinue}
+          style={styles.footerButton}
+        />
+      </View>
+
+      {/* Progress indicator */}
+      <View style={styles.progressContainer}>
+        {REGIONS.map((r, index) => (
+          <View
+            key={index}
+            style={[
+              styles.progressDot,
+              visitedContinents.includes(r) && styles.progressDotCompleted,
+              r === region && styles.progressDotActive,
+            ]}
+          />
+        ))}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  regionTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+  },
+  headerButton: {
+    paddingHorizontal: 0,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  floatingBadge: {
+    position: 'absolute',
+    top: 100,
+    right: 16,
+    backgroundColor: '#007AFF',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  floatingBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  gridContent: {
+    padding: 8,
+    paddingBottom: 100,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 80,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#F2F2F7',
+  },
+  footerButton: {
+    width: '100%',
+  },
+  progressContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+  },
+  progressDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E5E5EA',
+  },
+  progressDotActive: {
+    backgroundColor: '#007AFF',
+    width: 24,
+  },
+  progressDotCompleted: {
+    backgroundColor: '#34C759',
+  },
+});

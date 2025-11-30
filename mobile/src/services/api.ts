@@ -39,45 +39,18 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for token refresh
+// Response interceptor for handling auth errors
+// Note: Token refresh is handled by Supabase SDK automatically
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-
-    // If 401 and we haven't retried yet
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-        if (refreshToken) {
-          // Attempt to refresh the token
-          const response = await axios.post(`${BASE_URL}/auth/refresh`, {
-            refresh_token: refreshToken,
-          });
-
-          const { access_token, refresh_token } = response.data;
-
-          // Store new tokens
-          await SecureStore.setItemAsync(TOKEN_KEY, access_token);
-          await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refresh_token);
-
-          // Retry the original request
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${access_token}`;
-          }
-          return api(originalRequest);
-        }
-      } catch (refreshError) {
-        // Refresh failed, sign out via callback
-        console.error('Token refresh failed:', refreshError);
-        if (onSignOutCallback) {
-          onSignOutCallback();
-        }
-        await SecureStore.deleteItemAsync(TOKEN_KEY);
-        await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    // If 401, sign out the user (Supabase SDK couldn't refresh the token)
+    if (error.response?.status === 401) {
+      console.error('Authentication failed - signing out');
+      if (onSignOutCallback) {
+        onSignOutCallback();
       }
+      await clearTokens();
     }
 
     return Promise.reject(error);

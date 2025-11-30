@@ -4,11 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Input } from '@components/ui';
 import { useSignUp } from '@hooks/useAuth';
-import type { AuthStackScreenProps } from '@navigation/types';
+import type { OnboardingStackScreenProps } from '@navigation/types';
+import { useAuthStore } from '@stores/authStore';
 
-type Props = AuthStackScreenProps<'SignUp'>;
+type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
-export function SignUpScreen({ navigation }: Props) {
+export function AccountCreationScreen({ navigation: _navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -17,6 +18,7 @@ export function SignUpScreen({ navigation }: Props) {
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
   const signUp = useSignUp();
+  const { setHasCompletedOnboarding, setIsGuest } = useAuthStore();
 
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -56,9 +58,26 @@ export function SignUpScreen({ navigation }: Props) {
     return isValid;
   };
 
-  const handleSignUp = () => {
+  const handleCreateAccount = () => {
     if (!validateForm()) return;
-    signUp.mutate({ email: email.trim(), password });
+    signUp.mutate(
+      { email: email.trim(), password },
+      {
+        onSuccess: (data) => {
+          if (data.session) {
+            // Account created and logged in - complete onboarding
+            setHasCompletedOnboarding(true);
+          }
+          // If email confirmation required, the alert is handled by useSignUp
+        },
+      }
+    );
+  };
+
+  const handleSkip = () => {
+    // Continue as guest - mark onboarding complete
+    setIsGuest(true);
+    setHasCompletedOnboarding(true);
   };
 
   return (
@@ -72,8 +91,10 @@ export function SignUpScreen({ navigation }: Props) {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.content}>
-            <Text style={styles.title}>Sign Up</Text>
-            <Text style={styles.subtitle}>Create your account</Text>
+            <Text style={styles.title}>Save your passport.</Text>
+            <Text style={styles.subtitle}>
+              Create an account to sync your travel data across devices and unlock all features.
+            </Text>
 
             <Input
               label="Email"
@@ -113,13 +134,26 @@ export function SignUpScreen({ navigation }: Props) {
 
             <Button
               title="Create Account"
-              onPress={handleSignUp}
+              onPress={handleCreateAccount}
               loading={signUp.isPending}
-              style={styles.button}
+              style={styles.createButton}
             />
 
-            <Text style={styles.link} onPress={() => navigation.navigate('Login')}>
-              Already have an account? Sign in
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <Button
+              title="Continue as Guest"
+              onPress={handleSkip}
+              variant="outline"
+              style={styles.skipButton}
+            />
+
+            <Text style={styles.guestNote}>
+              You can create an account later from the settings menu.
             </Text>
           </View>
         </ScrollView>
@@ -142,32 +176,49 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 40,
     paddingBottom: 24,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 8,
     color: '#1a1a1a',
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
     marginBottom: 32,
+    lineHeight: 22,
   },
   input: {
     marginBottom: 16,
   },
-  button: {
+  createButton: {
     marginTop: 8,
   },
-  link: {
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E5EA',
+  },
+  dividerText: {
     fontSize: 14,
-    color: '#007AFF',
-    marginTop: 24,
+    color: '#666',
+    marginHorizontal: 16,
+  },
+  skipButton: {
+    width: '100%',
+  },
+  guestNote: {
+    fontSize: 12,
+    color: '#999',
     textAlign: 'center',
-    minHeight: 44,
-    textAlignVertical: 'center',
+    marginTop: 16,
   },
 });
