@@ -4,14 +4,29 @@ import * as SecureStore from 'expo-secure-store';
 import { env } from '@config/env';
 
 const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => {
-    return SecureStore.getItemAsync(key);
+  getItem: async (key: string): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch (error) {
+      console.error(`SecureStore getItem failed for key "${key}":`, error);
+      return null;
+    }
   },
-  setItem: (key: string, value: string) => {
-    return SecureStore.setItemAsync(key, value);
+  setItem: async (key: string, value: string): Promise<void> => {
+    try {
+      await SecureStore.setItemAsync(key, value);
+    } catch (error) {
+      console.error(`SecureStore setItem failed for key "${key}":`, error);
+      // Silent fail - Supabase will handle missing session gracefully
+    }
   },
-  removeItem: (key: string) => {
-    return SecureStore.deleteItemAsync(key);
+  removeItem: async (key: string): Promise<void> => {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (error) {
+      console.error(`SecureStore removeItem failed for key "${key}":`, error);
+      // Silent fail - item may already not exist
+    }
   },
 };
 
