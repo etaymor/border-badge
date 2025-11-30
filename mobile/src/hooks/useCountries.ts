@@ -186,10 +186,6 @@ export async function getCountriesByCodes(codes: string[]): Promise<Country[]> {
 /**
  * Function to search countries (non-hook version for direct calls).
  */
-export async function searchCountriesAsync(
-  query: string,
-  limit: number = 10
-): Promise<Country[]> {
+export async function searchCountriesAsync(query: string, limit: number = 10): Promise<Country[]> {
   return searchCountriesFromDb(query, limit);
 }
-

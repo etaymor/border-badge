@@ -6,12 +6,7 @@
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@services/supabase';
-import {
-  needsSync,
-  saveCountries,
-  getCountriesCount,
-  type Country,
-} from '@services/countriesDb';
+import { needsSync, saveCountries, getCountriesCount, type Country } from '@services/countriesDb';
 
 interface SyncState {
   isLoading: boolean;
@@ -24,10 +19,7 @@ interface SyncState {
  * Fetches countries from Supabase
  */
 async function fetchCountriesFromSupabase(): Promise<Country[]> {
-  const { data, error } = await supabase
-    .from('country')
-    .select('code, name, region')
-    .order('name');
+  const { data, error } = await supabase.from('country').select('code, name, region').order('name');
 
   if (error) {
     throw new Error(error.message);
