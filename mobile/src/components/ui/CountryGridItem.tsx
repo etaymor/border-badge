@@ -12,6 +12,17 @@ interface CountryGridItemProps {
   onToggleWishlist: () => void;
 }
 
+// Custom comparison to prevent re-renders from new function references
+function arePropsEqual(prevProps: CountryGridItemProps, nextProps: CountryGridItemProps): boolean {
+  return (
+    prevProps.code === nextProps.code &&
+    prevProps.name === nextProps.name &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isWishlisted === nextProps.isWishlisted
+  );
+  // Intentionally ignore function props - they should be stable via useCallback in parent
+}
+
 export const CountryGridItem = React.memo(function CountryGridItem({
   code,
   name,
@@ -58,7 +69,7 @@ export const CountryGridItem = React.memo(function CountryGridItem({
       )}
     </TouchableOpacity>
   );
-});
+}, arePropsEqual);
 
 const styles = StyleSheet.create({
   container: {

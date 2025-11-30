@@ -113,13 +113,17 @@ export async function saveCountries(countries: Country[]): Promise<void> {
     // Clear existing data
     await database.runAsync('DELETE FROM countries');
 
-    // Insert new countries
-    for (const country of countries) {
-      await database.runAsync('INSERT INTO countries (code, name, region) VALUES (?, ?, ?)', [
-        country.code,
-        country.name,
-        country.region,
-      ]);
+    // Batch insert in chunks for better performance
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < countries.length; i += BATCH_SIZE) {
+      const batch = countries.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+      const values = batch.flatMap((c) => [c.code, c.name, c.region]);
+
+      await database.runAsync(
+        `INSERT INTO countries (code, name, region) VALUES ${placeholders}`,
+        values
+      );
     }
   });
 
