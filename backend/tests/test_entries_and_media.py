@@ -211,9 +211,13 @@ def test_get_upload_url_requires_parent(
     """Test that upload URL requires trip_id or entry_id."""
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.media.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch("app.api.media.get_settings") as mock_settings,
         ):
+            mock_settings.return_value.supabase_url = "https://test.supabase.co"
             response = client.post(
                 "/media/files/upload-url",
                 headers=auth_headers,
@@ -246,9 +250,13 @@ def test_get_upload_url_success(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.media.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch("app.api.media.get_settings") as mock_settings,
         ):
+            mock_settings.return_value.supabase_url = "https://test.supabase.co"
             response = client.post(
                 "/media/files/upload-url",
                 headers=auth_headers,
