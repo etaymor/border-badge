@@ -25,6 +25,11 @@ export function LoginScreen({ navigation }: Props) {
   const signIn = useSignIn();
   const canGoBack = navigation.canGoBack();
 
+  // Type-safe navigation helper for screens available in both stacks
+  const navigateToScreen = (screen: 'SignUp' | 'ForgotPassword') => {
+    (navigation as { navigate: (screen: string) => void }).navigate(screen);
+  };
+
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(value);
@@ -102,20 +107,10 @@ export function LoginScreen({ navigation }: Props) {
             style={styles.button}
           />
 
-          <Text
-            style={styles.link}
-            onPress={() =>
-              (navigation as { navigate: (screen: string) => void }).navigate('SignUp')
-            }
-          >
+          <Text style={styles.link} onPress={() => navigateToScreen('SignUp')}>
             {"Don't have an account? Sign up"}
           </Text>
-          <Text
-            style={styles.link}
-            onPress={() =>
-              (navigation as { navigate: (screen: string) => void }).navigate('ForgotPassword')
-            }
-          >
+          <Text style={styles.link} onPress={() => navigateToScreen('ForgotPassword')}>
             Forgot password?
           </Text>
         </View>

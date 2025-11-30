@@ -38,11 +38,11 @@ export async function migrateGuestData(): Promise<MigrationResult> {
       });
       migratedCountries++;
     } catch (error) {
-      // 409 conflict means it already exists, which is fine
+      // 409 conflict means it already exists - log for visibility but don't count as migrated
       if (error && typeof error === 'object' && 'response' in error) {
         const axiosError = error as { response?: { status?: number } };
         if (axiosError.response?.status === 409) {
-          migratedCountries++;
+          console.log(`Country ${countryCode} already exists as visited, skipping`);
           continue;
         }
       }
@@ -65,11 +65,11 @@ export async function migrateGuestData(): Promise<MigrationResult> {
       });
       migratedCountries++;
     } catch (error) {
-      // 409 conflict means it already exists, which is fine
+      // 409 conflict means it already exists - log for visibility but don't count as migrated
       if (error && typeof error === 'object' && 'response' in error) {
         const axiosError = error as { response?: { status?: number } };
         if (axiosError.response?.status === 409) {
-          migratedCountries++;
+          console.log(`Country ${countryCode} already exists as wishlist, skipping`);
           continue;
         }
       }
