@@ -38,9 +38,10 @@ CREATE POLICY "Users can update own profile"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- Profile creation is handled by trigger, but allow service role
+-- Profile creation is handled by trigger; restrict to service role only
 CREATE POLICY "Service role can insert profiles"
   ON user_profile FOR INSERT
+  TO service_role
   WITH CHECK (true);
 
 --------------------------------------------------------------------------------

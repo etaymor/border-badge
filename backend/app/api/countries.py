@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.schemas.countries import (
@@ -14,14 +15,6 @@ from app.schemas.countries import (
 )
 
 router = APIRouter()
-
-
-def get_token_from_request(request: Request) -> str | None:
-    """Extract bearer token from request headers."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:]
-    return None
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:

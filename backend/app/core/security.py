@@ -33,15 +33,30 @@ async def get_current_user(
     settings = get_settings()
     token = credentials.credentials
 
+    # Determine expected issuer. If Supabase is configured (JWT secret set) but
+    # the URL is missing, treat this as a hard server misconfiguration rather
+    # than silently disabling issuer validation.
+    issuer: str | None = None
+    if settings.supabase_url:
+        issuer = f"{settings.supabase_url}/auth/v1"
+    elif settings.supabase_jwt_secret:
+        logger.error(
+            "Supabase JWT secret is configured but SUPABASE_URL is empty; "
+            "refusing to validate tokens without a trusted issuer. "
+            "Set SUPABASE_URL to your Supabase project URL.",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication is misconfigured on the server.",
+        )
+
     try:
         payload = jwt.decode(
             token,
             settings.supabase_jwt_secret,
             algorithms=["HS256"],
             audience="authenticated",
-            issuer=f"{settings.supabase_url}/auth/v1"
-            if settings.supabase_url
-            else None,
+            issuer=issuer,
         )
         user_id = payload.get("sub")
         if not user_id:
