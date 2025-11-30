@@ -4,6 +4,7 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   type ListRenderItem,
   type ViewToken,
@@ -59,6 +60,10 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     navigation.navigate('Motivation');
   };
 
+  const handleLogin = () => {
+    navigation.navigate('Login');
+  };
+
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index !== null) {
@@ -88,6 +93,13 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Login button in top-right (only on non-CTA slides) */}
+      {!SLIDES[activeIndex].showCTA && (
+        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+          <Text style={styles.loginText}>Login</Text>
+        </TouchableOpacity>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={SLIDES}
@@ -107,16 +119,6 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
           <View key={index} style={[styles.dot, index === activeIndex && styles.dotActive]} />
         ))}
       </View>
-
-      {/* Skip button (only on non-CTA slides) */}
-      {!SLIDES[activeIndex].showCTA && (
-        <Button
-          title="Skip"
-          onPress={handleStartJourney}
-          variant="ghost"
-          style={styles.skipButton}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -174,9 +176,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     width: 24,
   },
-  skipButton: {
+  loginButton: {
     position: 'absolute',
     top: 60,
     right: 20,
+    zIndex: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  loginText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });

@@ -28,6 +28,10 @@ export type OnboardingStackParamList = {
   ProgressSummary: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
+  // Auth screens accessible from onboarding
+  Login: undefined;
+  SignUp: undefined;
+  ForgotPassword: undefined;
 };
 
 // Main bottom tab navigator

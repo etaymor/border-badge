@@ -4,5 +4,14 @@ export type { Trip, CreateTripInput, UpdateTripInput } from './useTrips';
 export { useProfile, useUpdateProfile } from './useProfile';
 export type { Profile, UpdateProfileInput } from './useProfile';
 
-export { useCountries, useVisitedCountries } from './useCountries';
+export {
+  useCountries,
+  useCountriesByRegion,
+  useSearchCountries,
+  useCountryByCode,
+  getCountriesByCodes,
+  searchCountriesAsync,
+} from './useCountries';
 export type { Country } from './useCountries';
+
+export { useCountriesSync, forceCountriesSync } from './useCountriesSync';

@@ -1,12 +1,20 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Input } from '@components/ui';
 import { useSignIn } from '@hooks/useAuth';
-import type { AuthStackScreenProps } from '@navigation/types';
+import type { AuthStackScreenProps, OnboardingStackScreenProps } from '@navigation/types';
 
-type Props = AuthStackScreenProps<'Login'>;
+// LoginScreen can be accessed from both Auth and Onboarding stacks
+type Props = AuthStackScreenProps<'Login'> | OnboardingStackScreenProps<'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
@@ -15,6 +23,7 @@ export function LoginScreen({ navigation }: Props) {
   const [passwordError, setPasswordError] = useState('');
 
   const signIn = useSignIn();
+  const canGoBack = navigation.canGoBack();
 
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,12 +58,17 @@ export function LoginScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {canGoBack && (
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
         <View style={styles.content}>
-          <Text style={styles.title}>Login</Text>
+          <Text style={styles.title}>Welcome Back</Text>
           <Text style={styles.subtitle}>Sign in to your account</Text>
 
           <Input
@@ -88,10 +102,18 @@ export function LoginScreen({ navigation }: Props) {
             style={styles.button}
           />
 
-          <Text style={styles.link} onPress={() => navigation.navigate('SignUp')}>
+          <Text
+            style={styles.link}
+            onPress={() => (navigation as { navigate: (screen: string) => void }).navigate('SignUp')}
+          >
             {"Don't have an account? Sign up"}
           </Text>
-          <Text style={styles.link} onPress={() => navigation.navigate('ForgotPassword')}>
+          <Text
+            style={styles.link}
+            onPress={() =>
+              (navigation as { navigate: (screen: string) => void }).navigate('ForgotPassword')
+            }
+          >
             Forgot password?
           </Text>
         </View>
@@ -137,5 +159,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     minHeight: 44,
     textAlignVertical: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 16,
+    left: 20,
+    zIndex: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  backText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });

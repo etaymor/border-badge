@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Keyboard, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, SearchInput } from '@components/ui';
@@ -49,6 +49,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
     }
     setSearchQuery('');
     setShowDropdown(false);
+    Keyboard.dismiss();
   };
 
   const handleNext = () => {
