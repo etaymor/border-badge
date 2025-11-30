@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +22,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Import API router after limiter is defined so other modules can safely
 # import the shared limiter from this module without circular import issues.
-from app.api import router as api_router  # noqa: E402  (import after limiter definition)
+from app.api import router as api_router  # noqa: E402, I001
 
 
 @asynccontextmanager

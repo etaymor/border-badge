@@ -1,6 +1,6 @@
 """Trip and trip_tags endpoints."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -23,13 +23,30 @@ from app.schemas.trips import (
 router = APIRouter()
 
 
-def format_daterange(start: str | None, end: str | None) -> str | None:
-    """Format start/end dates as PostgreSQL daterange."""
-    if not start and not end:
+def format_daterange(start: date | None, end: date | None) -> str | None:
+    """Format start/end dates as a PostgreSQL daterange literal.
+
+    - Returns ``None`` when both bounds are missing (no date range).
+    - Supports open-ended ranges when only one bound is provided.
+    - Validates that the start date is not after the end date.
+    """
+    if start is None and end is None:
         return None
-    start_str = start or ""
-    end_str = end or ""
-    return f"[{start_str},{end_str}]"
+
+    if start is not None and end is not None:
+        if start > end:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="date_start must be on or before date_end",
+            )
+        return f"[{start.isoformat()},{end.isoformat()}]"
+
+    if start is not None:
+        # Open-ended range going forward in time
+        return f"[{start.isoformat()},infinity]"
+
+    # Only end is provided: open-ended range going back in time
+    return f"[-infinity,{end.isoformat()}]"
 
 
 @router.get("", response_model=list[Trip])
@@ -73,10 +90,7 @@ async def create_trip(
         "country_id": str(data.country_id),
         "name": data.name,
         "cover_image_url": data.cover_image_url,
-        "date_range": format_daterange(
-            str(data.date_start) if data.date_start else None,
-            str(data.date_end) if data.date_end else None,
-        ),
+        "date_range": format_daterange(data.date_start, data.date_end),
     }
 
     rows = await db.post("trip", trip_data)
@@ -175,8 +189,8 @@ async def update_trip(
         end = update_data.pop("date_end", None)
         if start is not None or end is not None:
             update_data["date_range"] = format_daterange(
-                str(start) if start else None,
-                str(end) if end else None,
+                start,
+                end,
             )
 
     rows = await db.patch("trip", update_data, {"id": f"eq.{trip_id}"})

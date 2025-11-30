@@ -1,10 +1,12 @@
 """Tests for trip and trip_tags endpoints."""
 
+from datetime import date
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.trips import format_daterange
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import mock_auth_dependency
@@ -35,6 +37,30 @@ def test_list_trips_returns_empty(
         assert response.json() == []
     finally:
         app.dependency_overrides.clear()
+
+
+def test_format_daterange_none_when_no_bounds() -> None:
+    """Helper returns None when both bounds are missing."""
+    assert format_daterange(None, None) is None
+
+
+def test_format_daterange_full_range() -> None:
+    """Helper formats full bounded ranges correctly."""
+    start = date(2024, 6, 1)
+    end = date(2024, 6, 15)
+    assert format_daterange(start, end) == "[2024-06-01,2024-06-15]"
+
+
+def test_format_daterange_open_start() -> None:
+    """Helper formats ranges with only an end date using -infinity."""
+    end = date(2024, 6, 15)
+    assert format_daterange(None, end) == "[-infinity,2024-06-15]"
+
+
+def test_format_daterange_open_end() -> None:
+    """Helper formats ranges with only a start date using infinity."""
+    start = date(2024, 6, 1)
+    assert format_daterange(start, None) == "[2024-06-01,infinity]"
 
 
 def test_list_trips_returns_trips(

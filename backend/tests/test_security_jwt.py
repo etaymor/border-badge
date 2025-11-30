@@ -1,9 +1,9 @@
 """Tests for JWT issuer handling and authentication behavior."""
 
-from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
 import jwt
 import pytest
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.security import AuthUser, get_current_user
 
