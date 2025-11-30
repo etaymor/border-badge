@@ -104,7 +104,9 @@ export function LoginScreen({ navigation }: Props) {
 
           <Text
             style={styles.link}
-            onPress={() => (navigation as { navigate: (screen: string) => void }).navigate('SignUp')}
+            onPress={() =>
+              (navigation as { navigate: (screen: string) => void }).navigate('SignUp')
+            }
           >
             {"Don't have an account? Sign up"}
           </Text>
