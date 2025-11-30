@@ -190,6 +190,7 @@ export async function getCountriesByCodes(codes: string[]): Promise<Country[]> {
   }
 
   const database = await getDb();
+  // Safe: placeholders only contains '?' characters, actual values are parameterized
   const placeholders = codes.map(() => '?').join(',');
 
   return database.getAllAsync<Country>(
@@ -207,4 +208,15 @@ export async function getCountriesCount(): Promise<number> {
     'SELECT COUNT(*) as count FROM countries'
   );
   return result?.count ?? 0;
+}
+
+/**
+ * Close the database connection.
+ * Primarily used for testing cleanup.
+ */
+export async function closeDb(): Promise<void> {
+  if (db) {
+    await db.closeAsync();
+    db = null;
+  }
 }

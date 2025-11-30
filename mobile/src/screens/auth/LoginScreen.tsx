@@ -36,14 +36,15 @@ export function LoginScreen({ navigation }: Props) {
   };
 
   const validateForm = (): boolean => {
+    const trimmedEmail = email.trim();
     let isValid = true;
     setEmailError('');
     setPasswordError('');
 
-    if (!email.trim()) {
+    if (!trimmedEmail) {
       setEmailError('Email is required');
       isValid = false;
-    } else if (!validateEmail(email)) {
+    } else if (!validateEmail(trimmedEmail)) {
       setEmailError('Please enter a valid email');
       isValid = false;
     }
