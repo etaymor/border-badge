@@ -39,7 +39,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
         'If an account exists with this email, you will receive password reset instructions.',
         [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
       );
-    } catch (err) {
+    } catch {
       setError('Failed to send reset email. Please try again.');
     } finally {
       setIsLoading(false);
