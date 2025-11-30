@@ -78,7 +78,7 @@ def test_400_bad_request_error_format(
         ):
             # Missing required parent (trip_id or entry_id)
             response = client.post(
-                "/media/files/signed-url",
+                "/media/files/upload-url",
                 headers={"Authorization": "Bearer mock-token"},
                 json={"filename": "photo.jpg", "content_type": "image/jpeg"},
             )

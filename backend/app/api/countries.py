@@ -78,7 +78,11 @@ async def get_user_countries(
     """Get the current user's visited/wishlist countries."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    params = {"select": "*", "order": "created_at.desc"}
+    params = {
+        "select": "*",
+        "user_id": f"eq.{user.id}",
+        "order": "created_at.desc",
+    }
     rows = await db.get("user_countries", params)
     return [UserCountry(**row) for row in rows]
 

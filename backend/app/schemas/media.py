@@ -30,8 +30,8 @@ class MediaFile(BaseModel):
     created_at: datetime
 
 
-class SignedUrlRequest(BaseModel):
-    """Request for a signed upload URL."""
+class UploadUrlRequest(BaseModel):
+    """Request for an upload URL."""
 
     filename: str
     content_type: str
@@ -39,8 +39,13 @@ class SignedUrlRequest(BaseModel):
     entry_id: UUID | None = None
 
 
-class SignedUrlResponse(BaseModel):
-    """Response with signed upload URL."""
+class UploadUrlResponse(BaseModel):
+    """Response with upload URL for direct storage upload.
+
+    Note: This returns an object URL, not a presigned URL.
+    Upload authorization is handled via RLS policies on the
+    storage bucket using the user's JWT token.
+    """
 
     media_id: UUID
     upload_url: str

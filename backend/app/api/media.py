@@ -14,24 +14,28 @@ from app.schemas.media import (
     MediaFile,
     MediaStatus,
     MediaStatusUpdate,
-    SignedUrlRequest,
-    SignedUrlResponse,
+    UploadUrlRequest,
+    UploadUrlResponse,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/signed-url", response_model=SignedUrlResponse)
-async def get_signed_upload_url(
+@router.post("/upload-url", response_model=UploadUrlResponse)
+async def get_upload_url(
     request: Request,
-    data: SignedUrlRequest,
+    data: UploadUrlRequest,
     user: CurrentUser,
-) -> SignedUrlResponse:
-    """Get a signed URL for uploading a media file.
+) -> UploadUrlResponse:
+    """Get a URL for uploading a media file.
 
     Creates a media record in 'processing' status and returns
-    a presigned URL for direct upload to Supabase Storage.
+    a storage object URL for direct upload to Supabase Storage.
+
+    Note: Upload authorization is enforced by RLS policies on the
+    storage bucket. The client must include their JWT in the
+    Authorization header when uploading.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -76,13 +80,12 @@ async def get_signed_upload_url(
 
     media = rows[0]
 
-    # Generate signed upload URL via Supabase Storage API.
-    # NOTE: The actual URL format depends on Supabase Storage bucket setup.
-    # We intentionally require a fully-qualified Supabase URL so that clients
-    # always receive an absolute URL rather than a relative path.
+    # Generate upload URL for Supabase Storage.
+    # This is an object URL (not presigned). Authorization is handled via RLS
+    # policies on the storage bucket - clients must include their JWT.
     upload_url = f"{settings.supabase_url}/storage/v1/object/media/{file_path}"
 
-    return SignedUrlResponse(
+    return UploadUrlResponse(
         media_id=media["id"],
         upload_url=upload_url,
         file_path=file_path,
