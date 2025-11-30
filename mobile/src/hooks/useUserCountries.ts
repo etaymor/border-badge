@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 
 import { api } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
@@ -55,6 +56,10 @@ export function useAddUserCountry() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USER_COUNTRIES_KEY });
     },
+    onError: (error) => {
+      console.error('Failed to add country:', error);
+      Alert.alert('Error', 'Failed to add country. Please try again.');
+    },
   });
 }
 
@@ -67,6 +72,10 @@ export function useRemoveUserCountry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USER_COUNTRIES_KEY });
+    },
+    onError: (error) => {
+      console.error('Failed to remove country:', error);
+      Alert.alert('Error', 'Failed to remove country. Please try again.');
     },
   });
 }

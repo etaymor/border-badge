@@ -6,17 +6,9 @@ import { Button, SearchInput } from '@components/ui';
 import { useCountries, type Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getFlagEmoji } from '@utils/flags';
 
 type Props = OnboardingStackScreenProps<'HomeCountry'>;
-
-// Helper to get flag emoji from country code
-function getFlagEmoji(countryCode: string): string {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
 
 export function HomeCountryScreen({ navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('');

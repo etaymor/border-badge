@@ -18,9 +18,27 @@ export function SignUpScreen({ navigation }: Props) {
 
   const signUp = useSignUp();
 
+  // Basic email validation to catch obvious errors; Supabase validates fully on backend
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(value);
+  };
+
+  // Validate password meets complexity requirements
+  const validatePassword = (value: string): { valid: boolean; error: string } => {
+    if (value.length < 8) {
+      return { valid: false, error: 'Password must be at least 8 characters' };
+    }
+    if (!/[A-Z]/.test(value)) {
+      return { valid: false, error: 'Password must contain an uppercase letter' };
+    }
+    if (!/[a-z]/.test(value)) {
+      return { valid: false, error: 'Password must contain a lowercase letter' };
+    }
+    if (!/[0-9]/.test(value)) {
+      return { valid: false, error: 'Password must contain a number' };
+    }
+    return { valid: true, error: '' };
   };
 
   const validateForm = (): boolean => {
@@ -40,9 +58,12 @@ export function SignUpScreen({ navigation }: Props) {
     if (!password) {
       setPasswordError('Password is required');
       isValid = false;
-    } else if (password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
-      isValid = false;
+    } else {
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.valid) {
+        setPasswordError(passwordValidation.error);
+        isValid = false;
+      }
     }
 
     if (!confirmPassword) {

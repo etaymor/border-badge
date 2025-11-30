@@ -30,6 +30,8 @@ module.exports = {
   rules: {
     // React 17+ doesn't need React in scope for JSX
     'react/react-in-jsx-scope': 'off',
+    // Disable prop-types as we use TypeScript for type checking
+    'react/prop-types': 'off',
     // Allow unused vars with underscore prefix
     '@typescript-eslint/no-unused-vars': [
       'error',
