@@ -25,7 +25,14 @@ export default function App() {
 
   // Sync countries to local SQLite database on app launch
   // The hook handles errors internally - sync failures don't block the app
-  useCountriesSync();
+  const syncState = useCountriesSync();
+
+  // Log sync errors for debugging (users will see empty lists but we'll know why)
+  useEffect(() => {
+    if (syncState.error) {
+      console.error('Countries sync failed:', syncState.error);
+    }
+  }, [syncState.error]);
 
   useEffect(() => {
     // Wire up API sign-out callback
