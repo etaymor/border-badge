@@ -27,7 +27,9 @@ def test_list_trips_returns_empty(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get("/trips", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
@@ -47,7 +49,9 @@ def test_list_trips_returns_trips(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get("/trips", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -69,7 +73,9 @@ def test_create_trip(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 "/trips",
                 headers=auth_headers,
@@ -111,7 +117,9 @@ def test_create_trip_with_tags(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 "/trips",
                 headers=auth_headers,
@@ -141,7 +149,9 @@ def test_get_trip(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(f"/trips/{sample_trip['id']}", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -161,7 +171,9 @@ def test_get_trip_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(
                 "/trips/550e8400-e29b-41d4-a716-446655440999",
                 headers=auth_headers,
@@ -193,7 +205,9 @@ def test_approve_trip_tag(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -224,7 +238,9 @@ def test_decline_trip_tag(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(f"/trips/{trip_id}/decline", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -253,7 +269,9 @@ def test_approve_already_actioned_tag_returns_409(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
         assert response.status_code == 409
     finally:

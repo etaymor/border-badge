@@ -1,5 +1,6 @@
 """JWT verification and authentication utilities."""
 
+import logging
 from typing import Annotated
 
 import jwt
@@ -7,6 +8,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
@@ -36,6 +39,9 @@ async def get_current_user(
             settings.supabase_jwt_secret,
             algorithms=["HS256"],
             audience="authenticated",
+            issuer=f"{settings.supabase_url}/auth/v1"
+            if settings.supabase_url
+            else None,
         )
         user_id = payload.get("sub")
         if not user_id:
@@ -53,9 +59,11 @@ async def get_current_user(
             detail="Token has expired",
         )
     except jwt.InvalidTokenError as e:
+        # Log actual error server-side for debugging, but don't expose to client
+        logger.warning(f"JWT validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}",
+            detail="Invalid or malformed token",
         )
 
 

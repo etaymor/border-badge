@@ -29,7 +29,9 @@ def test_list_entries_returns_empty(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(f"/trips/{trip_id}/entries", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
@@ -50,7 +52,9 @@ def test_create_entry(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 f"/trips/{trip_id}/entries",
                 headers=auth_headers,
@@ -83,7 +87,9 @@ def test_create_entry_with_place(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 f"/trips/{TEST_TRIP_ID}/entries",
                 headers=auth_headers,
@@ -118,7 +124,9 @@ def test_get_entry(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(
                 f"/entries/{sample_entry['id']}",
                 headers=auth_headers,
@@ -143,7 +151,9 @@ def test_update_entry(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.patch(
                 f"/entries/{sample_entry['id']}",
                 headers=auth_headers,
@@ -168,7 +178,9 @@ def test_delete_entry(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.entries.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.delete(
                 f"/entries/{sample_entry['id']}",
                 headers=auth_headers,
@@ -199,7 +211,9 @@ def test_get_signed_url_requires_parent(
     """Test that signed URL requires trip_id or entry_id."""
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.media.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 "/media/files/signed-url",
                 headers=auth_headers,
@@ -232,7 +246,9 @@ def test_get_signed_url_success(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.media.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 "/media/files/signed-url",
                 headers=auth_headers,
@@ -275,7 +291,9 @@ def test_update_media_status(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.media.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.patch(
                 f"/media/files/{TEST_MEDIA_ID}",
                 headers=auth_headers,

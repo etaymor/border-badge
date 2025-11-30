@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,13 +18,37 @@ class Settings(BaseSettings):
 
     # Environment
     env: Literal["development", "staging", "production"] = "development"
-    debug: bool = True
+    debug: bool = False  # Safe default for production
+
+    # CORS - comma-separated list of allowed origins for production
+    allowed_origins: list[str] = []
 
     # Supabase
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
     supabase_jwt_secret: str = ""
+
+    @field_validator("supabase_url")
+    @classmethod
+    def validate_supabase_url(cls, v: str) -> str:
+        """Validate Supabase URL is provided and uses HTTPS in production."""
+        # Allow empty for local development without Supabase
+        if not v:
+            return v
+        if not v.startswith("https://"):
+            raise ValueError("supabase_url must use HTTPS")
+        return v
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v: str | list[str]) -> list[str]:
+        """Parse comma-separated string to list."""
+        if isinstance(v, str):
+            if not v:
+                return []
+            return [origin.strip() for origin in v.split(",")]
+        return v
 
     @property
     def is_development(self) -> bool:

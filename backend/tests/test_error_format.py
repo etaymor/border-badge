@@ -19,7 +19,9 @@ def test_404_error_format(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(
                 "/trips/550e8400-e29b-41d4-a716-446655440999",
                 headers={"Authorization": "Bearer mock-token"},
@@ -48,7 +50,9 @@ def test_409_conflict_error_format(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.trips.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.post(
                 f"/trips/{trip_id}/approve",
                 headers={"Authorization": "Bearer mock-token"},
@@ -69,7 +73,9 @@ def test_400_bad_request_error_format(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.media.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
             # Missing required parent (trip_id or entry_id)
             response = client.post(
                 "/media/files/signed-url",
