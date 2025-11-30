@@ -12,12 +12,13 @@ uvicorn = {extras = ["standard"], version = "^0.32.0"}
 httpx = "^0.28.0"
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.6.0"
+pyjwt = "^2.9.0"
+slowapi = "^0.1.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
 pytest-asyncio = "^0.24.0"
 ruff = "^0.8.0"
-black = "^24.10.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -38,15 +39,16 @@ select = [
     "UP",     # pyupgrade
 ]
 ignore = [
-    "E501",   # line too long (handled by black)
+    "E501",   # line too long (handled by ruff format)
+    "B008",   # function call in argument defaults (FastAPI pattern)
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
-[tool.black]
-line-length = 88
-target-version = ["py312"]
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,20 +3,58 @@
 from typing import Any
 
 import httpx
+from fastapi import HTTPException, status
 
 from app.core.config import get_settings
+
+# Module-level shared HTTP client for connection pooling
+_shared_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get or create the shared HTTP client with connection pooling."""
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = httpx.AsyncClient(
+            timeout=30.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+        )
+    return _shared_client
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client. Call this on application shutdown."""
+    global _shared_client
+    if _shared_client:
+        await _shared_client.aclose()
+        _shared_client = None
 
 
 class SupabaseClient:
     """HTTP client for Supabase REST API operations."""
 
-    def __init__(self) -> None:
-        """Initialize the Supabase client."""
+    def __init__(self, user_token: str | None = None) -> None:
+        """
+        Initialize the Supabase client.
+
+        Args:
+            user_token: Optional JWT token for user-scoped queries (RLS).
+                       If None, uses service role key (bypasses RLS).
+        """
         self.settings = get_settings()
         self.base_url = self.settings.supabase_url
+
+        # Use user token for RLS, or service role for admin operations
+        auth_token = user_token or self.settings.supabase_service_role_key
+        # Supabase REST expects the apikey header to align with the auth context.
+        api_key = (
+            self.settings.supabase_anon_key
+            if user_token
+            else self.settings.supabase_service_role_key
+        )
         self.headers = {
-            "apikey": self.settings.supabase_service_role_key,
-            "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
+            "apikey": api_key,
+            "Authorization": f"Bearer {auth_token}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
@@ -25,6 +63,26 @@ class SupabaseClient:
     def rest_url(self) -> str:
         """Get the Supabase REST API URL."""
         return f"{self.base_url}/rest/v1"
+
+    def _handle_http_error(self, e: httpx.HTTPStatusError) -> None:
+        """Convert httpx HTTP errors to FastAPI HTTPException."""
+        # Try to extract error message from response
+        try:
+            error_detail = e.response.json().get("message", e.response.text[:200])
+        except Exception:
+            error_detail = e.response.text[:200] if e.response.text else "Unknown error"
+
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Database error: {error_detail}",
+        )
+
+    def _handle_request_error(self, e: httpx.RequestError) -> None:
+        """Convert httpx request errors to FastAPI HTTPException."""
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection error",
+        )
 
     async def get(
         self,
@@ -41,7 +99,8 @@ class SupabaseClient:
         Returns:
             List of records matching the query
         """
-        async with httpx.AsyncClient() as client:
+        try:
+            client = get_http_client()
             response = await client.get(
                 f"{self.rest_url}/{table}",
                 headers=self.headers,
@@ -49,6 +108,11 @@ class SupabaseClient:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return []  # Never reached, but satisfies type checker
 
     async def post(
         self,
@@ -65,7 +129,8 @@ class SupabaseClient:
         Returns:
             List of inserted records
         """
-        async with httpx.AsyncClient() as client:
+        try:
+            client = get_http_client()
             response = await client.post(
                 f"{self.rest_url}/{table}",
                 headers=self.headers,
@@ -73,6 +138,11 @@ class SupabaseClient:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return []
 
     async def patch(
         self,
@@ -91,7 +161,8 @@ class SupabaseClient:
         Returns:
             List of updated records
         """
-        async with httpx.AsyncClient() as client:
+        try:
+            client = get_http_client()
             response = await client.patch(
                 f"{self.rest_url}/{table}",
                 headers=self.headers,
@@ -100,6 +171,11 @@ class SupabaseClient:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return []
 
     async def delete(
         self,
@@ -116,7 +192,8 @@ class SupabaseClient:
         Returns:
             List of deleted records
         """
-        async with httpx.AsyncClient() as client:
+        try:
+            client = get_http_client()
             response = await client.delete(
                 f"{self.rest_url}/{table}",
                 headers=self.headers,
@@ -124,8 +201,18 @@ class SupabaseClient:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return []
 
 
-def get_supabase_client() -> SupabaseClient:
-    """Get a Supabase client instance."""
-    return SupabaseClient()
+def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
+    """
+    Get a Supabase client instance.
+
+    Args:
+        user_token: Optional JWT for user-scoped queries with RLS.
+    """
+    return SupabaseClient(user_token=user_token)

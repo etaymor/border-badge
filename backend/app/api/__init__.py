@@ -2,10 +2,12 @@
 
 from fastapi import APIRouter
 
+from app.api import countries, entries, media, places, trips
+
 router = APIRouter()
 
-# Future routers will be included here:
-# from app.api import auth, countries, trips, entries, media
-# router.include_router(auth.router, prefix="/auth", tags=["auth"])
-# router.include_router(countries.router, prefix="/countries", tags=["countries"])
-# etc.
+router.include_router(countries.router, prefix="/countries", tags=["countries"])
+router.include_router(trips.router, prefix="/trips", tags=["trips"])
+router.include_router(entries.router, tags=["entries"])
+router.include_router(places.router, prefix="/places", tags=["places"])
+router.include_router(media.router, prefix="/media/files", tags=["media"])

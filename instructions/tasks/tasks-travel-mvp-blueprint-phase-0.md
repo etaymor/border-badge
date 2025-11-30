@@ -49,7 +49,7 @@
     - How to install and log in with the Supabase CLI (if used).
     - How to run local Supabase (if desired) or how to apply migrations to a remote dev instance.
   - [x] 2.4 Create an initial empty or minimal migration file (e.g., `infra/supabase/migrations/0000_initial_skeleton.sql`) that confirms the migration pipeline is wired correctly, even if it only creates a placeholder schema or comment.
-  - [ ] 2.5 Verify that you can run the migration pipeline against a dev Supabase instance and that Supabase's SQL editor or CLI can see the applied migration.
+  - [x] 2.5 Verify that you can run the migration pipeline against a dev Supabase instance and that Supabase's SQL editor or CLI can see the applied migration.
 
 - [x] 3.0 Scaffold FastAPI backend skeleton
 
@@ -96,6 +96,6 @@
     - Installs backend dependencies and runs `ruff`/`black` checks and `pytest`.
     - Installs mobile dependencies and runs ESLint, Prettier check (if configured), and Jest.
     - Runs on pull requests and pushes to the main branch.
-  - [ ] 5.5 Confirm CI passes with the initial skeleton and document in `README.md` that passing CI is a prerequisite for merging future changes.
+  - [x] 5.5 Confirm CI passes with the initial skeleton and document in `README.md` that passing CI is a prerequisite for merging future changes.
 
 
