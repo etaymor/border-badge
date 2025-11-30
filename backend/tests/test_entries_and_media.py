@@ -193,29 +193,29 @@ def test_delete_entry(
 # Media tests
 
 
-def test_get_signed_url_requires_auth(client: TestClient) -> None:
-    """Test that getting signed URL requires authentication."""
+def test_get_upload_url_requires_auth(client: TestClient) -> None:
+    """Test that getting upload URL requires authentication."""
     response = client.post(
-        "/media/files/signed-url",
+        "/media/files/upload-url",
         json={"filename": "photo.jpg", "content_type": "image/jpeg"},
     )
     assert response.status_code == 403
 
 
-def test_get_signed_url_requires_parent(
+def test_get_upload_url_requires_parent(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that signed URL requires trip_id or entry_id."""
+    """Test that upload URL requires trip_id or entry_id."""
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
             "app.api.media.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(
-                "/media/files/signed-url",
+                "/media/files/upload-url",
                 headers=auth_headers,
                 json={"filename": "photo.jpg", "content_type": "image/jpeg"},
             )
@@ -224,13 +224,13 @@ def test_get_signed_url_requires_parent(
         app.dependency_overrides.clear()
 
 
-def test_get_signed_url_success(
+def test_get_upload_url_success(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test getting a signed upload URL."""
+    """Test getting an upload URL."""
     from tests.conftest import TEST_MEDIA_ID, TEST_TRIP_ID
 
     media_record = {
@@ -250,7 +250,7 @@ def test_get_signed_url_success(
             "app.api.media.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(
-                "/media/files/signed-url",
+                "/media/files/upload-url",
                 headers=auth_headers,
                 json={
                     "filename": "photo.jpg",
