@@ -1,6 +1,6 @@
 """Tests for SupabaseClient header configuration."""
 
-from app.db.session import SupabaseClient, get_settings
+from app.db.session import SupabaseClient
 
 
 class DummySettings:

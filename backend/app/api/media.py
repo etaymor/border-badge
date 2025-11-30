@@ -1,13 +1,15 @@
 """Media file endpoints."""
 
+import logging
 import uuid as uuid_mod
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import get_http_client, get_supabase_client
 from app.schemas.media import (
     MediaFile,
     MediaStatus,
@@ -16,15 +18,8 @@ from app.schemas.media import (
     SignedUrlResponse,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def get_token_from_request(request: Request) -> str | None:
-    """Extract bearer token from request headers."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:]
-    return None
 
 
 @router.post("/signed-url", response_model=SignedUrlResponse)
@@ -153,7 +148,54 @@ async def delete_media(
     media_id: UUID,
     user: CurrentUser,
 ) -> None:
-    """Delete a media file record."""
+    """Delete a media file record and its storage objects."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+    settings = get_settings()
+
+    # Fetch record to get file paths before deletion
+    media = await db.get("media_files", {"id": f"eq.{media_id}"})
+    if not media:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media not found",
+        )
+
+    media_record = media[0]
+    file_path = media_record["file_path"]
+    thumbnail_path = media_record.get("thumbnail_path")
+
+    # Delete from storage (use httpx client)
+    client = get_http_client()
+    storage_headers = {
+        "apikey": settings.supabase_anon_key,
+        "Authorization": f"Bearer {token}"
+        if token
+        else f"Bearer {settings.supabase_service_role_key}",
+    }
+
+    # Delete main file from storage
+    if settings.supabase_url:
+        try:
+            storage_url = f"{settings.supabase_url}/storage/v1/object/media/{file_path}"
+            response = await client.delete(storage_url, headers=storage_headers)
+            # 404 is OK (already deleted/idempotent)
+            if response.status_code not in (200, 204, 404):
+                logger.warning(
+                    f"Failed to delete storage file {file_path}: {response.status_code}"
+                )
+        except Exception as e:
+            logger.warning(f"Storage deletion error for {file_path}: {e}")
+
+        # Delete thumbnail if exists
+        if thumbnail_path:
+            try:
+                thumb_url = (
+                    f"{settings.supabase_url}/storage/v1/object/media/{thumbnail_path}"
+                )
+                await client.delete(thumb_url, headers=storage_headers)
+            except Exception as e:
+                logger.warning(f"Thumbnail deletion error for {thumbnail_path}: {e}")
+
+    # Delete DB record
     await db.delete("media_files", {"id": f"eq.{media_id}"})

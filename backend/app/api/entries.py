@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.schemas.entries import (
@@ -15,14 +16,6 @@ from app.schemas.entries import (
 )
 
 router = APIRouter()
-
-
-def get_token_from_request(request: Request) -> str | None:
-    """Extract bearer token from request headers."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:]
-    return None
 
 
 @router.get("/trips/{trip_id}/entries", response_model=list[EntryWithPlace])
@@ -112,8 +105,14 @@ async def create_entry(
             "extra_data": data.place.extra_data,
         }
         place_rows = await db.post("place", place_data)
-        if place_rows:
-            place = Place(**place_rows[0])
+        if not place_rows:
+            # Rollback: delete the entry we just created
+            await db.delete("entry", {"id": f"eq.{entry.id}"})
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create place for entry",
+            )
+        place = Place(**place_rows[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { TextInput, View, Text, StyleSheet, TextInputProps, ViewStyle } from 'react-native';
+import {
+  NativeSyntheticEvent,
+  StyleSheet,
+  TargetedEvent,
+  Text,
+  TextInput,
+  TextInputProps,
+  View,
+  ViewStyle,
+} from 'react-native';
+
+type FocusEvent = NativeSyntheticEvent<TargetedEvent>;
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -7,8 +18,26 @@ interface InputProps extends TextInputProps {
   containerStyle?: ViewStyle;
 }
 
-export function Input({ label, error, containerStyle, style, ...props }: InputProps) {
+export function Input({
+  label,
+  error,
+  containerStyle,
+  style,
+  onFocus,
+  onBlur,
+  ...props
+}: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
+
+  const handleFocus = (e: FocusEvent) => {
+    setIsFocused(true);
+    onFocus?.(e);
+  };
+
+  const handleBlur = (e: FocusEvent) => {
+    setIsFocused(false);
+    onBlur?.(e);
+  };
 
   return (
     <View style={[styles.container, containerStyle]}>
@@ -16,8 +45,8 @@ export function Input({ label, error, containerStyle, style, ...props }: InputPr
       <TextInput
         style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError, style]}
         placeholderTextColor="#999"
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         {...props}
       />
       {error && <Text style={styles.error}>{error}</Text>}
