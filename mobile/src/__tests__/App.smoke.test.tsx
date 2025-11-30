@@ -9,6 +9,7 @@ const mockNavigation = {
   navigate: mockNavigate,
   goBack: jest.fn(),
   setOptions: jest.fn(),
+  canGoBack: jest.fn().mockReturnValue(false),
 } as unknown as AuthStackScreenProps<'Login'>['navigation'];
 
 const mockRoute = {} as AuthStackScreenProps<'Login'>['route'];
@@ -21,7 +22,7 @@ describe('LoginScreen', () => {
   it('renders login title', () => {
     render(<LoginScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Login')).toBeTruthy();
+    expect(screen.getByText('Welcome Back')).toBeTruthy();
   });
 
   it('displays sign up link', () => {

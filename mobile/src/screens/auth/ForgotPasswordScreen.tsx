@@ -1,23 +1,25 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Input } from '@components/ui';
+import { useResetPassword } from '@hooks/useAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
 
 type Props = AuthStackScreenProps<'ForgotPassword'>;
 
 export function ForgotPasswordScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const resetPassword = useResetPassword();
 
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(value);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     setError('');
 
     if (!email.trim()) {
@@ -30,20 +32,11 @@ export function ForgotPasswordScreen({ navigation }: Props) {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      // TODO: Wire up Supabase password reset
-      // await supabase.auth.resetPasswordForEmail(email);
-      Alert.alert(
-        'Check your email',
-        'If an account exists with this email, you will receive password reset instructions.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
-      );
-    } catch {
-      setError('Failed to send reset email. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    resetPassword.mutate(email.trim(), {
+      onSuccess: () => {
+        navigation.navigate('Login');
+      },
+    });
   };
 
   return (
@@ -67,7 +60,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
         <Button
           title="Send Reset Link"
           onPress={handleSubmit}
-          loading={isLoading}
+          loading={resetPassword.isPending}
           style={styles.button}
         />
 

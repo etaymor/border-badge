@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
+// Set required environment variables for tests
+process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+
 // Mock react-native-safe-area-context
 jest.mock('react-native-safe-area-context', () => {
   const mockReact = require('react');
@@ -47,4 +51,28 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(),
   getItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
+}));
+
+// Mock @react-native-async-storage/async-storage
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  setItem: jest.fn(),
+  getItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+}));
+
+// Mock the Supabase client
+jest.mock('@services/supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: jest.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      signInWithPassword: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      signUp: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      signOut: jest.fn().mockResolvedValue({ error: null }),
+      resetPasswordForEmail: jest.fn().mockResolvedValue({ error: null }),
+      onAuthStateChange: jest.fn().mockReturnValue({
+        data: { subscription: { unsubscribe: jest.fn() } },
+      }),
+    },
+  },
 }));
