@@ -47,7 +47,10 @@ async def get_upload_url(
     if not settings.supabase_url:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase URL is not configured on the server; media uploads are currently disabled.",
+            detail=(
+                "Supabase URL is not configured on the server; "
+                "media uploads are currently disabled."
+            ),
         )
 
     # Validate that either trip_id or entry_id is provided
