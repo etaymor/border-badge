@@ -4,12 +4,11 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
+from app.main import limiter
 from app.schemas.trips import (
     Trip,
     TripCreate,
@@ -20,7 +19,6 @@ from app.schemas.trips import (
     TripWithTags,
 )
 
-limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 

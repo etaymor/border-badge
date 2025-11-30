@@ -12,14 +12,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.api import router as api_router
 from app.core.config import get_settings
 from app.db.session import close_http_client
 
 settings = get_settings()
 
-# Rate limiter instance
+# Rate limiter instance (shared across the application)
 limiter = Limiter(key_func=get_remote_address)
+
+# Import API router after limiter is defined so other modules can safely
+# import the shared limiter from this module without circular import issues.
+from app.api import router as api_router  # noqa: E402  (import after limiter definition)
 
 
 @asynccontextmanager
