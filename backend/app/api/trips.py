@@ -1,6 +1,6 @@
 """Trip and trip_tags endpoints."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -261,7 +261,7 @@ async def _update_tag_status(
     tag = tags[0]
 
     # Use optimistic locking - include status in WHERE clause to prevent race conditions
-    responded_at = datetime.now(timezone.utc).isoformat()
+    responded_at = datetime.now(UTC).isoformat()
     rows = await db.patch(
         "trip_tags",
         {"status": new_status.value, "responded_at": responded_at},
