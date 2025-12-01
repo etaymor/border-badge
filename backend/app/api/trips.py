@@ -53,18 +53,24 @@ def format_daterange(start: date | None, end: date | None) -> str | None:
 async def list_trips(
     request: Request,
     user: CurrentUser,
+    country_id: UUID | None = Query(None, description="Filter trips by country"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> list[Trip]:
-    """List all trips accessible to the current user (owned or approved tags)."""
+    """List all trips accessible to the current user (owned or approved tags).
+
+    Optionally filter by country_id to get trips for a specific country.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    params = {
+    params: dict[str, str | int] = {
         "select": "*",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
     }
+    if country_id:
+        params["country_id"] = f"eq.{country_id}"
     rows = await db.get("trip", params)
     return [Trip(**row) for row in rows]
 
