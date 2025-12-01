@@ -275,6 +275,43 @@ def test_get_upload_url_success(
         app.dependency_overrides.clear()
 
 
+def test_get_upload_url_photo_limit_exceeded(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that upload URL is rejected when photo limit is exceeded."""
+    from tests.conftest import TEST_ENTRY_ID
+
+    # Mock 10 existing media files (the limit)
+    existing_media = [{"id": f"media-{i}"} for i in range(10)]
+    mock_supabase_client.get.return_value = existing_media
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.media.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch("app.api.media.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.supabase_url = "https://test.supabase.co"
+            response = client.post(
+                "/media/files/upload-url",
+                headers=auth_headers,
+                json={
+                    "filename": "photo.jpg",
+                    "content_type": "image/jpeg",
+                    "entry_id": TEST_ENTRY_ID,
+                },
+            )
+        assert response.status_code == 400
+        assert "Maximum 10 photos" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_update_media_status(
     client: TestClient,
     mock_supabase_client: AsyncMock,

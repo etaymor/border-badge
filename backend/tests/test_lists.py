@@ -16,7 +16,6 @@ from tests.conftest import (
     mock_auth_dependency,
 )
 
-
 # ============================================================================
 # Auth & Access Control
 # ============================================================================
@@ -343,3 +342,84 @@ def test_get_public_list_invalid_slug_returns_422(
     for slug in invalid_slugs:
         response = client.get(f"/public/lists/{slug}")
         assert response.status_code == 422, f"Expected 422 for slug: {slug}"
+
+
+# ============================================================================
+# Bulk Insert Behavior
+# ============================================================================
+
+
+def test_create_list_rollback_on_entry_insert_failure(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_list: dict[str, Any],
+    sample_entry: dict[str, Any],
+) -> None:
+    """Test that list is rolled back when bulk entry insert fails."""
+    # Mock: trip ownership check, entry validation success
+    mock_supabase_client.get.side_effect = [
+        [sample_trip],  # Trip ownership check
+        [sample_entry],  # Entry validation
+    ]
+    # Mock: list created, but entry insert returns partial (failure)
+    mock_supabase_client.post.side_effect = [
+        [sample_list],  # List creation succeeds
+        [],  # Entry bulk insert fails (returns empty)
+    ]
+    mock_supabase_client.delete.return_value = []  # Rollback delete
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/trips/{TEST_TRIP_ID}/lists",
+                headers=auth_headers,
+                json={
+                    "name": "Test List",
+                    "entry_ids": [TEST_ENTRY_ID],
+                },
+            )
+        assert response.status_code == 500
+        assert "Failed to add all entries" in response.json()["detail"]
+        # Verify rollback was attempted
+        mock_supabase_client.delete.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_list_entries_fails_on_partial_insert(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_list: dict[str, Any],
+    sample_entry: dict[str, Any],
+) -> None:
+    """Test that update_list_entries fails when bulk insert is partial."""
+    # Mock: ownership check succeeds, entry validation succeeds
+    mock_supabase_client.get.side_effect = [
+        [sample_list],  # List ownership check
+        [sample_entry],  # Entry validation
+    ]
+    mock_supabase_client.delete.return_value = []  # Delete old entries
+    mock_supabase_client.post.return_value = []  # Bulk insert fails (returns empty)
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.put(
+                f"/lists/{TEST_LIST_ID}/entries",
+                headers=auth_headers,
+                json={"entry_ids": [TEST_ENTRY_ID]},
+            )
+        assert response.status_code == 500
+        assert "Failed to update all list entries" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
