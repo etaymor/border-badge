@@ -65,7 +65,12 @@ async def get_upload_url(
             detail="Either trip_id or entry_id must be provided",
         )
 
-    # Enforce photo limit per entry
+    # Enforce photo limit per entry.
+    # NOTE: This check relies on sequential upload requests from the client.
+    # The mobile app requests upload URLs one at a time (see uploadMultipleMediaFiles
+    # in mobile/src/services/mediaUpload.ts), which prevents race conditions where
+    # concurrent requests could bypass this limit. If parallel uploads are needed
+    # in the future, add a database trigger to enforce this limit atomically.
     if data.entry_id:
         existing_media = await db.get(
             "media_files",

@@ -209,7 +209,7 @@ export function TripFormScreen({ navigation, route }: Props) {
         <View style={styles.comingSoon}>
           <Text style={styles.comingSoonTitle}>Tag Friends (Coming Soon)</Text>
           <Text style={styles.comingSoonText}>
-            Soon you'll be able to tag friends on your trips and share memories together.
+            Soon you&apos;ll be able to tag friends on your trips and share memories together.
           </Text>
         </View>
       </ScrollView>

@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   RefreshControl,
   SectionList,
@@ -74,7 +73,7 @@ function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
 }
 
 export function EntryListScreen({ route, navigation }: Props) {
-  const { tripId, tripName } = route.params;
+  const { tripId } = route.params;
   const { data: entries, isLoading, isRefetching, refetch, error } = useEntries(tripId);
 
   const sections = useMemo(() => {

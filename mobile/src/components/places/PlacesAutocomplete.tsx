@@ -270,6 +270,7 @@ export function PlacesAutocomplete({
     if (value?.name !== query) {
       setQuery(value?.name ?? '');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value?.name]);
 
   // Render prediction item

@@ -21,7 +21,7 @@ type Props = TripsStackScreenProps<'TripsList'>;
 function formatDateRange(dateRange: string | null): string {
   if (!dateRange) return '';
 
-  const match = dateRange.match(/[\[(]([^,]*),([^\])]*)[\])]/);
+  const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
   if (!match) return '';
 
   const startStr = match[1].trim();

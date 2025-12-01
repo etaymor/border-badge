@@ -83,7 +83,9 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
         <Ionicons name="checkmark-circle" size={64} color="#34C759" />
       </View>
       <Text style={styles.successTitle}>List Created!</Text>
-      <Text style={styles.successSubtitle}>Your list "{list.name}" is ready to share</Text>
+      <Text style={styles.successSubtitle}>
+        Your list &quot;{list.name}&quot; is ready to share
+      </Text>
 
       {/* Share URL */}
       <View style={styles.urlContainer}>
@@ -114,7 +116,7 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
 }
 
 export function ListCreateScreen({ route, navigation }: Props) {
-  const { tripId, tripName } = route.params;
+  const { tripId } = route.params;
 
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const createList = useCreateList();
@@ -185,7 +187,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
       });
 
       setCreatedList(list);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to create list. Please try again.');
     } finally {
       setIsSubmitting(false);

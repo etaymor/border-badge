@@ -1,5 +1,6 @@
 """Shareable list endpoints."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
@@ -17,6 +18,8 @@ from app.schemas.lists import (
     ListUpdate,
     PublicListView,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -169,10 +172,13 @@ async def create_list(
         entry_rows = await db.post("list_entries", entry_data_list)
         if len(entry_rows) != len(data.entry_ids):
             # Rollback: delete the list we just created
-            await db.delete("list", {"id": f"eq.{lst['id']}"})
+            try:
+                await db.delete("list", {"id": f"eq.{lst['id']}"})
+            except Exception as rollback_error:
+                logger.error(f"Rollback failed for list {lst['id']}: {rollback_error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to add all entries to list",
+                detail="Failed to add all entries to list. Please try again.",
             )
         entries = [ListEntry(**row) for row in entry_rows]
 
@@ -221,6 +227,7 @@ async def get_list(
 
 
 @router.patch("/lists/{list_id}", response_model=ListDetail)
+@limiter.limit("20/minute")
 async def update_list(
     request: Request,
     list_id: UUID,
@@ -267,6 +274,7 @@ async def update_list(
 
 
 @router.put("/lists/{list_id}/entries", response_model=ListDetail)
+@limiter.limit("20/minute")
 async def update_list_entries(
     request: Request,
     list_id: UUID,
@@ -325,9 +333,13 @@ async def update_list_entries(
         ]
         entry_rows = await db.post("list_entries", entry_data_list)
         if len(entry_rows) != len(data.entry_ids):
+            logger.error(
+                f"Partial entry insert for list {list_id}: "
+                f"expected {len(data.entry_ids)}, got {len(entry_rows)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update all list entries",
+                detail="Failed to update all list entries. Some entries may have been removed.",
             )
         new_entries = [ListEntry(**row) for row in entry_rows]
 
@@ -335,6 +347,7 @@ async def update_list_entries(
 
 
 @router.delete("/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
 async def delete_list(
     request: Request,
     list_id: UUID,

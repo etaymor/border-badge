@@ -165,6 +165,7 @@ async def get_trip(
 
 
 @router.patch("/{trip_id}", response_model=Trip)
+@limiter.limit("20/minute")
 async def update_trip(
     request: Request,
     trip_id: UUID,
@@ -210,6 +211,7 @@ async def update_trip(
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
 async def delete_trip(
     request: Request,
     trip_id: UUID,

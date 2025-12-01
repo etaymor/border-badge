@@ -147,7 +147,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
       }
 
       navigation.goBack();
-    } catch (error) {
+    } catch {
       Alert.alert(
         'Error',
         isEditing

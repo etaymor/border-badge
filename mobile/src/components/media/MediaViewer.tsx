@@ -30,10 +30,9 @@ interface MediaViewerProps {
 
 interface MediaItemProps {
   item: MediaFile;
-  isActive: boolean;
 }
 
-function MediaItem({ item, isActive }: MediaItemProps) {
+function MediaItem({ item }: MediaItemProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
@@ -140,7 +139,7 @@ export function MediaViewer({
     })
   ).current;
 
-  const handleScroll = useCallback((event: any) => {
+  const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { x: number } } }) => {
     const index = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setCurrentIndex(index);
   }, []);
@@ -157,12 +156,7 @@ export function MediaViewer({
     }
   }, [currentIndex, media, onDelete, onClose]);
 
-  const renderItem = useCallback(
-    ({ item, index }: { item: MediaFile; index: number }) => (
-      <MediaItem item={item} isActive={index === currentIndex} />
-    ),
-    [currentIndex]
-  );
+  const renderItem = useCallback(({ item }: { item: MediaFile }) => <MediaItem item={item} />, []);
 
   const currentMedia = media[currentIndex];
 
