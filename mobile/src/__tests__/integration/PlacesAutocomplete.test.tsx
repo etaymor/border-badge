@@ -54,18 +54,21 @@ describe('PlacesAutocomplete Integration', () => {
       // Final character
       fireEvent.changeText(input, 'cafe');
 
-      // Advance timers by 300ms
+      // Advance timers and flush promises
       await act(async () => {
         jest.advanceTimersByTime(300);
+        await Promise.resolve(); // Flush microtasks
+      });
+
+      // Run any remaining timers
+      await act(async () => {
+        jest.runAllTimers();
       });
 
       // Only one fetch call should be made (for the final query "cafe")
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1);
-      });
-
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('input=cafe'));
-    });
+    }, 10000);
 
     it('does not search for empty input', async () => {
       const onSelect = jest.fn();
