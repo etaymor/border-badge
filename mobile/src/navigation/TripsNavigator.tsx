@@ -3,10 +3,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
+import { EntryListScreen, EntryFormScreen } from '@screens/entries';
+import { ListCreateScreen } from '@screens/lists';
 
 import type { TripsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<TripsStackParamList>();
+
+// Placeholder for EntryDetail screen (deferred to later phase)
+function EntryDetailPlaceholder() {
+  return null;
+}
 
 export function TripsNavigator() {
   return (
@@ -27,6 +34,30 @@ export function TripsNavigator() {
         options={({ route }) => ({
           title: route.params?.tripId ? 'Edit Trip' : 'New Trip',
         })}
+      />
+      <Stack.Screen
+        name="EntryList"
+        component={EntryListScreen}
+        options={({ route }) => ({
+          title: route.params?.tripName ? `${route.params.tripName} - Entries` : 'Entries',
+        })}
+      />
+      <Stack.Screen
+        name="EntryDetail"
+        component={EntryDetailPlaceholder}
+        options={{ title: 'Entry Details' }}
+      />
+      <Stack.Screen
+        name="EntryForm"
+        component={EntryFormScreen}
+        options={({ route }) => ({
+          title: route.params?.entryId ? 'Edit Entry' : 'New Entry',
+        })}
+      />
+      <Stack.Screen
+        name="ListCreate"
+        component={ListCreateScreen}
+        options={{ title: 'Create List' }}
       />
     </Stack.Navigator>
   );

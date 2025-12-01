@@ -10,6 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.db.session import get_http_client, get_supabase_client
+from app.main import limiter
 from app.schemas.media import (
     MediaFile,
     MediaStatus,
@@ -21,8 +22,12 @@ from app.schemas.media import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Maximum photos allowed per entry (must match mobile client constant)
+MAX_PHOTOS_PER_ENTRY = 10
+
 
 @router.post("/upload-url", response_model=UploadUrlResponse)
+@limiter.limit("30/minute")
 async def get_upload_url(
     request: Request,
     data: UploadUrlRequest,
@@ -59,6 +64,26 @@ async def get_upload_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either trip_id or entry_id must be provided",
         )
+
+    # Enforce photo limit per entry.
+    # NOTE: This check relies on sequential upload requests from the client.
+    # The mobile app requests upload URLs one at a time (see uploadMultipleMediaFiles
+    # in mobile/src/services/mediaUpload.ts), which prevents race conditions where
+    # concurrent requests could bypass this limit. If parallel uploads are needed
+    # in the future, add a database trigger to enforce this limit atomically.
+    if data.entry_id:
+        existing_media = await db.get(
+            "media_files",
+            {
+                "entry_id": f"eq.{data.entry_id}",
+                "select": "id",
+            },
+        )
+        if len(existing_media) >= MAX_PHOTOS_PER_ENTRY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Maximum {MAX_PHOTOS_PER_ENTRY} photos per entry",
+            )
 
     # Generate unique file path
     file_id = uuid_mod.uuid4()

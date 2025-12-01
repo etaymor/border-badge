@@ -1,0 +1,174 @@
+import { memo } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+import type { EntryType } from '@navigation/types';
+import type { EntryWithPlace } from '@hooks/useEntries';
+
+// Entry type icons and colors
+const ENTRY_TYPE_CONFIG: Record<
+  EntryType,
+  { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }
+> = {
+  place: { icon: 'location', color: '#007AFF', label: 'Place' },
+  food: { icon: 'restaurant', color: '#FF9500', label: 'Food' },
+  stay: { icon: 'bed', color: '#5856D6', label: 'Stay' },
+  experience: { icon: 'star', color: '#34C759', label: 'Experience' },
+};
+
+interface EntryCardProps {
+  entry: EntryWithPlace;
+  onPress?: () => void;
+}
+
+function formatDate(dateString: string | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function EntryCardComponent({ entry, onPress }: EntryCardProps) {
+  const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
+  const hasMedia = entry.media_files && entry.media_files.length > 0;
+  const mediaCount = entry.media_files?.length ?? 0;
+  const firstMediaUrl =
+    hasMedia && entry.media_files?.[0]?.thumbnail_url
+      ? entry.media_files[0].thumbnail_url
+      : entry.media_files?.[0]?.url;
+
+  return (
+    <Pressable style={styles.container} onPress={onPress}>
+      {/* Entry Type Badge */}
+      <View style={[styles.typeBadge, { backgroundColor: typeConfig.color + '15' }]}>
+        <Ionicons name={typeConfig.icon} size={16} color={typeConfig.color} />
+      </View>
+
+      {/* Main Content */}
+      <View style={styles.content}>
+        <Text style={styles.title} numberOfLines={1}>
+          {entry.title}
+        </Text>
+
+        {/* Place name if available */}
+        {entry.place?.name && (
+          <View style={styles.placeRow}>
+            <Ionicons name="location-outline" size={14} color="#666" />
+            <Text style={styles.placeName} numberOfLines={1}>
+              {entry.place.name}
+            </Text>
+          </View>
+        )}
+
+        {/* Date */}
+        {entry.entry_date && <Text style={styles.date}>{formatDate(entry.entry_date)}</Text>}
+      </View>
+
+      {/* Media Preview */}
+      {hasMedia ? (
+        <View style={styles.mediaContainer}>
+          {firstMediaUrl ? (
+            <Image source={{ uri: firstMediaUrl }} style={styles.mediaThumbnail} />
+          ) : (
+            <View style={styles.mediaThumbnailPlaceholder}>
+              <Ionicons name="image" size={20} color="#ccc" />
+            </View>
+          )}
+          {mediaCount > 1 && (
+            <View style={styles.mediaCount}>
+              <Text style={styles.mediaCountText}>+{mediaCount - 1}</Text>
+            </View>
+          )}
+        </View>
+      ) : (
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      )}
+    </Pressable>
+  );
+}
+
+export const EntryCard = memo(EntryCardComponent);
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  typeBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  content: {
+    flex: 1,
+    marginRight: 12,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  placeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  placeName: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 4,
+    flex: 1,
+  },
+  date: {
+    fontSize: 12,
+    color: '#999',
+  },
+  mediaContainer: {
+    position: 'relative',
+  },
+  mediaThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  mediaThumbnailPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mediaCount: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  mediaCountText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+  },
+});

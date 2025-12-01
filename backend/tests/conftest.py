@@ -18,6 +18,8 @@ TEST_PLACE_ID = "550e8400-e29b-41d4-a716-446655440004"
 TEST_MEDIA_ID = "550e8400-e29b-41d4-a716-446655440005"
 TEST_TAG_ID = "550e8400-e29b-41d4-a716-446655440006"
 TEST_USER_COUNTRY_ID = "550e8400-e29b-41d4-a716-446655440007"
+TEST_LIST_ID = "550e8400-e29b-41d4-a716-446655440008"
+TEST_LIST_ENTRY_ID = "550e8400-e29b-41d4-a716-446655440009"
 OTHER_USER_ID = "550e8400-e29b-41d4-a716-446655440099"
 
 
@@ -122,6 +124,34 @@ def sample_tag() -> dict[str, Any]:
         "notification_id": None,
         "created_at": "2024-01-01T00:00:00Z",
         "responded_at": None,
+    }
+
+
+@pytest.fixture
+def sample_list() -> dict[str, Any]:
+    """Sample list data."""
+    return {
+        "id": TEST_LIST_ID,
+        "trip_id": TEST_TRIP_ID,
+        "owner_id": TEST_USER_ID,
+        "name": "Best Places to Visit",
+        "slug": "best-places-to-visit-abc123",
+        "description": "My favorite spots",
+        "is_public": True,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+
+
+@pytest.fixture
+def sample_list_entry() -> dict[str, Any]:
+    """Sample list entry data."""
+    return {
+        "id": TEST_LIST_ENTRY_ID,
+        "list_id": TEST_LIST_ID,
+        "entry_id": TEST_ENTRY_ID,
+        "position": 0,
+        "created_at": "2024-01-01T00:00:00Z",
     }
 
 
