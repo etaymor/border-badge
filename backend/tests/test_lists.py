@@ -401,12 +401,12 @@ def test_update_list_entries_fails_on_partial_insert(
     sample_entry: dict[str, Any],
 ) -> None:
     """Test that update_list_entries fails when bulk insert is partial."""
-    # Mock: ownership check succeeds, entry validation succeeds
+    # Mock: ownership check succeeds, entry validation succeeds, no existing entries
     mock_supabase_client.get.side_effect = [
         [sample_list],  # List ownership check
         [sample_entry],  # Entry validation
+        [],  # Existing entries fetch (empty - no existing entries)
     ]
-    mock_supabase_client.delete.return_value = []  # Delete old entries
     mock_supabase_client.post.return_value = []  # Bulk insert fails (returns empty)
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -420,6 +420,6 @@ def test_update_list_entries_fails_on_partial_insert(
                 json={"entry_ids": [TEST_ENTRY_ID]},
             )
         assert response.status_code == 500
-        assert "Failed to update all list entries" in response.json()["detail"]
+        assert "Failed to add new entries" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
