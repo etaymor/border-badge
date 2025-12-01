@@ -210,7 +210,7 @@ export function useDeleteEntry() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ entryId, tripId }: { entryId: string; tripId: string }): Promise<void> => {
+    mutationFn: async ({ entryId }: { entryId: string; tripId: string }): Promise<void> => {
       await api.delete(`/entries/${entryId}`);
     },
     onSuccess: (_, variables) => {

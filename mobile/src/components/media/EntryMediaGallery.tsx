@@ -43,7 +43,7 @@ export function EntryMediaGallery({
   editable = true,
   onImagePress,
 }: EntryMediaGalleryProps) {
-  const { data: mediaFiles, isLoading, refetch } = useEntryMedia(entryId);
+  const { data: mediaFiles, isLoading } = useEntryMedia(entryId);
   const uploadMedia = useUploadMedia();
   const deleteMedia = useDeleteMedia();
   const retryUpload = useRetryUpload();
@@ -95,7 +95,7 @@ export function EntryMediaGallery({
 
           // Remove from local state on success
           setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
-        } catch (error) {
+        } catch {
           // Mark as failed
           setLocalMedia((prev) =>
             prev.map((item) =>

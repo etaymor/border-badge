@@ -173,7 +173,7 @@ export function useDeleteList() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ listId, tripId }: { listId: string; tripId: string }): Promise<void> => {
+    mutationFn: async ({ listId }: { listId: string; tripId: string }): Promise<void> => {
       await api.delete(`/lists/${listId}`);
     },
     onSuccess: (_, variables) => {

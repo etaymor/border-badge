@@ -6,7 +6,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 
-import { api, getStoredToken } from './api';
+import { api } from './api';
 
 // Constants
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB

@@ -23,7 +23,7 @@ function parseDateRange(dateRange: string | null): { start: Date | null; end: Da
   if (!dateRange) return { start: null, end: null };
 
   // Handle various daterange formats: [2024-01-01,2024-01-15], (2024-01-01,2024-01-15], etc.
-  const match = dateRange.match(/[\[(]([^,]*),([^\])]*)[\])]/);
+  const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
   if (!match) return { start: null, end: null };
 
   const startStr = match[1].trim();
@@ -79,7 +79,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
             try {
               await deleteTrip.mutateAsync(tripId);
               navigation.goBack();
-            } catch (error) {
+            } catch {
               Alert.alert('Error', 'Failed to delete trip. Please try again.');
               setIsDeleting(false);
             }
