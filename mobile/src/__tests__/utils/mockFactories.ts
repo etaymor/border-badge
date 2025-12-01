@@ -248,7 +248,9 @@ export function createMockApiResponse<T>(data: T) {
 }
 
 export function createMockApiError(message: string, status = 400) {
-  const error = new Error(message) as Error & { response?: { status: number; data: { message: string } } };
+  const error = new Error(message) as Error & {
+    response?: { status: number; data: { message: string } };
+  };
   error.response = { status, data: { message } };
   return error;
 }

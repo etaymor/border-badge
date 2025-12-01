@@ -317,12 +317,23 @@ async def update_list_entries(
                 detail=f"Invalid entry IDs: {', '.join(invalid_ids)}",
             )
 
-    # Delete existing entries
-    await db.delete("list_entries", {"list_id": f"eq.{list_id}"})
+    # Get existing entry IDs for this list
+    existing_entries = await db.get(
+        "list_entries",
+        {"list_id": f"eq.{list_id}", "select": "entry_id"},
+    )
+    existing_entry_ids = {e["entry_id"] for e in existing_entries}
 
-    # Add new entries using bulk insert for atomicity and performance
+    # Determine which entries to add and which to remove
+    new_entry_ids = {str(eid) for eid in data.entry_ids} if data.entry_ids else set()
+    entries_to_add = new_entry_ids - existing_entry_ids
+    entries_to_remove = existing_entry_ids - new_entry_ids
+
     new_entries: list[ListEntry] = []
-    if data.entry_ids:
+
+    # Insert new entries first (safer - if this fails, old entries remain)
+    if entries_to_add:
+        # Build list with positions for ALL entries (need to update positions)
         entry_data_list = [
             {
                 "list_id": str(list_id),
@@ -330,18 +341,52 @@ async def update_list_entries(
                 "position": position,
             }
             for position, entry_id in enumerate(data.entry_ids)
+            if str(entry_id) in entries_to_add
         ]
         entry_rows = await db.post("list_entries", entry_data_list)
-        if len(entry_rows) != len(data.entry_ids):
+        if len(entry_rows) != len(entries_to_add):
             logger.error(
                 f"Partial entry insert for list {list_id}: "
-                f"expected {len(data.entry_ids)}, got {len(entry_rows)}"
+                f"expected {len(entries_to_add)}, got {len(entry_rows)}"
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update all list entries. Some entries may have been removed.",
+                detail="Failed to add new entries. Please try again.",
             )
-        new_entries = [ListEntry(**row) for row in entry_rows]
+
+    # Remove old entries that are no longer in the list
+    if entries_to_remove:
+        entries_to_remove_str = ",".join(entries_to_remove)
+        await db.delete(
+            "list_entries",
+            {
+                "list_id": f"eq.{list_id}",
+                "entry_id": f"in.({entries_to_remove_str})",
+            },
+        )
+
+    # Update positions for existing entries that remain
+    if data.entry_ids:
+        for position, entry_id in enumerate(data.entry_ids):
+            if str(entry_id) not in entries_to_add:
+                await db.patch(
+                    "list_entries",
+                    {"position": position},
+                    {
+                        "list_id": f"eq.{list_id}",
+                        "entry_id": f"eq.{entry_id}",
+                    },
+                )
+
+    # Fetch final state
+    final_entry_rows = await db.get(
+        "list_entries",
+        {
+            "list_id": f"eq.{list_id}",
+            "order": "position.asc",
+        },
+    )
+    new_entries = [ListEntry(**row) for row in final_entry_rows]
 
     return _build_list_detail(lst, new_entries)
 

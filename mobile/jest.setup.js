@@ -114,36 +114,51 @@ jest.mock('react-native/Libraries/Share/Share', () => ({
   share: jest.fn().mockResolvedValue({ action: 'sharedAction' }),
 }));
 
-
 // Mock expo-constants (for Google Places API key) - using virtual:true for modules accessed by expo package
-jest.mock('expo-constants', () => ({
-  expoConfig: {
-    extra: {
-      EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: 'test-google-api-key',
+jest.mock(
+  'expo-constants',
+  () => ({
+    expoConfig: {
+      extra: {
+        EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: 'test-google-api-key',
+      },
     },
-  },
-}), { virtual: true });
+  }),
+  { virtual: true }
+);
 
 // Mock expo-image-picker
-jest.mock('expo-image-picker', () => ({
-  launchImageLibraryAsync: jest.fn(),
-  launchCameraAsync: jest.fn(),
-  requestMediaLibraryPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
-  requestCameraPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
-  MediaTypeOptions: { Images: 'Images' },
-}), { virtual: true });
+jest.mock(
+  'expo-image-picker',
+  () => ({
+    launchImageLibraryAsync: jest.fn(),
+    launchCameraAsync: jest.fn(),
+    requestMediaLibraryPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+    requestCameraPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+    MediaTypeOptions: { Images: 'Images' },
+  }),
+  { virtual: true }
+);
 
 // Mock expo-file-system
-jest.mock('expo-file-system', () => ({
-  getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1000 }),
-  readAsStringAsync: jest.fn().mockResolvedValue('base64-encoded-content'),
-  EncodingType: { Base64: 'base64' },
-}), { virtual: true });
+jest.mock(
+  'expo-file-system',
+  () => ({
+    getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1000 }),
+    readAsStringAsync: jest.fn().mockResolvedValue('base64-encoded-content'),
+    EncodingType: { Base64: 'base64' },
+  }),
+  { virtual: true }
+);
 
 // Mock @expo/vector-icons
-jest.mock('@expo/vector-icons', () => ({
-  Ionicons: 'Ionicons',
-}), { virtual: true });
+jest.mock(
+  '@expo/vector-icons',
+  () => ({
+    Ionicons: 'Ionicons',
+  }),
+  { virtual: true }
+);
 
 // Reset all mocks between tests
 beforeEach(() => {
