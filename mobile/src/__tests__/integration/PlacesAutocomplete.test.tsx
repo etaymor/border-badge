@@ -64,9 +64,7 @@ describe('PlacesAutocomplete Integration', () => {
         expect(mockFetch).toHaveBeenCalledTimes(1);
       });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('input=cafe')
-      );
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('input=cafe'));
     });
 
     it('does not search for empty input', async () => {
@@ -211,9 +209,7 @@ describe('PlacesAutocomplete Integration', () => {
       await waitFor(() => {
         // Verify place details was fetched
         expect(mockFetch).toHaveBeenCalledTimes(2);
-        expect(mockFetch).toHaveBeenLastCalledWith(
-          expect.stringContaining('place_id=ChIJ123abc')
-        );
+        expect(mockFetch).toHaveBeenLastCalledWith(expect.stringContaining('place_id=ChIJ123abc'));
       });
     });
 
@@ -568,9 +564,7 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith(
-          expect.stringContaining('components=country%3Ajp')
-        );
+        expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('components=country%3Ajp'));
       });
     });
 
@@ -666,9 +660,7 @@ describe('PlacesAutocomplete Integration', () => {
         longitude: 140.0,
       };
 
-      rerender(
-        <PlacesAutocomplete onSelect={onSelect} value={newValue} placeholder="Search..." />
-      );
+      rerender(<PlacesAutocomplete onSelect={onSelect} value={newValue} placeholder="Search..." />);
 
       expect(getByDisplayValue('Second Place')).toBeTruthy();
     });

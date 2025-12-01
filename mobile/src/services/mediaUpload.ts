@@ -197,7 +197,7 @@ async function getSignedUploadUrl(
   contentType: string
 ): Promise<SignedUrlResponse> {
   try {
-    const response = await api.post<SignedUrlResponse>('/media/upload-url', {
+    const response = await api.post<SignedUrlResponse>('/media/files/upload-url', {
       entry_id: entryId,
       filename,
       content_type: contentType,
@@ -210,7 +210,9 @@ async function getSignedUploadUrl(
 }
 
 /**
- * Upload file to storage using signed URL
+ * Upload file to storage using signed URL.
+ * Uses expo-file-system's uploadAsync for efficient streaming upload
+ * that avoids memory issues with large files and works on Hermes.
  */
 async function uploadToStorage(
   signedUrl: string,
@@ -218,32 +220,23 @@ async function uploadToStorage(
   onProgress?: (progress: UploadProgress) => void
 ): Promise<void> {
   try {
-    // Read file as base64 for upload
-    const base64 = await FileSystem.readAsStringAsync(file.uri, {
-      encoding: FileSystem.EncodingType.Base64,
+    // Report initial progress
+    onProgress?.({ loaded: 0, total: file.size, percentage: 0 });
+
+    // Use FileSystem.uploadAsync for efficient streaming upload
+    // This avoids loading the entire file into memory as base64
+    const uploadResult = await FileSystem.uploadAsync(signedUrl, file.uri, {
+      httpMethod: 'PUT',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: { 'Content-Type': file.type },
     });
 
-    // Upload using fetch with blob
-    const response = await fetch(signedUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': file.type,
-      },
-      body: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Upload failed with status ${response.status}`);
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      throw new Error(`Upload failed with status ${uploadResult.status}`);
     }
 
-    // Report 100% progress
-    if (onProgress) {
-      onProgress({
-        loaded: file.size,
-        total: file.size,
-        percentage: 100,
-      });
-    }
+    // Report completion
+    onProgress?.({ loaded: file.size, total: file.size, percentage: 100 });
   } catch (error) {
     console.error('Storage upload failed:', error);
     throw new MediaUploadError('Failed to upload file. Please try again.', 'UPLOAD');

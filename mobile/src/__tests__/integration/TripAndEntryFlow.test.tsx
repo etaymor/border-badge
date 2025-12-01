@@ -8,13 +8,7 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { api } from '@services/api';
-import {
-  useTrips,
-  useTrip,
-  useCreateTrip,
-  useUpdateTrip,
-  useDeleteTrip,
-} from '@hooks/useTrips';
+import { useTrips, useTrip, useCreateTrip, useUpdateTrip, useDeleteTrip } from '@hooks/useTrips';
 import {
   useEntries,
   useEntry,
@@ -22,7 +16,11 @@ import {
   useUpdateEntry,
   useDeleteEntry,
 } from '@hooks/useEntries';
-import { createMockTrip, createMockTripWithTags, createMockPlaceInput } from '../utils/mockFactories';
+import {
+  createMockTrip,
+  createMockTripWithTags,
+  createMockPlaceInput,
+} from '../utils/mockFactories';
 import { createTestQueryClient } from '../utils/testUtils';
 
 // Type the mocked api
