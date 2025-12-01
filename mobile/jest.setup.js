@@ -74,5 +74,93 @@ jest.mock('@services/supabase', () => ({
         data: { subscription: { unsubscribe: jest.fn() } },
       }),
     },
+    storage: {
+      from: jest.fn().mockReturnValue({
+        getPublicUrl: jest.fn().mockReturnValue({
+          data: { publicUrl: 'https://storage.example.com/media/test.jpg' },
+        }),
+      }),
+    },
+    from: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockResolvedValue({ data: [], error: null }),
+    }),
   },
 }));
+
+// Mock the API service
+jest.mock('@services/api', () => ({
+  api: {
+    get: jest.fn(),
+    post: jest.fn(),
+    patch: jest.fn(),
+    delete: jest.fn(),
+    put: jest.fn(),
+  },
+  getStoredToken: jest.fn().mockResolvedValue('test-token'),
+  storeTokens: jest.fn(),
+  clearTokens: jest.fn(),
+  setSignOutCallback: jest.fn(),
+}));
+
+// Mock Alert
+jest.mock('react-native/Libraries/Alert/Alert', () => ({
+  alert: jest.fn(),
+}));
+
+// Mock Share
+jest.mock('react-native/Libraries/Share/Share', () => ({
+  share: jest.fn().mockResolvedValue({ action: 'sharedAction' }),
+}));
+
+// Mock expo-constants (for Google Places API key) - using virtual:true for modules accessed by expo package
+jest.mock(
+  'expo-constants',
+  () => ({
+    expoConfig: {
+      extra: {
+        EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: 'test-google-api-key',
+      },
+    },
+  }),
+  { virtual: true }
+);
+
+// Mock expo-image-picker
+jest.mock(
+  'expo-image-picker',
+  () => ({
+    launchImageLibraryAsync: jest.fn(),
+    launchCameraAsync: jest.fn(),
+    requestMediaLibraryPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+    requestCameraPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+    MediaTypeOptions: { Images: 'Images' },
+  }),
+  { virtual: true }
+);
+
+// Mock expo-file-system
+jest.mock(
+  'expo-file-system',
+  () => ({
+    getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1000 }),
+    readAsStringAsync: jest.fn().mockResolvedValue('base64-encoded-content'),
+    EncodingType: { Base64: 'base64' },
+  }),
+  { virtual: true }
+);
+
+// Mock @expo/vector-icons
+jest.mock(
+  '@expo/vector-icons',
+  () => ({
+    Ionicons: 'Ionicons',
+  }),
+  { virtual: true }
+);
+
+// Reset all mocks between tests
+beforeEach(() => {
+  jest.clearAllMocks();
+});

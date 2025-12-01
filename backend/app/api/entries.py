@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
+from app.main import limiter
 from app.schemas.entries import (
     Entry,
     EntryCreate,
@@ -63,6 +64,7 @@ async def list_entries(
     response_model=EntryWithPlace,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_entry(
     request: Request,
     trip_id: UUID,
@@ -146,6 +148,7 @@ async def get_entry(
 
 
 @router.patch("/entries/{entry_id}", response_model=Entry)
+@limiter.limit("30/minute")
 async def update_entry(
     request: Request,
     entry_id: UUID,
@@ -178,6 +181,7 @@ async def update_entry(
 
 
 @router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 async def delete_entry(
     request: Request,
     entry_id: UUID,

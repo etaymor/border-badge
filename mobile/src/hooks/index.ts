@@ -1,5 +1,39 @@
-export { useTrips, useTrip, useCreateTrip, useUpdateTrip, useDeleteTrip } from './useTrips';
-export type { Trip, CreateTripInput, UpdateTripInput } from './useTrips';
+export {
+  useTrips,
+  useTrip,
+  useTripsByCountry,
+  useCreateTrip,
+  useUpdateTrip,
+  useDeleteTrip,
+} from './useTrips';
+export type { Trip, TripWithTags, CreateTripInput, UpdateTripInput } from './useTrips';
+
+export { useEntries, useEntry, useCreateEntry, useUpdateEntry, useDeleteEntry } from './useEntries';
+export type {
+  Entry,
+  EntryWithPlace,
+  Place,
+  PlaceInput,
+  CreateEntryInput,
+  UpdateEntryInput,
+  EntryType,
+} from './useEntries';
+
+export {
+  useEntryMedia,
+  useTripMedia,
+  useMedia,
+  useUploadMedia,
+  useRetryUpload,
+  useDeleteMedia,
+  validateFile,
+  getMediaUrl,
+  getThumbnailUrl,
+  MAX_FILE_SIZE,
+  MAX_PHOTOS_PER_ENTRY,
+  ALLOWED_TYPES,
+} from './useMedia';
+export type { MediaFile, MediaStatus, LocalFile, UploadProgress } from './useMedia';
 
 export { useProfile, useUpdateProfile } from './useProfile';
 export type { Profile, UpdateProfileInput } from './useProfile';
@@ -15,3 +49,20 @@ export {
 export type { Country } from './useCountries';
 
 export { useCountriesSync, forceCountriesSync } from './useCountriesSync';
+
+export {
+  useTripLists,
+  useList,
+  useCreateList,
+  useUpdateList,
+  useUpdateListEntries,
+  useDeleteList,
+  getPublicListUrl,
+} from './useLists';
+export type {
+  ListSummary,
+  ListDetail,
+  ListEntry,
+  CreateListInput,
+  UpdateListInput,
+} from './useLists';

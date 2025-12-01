@@ -36,16 +36,29 @@ export type OnboardingStackParamList = {
 
 // Main bottom tab navigator
 export type MainTabParamList = {
-  Map: undefined;
+  Passport: NavigatorScreenParams<PassportStackParamList>;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   Profile: undefined;
 };
+
+// Passport stack (nested in tab)
+export type PassportStackParamList = {
+  PassportHome: undefined;
+  CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
+};
+
+// Entry type for navigation
+export type EntryType = 'place' | 'food' | 'stay' | 'experience';
 
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
   TripDetail: { tripId: string };
-  TripForm: { tripId?: string }; // undefined = create, string = edit
+  TripForm: { tripId?: string; countryId?: string; countryName?: string }; // undefined tripId = create, string = edit
+  EntryList: { tripId: string; tripName?: string };
+  EntryDetail: { entryId: string };
+  EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };
+  ListCreate: { tripId: string; tripName?: string };
 };
 
 // Screen props helpers
@@ -72,6 +85,11 @@ export type MainTabScreenProps<T extends keyof MainTabParamList> = CompositeScre
 
 export type TripsStackScreenProps<T extends keyof TripsStackParamList> = CompositeScreenProps<
   NativeStackScreenProps<TripsStackParamList, T>,
+  MainTabScreenProps<keyof MainTabParamList>
+>;
+
+export type PassportStackScreenProps<T extends keyof PassportStackParamList> = CompositeScreenProps<
+  NativeStackScreenProps<PassportStackParamList, T>,
   MainTabScreenProps<keyof MainTabParamList>
 >;
 

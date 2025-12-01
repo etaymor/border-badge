@@ -64,6 +64,18 @@ export function useTrips() {
   });
 }
 
+// Fetch trips filtered by country
+export function useTripsByCountry(countryId: string) {
+  return useQuery({
+    queryKey: [...TRIPS_QUERY_KEY, { countryId }],
+    queryFn: async (): Promise<Trip[]> => {
+      const response = await api.get(`/trips?country_id=${countryId}`);
+      return response.data;
+    },
+    enabled: !!countryId,
+  });
+}
+
 // Fetch a single trip by ID
 export function useTrip(tripId: string) {
   return useQuery({
