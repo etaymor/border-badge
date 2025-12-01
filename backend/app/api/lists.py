@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -156,23 +156,25 @@ async def create_list(
     lst = rows[0]
     entries: list[ListEntry] = []
 
-    # Add entries to list - fail entire operation if any entry fails
+    # Add entries to list using bulk insert for atomicity and performance
     if data.entry_ids:
-        for position, entry_id in enumerate(data.entry_ids):
-            entry_data = {
+        entry_data_list = [
+            {
                 "list_id": lst["id"],
                 "entry_id": str(entry_id),
                 "position": position,
             }
-            entry_rows = await db.post("list_entries", entry_data)
-            if not entry_rows:
-                # Rollback: delete the list we just created
-                await db.delete("list", {"id": f"eq.{lst['id']}"})
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to add entry {entry_id} to list",
-                )
-            entries.append(ListEntry(**entry_rows[0]))
+            for position, entry_id in enumerate(data.entry_ids)
+        ]
+        entry_rows = await db.post("list_entries", entry_data_list)
+        if len(entry_rows) != len(data.entry_ids):
+            # Rollback: delete the list we just created
+            await db.delete("list", {"id": f"eq.{lst['id']}"})
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to add all entries to list",
+            )
+        entries = [ListEntry(**row) for row in entry_rows]
 
     return _build_list_detail(lst, entries)
 
@@ -310,17 +312,24 @@ async def update_list_entries(
     # Delete existing entries
     await db.delete("list_entries", {"list_id": f"eq.{list_id}"})
 
-    # Add new entries
+    # Add new entries using bulk insert for atomicity and performance
     new_entries: list[ListEntry] = []
-    for position, entry_id in enumerate(data.entry_ids):
-        entry_data = {
-            "list_id": str(list_id),
-            "entry_id": str(entry_id),
-            "position": position,
-        }
-        entry_rows = await db.post("list_entries", entry_data)
-        if entry_rows:
-            new_entries.append(ListEntry(**entry_rows[0]))
+    if data.entry_ids:
+        entry_data_list = [
+            {
+                "list_id": str(list_id),
+                "entry_id": str(entry_id),
+                "position": position,
+            }
+            for position, entry_id in enumerate(data.entry_ids)
+        ]
+        entry_rows = await db.post("list_entries", entry_data_list)
+        if len(entry_rows) != len(data.entry_ids):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update all list entries",
+            )
+        new_entries = [ListEntry(**row) for row in entry_rows]
 
     return _build_list_detail(lst, new_entries)
 
