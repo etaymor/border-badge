@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -19,6 +19,22 @@ from app.schemas.lists import (
 )
 
 router = APIRouter()
+
+
+def _build_list_detail(lst: dict, entries: list[ListEntry]) -> ListDetail:
+    """Build a ListDetail from raw dict and entries."""
+    return ListDetail(
+        id=lst["id"],
+        trip_id=lst["trip_id"],
+        owner_id=lst["owner_id"],
+        name=lst["name"],
+        slug=lst["slug"],
+        description=lst.get("description"),
+        is_public=lst["is_public"],
+        created_at=lst["created_at"],
+        updated_at=lst["updated_at"],
+        entries=entries,
+    )
 
 
 @router.get("/trips/{trip_id}/lists", response_model=list[ListSummary])
@@ -140,7 +156,7 @@ async def create_list(
     lst = rows[0]
     entries: list[ListEntry] = []
 
-    # Add entries to list
+    # Add entries to list - fail entire operation if any entry fails
     if data.entry_ids:
         for position, entry_id in enumerate(data.entry_ids):
             entry_data = {
@@ -149,21 +165,16 @@ async def create_list(
                 "position": position,
             }
             entry_rows = await db.post("list_entries", entry_data)
-            if entry_rows:
-                entries.append(ListEntry(**entry_rows[0]))
+            if not entry_rows:
+                # Rollback: delete the list we just created
+                await db.delete("list", {"id": f"eq.{lst['id']}"})
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to add entry {entry_id} to list",
+                )
+            entries.append(ListEntry(**entry_rows[0]))
 
-    return ListDetail(
-        id=lst["id"],
-        trip_id=lst["trip_id"],
-        owner_id=lst["owner_id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        is_public=lst["is_public"],
-        created_at=lst["created_at"],
-        updated_at=lst["updated_at"],
-        entries=entries,
-    )
+    return _build_list_detail(lst, entries)
 
 
 @router.get("/lists/{list_id}", response_model=ListDetail)
@@ -186,6 +197,13 @@ async def get_list(
 
     lst = lists[0]
 
+    # Authorization: only owner or public lists can be viewed
+    if lst["owner_id"] != user.id and not lst["is_public"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="List not found",
+        )
+
     # Fetch entries
     entry_rows = await db.get(
         "list_entries",
@@ -197,18 +215,7 @@ async def get_list(
 
     entries = [ListEntry(**row) for row in entry_rows]
 
-    return ListDetail(
-        id=lst["id"],
-        trip_id=lst["trip_id"],
-        owner_id=lst["owner_id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        is_public=lst["is_public"],
-        created_at=lst["created_at"],
-        updated_at=lst["updated_at"],
-        entries=entries,
-    )
+    return _build_list_detail(lst, entries)
 
 
 @router.patch("/lists/{list_id}", response_model=ListDetail)
@@ -254,18 +261,7 @@ async def update_list(
 
     entries = [ListEntry(**row) for row in entry_rows]
 
-    return ListDetail(
-        id=lst["id"],
-        trip_id=lst["trip_id"],
-        owner_id=lst["owner_id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        is_public=lst["is_public"],
-        created_at=lst["created_at"],
-        updated_at=lst["updated_at"],
-        entries=entries,
-    )
+    return _build_list_detail(lst, entries)
 
 
 @router.put("/lists/{list_id}/entries", response_model=ListDetail)
@@ -326,18 +322,7 @@ async def update_list_entries(
         if entry_rows:
             new_entries.append(ListEntry(**entry_rows[0]))
 
-    return ListDetail(
-        id=lst["id"],
-        trip_id=lst["trip_id"],
-        owner_id=lst["owner_id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        is_public=lst["is_public"],
-        created_at=lst["created_at"],
-        updated_at=lst["updated_at"],
-        entries=new_entries,
-    )
+    return _build_list_detail(lst, new_entries)
 
 
 @router.delete("/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -355,7 +340,7 @@ async def delete_list(
 # Public endpoint (no auth required)
 @router.get("/public/lists/{slug}", response_model=PublicListView)
 async def get_public_list(
-    slug: str,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> PublicListView:
     """Get a public list by slug (no authentication required)."""
     db = get_supabase_client()  # No user token - uses service role or anon
