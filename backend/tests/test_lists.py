@@ -8,9 +8,11 @@ from fastapi.testclient import TestClient
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import (
+    OTHER_USER_ID,
     TEST_ENTRY_ID,
     TEST_LIST_ID,
     TEST_TRIP_ID,
+    TEST_USER_ID,
     mock_auth_dependency,
 )
 
@@ -280,3 +282,64 @@ def test_get_public_list_not_found_when_private(
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
+
+
+# ============================================================================
+# Authorization & Validation
+# ============================================================================
+
+
+def test_get_list_unauthorized_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that non-owner cannot view private list."""
+    # Create a mock user different from the list owner
+    other_user = AuthUser(
+        user_id=OTHER_USER_ID,
+        email="other@example.com",
+    )
+    # Private list owned by someone else
+    private_list = {
+        "id": TEST_LIST_ID,
+        "trip_id": TEST_TRIP_ID,
+        "owner_id": TEST_USER_ID,  # Different from other_user
+        "name": "Private List",
+        "slug": "private-list-123",
+        "description": None,
+        "is_public": False,  # Private
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+    mock_supabase_client.get.return_value = [private_list]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(other_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                f"/lists/{TEST_LIST_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_public_list_invalid_slug_returns_422(
+    client: TestClient,
+) -> None:
+    """Test that invalid slug format returns 422."""
+    # Invalid slugs: uppercase, spaces, special characters
+    invalid_slugs = [
+        "UPPERCASE",
+        "has spaces",
+        "special@chars!",
+        "under_score",
+    ]
+    for slug in invalid_slugs:
+        response = client.get(f"/public/lists/{slug}")
+        assert response.status_code == 422, f"Expected 422 for slug: {slug}"

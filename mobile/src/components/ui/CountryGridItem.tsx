@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { GestureResponderEvent, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { getFlagEmoji } from '@utils/flags';
 
@@ -34,11 +34,23 @@ export const CountryGridItem = React.memo(function CountryGridItem({
   // Memoize flag emoji calculation
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
 
+  // Memoize star button press handler to avoid new function reference each render
+  const handleStarPress = useCallback(
+    (e: GestureResponderEvent) => {
+      e.stopPropagation?.();
+      onToggleWishlist();
+    },
+    [onToggleWishlist]
+  );
+
   return (
     <TouchableOpacity
       style={[styles.container, isSelected && styles.containerSelected]}
       onPress={onToggleVisited}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${isSelected ? 'visited' : 'not visited'}`}
+      accessibilityHint="Double tap to toggle visited status"
     >
       {/* Grey placeholder for country illustration */}
       <View style={styles.illustrationPlaceholder}>
@@ -52,11 +64,10 @@ export const CountryGridItem = React.memo(function CountryGridItem({
       {/* Wishlist star button */}
       <TouchableOpacity
         style={[styles.starButton, isWishlisted && styles.starButtonActive]}
-        onPress={(e) => {
-          e.stopPropagation?.();
-          onToggleWishlist();
-        }}
+        onPress={handleStarPress}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={`${isWishlisted ? 'Remove from' : 'Add to'} wishlist`}
       >
         <Text style={styles.starIcon}>{isWishlisted ? '★' : '☆'}</Text>
       </TouchableOpacity>

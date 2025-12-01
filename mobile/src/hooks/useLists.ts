@@ -129,8 +129,13 @@ export function useUpdateList() {
     onSuccess: (data) => {
       // Update the list cache
       queryClient.setQueryData(getListQueryKey(data.id), data);
-      // Invalidate trip lists to update entry count, etc.
-      queryClient.invalidateQueries({ queryKey: getListsQueryKey(data.trip_id) });
+      // Update list summary in trip lists cache with computed entry count
+      queryClient.setQueryData(getListsQueryKey(data.trip_id), (old: ListSummary[] | undefined) => {
+        if (!old) return old;
+        return old.map((list) =>
+          list.id === data.id ? { ...list, entry_count: data.entries.length } : list
+        );
+      });
     },
   });
 }

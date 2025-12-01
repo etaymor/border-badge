@@ -193,9 +193,10 @@ export function useUpdateEntry() {
       return transformEntry(response.data as Record<string, unknown>);
     },
     onSuccess: (data) => {
-      // Invalidate entries for this trip and the specific entry
+      // Optimistically update the detail cache with returned data
+      queryClient.setQueryData([...ENTRIES_QUERY_KEY, 'detail', data.id], data);
+      // Only invalidate trip list for sorting/ordering changes
       queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, data.trip_id] });
-      queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, 'detail', data.id] });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to update entry';
