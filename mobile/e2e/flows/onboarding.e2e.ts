@@ -2,7 +2,19 @@
  * E2E tests for onboarding and country selection flows
  */
 
-import { device, element, by, expect, waitFor, testData, signUp, clearAppState } from '../init';
+import {
+  device,
+  element,
+  by,
+  expect,
+  waitFor,
+  testData,
+  signUp,
+  clearAppState,
+  waitForEither,
+  CAROUSEL_SWIPES_TO_CTA,
+  CONTINENT_COUNT,
+} from '../init';
 
 describe('Onboarding Flow', () => {
   beforeAll(async () => {
@@ -71,7 +83,7 @@ describe('Onboarding Flow', () => {
 
       // Navigate to home country step
       const carousel = element(by.type('RCTScrollView'));
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < CAROUSEL_SWIPES_TO_CTA; i++) {
         await carousel.swipe('left');
       }
       await element(by.id('start-journey-button')).tap();
@@ -121,7 +133,7 @@ describe('Onboarding Flow', () => {
       await signUp(email, testData.testPassword);
 
       const carousel = element(by.type('RCTScrollView'));
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < CAROUSEL_SWIPES_TO_CTA; i++) {
         await carousel.swipe('left');
       }
       await element(by.id('start-journey-button')).tap();
@@ -153,7 +165,7 @@ describe('Onboarding Flow', () => {
 
       // Navigate through onboarding to country grid
       const carousel = element(by.type('RCTScrollView'));
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < CAROUSEL_SWIPES_TO_CTA; i++) {
         await carousel.swipe('left');
       }
       await element(by.id('start-journey-button')).tap();
@@ -216,8 +228,8 @@ describe('Onboarding Flow', () => {
     });
 
     it('progresses through all continents', async () => {
-      // Navigate through remaining continents
-      for (let i = 0; i < 5; i++) {
+      // Navigate through remaining continents (we've already done 1)
+      for (let i = 0; i < CONTINENT_COUNT - 1; i++) {
         await waitFor(element(by.id('save-continue-button')))
           .toBeVisible()
           .withTimeout(5000);
@@ -225,9 +237,7 @@ describe('Onboarding Flow', () => {
       }
 
       // Should arrive at progress summary or main app
-      await waitFor(element(by.label('trips-tab')).or(element(by.text('Summary'))))
-        .toBeVisible()
-        .withTimeout(10000);
+      await waitForEither(by.label('trips-tab'), by.text('Summary'), 10000);
     });
   });
 
@@ -239,7 +249,7 @@ describe('Onboarding Flow', () => {
 
       // Swipe through carousel
       const carousel = element(by.type('RCTScrollView'));
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < CAROUSEL_SWIPES_TO_CTA; i++) {
         await carousel.swipe('left');
       }
 
@@ -266,19 +276,19 @@ describe('Onboarding Flow', () => {
       await element(by.text('Skip')).tap();
 
       // All 6 continent screens
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < CONTINENT_COUNT; i++) {
         await waitFor(element(by.id('save-continue-button')))
           .toBeVisible()
           .withTimeout(5000);
         await element(by.id('save-continue-button')).tap();
       }
 
-      // Should land on main app with tabs
-      await waitFor(element(by.id('trips-tab')))
+      // Should land on main app with tabs (use accessibility labels)
+      await waitFor(element(by.label('trips-tab')))
         .toBeVisible()
         .withTimeout(10000);
-      await expect(element(by.id('passport-tab'))).toBeVisible();
-      await expect(element(by.id('profile-tab'))).toBeVisible();
+      await expect(element(by.label('passport-tab'))).toBeVisible();
+      await expect(element(by.label('profile-tab'))).toBeVisible();
     });
   });
 });
