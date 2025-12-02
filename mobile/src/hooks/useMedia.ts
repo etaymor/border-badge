@@ -168,11 +168,14 @@ async function requestUploadUrl(request: UploadUrlRequest): Promise<UploadUrlRes
   return response.data;
 }
 
+// Upload timeout in ms (60 seconds)
+const UPLOAD_TIMEOUT = 60 * 1000;
+
 // Upload file to Supabase Storage
 async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void> {
   const token = await getStoredToken();
   if (!token) {
-    throw new Error('Not authenticated');
+    throw new Error('Please sign in to upload photos');
   }
 
   // Create form data for upload
@@ -183,19 +186,60 @@ async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void
     type: file.type,
   } as unknown as Blob);
 
-  // Upload to Supabase Storage
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': file.type,
-    },
-    body: formData,
-  });
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT);
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Upload failed: ${error}`);
+  try {
+    // Upload to Supabase Storage
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': file.type,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const statusCode = response.status;
+      let errorMessage = 'Upload failed';
+
+      if (statusCode === 413) {
+        errorMessage = 'File is too large. Please choose a smaller photo.';
+      } else if (statusCode === 401 || statusCode === 403) {
+        errorMessage = 'Please sign in again to upload photos.';
+      } else if (statusCode === 429) {
+        errorMessage = 'Too many uploads. Please wait a moment and try again.';
+      } else if (statusCode >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else {
+        try {
+          const errorText = await response.text();
+          if (errorText) {
+            errorMessage = `Upload failed: ${errorText}`;
+          }
+        } catch {
+          // Ignore JSON parse errors
+        }
+      }
+
+      throw new Error(errorMessage);
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Upload timed out. Please check your connection and try again.');
+      }
+      throw error;
+    }
+
+    throw new Error('Upload failed. Please try again.');
   }
 }
 
@@ -255,10 +299,19 @@ export function useUploadMedia() {
         onProgress?.({ loaded: file.size ?? 0, total: file.size ?? 0, percentage: 100 });
 
         return media;
-      } catch {
+      } catch (uploadError) {
         // Update status to failed
-        await updateMediaStatus(media_id, { status: 'failed' });
-        throw new Error('Failed to upload file');
+        try {
+          await updateMediaStatus(media_id, { status: 'failed' });
+        } catch {
+          // Ignore status update failure - the upload already failed
+        }
+
+        // Re-throw with the original error message for better user feedback
+        if (uploadError instanceof Error) {
+          throw uploadError;
+        }
+        throw new Error('Failed to upload file. Please try again.');
       }
     },
     onSuccess: (_, variables) => {

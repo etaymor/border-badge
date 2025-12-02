@@ -6,73 +6,72 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  backend:
-    name: Backend (Python)
+  backend-test:
+    name: Backend Tests
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install Poetry
-        run: pip install poetry
-
-      - name: Configure Poetry
-        run: poetry config virtualenvs.create true --local
+        uses: snok/install-poetry@v1
+        with:
+          version: "1.8.2"
 
       - name: Cache Poetry dependencies
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/pypoetry
-            backend/.venv
+          path: ~/.cache/pypoetry
           key: ${{ runner.os }}-poetry-${{ hashFiles('backend/poetry.lock') }}
           restore-keys: |
             ${{ runner.os }}-poetry-
 
       - name: Install dependencies
-        run: poetry install
+        run: poetry install --no-interaction
 
-      - name: Lint with ruff
+      - name: Run linting
         run: poetry run ruff check .
 
-      - name: Check formatting with ruff
+      - name: Check formatting
         run: poetry run ruff format --check .
 
       - name: Run tests
         run: poetry run pytest -v
 
-  mobile:
-    name: Mobile (React Native)
+  mobile-test:
+    name: Mobile Tests
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: mobile
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: mobile/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
+      - name: Run linting
         run: npm run lint
 
       - name: Check formatting
@@ -80,3 +79,26 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  mobile-typecheck:
+    name: Mobile TypeScript Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check
+        run: npx tsc --noEmit

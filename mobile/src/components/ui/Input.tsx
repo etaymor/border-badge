@@ -16,6 +16,7 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   containerStyle?: ViewStyle;
+  /** testID is inherited from TextInputProps but documented here for E2E testing */
 }
 
 export function Input({
