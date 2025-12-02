@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -63,22 +63,12 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
-  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
-
-  // Cleanup navigation timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (navigationTimeoutRef.current) {
-        clearTimeout(navigationTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const handleDelete = useCallback(() => {
     setShowDeleteConfirm(true);
@@ -91,15 +81,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
       await deleteTrip.mutateAsync(tripId);
       setDeletedTripId(tripId);
       setShowUndoSnackbar(true);
-      // Navigate back after short delay so user sees the snackbar briefly
-      navigationTimeoutRef.current = setTimeout(() => {
-        navigation.goBack();
-      }, 300);
+      // Don't navigate immediately - wait for snackbar to dismiss
+      // This allows user to see and use the "Undo" button
     } catch {
       Alert.alert('Error', 'Failed to delete trip. Please try again.');
       setIsDeleting(false);
     }
-  }, [deleteTrip, tripId, navigation]);
+  }, [deleteTrip, tripId]);
 
   const handleUndo = useCallback(async () => {
     setShowUndoSnackbar(false);
@@ -117,7 +105,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const handleDismissSnackbar = useCallback(() => {
     setShowUndoSnackbar(false);
     setDeletedTripId(null);
-  }, []);
+    // Navigate back after snackbar dismisses (either by timeout or user action)
+    navigation.goBack();
+  }, [navigation]);
 
   if (tripLoading) {
     return (

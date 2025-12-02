@@ -13,6 +13,7 @@ import {
   logout,
   clearAppState,
   completeOnboarding,
+  waitForEither,
 } from '../init';
 
 describe('Authentication', () => {
@@ -41,9 +42,7 @@ describe('Authentication', () => {
       await element(by.id('signup-submit-button')).tap();
 
       // Should arrive at onboarding or main screen
-      await waitFor(element(by.id('start-journey-button')).or(element(by.label('trips-tab'))))
-        .toBeVisible()
-        .withTimeout(15000);
+      await waitForEither(by.id('start-journey-button'), by.label('trips-tab'), 15000);
     });
 
     it('shows error for weak password', async () => {
@@ -113,9 +112,7 @@ describe('Authentication', () => {
       await element(by.id('login-submit-button')).tap();
 
       // Should arrive at main app (either onboarding or tabs)
-      await waitFor(element(by.id('start-journey-button')).or(element(by.label('trips-tab'))))
-        .toBeVisible()
-        .withTimeout(15000);
+      await waitForEither(by.id('start-journey-button'), by.label('trips-tab'), 15000);
     });
 
     it('shows error for invalid credentials', async () => {
@@ -180,11 +177,7 @@ describe('Authentication', () => {
       await element(by.id('sign-out-button')).tap();
 
       // Should return to welcome or login screen
-      await waitFor(
-        element(by.id('welcome-get-started-button')).or(element(by.id('login-submit-button')))
-      )
-        .toBeVisible()
-        .withTimeout(10000);
+      await waitForEither(by.id('welcome-get-started-button'), by.id('login-submit-button'), 10000);
     });
   });
 });

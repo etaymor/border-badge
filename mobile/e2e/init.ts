@@ -7,20 +7,61 @@ import { device, element, by, expect, waitFor } from 'detox';
 // Re-export Detox APIs for convenience
 export { device, element, by, expect, waitFor };
 
+// Onboarding flow constants
+const CAROUSEL_SWIPES_TO_CTA = 3; // Number of swipes to reach the CTA slide
+const CONTINENT_COUNT = 6; // Number of continent screens in onboarding
+
+// Export for use in other test files
+export { CAROUSEL_SWIPES_TO_CTA, CONTINENT_COUNT };
+
+/**
+ * Generate a unique suffix for test data
+ */
+function uniqueSuffix(): string {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 /**
  * Test user configuration
  * Uses unique emails per test run since email verification is disabled in Supabase
  */
 export const testData = {
   /** Generate a unique email for this test run */
-  uniqueEmail: () => `test+${Date.now()}@example.com`,
+  uniqueEmail: () => `test+${uniqueSuffix()}@example.com`,
   /** Generate a unique trip name */
-  uniqueTripName: () => `Test Trip ${Date.now()}`,
+  uniqueTripName: () => `Test Trip ${uniqueSuffix()}`,
   /** Generate a unique entry name */
-  uniqueEntryName: () => `Test Entry ${Date.now()}`,
+  uniqueEntryName: () => `Test Entry ${uniqueSuffix()}`,
   /** Standard password that meets complexity requirements */
   testPassword: 'TestPassword123!',
 };
+
+/**
+ * Wait for either of two elements to be visible
+ * Detox doesn't support .or() on elements, so we poll for both
+ */
+export async function waitForEither(
+  matcher1: Detox.NativeMatcher,
+  matcher2: Detox.NativeMatcher,
+  timeout = 15000
+): Promise<void> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    try {
+      await expect(element(matcher1)).toBeVisible();
+      return;
+    } catch {
+      try {
+        await expect(element(matcher2)).toBeVisible();
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+  // Final attempt - will throw with proper error message
+  await waitFor(element(matcher1)).toBeVisible().withTimeout(1);
+}
 
 /**
  * Wait for app to be ready after launch
@@ -49,9 +90,7 @@ export async function signUp(email: string, password: string): Promise<void> {
   await element(by.id('signup-submit-button')).tap();
 
   // Wait for onboarding to start (or main screen if onboarding completed)
-  await waitFor(element(by.id('start-journey-button')).or(element(by.id('trips-tab'))))
-    .toBeVisible()
-    .withTimeout(15000);
+  await waitForEither(by.id('start-journey-button'), by.label('trips-tab'), 15000);
 }
 
 /**
@@ -73,9 +112,7 @@ export async function login(email: string, password: string): Promise<void> {
   await element(by.id('login-submit-button')).tap();
 
   // Wait for successful login - either onboarding or main tabs
-  await waitFor(element(by.id('start-journey-button')).or(element(by.id('trips-tab'))))
-    .toBeVisible()
-    .withTimeout(15000);
+  await waitForEither(by.id('start-journey-button'), by.label('trips-tab'), 15000);
 }
 
 /**
@@ -84,7 +121,7 @@ export async function login(email: string, password: string): Promise<void> {
 export async function completeOnboarding(): Promise<void> {
   // Swipe through carousel to get to CTA
   const carousel = element(by.type('RCTScrollView'));
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < CAROUSEL_SWIPES_TO_CTA; i++) {
     await carousel.swipe('left');
   }
 
@@ -110,7 +147,7 @@ export async function completeOnboarding(): Promise<void> {
   await element(by.text('Skip')).tap();
 
   // Skip country selection (go through all continents)
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < CONTINENT_COUNT; i++) {
     await waitFor(element(by.id('save-continue-button')))
       .toBeVisible()
       .withTimeout(5000);
@@ -137,11 +174,7 @@ export async function logout(): Promise<void> {
   await element(by.id('sign-out-button')).tap();
 
   // Wait for welcome screen or login screen
-  await waitFor(
-    element(by.id('welcome-get-started-button')).or(element(by.id('login-submit-button')))
-  )
-    .toBeVisible()
-    .withTimeout(10000);
+  await waitForEither(by.id('welcome-get-started-button'), by.id('login-submit-button'), 10000);
 }
 
 /**
@@ -189,14 +222,18 @@ export async function scrollToElement(
 /**
  * Create a new trip and return to trips list
  */
-export async function createTrip(name: string, _countryCode = 'USA'): Promise<void> {
+export async function createTrip(name: string): Promise<void> {
   // Navigate to trips tab
   await element(by.label('trips-tab')).tap();
 
   // Tap FAB or empty state button to add trip
   try {
+    await waitFor(element(by.id('fab-add-trip')))
+      .toBeVisible()
+      .withTimeout(2000);
     await element(by.id('fab-add-trip')).tap();
   } catch {
+    // No FAB visible, try empty state button
     await element(by.id('empty-add-trip-button')).tap();
   }
 
@@ -207,9 +244,7 @@ export async function createTrip(name: string, _countryCode = 'USA'): Promise<vo
   await element(by.id('trip-save-button')).tap();
 
   // Wait for trips list
-  await waitFor(element(by.id('trips-list')).or(element(by.id('empty-add-trip-button'))))
-    .toBeVisible()
-    .withTimeout(10000);
+  await waitForEither(by.id('trips-list'), by.id('empty-add-trip-button'), 10000);
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   completeOnboarding,
   navigateToTab,
   createTrip,
+  waitForEither,
 } from '../init';
 
 describe('Entry Flow', () => {
@@ -262,9 +263,7 @@ describe('Entry Flow', () => {
       await element(by.id('view-entries-button')).tap();
 
       // Should see entries list and FAB
-      await waitFor(element(by.id('entries-list')).or(element(by.id('fab-add-entry'))))
-        .toBeVisible()
-        .withTimeout(10000);
+      await waitForEither(by.id('entries-list'), by.id('fab-add-entry'), 10000);
     });
   });
 });

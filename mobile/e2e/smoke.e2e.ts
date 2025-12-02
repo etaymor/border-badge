@@ -2,7 +2,7 @@
  * Smoke tests - verify the app launches and basic navigation works
  */
 
-import { device, element, by, expect } from 'detox';
+import { device, by, waitForEither } from './init';
 
 describe('App Launch', () => {
   beforeAll(async () => {
@@ -15,14 +15,13 @@ describe('App Launch', () => {
 
   it('should launch the app successfully', async () => {
     // App should launch without crashing
-    // Look for any visible element to confirm app rendered
-    await expect(element(by.type('RCTView')).atIndex(0)).toExist();
+    // Should see either welcome screen (not logged in) or main tabs (logged in)
+    await waitForEither(by.id('welcome-get-started-button'), by.label('trips-tab'), 15000);
   });
 
   it('should show the onboarding or home screen', async () => {
-    // Depending on auth state, should show either onboarding or home
-    // At minimum, something should be visible
-    await expect(element(by.type('RCTView')).atIndex(0)).toExist();
+    // Depending on auth state, should show either onboarding carousel or main tabs
+    await waitForEither(by.text('Hello, Explorer!'), by.label('trips-tab'), 15000);
   });
 });
 
@@ -35,12 +34,11 @@ describe('Navigation', () => {
     await device.reloadReactNative();
   });
 
-  // Note: These tests assume user is logged in
-  // In a real scenario, you'd set up auth state first
+  // Note: These tests require user to be logged in
+  // The auth.e2e.ts and trips.e2e.ts files handle logged-in scenarios
 
-  it('should navigate between tabs', async () => {
-    // This test will need to be updated once testIDs are added to the app
-    // For now, it serves as a placeholder for navigation testing
-    await expect(element(by.type('RCTView')).atIndex(0)).toExist();
+  it('should show welcome or logged in state', async () => {
+    // Verify the app is in a valid state - either welcome or main screen
+    await waitForEither(by.id('welcome-get-started-button'), by.label('trips-tab'), 15000);
   });
 });
