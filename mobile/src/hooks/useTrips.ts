@@ -127,7 +127,7 @@ export function useUpdateTrip() {
   });
 }
 
-// Delete a trip
+// Delete a trip (soft-delete)
 export function useDeleteTrip() {
   const queryClient = useQueryClient();
 
@@ -140,6 +140,25 @@ export function useDeleteTrip() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to delete trip';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Restore a soft-deleted trip
+export function useRestoreTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tripId: string): Promise<Trip> => {
+      const response = await api.post(`/trips/${tripId}/restore`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to restore trip';
       Alert.alert('Error', message);
     },
   });

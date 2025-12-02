@@ -251,7 +251,7 @@ export function EntryMediaGallery({
           </View>
         )}
 
-        {editable && media.status === 'completed' && (
+        {editable && media.status === 'uploaded' && (
           <Pressable style={styles.deleteButton} onPress={() => handleDelete(media.id)}>
             <Ionicons name="close-circle" size={22} color="#fff" />
           </Pressable>

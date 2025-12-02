@@ -198,3 +198,60 @@ def test_set_user_country(
         assert data["status"] == "visited"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_delete_user_country(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a user country status."""
+    from tests.conftest import TEST_COUNTRY_ID, TEST_USER_COUNTRY_ID
+
+    mock_supabase_client.delete.return_value = [
+        {
+            "id": TEST_USER_COUNTRY_ID,
+            "user_id": mock_user.id,
+            "country_id": TEST_COUNTRY_ID,
+            "status": "visited",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                f"/countries/user/{TEST_COUNTRY_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_user_country_idempotent(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a user country is idempotent (returns 204 even if not found)."""
+    # DELETE is idempotent - returns 204 even when nothing is deleted
+    mock_supabase_client.delete.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/countries/user/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()

@@ -1,5 +1,6 @@
 """Trip and trip_tags endpoints."""
 
+import re
 from datetime import UTC, date, datetime
 from uuid import UUID
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.utils import get_token_from_request
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter
 from app.schemas.trips import (
     Trip,
@@ -21,6 +22,60 @@ from app.schemas.trips import (
 )
 
 router = APIRouter()
+
+
+async def get_unique_trip_name(
+    db: SupabaseClient, user_id: str, base_name: str, country_id: str
+) -> str:
+    """Generate a unique trip name for a user.
+
+    If the base name already exists for this user and country, appends (2), (3), etc.
+    Handles edge cases like existing names already having suffixes.
+
+    Args:
+        db: Database client
+        user_id: User ID to check uniqueness for
+        base_name: Desired trip name
+        country_id: Country ID for the trip
+
+    Returns:
+        A unique trip name for this user
+    """
+    # First, strip any existing suffix like "(2)" from the base name
+    suffix_pattern = re.compile(r"\s*\(\d+\)$")
+    clean_name = suffix_pattern.sub("", base_name).strip()
+
+    # Get all existing trip names for this user and country that start with the clean name
+    existing_trips = await db.get(
+        "trip",
+        {
+            "user_id": f"eq.{user_id}",
+            "country_id": f"eq.{country_id}",
+            "select": "name",
+        },
+    )
+
+    existing_names = {trip["name"] for trip in existing_trips}
+
+    # If the exact name doesn't exist, use it
+    if base_name not in existing_names:
+        return base_name
+
+    # If the clean name doesn't exist, use it
+    if clean_name not in existing_names:
+        return clean_name
+
+    # Find the next available suffix
+    counter = 2
+    while True:
+        candidate = f"{clean_name} ({counter})"
+        if candidate not in existing_names:
+            return candidate
+        counter += 1
+        # Safety limit to prevent infinite loops
+        if counter > 1000:
+            # Fallback: append timestamp
+            return f"{clean_name} ({datetime.now(UTC).strftime('%Y%m%d%H%M%S')})"
 
 
 def format_daterange(start: date | None, end: date | None) -> str | None:
@@ -86,15 +141,22 @@ async def create_trip(
     Create a new trip.
 
     Optionally tag other users who will receive pending invitations.
+    If a trip with the same name already exists for this user and country,
+    a unique suffix like (2), (3), etc. will be appended.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # Generate unique name if needed
+    unique_name = await get_unique_trip_name(
+        db, user.id, data.name, str(data.country_id)
+    )
 
     # Build trip data
     trip_data = {
         "user_id": user.id,
         "country_id": str(data.country_id),
-        "name": data.name,
+        "name": unique_name,
         "cover_image_url": data.cover_image_url,
         "date_range": format_daterange(data.date_start, data.date_end),
     }
@@ -217,10 +279,57 @@ async def delete_trip(
     trip_id: UUID,
     user: CurrentUser,
 ) -> None:
-    """Delete a trip (owner only)."""
+    """Soft-delete a trip (owner only).
+
+    The trip can be restored within 30 days using the restore endpoint.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    await db.delete("trip", {"id": f"eq.{trip_id}"})
+
+    # Soft delete by setting deleted_at timestamp
+    rows = await db.patch(
+        "trip",
+        {"deleted_at": datetime.now(UTC).isoformat()},
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+
+@router.post("/{trip_id}/restore", response_model=Trip)
+@limiter.limit("10/minute")
+async def restore_trip(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> Trip:
+    """Restore a soft-deleted trip (owner only)."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Restore by clearing deleted_at timestamp
+    # Note: RLS policies filter out deleted trips, so we need to query directly
+    rows = await db.patch(
+        "trip",
+        {"deleted_at": None},
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "deleted_at": "not.is.null",
+        },
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not deleted",
+        )
+
+    return Trip(**rows[0])
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)

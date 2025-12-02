@@ -63,6 +63,7 @@ class Trip(BaseModel):
     cover_image_url: str | None = None
     date_range: str | None = None  # PostgreSQL daterange as string
     created_at: datetime
+    deleted_at: datetime | None = None
 
 
 class TripWithTags(Trip):

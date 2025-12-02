@@ -40,6 +40,7 @@ interface PlacesAutocompleteProps {
   onSelect: (place: SelectedPlace | null) => void;
   placeholder?: string;
   countryCode?: string; // ISO 3166-1 alpha-2 country code for biasing results
+  testID?: string;
 }
 
 interface Prediction {
@@ -52,8 +53,18 @@ interface Prediction {
 }
 
 const DEBOUNCE_MS = 300;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 500;
 
-async function searchPlaces(query: string, countryCode?: string): Promise<Prediction[]> {
+// Helper to delay execution
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function searchPlaces(
+  query: string,
+  countryCode?: string,
+  signal?: AbortSignal,
+  retryCount = 0
+): Promise<Prediction[]> {
   if (!GOOGLE_PLACES_API_KEY || !query.trim()) {
     return [];
   }
@@ -71,7 +82,7 @@ async function searchPlaces(query: string, countryCode?: string): Promise<Predic
   const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
     const data = await response.json();
 
     if (data.status === 'OK') {
@@ -82,13 +93,39 @@ async function searchPlaces(query: string, countryCode?: string): Promise<Predic
       throw new Error('QUOTA_EXCEEDED');
     }
 
+    // For ZERO_RESULTS, just return empty
+    if (data.status === 'ZERO_RESULTS') {
+      return [];
+    }
+
+    // For other errors (UNKNOWN_ERROR, etc.), retry if possible
+    if (retryCount < MAX_RETRIES && !signal?.aborted) {
+      await delay(RETRY_DELAY_MS * (retryCount + 1));
+      return searchPlaces(query, countryCode, signal, retryCount + 1);
+    }
+
+    // Max retries reached
+    console.warn(`Places API returned status: ${data.status} after ${MAX_RETRIES} retries`);
     return [];
   } catch (error) {
+    // Silently ignore aborted requests
+    if ((error as Error).name === 'AbortError') {
+      return [];
+    }
+
     if ((error as Error).message === 'QUOTA_EXCEEDED') {
       throw error;
     }
-    console.error('Places autocomplete error:', error);
-    return [];
+
+    // Retry network errors (unless aborted)
+    if (retryCount < MAX_RETRIES && !signal?.aborted) {
+      console.warn(`Places fetch failed, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+      await delay(RETRY_DELAY_MS * (retryCount + 1));
+      return searchPlaces(query, countryCode, signal, retryCount + 1);
+    }
+
+    console.error('Places autocomplete error after retries:', error);
+    throw new Error('NETWORK_ERROR');
   }
 }
 
@@ -125,6 +162,7 @@ export function PlacesAutocomplete({
   onSelect,
   placeholder = 'Search for a place...',
   countryCode,
+  testID = 'places-search',
 }: PlacesAutocompleteProps) {
   const [query, setQuery] = useState(value?.name ?? '');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -136,6 +174,7 @@ export function PlacesAutocomplete({
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<TextInput>(null);
 
   // Clear selection
@@ -165,15 +204,29 @@ export function PlacesAutocomplete({
       }
 
       debounceRef.current = setTimeout(async () => {
+        // Cancel any in-flight request before starting a new one
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = new AbortController();
+
         setIsLoading(true);
         try {
-          const results = await searchPlaces(text, countryCode);
-          setPredictions(results);
-          setShowDropdown(true);
+          const results = await searchPlaces(text, countryCode, abortControllerRef.current.signal);
+          // Only update if this request wasn't aborted
+          if (!abortControllerRef.current.signal.aborted) {
+            setPredictions(results);
+            setShowDropdown(true);
+          }
         } catch (err) {
-          if ((err as Error).message === 'QUOTA_EXCEEDED') {
+          // Ignore aborted requests
+          if ((err as Error).name === 'AbortError') return;
+
+          const errorMessage = (err as Error).message;
+          if (errorMessage === 'QUOTA_EXCEEDED') {
             setError('Places search unavailable. Enter details manually.');
             setShowManualEntry(true);
+            setShowDropdown(false);
+          } else if (errorMessage === 'NETWORK_ERROR') {
+            setError('Connection error. Check your network or enter manually.');
             setShowDropdown(false);
           }
         } finally {
@@ -256,12 +309,13 @@ export function PlacesAutocomplete({
     Keyboard.dismiss();
   }, [manualName, manualAddress, onSelect]);
 
-  // Cleanup debounce on unmount
+  // Cleanup debounce and abort pending requests on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
+      abortControllerRef.current?.abort();
     };
   }, []);
 
@@ -308,6 +362,7 @@ export function PlacesAutocomplete({
           value={manualName}
           onChangeText={setManualName}
           returnKeyType="next"
+          testID={`${testID}-manual-name`}
         />
 
         <TextInput
@@ -317,12 +372,14 @@ export function PlacesAutocomplete({
           onChangeText={setManualAddress}
           returnKeyType="done"
           onSubmitEditing={handleManualSubmit}
+          testID={`${testID}-manual-address`}
         />
 
         <Pressable
           style={[styles.manualButton, !manualName.trim() && styles.manualButtonDisabled]}
           onPress={handleManualSubmit}
           disabled={!manualName.trim()}
+          testID={`${testID}-manual-submit`}
         >
           <Text style={styles.manualButtonText}>Add Place</Text>
         </Pressable>
@@ -343,6 +400,7 @@ export function PlacesAutocomplete({
           onChangeText={handleTextChange}
           onFocus={() => query.length > 0 && predictions.length > 0 && setShowDropdown(true)}
           returnKeyType="search"
+          testID={`${testID}-input`}
         />
         {isLoading && <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />}
         {!isLoading && query.length > 0 && (
@@ -379,7 +437,7 @@ export function PlacesAutocomplete({
 
       {/* Dropdown */}
       {showDropdown && predictions.length > 0 && (
-        <View style={styles.dropdown}>
+        <View style={styles.dropdown} testID={`${testID}-dropdown`}>
           <FlatList
             data={predictions}
             keyExtractor={(item) => item.place_id}

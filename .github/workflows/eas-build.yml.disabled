@@ -1,0 +1,112 @@
+name: EAS Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ios
+          - android
+      profile:
+        description: 'Build profile'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine build parameters
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "profile=production" >> $GITHUB_OUTPUT
+            echo "platform=all" >> $GITHUB_OUTPUT
+          else
+            echo "profile=${{ inputs.profile }}" >> $GITHUB_OUTPUT
+            echo "platform=${{ inputs.platform }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build iOS
+        if: steps.params.outputs.platform == 'all' || steps.params.outputs.platform == 'ios'
+        run: eas build --platform ios --profile ${{ steps.params.outputs.profile }} --non-interactive
+
+      - name: Build Android
+        if: steps.params.outputs.platform == 'all' || steps.params.outputs.platform == 'android'
+        run: eas build --platform android --profile ${{ steps.params.outputs.profile }} --non-interactive
+
+  submit:
+    name: Submit to Stores
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Submit to App Store
+        run: eas submit --platform ios --latest --non-interactive
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Submit to Play Store
+        run: eas submit --platform android --latest --non-interactive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}

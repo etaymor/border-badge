@@ -67,7 +67,10 @@ describe('PlacesAutocomplete Integration', () => {
 
       // Only one fetch call should be made (for the final query "cafe")
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('input=cafe'));
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('input=cafe'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
     }, 10000);
 
     it('does not search for empty input', async () => {
@@ -567,7 +570,10 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('components=country%3Ajp'));
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('components=country%3Ajp'),
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
       });
     });
 

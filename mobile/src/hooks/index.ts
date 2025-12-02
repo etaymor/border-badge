@@ -5,6 +5,7 @@ export {
   useCreateTrip,
   useUpdateTrip,
   useDeleteTrip,
+  useRestoreTrip,
 } from './useTrips';
 export type { Trip, TripWithTags, CreateTripInput, UpdateTripInput } from './useTrips';
 
