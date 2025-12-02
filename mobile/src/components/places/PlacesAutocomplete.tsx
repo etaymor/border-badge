@@ -447,6 +447,7 @@ export function PlacesAutocomplete({
           />
           <Pressable
             style={styles.manualEntryButton}
+            testID="manual-entry-button"
             onPress={() => {
               setShowDropdown(false);
               setManualName(query);
@@ -467,6 +468,7 @@ export function PlacesAutocomplete({
           </View>
           <Pressable
             style={styles.manualEntryButton}
+            testID="manual-entry-button"
             onPress={() => {
               setShowDropdown(false);
               setManualName(query);

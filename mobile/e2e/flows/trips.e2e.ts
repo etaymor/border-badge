@@ -13,6 +13,7 @@ import {
   completeOnboarding,
   navigateToTab,
   waitForEither,
+  tapAddButton,
 } from '../init';
 
 describe('Trip Flow', () => {
@@ -34,11 +35,7 @@ describe('Trip Flow', () => {
       const tripName = testData.uniqueTripName();
 
       // Tap add button (FAB or empty state)
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       // Wait for form
       await waitFor(element(by.id('trip-name-input')))
@@ -62,11 +59,7 @@ describe('Trip Flow', () => {
       const tripName = testData.uniqueTripName();
 
       // Tap add button
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       // Fill form
       await element(by.id('trip-name-input')).typeText(tripName);
@@ -84,11 +77,7 @@ describe('Trip Flow', () => {
 
     it('shows validation error for empty name', async () => {
       // Tap add button
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       // Try to save without name
       await element(by.id('trip-save-button')).tap();
@@ -108,11 +97,7 @@ describe('Trip Flow', () => {
       tripName = testData.uniqueTripName();
       await navigateToTab('trips');
 
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       await element(by.id('trip-name-input')).typeText(tripName);
       await element(by.id('trip-save-button')).tap();
@@ -155,11 +140,7 @@ describe('Trip Flow', () => {
       tripName = testData.uniqueTripName();
       await navigateToTab('trips');
 
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       await element(by.id('trip-name-input')).typeText(tripName);
       await element(by.id('trip-save-button')).tap();
@@ -214,11 +195,7 @@ describe('Trip Flow', () => {
       tripName = testData.uniqueTripName();
       await navigateToTab('trips');
 
-      try {
-        await element(by.id('fab-add-trip')).tap();
-      } catch {
-        await element(by.id('empty-add-trip-button')).tap();
-      }
+      await tapAddButton('trip');
 
       await element(by.id('trip-name-input')).typeText(tripName);
       await element(by.id('trip-save-button')).tap();

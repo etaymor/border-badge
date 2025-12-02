@@ -78,11 +78,13 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   }).current;
 
   const renderSlide: ListRenderItem<Slide> = ({ item }) => (
-    <View style={styles.slide}>
+    <View style={styles.slide} testID={`carousel-slide-${item.id}`}>
       {/* Grey placeholder for illustration */}
       <View style={styles.imagePlaceholder} />
 
-      <Text style={styles.title}>{item.title}</Text>
+      <Text style={styles.title} testID={`carousel-title-${item.id}`}>
+        {item.title}
+      </Text>
       <Text style={styles.body}>{item.body}</Text>
 
       {item.showCTA && (
