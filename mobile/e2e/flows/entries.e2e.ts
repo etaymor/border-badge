@@ -158,8 +158,8 @@ describe('Entry Flow', () => {
       // Try to save without title
       await element(by.id('entry-save-button')).tap();
 
-      // Should show error
-      await waitFor(element(by.text('Title is required')))
+      // Should show error (use testID for resilience against text changes)
+      await waitFor(element(by.id('error-title-required')))
         .toBeVisible()
         .withTimeout(5000);
     });
@@ -179,8 +179,8 @@ describe('Entry Flow', () => {
       // Try to save
       await element(by.id('entry-save-button')).tap();
 
-      // Should show error about location
-      await waitFor(element(by.text('Please select or enter a location')))
+      // Should show error about location (use testID for resilience against text changes)
+      await waitFor(element(by.id('error-location-required')))
         .toBeVisible()
         .withTimeout(5000);
     });

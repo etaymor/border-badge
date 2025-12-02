@@ -25,7 +25,12 @@ function parseDateRange(dateRange: string | null): { start: Date | null; end: Da
 
   // Handle various daterange formats: [2024-01-01,2024-01-15], (2024-01-01,2024-01-15], etc.
   const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
-  if (!match) return { start: null, end: null };
+  if (!match) {
+    if (__DEV__) {
+      console.warn('Failed to parse date range:', dateRange);
+    }
+    return { start: null, end: null };
+  }
 
   const startStr = match[1].trim();
   const endStr = match[2].trim();

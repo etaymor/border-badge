@@ -237,7 +237,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
             returnKeyType="next"
             testID="entry-title-input"
           />
-          {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
+          {errors.title && (
+            <Text style={styles.errorText} testID="error-title-required">
+              {errors.title}
+            </Text>
+          )}
         </View>
 
         {/* Date */}
@@ -266,7 +270,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
               }}
               placeholder="Search for a place..."
             />
-            {errors.place && <Text style={styles.errorText}>{errors.place}</Text>}
+            {errors.place && (
+              <Text style={styles.errorText} testID="error-location-required">
+                {errors.place}
+              </Text>
+            )}
           </View>
         )}
 

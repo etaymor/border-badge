@@ -14,6 +14,8 @@ export function ProfileScreen(_props: Props) {
     setIsSigningOut(true);
     try {
       await signOut();
+      // Note: No need to reset isSigningOut on success - the auth store change
+      // triggers navigation to login screen, unmounting this component
     } catch {
       Alert.alert('Error', 'Failed to sign out. Please try again.');
       setIsSigningOut(false);

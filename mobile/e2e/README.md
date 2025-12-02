@@ -127,3 +127,45 @@ await waitFor(element(by.id('loading')))
   .not.toBeVisible()
   .withTimeout(10000);
 ```
+
+## Timeout Guidelines
+
+Use consistent timeouts based on operation type:
+
+| Operation Type          | Timeout | Examples                                       |
+| ----------------------- | ------- | ---------------------------------------------- |
+| Form interactions       | 3000ms  | Keyboard appearing, text input                 |
+| API responses           | 5000ms  | Single network call, data loading              |
+| Navigation/Screen loads | 10000ms | Screen transitions, complex state              |
+| Auth flows              | 15000ms | Login, signup (multiple API calls + redirects) |
+
+Example:
+
+```typescript
+// Form input visibility
+await waitFor(element(by.id('email-input')))
+  .toBeVisible()
+  .withTimeout(3000);
+
+// API call completion
+await waitFor(element(by.id('trips-list')))
+  .toBeVisible()
+  .withTimeout(5000);
+
+// Auth flow completion
+await waitForEither(by.id('start-journey-button'), by.label('trips-tab'), 15000);
+```
+
+## Test Helpers
+
+The `init.ts` file provides reusable helpers:
+
+- `waitForEither(matcher1, matcher2, timeout)` - Wait for either of two elements
+- `tapAddButton('trip' | 'entry')` - Handle FAB vs empty state button
+- `signUp(email, password)` - Complete signup flow
+- `login(email, password)` - Complete login flow
+- `completeOnboarding()` - Skip through onboarding
+- `logout()` - Sign out current user
+- `navigateToTab(tabId)` - Navigate to a specific tab
+- `createTrip(name)` - Create a trip and return to list
+- `clearAppState()` - Reset app state between test runs
