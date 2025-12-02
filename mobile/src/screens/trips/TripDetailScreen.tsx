@@ -20,7 +20,10 @@ import { ConfirmDialog, Snackbar } from '@components/ui';
 type Props = TripsStackScreenProps<'TripDetail'>;
 
 // Parse PostgreSQL daterange format [start,end] or [start,end)
-function parseDateRange(dateRange: string | null): { start: Date | null; end: Date | null } {
+function parseDateRange(dateRange: string | null | undefined): {
+  start: Date | null;
+  end: Date | null;
+} {
   if (!dateRange) return { start: null, end: null };
 
   // Handle various daterange formats: [2024-01-01,2024-01-15], (2024-01-01,2024-01-15], etc.
@@ -42,7 +45,7 @@ function parseDateRange(dateRange: string | null): { start: Date | null; end: Da
   return { start, end };
 }
 
-function formatDateRange(dateRange: string | null): string {
+function formatDateRange(dateRange: string | null | undefined): string {
   const { start, end } = parseDateRange(dateRange);
 
   if (!start && !end) return 'No dates set';
@@ -155,7 +158,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
         {/* Country Badge */}
         {country && (
           <View style={styles.countryBadge}>
-            <Text style={styles.countryFlag}>{country.flag}</Text>
             <Text style={styles.countryName}>{country.name}</Text>
           </View>
         )}
@@ -363,10 +365,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  countryFlag: {
-    fontSize: 20,
-    marginRight: 8,
   },
   countryName: {
     fontSize: 16,

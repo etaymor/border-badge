@@ -18,7 +18,7 @@ import { useCountries } from '@hooks/useCountries';
 type Props = TripsStackScreenProps<'TripsList'>;
 
 // Parse PostgreSQL daterange format
-function formatDateRange(dateRange: string | null): string {
+function formatDateRange(dateRange: string | null | undefined): string {
   if (!dateRange) return '';
 
   const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
@@ -47,16 +47,10 @@ function formatDateRange(dateRange: string | null): string {
 interface TripCardProps {
   trip: Trip;
   countryName?: string;
-  countryFlag?: string;
   onPress: () => void;
 }
 
-const TripCard = memo(function TripCard({
-  trip,
-  countryName,
-  countryFlag,
-  onPress,
-}: TripCardProps) {
+const TripCard = memo(function TripCard({ trip, countryName, onPress }: TripCardProps) {
   const dateStr = formatDateRange(trip.date_range);
 
   return (
@@ -72,14 +66,11 @@ const TripCard = memo(function TripCard({
         <Text style={styles.tripName} numberOfLines={1}>
           {trip.name}
         </Text>
-        {(countryFlag || countryName) && (
+        {countryName && (
           <View style={styles.countryRow}>
-            {countryFlag && <Text style={styles.countryFlag}>{countryFlag}</Text>}
-            {countryName && (
-              <Text style={styles.countryName} numberOfLines={1}>
-                {countryName}
-              </Text>
-            )}
+            <Text style={styles.countryName} numberOfLines={1}>
+              {countryName}
+            </Text>
           </View>
         )}
         {dateStr && <Text style={styles.tripDate}>{dateStr}</Text>}
@@ -136,10 +127,10 @@ export function TripsListScreen({ navigation }: Props) {
 
   const getCountryInfo = useCallback(
     (countryId: string) => {
-      const country = countries?.find((c) => c.cca3 === countryId || c.cca2 === countryId);
+      // Country ID is stored as the country code
+      const country = countries?.find((c) => c.code === countryId);
       return {
         name: country?.name,
-        flag: country?.flag,
       };
     },
     [countries]
@@ -147,15 +138,8 @@ export function TripsListScreen({ navigation }: Props) {
 
   const renderItem = useCallback(
     ({ item }: { item: Trip }) => {
-      const { name, flag } = getCountryInfo(item.country_id);
-      return (
-        <TripCard
-          trip={item}
-          countryName={name}
-          countryFlag={flag}
-          onPress={() => handleTripPress(item.id)}
-        />
-      );
+      const { name } = getCountryInfo(item.country_id);
+      return <TripCard trip={item} countryName={name} onPress={() => handleTripPress(item.id)} />;
     },
     [getCountryInfo, handleTripPress]
   );
@@ -285,10 +269,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 2,
-  },
-  countryFlag: {
-    fontSize: 14,
-    marginRight: 6,
   },
   countryName: {
     fontSize: 13,

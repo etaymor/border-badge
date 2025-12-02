@@ -15,6 +15,7 @@ import {
   useUpdateList,
   useDeleteList,
   getPublicListUrl,
+  type ListDetail,
 } from '@hooks/useLists';
 import {
   createMockListDetail,
@@ -404,7 +405,7 @@ describe('ListCreateFlow Integration', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      let createdList;
+      let createdList: ListDetail | undefined;
       await act(async () => {
         createdList = await result.current.mutateAsync({
           tripId: 'trip-123',
@@ -416,9 +417,7 @@ describe('ListCreateFlow Integration', () => {
       });
 
       expect(createdList?.entries).toHaveLength(3);
-      expect(createdList?.entries.map((e: { entry_id: string }) => e.entry_id)).toEqual(
-        selectedEntryIds
-      );
+      expect(createdList?.entries.map((e) => e.entry_id)).toEqual(selectedEntryIds);
     });
 
     it('creates list without entries when entry_ids is empty', async () => {
@@ -464,7 +463,7 @@ describe('ListCreateFlow Integration', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      let createdList;
+      let createdList: ListDetail | undefined;
       await act(async () => {
         createdList = await result.current.mutateAsync({
           tripId: 'trip-123',
@@ -490,7 +489,7 @@ describe('ListCreateFlow Integration', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      let createdList;
+      let createdList: ListDetail | undefined;
       await act(async () => {
         createdList = await result.current.mutateAsync({
           tripId: 'trip-123',
