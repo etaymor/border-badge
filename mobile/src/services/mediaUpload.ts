@@ -1,10 +1,14 @@
 /**
  * Media upload service for handling image uploads to the backend.
  * Uses signed URLs from the backend to upload directly to storage.
+ *
+ * Uses the modern expo-file-system API (SDK 54+) with expo/fetch for uploads.
+ * See: https://docs.expo.dev/versions/latest/sdk/filesystem/
  */
 
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import { File as ExpoFile } from 'expo-file-system';
+import { fetch as expoFetch } from 'expo/fetch';
 
 import { api } from './api';
 
@@ -122,9 +126,10 @@ export async function pickImages(options?: {
   const files: LocalFile[] = [];
 
   for (const asset of result.assets) {
-    const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+    // Use the modern expo-file-system File class
+    const expoFile = new ExpoFile(asset.uri);
 
-    if (!fileInfo.exists) {
+    if (!expoFile.exists) {
       continue;
     }
 
@@ -132,7 +137,7 @@ export async function pickImages(options?: {
       uri: asset.uri,
       name: asset.fileName ?? `photo_${Date.now()}.jpg`,
       type: asset.mimeType ?? 'image/jpeg',
-      size: (fileInfo as { size?: number }).size ?? 0,
+      size: expoFile.size,
     };
 
     const validation = validateFile(file);
@@ -167,9 +172,10 @@ export async function takePhoto(): Promise<LocalFile | null> {
   }
 
   const asset = result.assets[0];
-  const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+  // Use the modern expo-file-system File class
+  const expoFile = new ExpoFile(asset.uri);
 
-  if (!fileInfo.exists) {
+  if (!expoFile.exists) {
     throw new MediaUploadError('Failed to access captured photo', 'UNKNOWN');
   }
 
@@ -177,7 +183,7 @@ export async function takePhoto(): Promise<LocalFile | null> {
     uri: asset.uri,
     name: asset.fileName ?? `photo_${Date.now()}.jpg`,
     type: asset.mimeType ?? 'image/jpeg',
-    size: (fileInfo as { size?: number }).size ?? 0,
+    size: expoFile.size,
   };
 
   const validation = validateFile(file);
@@ -211,8 +217,8 @@ async function getSignedUploadUrl(
 
 /**
  * Upload file to storage using signed URL.
- * Uses expo-file-system's uploadAsync for efficient streaming upload
- * that avoids memory issues with large files and works on Hermes.
+ * Uses the modern expo-file-system File class with expo/fetch for efficient uploads.
+ * The File class implements the Blob interface, enabling direct use with fetch.
  */
 async function uploadToStorage(
   signedUrl: string,
@@ -223,16 +229,19 @@ async function uploadToStorage(
     // Report initial progress
     onProgress?.({ loaded: 0, total: file.size, percentage: 0 });
 
-    // Use FileSystem.uploadAsync for efficient streaming upload
-    // This avoids loading the entire file into memory as base64
-    const uploadResult = await FileSystem.uploadAsync(signedUrl, file.uri, {
-      httpMethod: 'PUT',
-      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    // Create an ExpoFile from the URI - it implements the Blob interface
+    const expoFile = new ExpoFile(file.uri);
+
+    // Use expo/fetch with the file as the body for efficient streaming upload
+    // This avoids loading the entire file into memory
+    const response = await expoFetch(signedUrl, {
+      method: 'PUT',
       headers: { 'Content-Type': file.type },
+      body: expoFile,
     });
 
-    if (uploadResult.status < 200 || uploadResult.status >= 300) {
-      throw new Error(`Upload failed with status ${uploadResult.status}`);
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status}`);
     }
 
     // Report completion

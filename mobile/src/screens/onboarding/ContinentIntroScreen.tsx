@@ -48,7 +48,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
         {/* Progress indicator */}
         <View style={styles.progressContainer}>
-          {REGIONS.map((_, index) => (
+          {REGIONS.map((_: (typeof REGIONS)[number], index: number) => (
             <View
               key={index}
               style={[styles.progressDot, index === regionIndex && styles.progressDotActive]}
