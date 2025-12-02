@@ -29,12 +29,20 @@ export function MainTabNavigator() {
         headerShown: false, // Stacks have their own headers
       })}
     >
-      <Tab.Screen name="Passport" component={PassportNavigator} options={{ title: 'Passport' }} />
-      <Tab.Screen name="Trips" component={TripsNavigator} options={{ title: 'Trips' }} />
+      <Tab.Screen
+        name="Passport"
+        component={PassportNavigator}
+        options={{ title: 'Passport', tabBarAccessibilityLabel: 'passport-tab' }}
+      />
+      <Tab.Screen
+        name="Trips"
+        component={TripsNavigator}
+        options={{ title: 'Trips', tabBarAccessibilityLabel: 'trips-tab' }}
+      />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ title: 'Profile', headerShown: true }}
+        options={{ title: 'Profile', headerShown: true, tabBarAccessibilityLabel: 'profile-tab' }}
       />
     </Tab.Navigator>
   );

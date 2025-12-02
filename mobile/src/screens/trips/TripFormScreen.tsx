@@ -166,6 +166,7 @@ export function TripFormScreen({ navigation, route }: Props) {
           error={nameError}
           autoCapitalize="words"
           autoFocus={!isEditing}
+          testID="trip-name-input"
         />
 
         {/* Date Range */}
@@ -177,6 +178,7 @@ export function TripFormScreen({ navigation, route }: Props) {
               onChangeText={setDateStart}
               placeholder="YYYY-MM-DD"
               keyboardType="numbers-and-punctuation"
+              testID="trip-start-date-input"
             />
           </View>
           <View style={styles.dateSeparator}>
@@ -189,6 +191,7 @@ export function TripFormScreen({ navigation, route }: Props) {
               onChangeText={setDateEnd}
               placeholder="YYYY-MM-DD"
               keyboardType="numbers-and-punctuation"
+              testID="trip-end-date-input"
             />
           </View>
         </View>
@@ -202,6 +205,7 @@ export function TripFormScreen({ navigation, route }: Props) {
           placeholder="https://..."
           autoCapitalize="none"
           keyboardType="url"
+          testID="trip-cover-image-input"
         />
         <Text style={styles.hint}>Optional: Add a cover image for your trip</Text>
 
@@ -221,6 +225,7 @@ export function TripFormScreen({ navigation, route }: Props) {
           onPress={handleSave}
           loading={isLoading}
           disabled={isLoading}
+          testID="trip-save-button"
         />
       </View>
     </KeyboardAvoidingView>

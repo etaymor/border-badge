@@ -3,7 +3,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, CountryGridItem } from '@components/ui';
-import { REGIONS } from '@constants/regions';
+import { REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -29,7 +29,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleSaveAndContinue = () => {
     // Find current region index and move to next
-    const currentIndex = REGIONS.indexOf(region);
+    const currentIndex = REGIONS.indexOf(region as Region);
     const nextIndex = currentIndex + 1;
 
     if (nextIndex < REGIONS.length) {
@@ -100,6 +100,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         numColumns={3}
         contentContainerStyle={styles.gridContent}
         showsVerticalScrollIndicator={false}
+        testID="country-grid"
       />
 
       {/* Footer */}
@@ -108,12 +109,13 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           title="Save & Continue"
           onPress={handleSaveAndContinue}
           style={styles.footerButton}
+          testID="save-continue-button"
         />
       </View>
 
       {/* Progress indicator */}
       <View style={styles.progressContainer}>
-        {REGIONS.map((r, index) => (
+        {REGIONS.map((r: (typeof REGIONS)[number], index: number) => (
           <View
             key={index}
             style={[

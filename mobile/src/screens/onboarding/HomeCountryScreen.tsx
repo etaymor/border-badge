@@ -68,6 +68,7 @@ export function HomeCountryScreen({ navigation }: Props) {
             }}
             placeholder="Search countries..."
             onFocus={() => setShowDropdown(searchQuery.length > 0)}
+            testID="home-country-search"
           />
 
           {/* Autocomplete dropdown */}
@@ -80,6 +81,7 @@ export function HomeCountryScreen({ navigation }: Props) {
                   <TouchableOpacity
                     style={styles.dropdownItem}
                     onPress={() => handleSelectCountry(item)}
+                    testID={`country-option-${item.code}`}
                   >
                     <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
                     <Text style={styles.countryName}>{item.name}</Text>
@@ -112,8 +114,20 @@ export function HomeCountryScreen({ navigation }: Props) {
         )}
 
         <View style={styles.footer}>
-          <Button title="Next" onPress={handleNext} disabled={!homeCountry} style={styles.button} />
-          <Button title="Skip" onPress={handleSkip} variant="ghost" style={styles.skipButton} />
+          <Button
+            title="Next"
+            onPress={handleNext}
+            disabled={!homeCountry}
+            style={styles.button}
+            testID="home-country-next-button"
+          />
+          <Button
+            title="Skip"
+            onPress={handleSkip}
+            variant="ghost"
+            style={styles.skipButton}
+            testID="home-country-skip-button"
+          />
         </View>
       </View>
     </SafeAreaView>

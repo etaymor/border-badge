@@ -1,0 +1,33 @@
+{
+  "lastUpdated": "2024-12-01",
+  "totalTodos": 4,
+  "resolved": 2,
+  "skipped": 2,
+  "remaining": 0,
+  "todos": [
+    {
+      "file": "mobile/App.tsx",
+      "line": 47,
+      "status": "resolved",
+      "type": "memory"
+    },
+    {
+      "file": "mobile/src/components/places/PlacesAutocomplete.tsx",
+      "line": 58,
+      "status": "resolved",
+      "type": "performance"
+    },
+    {
+      "file": "mobile/e2e/flows/trips.e2e.ts",
+      "line": 16,
+      "status": "skipped",
+      "reason": "Placeholder - requires testIDs"
+    },
+    {
+      "file": "mobile/e2e/flows/entries.e2e.ts",
+      "line": 17,
+      "status": "skipped",
+      "reason": "Placeholder - requires testIDs"
+    }
+  ]
+}

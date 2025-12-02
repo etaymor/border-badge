@@ -1,10 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { MainTabScreenProps } from '@navigation/types';
+// Note: Map tab is deferred to a future phase. This screen is a placeholder.
+// When Map is added to MainTabParamList, uncomment the Props type.
+// import type { MainTabScreenProps } from '@navigation/types';
+// type Props = MainTabScreenProps<'Map'>;
 
-type Props = MainTabScreenProps<'Map'>;
-
-export function MapScreen(_props: Props) {
+export function MapScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>World Map</Text>

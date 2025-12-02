@@ -140,13 +140,39 @@ jest.mock(
   { virtual: true }
 );
 
-// Mock expo-file-system
+// Mock expo-file-system with modern File class API (SDK 54+)
 jest.mock(
   'expo-file-system',
+  () => {
+    // Mock the modern File class used in mediaUpload.ts
+    class MockFile {
+      constructor(uri) {
+        this.uri = uri;
+        this.exists = true;
+        this.size = 1000;
+      }
+    }
+
+    return {
+      // Modern API (SDK 54+)
+      File: MockFile,
+      // Legacy methods (kept for backwards compatibility)
+      getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1000 }),
+      readAsStringAsync: jest.fn().mockResolvedValue('base64-encoded-content'),
+      EncodingType: { Base64: 'base64' },
+    };
+  },
+  { virtual: true }
+);
+
+// Mock expo/fetch (used by modern mediaUpload.ts)
+jest.mock(
+  'expo/fetch',
   () => ({
-    getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1000 }),
-    readAsStringAsync: jest.fn().mockResolvedValue('base64-encoded-content'),
-    EncodingType: { Base64: 'base64' },
+    fetch: jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    }),
   }),
   { virtual: true }
 );

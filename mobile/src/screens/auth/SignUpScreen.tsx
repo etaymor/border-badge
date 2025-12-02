@@ -106,6 +106,7 @@ export function SignUpScreen({ navigation }: Props) {
               autoComplete="email"
               error={emailError}
               containerStyle={styles.input}
+              testID="signup-email-input"
             />
 
             <Input
@@ -118,6 +119,7 @@ export function SignUpScreen({ navigation }: Props) {
               autoComplete="new-password"
               error={passwordError}
               containerStyle={styles.input}
+              testID="signup-password-input"
             />
 
             <Input
@@ -130,6 +132,7 @@ export function SignUpScreen({ navigation }: Props) {
               autoComplete="new-password"
               error={confirmPasswordError}
               containerStyle={styles.input}
+              testID="signup-confirm-password-input"
             />
 
             <Button
@@ -137,9 +140,14 @@ export function SignUpScreen({ navigation }: Props) {
               onPress={handleSignUp}
               loading={signUp.isPending}
               style={styles.button}
+              testID="signup-submit-button"
             />
 
-            <Text style={styles.link} onPress={() => navigation.navigate('Login')}>
+            <Text
+              style={styles.link}
+              onPress={() => navigation.navigate('Login')}
+              testID="signup-login-link"
+            >
               Already have an account? Sign in
             </Text>
           </View>

@@ -27,6 +27,7 @@ export function WelcomeScreen({ navigation }: Props) {
             title="Get Started"
             onPress={() => navigation.navigate('SignUp')}
             style={styles.button}
+            testID="welcome-get-started-button"
           />
 
           <Button
@@ -34,6 +35,7 @@ export function WelcomeScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('Login')}
             variant="outline"
             style={styles.button}
+            testID="welcome-login-button"
           />
 
           <Button
@@ -41,6 +43,7 @@ export function WelcomeScreen({ navigation }: Props) {
             onPress={handleGuestMode}
             variant="ghost"
             style={styles.guestButton}
+            testID="welcome-guest-button"
           />
         </View>
       </View>

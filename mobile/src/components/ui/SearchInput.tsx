@@ -7,6 +7,7 @@ export interface SearchInputProps {
   placeholder?: string;
   style?: ViewStyle;
   onFocus?: () => void;
+  testID?: string;
 }
 
 export function SearchInput({
@@ -15,6 +16,7 @@ export function SearchInput({
   placeholder = 'Search...',
   style,
   onFocus,
+  testID,
 }: SearchInputProps) {
   return (
     <View style={[styles.container, style]}>
@@ -28,9 +30,14 @@ export function SearchInput({
         autoCapitalize="none"
         autoCorrect={false}
         onFocus={onFocus}
+        testID={testID}
       />
       {value.length > 0 && (
-        <TouchableOpacity onPress={() => onChangeText('')} style={styles.clearButton}>
+        <TouchableOpacity
+          onPress={() => onChangeText('')}
+          style={styles.clearButton}
+          testID={testID ? `${testID}-clear` : undefined}
+        >
           <Text style={styles.clearIcon}>✕</Text>
         </TouchableOpacity>
       )}

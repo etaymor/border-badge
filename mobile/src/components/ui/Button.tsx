@@ -17,6 +17,7 @@ interface ButtonProps {
   loading?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  testID?: string;
 }
 
 export function Button({
@@ -27,6 +28,7 @@ export function Button({
   loading = false,
   style,
   textStyle,
+  testID,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
 
@@ -36,6 +38,7 @@ export function Button({
       onPress={onPress}
       disabled={isDisabled}
       activeOpacity={0.7}
+      testID={testID}
     >
       {loading ? (
         <ActivityIndicator color={variant === 'primary' ? '#fff' : '#007AFF'} size="small" />

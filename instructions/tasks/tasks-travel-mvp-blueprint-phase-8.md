@@ -14,7 +14,7 @@
 - `mobile/src/components/animation/Confetti.tsx` - Simple confetti/celebration animation component used for key milestones (PRD animation notes `docs/travel-prd.md` L229–230).
 - `mobile/src/screens/Tabs/PassportScreen.tsx` - Main passport grid screen where upgraded visuals, stamps, and confetti will be applied.
 - `mobile/src/screens/Onboarding/**` - Welcome slides, motivation tags, country selection, and progress summary screens receiving final art, typography, and micro-animations (`docs/travel-prd.md` L209–231).
-- `mobile/src/screens/Paywall/PaywallScreen.tsx` - Paywall screen to receive visual polish, layout refinements, and CRO-ready structure (`docs/travel-prd.md` L217–231, L349–359; `docs/travel-mvp-blueprint.md` L605–610).
+- `mobile/src/screens/Paywall/PaywallScreen.tsx` - Paywall screen to receive visual polish, layout refinements, and CRO-ready structure (`docs/travel-prd.md` L217–231, L349–359; `docs/travel-mvp-blueprint.md` L605–610). **[DEFERRED: requires paywall implementation]**
 - `web/` components (if present) - Shared visual hooks for public list/trip views (colors, typography) to match the mobile brand where appropriate (`docs/travel-mvp-blueprint.md` L620–639).
 - `mobile/src/__tests__/**` - Snapshot and component tests that may need updates once visuals and structure are refined.
 
@@ -59,7 +59,7 @@
     - Use consistent paddings and border radii.
     - Apply focus/error states using semantic tokens.
     - Ensure labels and helper/error text use the new typography tokens.
-  - [ ] 2.5 Ensure all major screens (onboarding, passport, trips, entries, friends, paywall) are refactored to use only these primitives (and any new token-aware components) instead of ad hoc styles.
+  - [ ] 2.5 Ensure all major screens (onboarding, passport, trips, entries) are refactored to use only these primitives (and any new token-aware components) instead of ad hoc styles. **[DEFERRED: friends screen, paywall screen - requires Phase 5 social layer and paywall]**
 
 - [ ] 3.0 Upgrade passport grid and country visuals
 
@@ -78,7 +78,7 @@
     - Keep performance in mind (limit particle count, duration).
   - [ ] 3.5 Validate that the passport grid still performs well (scrolling and interaction) on target devices and meets P75 performance goals from PRD (`docs/travel-prd.md` L317–323).
 
-- [ ] 4.0 Polish onboarding and paywall experiences
+- [ ] 4.0 Polish onboarding experiences **[DEFERRED: paywall experiences - requires paywall implementation]**
 
   - [ ] 4.1 Update onboarding welcome slides (screens 1-A to 1-D in `docs/travel-prd.md` L217–221) to:
     - Use final illustrations and colors consistent with the token system.
@@ -91,18 +91,19 @@
     - Ensure continent cards and grids align visually with the passport grid.
     - Use consistent iconography and spacing.
     - Integrate small, non-distracting animations on progress reveal.
-  - [ ] 4.4 Apply the visual system to `PaywallScreen`:
+  - [ ] **[DEFERRED]** 4.4 Apply the visual system to `PaywallScreen` *(requires paywall implementation)*:
     - Align typography, spacing, and colors with the new design tokens.
     - Ensure layout works well on different device sizes.
     - Leave room for future CRO experiments (trial-length ribbons, testimonials) without hardcoding them yet (`docs/travel-prd.md` L229–231, L349–359).
-  - [ ] 4.5 Re-check accessibility across onboarding and paywall:
+  - [ ] 4.5 Re-check accessibility across onboarding:
     - Contrast ratios.
     - Font sizes and touch targets.
     - VoiceOver/readability of critical labels and CTAs.
+    - **[DEFERRED: paywall accessibility - requires paywall implementation]**
 
 - [ ] 5.0 Run a visual QA & design-debt sweep
 
-  - [ ] 5.1 Audit all major screens and flows (onboarding, passport, country detail, trip detail, entry flows, friends, notifications, paywall, and public web views if present) for:
+  - [ ] 5.1 Audit all major screens and flows (onboarding, passport, country detail, trip detail, entry flows, and public web views if present) for: **[DEFERRED: friends, notifications, paywall screens - requires Phase 5 social layer and paywall]**
     - Inconsistent spacing, alignment, or typography.
     - Inconsistent button or input variants.
     - Unpolished error/empty states.
