@@ -95,6 +95,8 @@ def test_create_trip(
     sample_trip: dict[str, Any],
 ) -> None:
     """Test creating a new trip."""
+    # First call is for checking existing names, second is creating the trip
+    mock_supabase_client.get.return_value = []
     mock_supabase_client.post.return_value = [sample_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -139,6 +141,8 @@ def test_create_trip_with_tags(
         "responded_at": None,
     }
 
+    # get is called for checking existing names
+    mock_supabase_client.get.return_value = []
     mock_supabase_client.post.side_effect = [[sample_trip], [tag_data]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -302,3 +306,357 @@ def test_approve_already_actioned_tag_returns_409(
         assert response.status_code == 409
     finally:
         app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Duplicate Trip Name Tests
+# ============================================================================
+
+
+def test_create_trip_with_duplicate_name_appends_suffix(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test that creating a trip with a duplicate name appends (2) suffix."""
+    from tests.conftest import TEST_COUNTRY_ID
+
+    # Existing trip with same name
+    existing_trip = {**sample_trip, "name": "Summer Vacation"}
+    # New trip should get (2) suffix
+    new_trip = {**sample_trip, "name": "Summer Vacation (2)"}
+
+    mock_supabase_client.get.return_value = [existing_trip]
+    mock_supabase_client.post.return_value = [new_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation",
+                    "country_id": TEST_COUNTRY_ID,
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Summer Vacation (2)"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_trip_with_multiple_duplicates_increments_suffix(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test that creating a trip finds the next available suffix."""
+    from tests.conftest import TEST_COUNTRY_ID
+
+    # Existing trips with name and (2) suffix
+    existing_trips = [
+        {**sample_trip, "name": "Summer Vacation"},
+        {**sample_trip, "name": "Summer Vacation (2)"},
+    ]
+    # New trip should get (3) suffix
+    new_trip = {**sample_trip, "name": "Summer Vacation (3)"}
+
+    mock_supabase_client.get.return_value = existing_trips
+    mock_supabase_client.post.return_value = [new_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation",
+                    "country_id": TEST_COUNTRY_ID,
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Summer Vacation (3)"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_trip_strips_existing_suffix_before_checking(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test that creating a trip with "(2)" in name normalizes correctly."""
+    from tests.conftest import TEST_COUNTRY_ID
+
+    # User submits "Summer Vacation (2)" but "Summer Vacation" exists
+    existing_trip = {**sample_trip, "name": "Summer Vacation"}
+    # Should get (2) suffix since base name exists
+    new_trip = {**sample_trip, "name": "Summer Vacation (2)"}
+
+    mock_supabase_client.get.return_value = [existing_trip]
+    mock_supabase_client.post.return_value = [new_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation (2)",  # User explicitly adds (2)
+                    "country_id": TEST_COUNTRY_ID,
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Summer Vacation (2)"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Update Trip Tests
+# ============================================================================
+
+
+def test_update_trip(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test updating a trip."""
+    updated_trip = {**sample_trip, "name": "Winter Getaway"}
+
+    mock_supabase_client.patch.return_value = [updated_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={"name": "Winter Getaway"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Winter Getaway"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_trip_with_dates(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test updating a trip with date range."""
+    updated_trip = {**sample_trip, "date_range": "[2024-07-01,2024-07-15]"}
+
+    mock_supabase_client.get.return_value = [sample_trip]  # for fetching existing
+    mock_supabase_client.patch.return_value = [updated_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={
+                    "date_start": "2024-07-01",
+                    "date_end": "2024-07-15",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["date_range"] == "[2024-07-01,2024-07-15]"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_trip_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test updating a trip that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                "/trips/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+                json={"name": "New Name"},
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_trip_no_fields_returns_400(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test updating a trip with no fields returns 400."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={},
+            )
+        assert response.status_code == 400
+        assert "No fields to update" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Delete and Restore Trip Tests
+# ============================================================================
+
+
+def test_delete_trip(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test soft-deleting a trip."""
+    deleted_trip = {**sample_trip, "deleted_at": "2024-01-15T12:00:00Z"}
+
+    mock_supabase_client.patch.return_value = [deleted_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_trip_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a trip that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/trips/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_trip(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """Test restoring a soft-deleted trip."""
+    restored_trip = {**sample_trip, "deleted_at": None}
+
+    mock_supabase_client.patch.return_value = [restored_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/trips/{sample_trip['id']}/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == sample_trip["id"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_trip_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test restoring a trip that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips/550e8400-e29b-41d4-a716-446655440999/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_format_daterange_invalid_range_raises_error(client: TestClient) -> None:
+    """Test that start date after end date raises HTTPException."""
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        format_daterange(date(2024, 6, 15), date(2024, 6, 1))  # end before start
+
+    assert exc_info.value.status_code == 400
+    assert "date_start must be on or before date_end" in exc_info.value.detail

@@ -58,6 +58,7 @@ class ListSummary(BaseModel):
     entry_count: int = 0
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class ListDetail(BaseModel):
@@ -72,6 +73,7 @@ class ListDetail(BaseModel):
     is_public: bool
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
     entries: list[ListEntry] = []
 
 

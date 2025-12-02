@@ -77,6 +77,7 @@ class Entry(BaseModel):
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
     created_at: datetime
+    deleted_at: datetime | None = None
 
 
 class EntryWithPlace(Entry):

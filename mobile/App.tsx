@@ -15,7 +15,13 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 30, // 30 minutes - keep unused data in cache longer
       retry: 2,
+      refetchOnWindowFocus: false, // Don't refetch when app comes to foreground
+      refetchOnReconnect: true, // Refetch when network reconnects
+    },
+    mutations: {
+      retry: 1,
     },
   },
 });
@@ -38,7 +44,10 @@ export default function App() {
     // Wire up API sign-out callback
     setSignOutCallback(signOut);
 
+    // TODO: [Memory] Use ref to track mounted state - if component unmounts before
+    // initAuth completes, subscription callback can fire on unmounted component
     let subscription: { unsubscribe: () => void } | null = null;
+    let isMounted = true;
 
     const initAuth = async () => {
       try {
@@ -62,6 +71,8 @@ export default function App() {
       } = supabase.auth.onAuthStateChange(async (event, session) => {
         // Skip INITIAL_SESSION as we already handled it above
         if (event === 'INITIAL_SESSION') return;
+        // Guard against updates after unmount
+        if (!isMounted) return;
 
         console.log('Auth state changed:', event);
         setSession(session);
@@ -77,6 +88,7 @@ export default function App() {
     initAuth();
 
     return () => {
+      isMounted = false;
       subscription?.unsubscribe();
     };
   }, [signOut, setSession, setIsLoading]);

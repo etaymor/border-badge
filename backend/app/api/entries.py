@@ -1,5 +1,6 @@
 """Entry endpoints."""
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -187,7 +188,57 @@ async def delete_entry(
     entry_id: UUID,
     user: CurrentUser,
 ) -> None:
-    """Delete an entry (cascades to place)."""
+    """Soft-delete an entry.
+
+    The entry can be restored within 30 days using the restore endpoint.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    await db.delete("entry", {"id": f"eq.{entry_id}"})
+
+    # Soft delete by setting deleted_at timestamp
+    rows = await db.patch(
+        "entry",
+        {"deleted_at": datetime.now(UTC).isoformat()},
+        {"id": f"eq.{entry_id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not authorized",
+        )
+
+
+@router.post("/entries/{entry_id}/restore", response_model=EntryWithPlace)
+@limiter.limit("30/minute")
+async def restore_entry(
+    request: Request,
+    entry_id: UUID,
+    user: CurrentUser,
+) -> EntryWithPlace:
+    """Restore a soft-deleted entry."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Restore by clearing deleted_at timestamp
+    rows = await db.patch(
+        "entry",
+        {"deleted_at": None},
+        {"id": f"eq.{entry_id}", "deleted_at": "not.is.null"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not deleted",
+        )
+
+    entry = Entry(**rows[0])
+    place = None
+
+    # Fetch place if this entry has one
+    places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+    if places:
+        place = Place(**places[0])
+
+    return EntryWithPlace(**entry.model_dump(), place=place)

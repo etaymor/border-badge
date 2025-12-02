@@ -217,10 +217,57 @@ async def delete_trip(
     trip_id: UUID,
     user: CurrentUser,
 ) -> None:
-    """Delete a trip (owner only)."""
+    """Soft-delete a trip (owner only).
+
+    The trip can be restored within 30 days using the restore endpoint.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    await db.delete("trip", {"id": f"eq.{trip_id}"})
+
+    # Soft delete by setting deleted_at timestamp
+    rows = await db.patch(
+        "trip",
+        {"deleted_at": datetime.now(UTC).isoformat()},
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+
+@router.post("/{trip_id}/restore", response_model=Trip)
+@limiter.limit("10/minute")
+async def restore_trip(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> Trip:
+    """Restore a soft-deleted trip (owner only)."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Restore by clearing deleted_at timestamp
+    # Note: RLS policies filter out deleted trips, so we need to query directly
+    rows = await db.patch(
+        "trip",
+        {"deleted_at": None},
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "deleted_at": "not.is.null",
+        },
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not deleted",
+        )
+
+    return Trip(**rows[0])
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)

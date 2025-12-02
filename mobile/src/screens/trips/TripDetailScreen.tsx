@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,19 +12,28 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import type { TripsStackScreenProps } from '@navigation/types';
-import { useTrip, useDeleteTrip } from '@hooks/useTrips';
+import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
 import { useEntries } from '@hooks/useEntries';
 import { useCountryByCode } from '@hooks/useCountries';
+import { ConfirmDialog, Snackbar } from '@components/ui';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
 // Parse PostgreSQL daterange format [start,end] or [start,end)
-function parseDateRange(dateRange: string | null): { start: Date | null; end: Date | null } {
+function parseDateRange(dateRange: string | null | undefined): {
+  start: Date | null;
+  end: Date | null;
+} {
   if (!dateRange) return { start: null, end: null };
 
   // Handle various daterange formats: [2024-01-01,2024-01-15], (2024-01-01,2024-01-15], etc.
   const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
-  if (!match) return { start: null, end: null };
+  if (!match) {
+    if (__DEV__) {
+      console.warn('Failed to parse date range:', dateRange);
+    }
+    return { start: null, end: null };
+  }
 
   const startStr = match[1].trim();
   const endStr = match[2].trim();
@@ -36,7 +45,7 @@ function parseDateRange(dateRange: string | null): { start: Date | null; end: Da
   return { start, end };
 }
 
-function formatDateRange(dateRange: string | null): string {
+function formatDateRange(dateRange: string | null | undefined): string {
   const { start, end } = parseDateRange(dateRange);
 
   if (!start && !end) return 'No dates set';
@@ -59,35 +68,58 @@ function formatDateRange(dateRange: string | null): string {
 export function TripDetailScreen({ route, navigation }: Props) {
   const { tripId } = route.params;
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
+  const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
   const deleteTrip = useDeleteTrip();
+  const restoreTrip = useRestoreTrip();
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Trip',
-      `Are you sure you want to delete "${trip?.name}"? This will also delete all entries and media associated with this trip.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            try {
-              await deleteTrip.mutateAsync(tripId);
-              navigation.goBack();
-            } catch {
-              Alert.alert('Error', 'Failed to delete trip. Please try again.');
-              setIsDeleting(false);
-            }
-          },
-        },
-      ]
-    );
-  };
+  const handleDelete = useCallback(() => {
+    setShowDeleteConfirm(true);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      await deleteTrip.mutateAsync(tripId);
+      setDeletedTripId(tripId);
+      setShowUndoSnackbar(true);
+      // Don't navigate immediately - wait for snackbar to dismiss
+      // This allows user to see and use the "Undo" button
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete trip. Please try again.';
+      Alert.alert('Error', message);
+      setIsDeleting(false);
+    }
+  }, [deleteTrip, tripId]);
+
+  const handleUndo = useCallback(async () => {
+    setShowUndoSnackbar(false);
+    if (deletedTripId) {
+      try {
+        await restoreTrip.mutateAsync(deletedTripId);
+        setDeletedTripId(null);
+        setIsDeleting(false);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to restore trip. Please try again.';
+        Alert.alert('Error', message);
+      }
+    }
+  }, [deletedTripId, restoreTrip]);
+
+  const handleDismissSnackbar = useCallback(() => {
+    setShowUndoSnackbar(false);
+    setDeletedTripId(null);
+    // Navigate back after snackbar dismisses (either by timeout or user action)
+    navigation.goBack();
+  }, [navigation]);
 
   if (tripLoading) {
     return (
@@ -130,7 +162,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
         {/* Country Badge */}
         {country && (
           <View style={styles.countryBadge}>
-            <Text style={styles.countryFlag}>{country.flag}</Text>
             <Text style={styles.countryName}>{country.name}</Text>
           </View>
         )}
@@ -159,6 +190,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('EntryList', { tripId, tripName: trip.name })}
+          testID="view-entries-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="list-outline" size={24} color="#007AFF" />
@@ -178,6 +210,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('EntryForm', { tripId })}
+          testID="add-entry-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="add-circle-outline" size={24} color="#34C759" />
@@ -195,6 +228,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('ListCreate', { tripId, tripName: trip.name })}
+          testID="create-list-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="share-outline" size={24} color="#FF9500" />
@@ -212,6 +246,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('TripForm', { tripId })}
+          testID="edit-trip-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="pencil-outline" size={24} color="#5856D6" />
@@ -230,6 +265,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           style={[styles.deleteButton, isDeleting && styles.deleteButtonDisabled]}
           onPress={handleDelete}
           disabled={isDeleting}
+          testID="delete-trip-button"
         >
           {isDeleting ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -241,6 +277,30 @@ export function TripDetailScreen({ route, navigation }: Props) {
           )}
         </Pressable>
       </View>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        visible={showDeleteConfirm}
+        title="Delete Trip"
+        message={`Are you sure you want to delete "${trip?.name}"? This will also delete all entries and media associated with this trip.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+        testID="delete-trip-dialog"
+      />
+
+      {/* Undo Snackbar */}
+      <Snackbar
+        visible={showUndoSnackbar}
+        message="Trip deleted"
+        actionLabel="Undo"
+        onAction={handleUndo}
+        onDismiss={handleDismissSnackbar}
+        duration={5000}
+        testID="trip-deleted-snackbar"
+      />
     </ScrollView>
   );
 }
@@ -309,10 +369,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  countryFlag: {
-    fontSize: 20,
-    marginRight: 8,
   },
   countryName: {
     fontSize: 16,

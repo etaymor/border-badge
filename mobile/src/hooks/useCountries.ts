@@ -135,7 +135,7 @@ export function useSearchCountries(query: string, limit: number = 10) {
  * Hook to get a single country by code.
  * Useful for displaying selected country details.
  */
-export function useCountryByCode(code: string | null) {
+export function useCountryByCode(code: string | null | undefined) {
   const [data, setData] = useState<Country | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 

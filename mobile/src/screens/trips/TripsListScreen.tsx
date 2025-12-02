@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, memo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -18,7 +18,7 @@ import { useCountries } from '@hooks/useCountries';
 type Props = TripsStackScreenProps<'TripsList'>;
 
 // Parse PostgreSQL daterange format
-function formatDateRange(dateRange: string | null): string {
+function formatDateRange(dateRange: string | null | undefined): string {
   if (!dateRange) return '';
 
   const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
@@ -47,15 +47,14 @@ function formatDateRange(dateRange: string | null): string {
 interface TripCardProps {
   trip: Trip;
   countryName?: string;
-  countryFlag?: string;
   onPress: () => void;
 }
 
-function TripCard({ trip, countryName, countryFlag, onPress }: TripCardProps) {
+const TripCard = memo(function TripCard({ trip, countryName, onPress }: TripCardProps) {
   const dateStr = formatDateRange(trip.date_range);
 
   return (
-    <Pressable style={styles.tripCard} onPress={onPress}>
+    <Pressable style={styles.tripCard} onPress={onPress} testID={`trip-card-${trip.id}`}>
       {trip.cover_image_url ? (
         <Image source={{ uri: trip.cover_image_url }} style={styles.tripImage} />
       ) : (
@@ -67,14 +66,11 @@ function TripCard({ trip, countryName, countryFlag, onPress }: TripCardProps) {
         <Text style={styles.tripName} numberOfLines={1}>
           {trip.name}
         </Text>
-        {(countryFlag || countryName) && (
+        {countryName && (
           <View style={styles.countryRow}>
-            {countryFlag && <Text style={styles.countryFlag}>{countryFlag}</Text>}
-            {countryName && (
-              <Text style={styles.countryName} numberOfLines={1}>
-                {countryName}
-              </Text>
-            )}
+            <Text style={styles.countryName} numberOfLines={1}>
+              {countryName}
+            </Text>
           </View>
         )}
         {dateStr && <Text style={styles.tripDate}>{dateStr}</Text>}
@@ -82,7 +78,21 @@ function TripCard({ trip, countryName, countryFlag, onPress }: TripCardProps) {
       <Ionicons name="chevron-forward" size={20} color="#ccc" />
     </Pressable>
   );
-}
+});
+
+// Memoized components and helpers for FlatList performance
+const ItemSeparator = memo(function ItemSeparator() {
+  return <View style={styles.separator} />;
+});
+const keyExtractor = (item: Trip) => item.id;
+
+// Item height = card padding (12*2) + content height (~60px) + separator (12) = ~96px
+const ITEM_HEIGHT = 96;
+const getItemLayout = (_: unknown, index: number) => ({
+  length: ITEM_HEIGHT,
+  offset: ITEM_HEIGHT * index,
+  index,
+});
 
 function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   return (
@@ -92,7 +102,7 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
       <Text style={styles.emptySubtitle}>
         Start documenting your travels by adding your first trip
       </Text>
-      <Pressable style={styles.emptyButton} onPress={onAddTrip}>
+      <Pressable style={styles.emptyButton} onPress={onAddTrip} testID="empty-add-trip-button">
         <Ionicons name="add" size={20} color="#fff" />
         <Text style={styles.emptyButtonText}>Add Your First Trip</Text>
       </Pressable>
@@ -117,10 +127,10 @@ export function TripsListScreen({ navigation }: Props) {
 
   const getCountryInfo = useCallback(
     (countryId: string) => {
-      const country = countries?.find((c) => c.cca3 === countryId || c.cca2 === countryId);
+      // Country ID is stored as the country code
+      const country = countries?.find((c) => c.code === countryId);
       return {
         name: country?.name,
-        flag: country?.flag,
       };
     },
     [countries]
@@ -128,15 +138,8 @@ export function TripsListScreen({ navigation }: Props) {
 
   const renderItem = useCallback(
     ({ item }: { item: Trip }) => {
-      const { name, flag } = getCountryInfo(item.country_id);
-      return (
-        <TripCard
-          trip={item}
-          countryName={name}
-          countryFlag={flag}
-          onPress={() => handleTripPress(item.id)}
-        />
-      );
+      const { name } = getCountryInfo(item.country_id);
+      return <TripCard trip={item} countryName={name} onPress={() => handleTripPress(item.id)} />;
     },
     [getCountryInfo, handleTripPress]
   );
@@ -169,17 +172,23 @@ export function TripsListScreen({ navigation }: Props) {
     <View style={styles.container}>
       <FlatList
         data={trips}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#007AFF" />
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={ItemSeparator}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
+        getItemLayout={getItemLayout}
+        testID="trips-list"
       />
 
       {/* FAB for adding new trip */}
-      <Pressable style={styles.fab} onPress={handleAddTrip}>
+      <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
         <Ionicons name="add" size={28} color="#fff" />
       </Pressable>
     </View>
@@ -260,10 +269,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 2,
-  },
-  countryFlag: {
-    fontSize: 14,
-    marginRight: 6,
   },
   countryName: {
     fontSize: 13,

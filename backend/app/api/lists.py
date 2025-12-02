@@ -1,6 +1,7 @@
 """Shareable list endpoints."""
 
 import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
@@ -398,10 +399,69 @@ async def delete_list(
     list_id: UUID,
     user: CurrentUser,
 ) -> None:
-    """Delete a list (owner only)."""
+    """Soft-delete a list (owner only).
+
+    The list can be restored within 30 days using the restore endpoint.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    await db.delete("list", {"id": f"eq.{list_id}", "owner_id": f"eq.{user.id}"})
+
+    # Soft delete by setting deleted_at timestamp
+    rows = await db.patch(
+        "list",
+        {"deleted_at": datetime.now(UTC).isoformat()},
+        {"id": f"eq.{list_id}", "owner_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="List not found or not authorized",
+        )
+
+
+@router.post("/lists/{list_id}/restore", response_model=ListDetail)
+@limiter.limit("20/minute")
+async def restore_list(
+    request: Request,
+    list_id: UUID,
+    user: CurrentUser,
+) -> ListDetail:
+    """Restore a soft-deleted list (owner only)."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Restore by clearing deleted_at timestamp
+    rows = await db.patch(
+        "list",
+        {"deleted_at": None},
+        {
+            "id": f"eq.{list_id}",
+            "owner_id": f"eq.{user.id}",
+            "deleted_at": "not.is.null",
+        },
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="List not found or not deleted",
+        )
+
+    lst = rows[0]
+
+    # Fetch entries
+    entry_rows = await db.get(
+        "list_entries",
+        {
+            "list_id": f"eq.{list_id}",
+            "order": "position.asc",
+        },
+    )
+
+    entries = [ListEntry(**row) for row in entry_rows]
+
+    return _build_list_detail(lst, entries)
 
 
 # Public endpoint (no auth required)

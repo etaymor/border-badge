@@ -179,8 +179,21 @@ def test_delete_list_success(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test owner can delete a list."""
-    mock_supabase_client.delete.return_value = []
+    """Test owner can soft-delete a list."""
+    # Soft delete uses patch, not delete
+    mock_supabase_client.patch.return_value = [
+        {
+            "id": str(TEST_LIST_ID),
+            "trip_id": str(TEST_TRIP_ID),
+            "owner_id": TEST_USER_ID,
+            "name": "Test List",
+            "slug": "test-list",
+            "is_public": True,
+            "created_at": "2024-01-01T00:00:00+00:00",
+            "updated_at": "2024-01-01T00:00:00+00:00",
+            "deleted_at": "2024-01-01T00:00:00+00:00",
+        }
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -421,5 +434,132 @@ def test_update_list_entries_fails_on_partial_insert(
             )
         assert response.status_code == 500
         assert "Failed to add new entries" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Not Found and Restore Tests
+# ============================================================================
+
+
+def test_get_list_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a list that doesn't exist returns 404."""
+    mock_supabase_client.get.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/lists/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_list_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test updating a list that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                "/lists/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+                json={"name": "New Name"},
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_list_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a list that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/lists/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_list(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_list: dict[str, Any],
+) -> None:
+    """Test restoring a soft-deleted list."""
+    restored_list = {**sample_list, "deleted_at": None}
+
+    mock_supabase_client.patch.return_value = [restored_list]
+    mock_supabase_client.get.return_value = []  # No entries
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/lists/{TEST_LIST_ID}/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(TEST_LIST_ID)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_list_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test restoring a list that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/lists/550e8400-e29b-41d4-a716-446655440999/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()

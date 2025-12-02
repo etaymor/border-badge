@@ -173,8 +173,11 @@ def test_delete_entry(
     auth_headers: dict[str, str],
     sample_entry: dict[str, Any],
 ) -> None:
-    """Test deleting an entry."""
-    mock_supabase_client.delete.return_value = []
+    """Test soft-deleting an entry."""
+    # Soft delete uses patch, not delete
+    mock_supabase_client.patch.return_value = [
+        {**sample_entry, "deleted_at": "2024-01-01T00:00:00+00:00"}
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -350,5 +353,271 @@ def test_update_media_status(
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "uploaded"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Entry Not Found and Restore Tests
+# ============================================================================
+
+
+def test_get_entry_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting an entry that doesn't exist returns 404."""
+    mock_supabase_client.get.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/entries/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_entry_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test updating an entry that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                "/entries/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+                json={"title": "New Title"},
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_entry_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting an entry that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/entries/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_entry(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_entry: dict[str, Any],
+) -> None:
+    """Test restoring a soft-deleted entry."""
+    restored_entry = {**sample_entry, "deleted_at": None}
+
+    # First call is patch (restore), second call is get (for place)
+    mock_supabase_client.patch.return_value = [restored_entry]
+    mock_supabase_client.get.return_value = []  # No place
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/entries/{sample_entry['id']}/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == sample_entry["id"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_entry_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test restoring an entry that doesn't exist returns 404."""
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/entries/550e8400-e29b-41d4-a716-446655440999/restore",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Media Get and Delete Tests
+# ============================================================================
+
+
+def test_get_media(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a single media file."""
+    from tests.conftest import TEST_MEDIA_ID, TEST_TRIP_ID
+
+    media_record = {
+        "id": TEST_MEDIA_ID,
+        "owner_id": mock_user.id,
+        "trip_id": TEST_TRIP_ID,
+        "entry_id": None,
+        "file_path": f"{mock_user.id}/some-uuid.jpg",
+        "status": "uploaded",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    mock_supabase_client.get.return_value = [media_record]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                f"/media/files/{TEST_MEDIA_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == TEST_MEDIA_ID
+        assert data["status"] == "uploaded"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_media_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a media file that doesn't exist returns 404."""
+    mock_supabase_client.get.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/media/files/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_media(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a media file."""
+    from tests.conftest import TEST_MEDIA_ID, TEST_TRIP_ID
+
+    media_record = {
+        "id": TEST_MEDIA_ID,
+        "owner_id": mock_user.id,
+        "trip_id": TEST_TRIP_ID,
+        "entry_id": None,
+        "file_path": f"{mock_user.id}/some-uuid.jpg",
+        "status": "uploaded",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # First call is get (to fetch file paths), then delete
+    mock_supabase_client.get.return_value = [media_record]
+    mock_supabase_client.delete.return_value = []
+
+    # Mock the HTTP client for storage deletion
+    mock_http_client = AsyncMock()
+    mock_http_client.delete.return_value = AsyncMock(status_code=204)
+
+    # Mock settings
+    mock_settings = AsyncMock()
+    mock_settings.supabase_url = "https://test.supabase.co"
+    mock_settings.supabase_anon_key = "test-anon-key"
+    mock_settings.supabase_service_role_key = "test-service-key"
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.media.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch("app.api.media.get_http_client", return_value=mock_http_client),
+            patch("app.api.media.get_settings", return_value=mock_settings),
+        ):
+            response = client.delete(
+                f"/media/files/{TEST_MEDIA_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_media_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a media file that doesn't exist returns 404."""
+    mock_supabase_client.delete.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.media.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/media/files/550e8400-e29b-41d4-a716-446655440999",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()
