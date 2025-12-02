@@ -13,6 +13,9 @@
       "@config/*": ["src/config/*"],
       "@navigation/*": ["src/navigation/*"],
       "@constants/*": ["src/constants/*"]
-    }
-  }
+    },
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*", "App.tsx"],
+  "exclude": ["node_modules", "e2e/**/*"]
 }
