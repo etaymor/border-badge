@@ -10,6 +10,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "e2e:build:ios": "detox build --configuration ios.sim.debug",
+    "e2e:build:android": "detox build --configuration android.emu.debug",
+    "e2e:test:ios": "detox test --configuration ios.sim.debug",
+    "e2e:test:android": "detox test --configuration android.emu.debug",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
@@ -42,6 +46,7 @@
     "@typescript-eslint/parser": "^8.18.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-preset-expo": "^54.0.7",
+    "detox": "^20.27.2",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react": "^7.37.0",
@@ -50,6 +55,7 @@
     "jest-expo": "~54.0.0",
     "prettier": "^3.4.0",
     "react-test-renderer": "19.1.0",
+    "ts-jest": "^29.2.5",
     "typescript": "~5.9.2"
   },
   "private": true

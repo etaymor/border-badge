@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, memo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -51,11 +51,16 @@ interface TripCardProps {
   onPress: () => void;
 }
 
-function TripCard({ trip, countryName, countryFlag, onPress }: TripCardProps) {
+const TripCard = memo(function TripCard({
+  trip,
+  countryName,
+  countryFlag,
+  onPress,
+}: TripCardProps) {
   const dateStr = formatDateRange(trip.date_range);
 
   return (
-    <Pressable style={styles.tripCard} onPress={onPress}>
+    <Pressable style={styles.tripCard} onPress={onPress} testID={`trip-card-${trip.id}`}>
       {trip.cover_image_url ? (
         <Image source={{ uri: trip.cover_image_url }} style={styles.tripImage} />
       ) : (
@@ -82,7 +87,21 @@ function TripCard({ trip, countryName, countryFlag, onPress }: TripCardProps) {
       <Ionicons name="chevron-forward" size={20} color="#ccc" />
     </Pressable>
   );
-}
+});
+
+// Memoized components and helpers for FlatList performance
+const ItemSeparator = memo(function ItemSeparator() {
+  return <View style={styles.separator} />;
+});
+const keyExtractor = (item: Trip) => item.id;
+
+// Item height = card padding (12*2) + content height (~60px) + separator (12) = ~96px
+const ITEM_HEIGHT = 96;
+const getItemLayout = (_: unknown, index: number) => ({
+  length: ITEM_HEIGHT,
+  offset: ITEM_HEIGHT * index,
+  index,
+});
 
 function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   return (
@@ -92,7 +111,7 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
       <Text style={styles.emptySubtitle}>
         Start documenting your travels by adding your first trip
       </Text>
-      <Pressable style={styles.emptyButton} onPress={onAddTrip}>
+      <Pressable style={styles.emptyButton} onPress={onAddTrip} testID="empty-add-trip-button">
         <Ionicons name="add" size={20} color="#fff" />
         <Text style={styles.emptyButtonText}>Add Your First Trip</Text>
       </Pressable>
@@ -169,17 +188,23 @@ export function TripsListScreen({ navigation }: Props) {
     <View style={styles.container}>
       <FlatList
         data={trips}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#007AFF" />
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={ItemSeparator}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
+        getItemLayout={getItemLayout}
+        testID="trips-list"
       />
 
       {/* FAB for adding new trip */}
-      <Pressable style={styles.fab} onPress={handleAddTrip}>
+      <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
         <Ionicons name="add" size={28} color="#fff" />
       </Pressable>
     </View>

@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState, useCallback } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, View, Pressable } from 'react-native';
 
 import { useAuthStore } from '@stores/authStore';
 import type { MainTabScreenProps } from '@navigation/types';
@@ -7,14 +8,31 @@ type Props = MainTabScreenProps<'Profile'>;
 
 export function ProfileScreen(_props: Props) {
   const { session, signOut } = useAuthStore();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = useCallback(async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } catch {
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+      setIsSigningOut(false);
+    }
+  }, [signOut]);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Profile</Text>
-      <Text style={styles.subtitle}>{session?.user.email || 'Not signed in'}</Text>
-      <Text style={styles.link} onPress={signOut}>
-        Sign Out
+      <Text style={styles.subtitle} testID="profile-email">
+        {session?.user.email || 'Not signed in'}
       </Text>
+      <Pressable onPress={handleSignOut} disabled={isSigningOut} testID="sign-out-button">
+        {isSigningOut ? (
+          <ActivityIndicator size="small" color="#FF3B30" />
+        ) : (
+          <Text style={styles.link}>Sign Out</Text>
+        )}
+      </Pressable>
     </View>
   );
 }

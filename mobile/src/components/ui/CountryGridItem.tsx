@@ -51,6 +51,7 @@ export const CountryGridItem = React.memo(function CountryGridItem({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${isSelected ? 'visited' : 'not visited'}`}
       accessibilityHint="Double tap to toggle visited status"
+      testID={`country-item-${code}`}
     >
       {/* Grey placeholder for country illustration */}
       <View style={styles.illustrationPlaceholder}>
@@ -68,6 +69,7 @@ export const CountryGridItem = React.memo(function CountryGridItem({
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
         accessibilityLabel={`${isWishlisted ? 'Remove from' : 'Add to'} wishlist`}
+        testID={`country-wishlist-${code}`}
       >
         <Text style={styles.starIcon}>{isWishlisted ? '★' : '☆'}</Text>
       </TouchableOpacity>

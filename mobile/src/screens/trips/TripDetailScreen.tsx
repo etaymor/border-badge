@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,9 +12,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import type { TripsStackScreenProps } from '@navigation/types';
-import { useTrip, useDeleteTrip } from '@hooks/useTrips';
+import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
 import { useEntries } from '@hooks/useEntries';
 import { useCountryByCode } from '@hooks/useCountries';
+import { ConfirmDialog, Snackbar } from '@components/ui';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
@@ -59,35 +60,64 @@ function formatDateRange(dateRange: string | null): string {
 export function TripDetailScreen({ route, navigation }: Props) {
   const { tripId } = route.params;
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
+  const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
+  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
   const deleteTrip = useDeleteTrip();
+  const restoreTrip = useRestoreTrip();
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Trip',
-      `Are you sure you want to delete "${trip?.name}"? This will also delete all entries and media associated with this trip.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            try {
-              await deleteTrip.mutateAsync(tripId);
-              navigation.goBack();
-            } catch {
-              Alert.alert('Error', 'Failed to delete trip. Please try again.');
-              setIsDeleting(false);
-            }
-          },
-        },
-      ]
-    );
-  };
+  // Cleanup navigation timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleDelete = useCallback(() => {
+    setShowDeleteConfirm(true);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      await deleteTrip.mutateAsync(tripId);
+      setDeletedTripId(tripId);
+      setShowUndoSnackbar(true);
+      // Navigate back after short delay so user sees the snackbar briefly
+      navigationTimeoutRef.current = setTimeout(() => {
+        navigation.goBack();
+      }, 300);
+    } catch {
+      Alert.alert('Error', 'Failed to delete trip. Please try again.');
+      setIsDeleting(false);
+    }
+  }, [deleteTrip, tripId, navigation]);
+
+  const handleUndo = useCallback(async () => {
+    setShowUndoSnackbar(false);
+    if (deletedTripId) {
+      try {
+        await restoreTrip.mutateAsync(deletedTripId);
+        setDeletedTripId(null);
+        setIsDeleting(false);
+      } catch {
+        Alert.alert('Error', 'Failed to restore trip.');
+      }
+    }
+  }, [deletedTripId, restoreTrip]);
+
+  const handleDismissSnackbar = useCallback(() => {
+    setShowUndoSnackbar(false);
+    setDeletedTripId(null);
+  }, []);
 
   if (tripLoading) {
     return (
@@ -159,6 +189,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('EntryList', { tripId, tripName: trip.name })}
+          testID="view-entries-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="list-outline" size={24} color="#007AFF" />
@@ -178,6 +209,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('EntryForm', { tripId })}
+          testID="add-entry-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="add-circle-outline" size={24} color="#34C759" />
@@ -195,6 +227,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('ListCreate', { tripId, tripName: trip.name })}
+          testID="create-list-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="share-outline" size={24} color="#FF9500" />
@@ -212,6 +245,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         <Pressable
           style={styles.actionButton}
           onPress={() => navigation.navigate('TripForm', { tripId })}
+          testID="edit-trip-button"
         >
           <View style={styles.actionButtonContent}>
             <Ionicons name="pencil-outline" size={24} color="#5856D6" />
@@ -230,6 +264,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           style={[styles.deleteButton, isDeleting && styles.deleteButtonDisabled]}
           onPress={handleDelete}
           disabled={isDeleting}
+          testID="delete-trip-button"
         >
           {isDeleting ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -241,6 +276,30 @@ export function TripDetailScreen({ route, navigation }: Props) {
           )}
         </Pressable>
       </View>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        visible={showDeleteConfirm}
+        title="Delete Trip"
+        message={`Are you sure you want to delete "${trip?.name}"? This will also delete all entries and media associated with this trip.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+        testID="delete-trip-dialog"
+      />
+
+      {/* Undo Snackbar */}
+      <Snackbar
+        visible={showUndoSnackbar}
+        message="Trip deleted"
+        actionLabel="Undo"
+        onAction={handleUndo}
+        onDismiss={handleDismissSnackbar}
+        duration={5000}
+        testID="trip-deleted-snackbar"
+      />
     </ScrollView>
   );
 }

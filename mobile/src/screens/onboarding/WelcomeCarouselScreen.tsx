@@ -86,7 +86,12 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
       <Text style={styles.body}>{item.body}</Text>
 
       {item.showCTA && (
-        <Button title="Start My Journey" onPress={handleStartJourney} style={styles.ctaButton} />
+        <Button
+          title="Start My Journey"
+          onPress={handleStartJourney}
+          style={styles.ctaButton}
+          testID="start-journey-button"
+        />
       )}
     </View>
   );
@@ -95,7 +100,11 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       {/* Login button in top-right (only on non-CTA slides) */}
       {!SLIDES[activeIndex].showCTA && (
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+        <TouchableOpacity
+          onPress={handleLogin}
+          style={styles.loginButton}
+          testID="carousel-login-button"
+        >
           <Text style={styles.loginText}>Login</Text>
         </TouchableOpacity>
       )}

@@ -64,7 +64,7 @@ function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
       <Text style={styles.emptySubtitle}>
         Log the places you visited, food you tried, and experiences you had
       </Text>
-      <Pressable style={styles.emptyButton} onPress={onAddEntry}>
+      <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
         <Ionicons name="add" size={20} color="#fff" />
         <Text style={styles.emptyButtonText}>Add Your First Entry</Text>
       </Pressable>
@@ -152,10 +152,11 @@ export function EntryListScreen({ route, navigation }: Props) {
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         SectionSeparatorComponent={() => <View style={styles.sectionSeparator} />}
+        testID="entries-list"
       />
 
       {/* FAB for adding new entry */}
-      <Pressable style={styles.fab} onPress={handleAddEntry}>
+      <Pressable style={styles.fab} onPress={handleAddEntry} testID="fab-add-entry">
         <Ionicons name="add" size={28} color="#fff" />
       </Pressable>
     </View>
