@@ -206,6 +206,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     isSelected && { backgroundColor: item.color + '15', borderColor: item.color },
                   ]}
                   onPress={() => setEntryType(item.type)}
+                  testID={`entry-type-${item.type}`}
                 >
                   <Ionicons name={item.icon} size={24} color={isSelected ? item.color : '#666'} />
                   <Text
@@ -234,6 +235,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
               if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
             }}
             returnKeyType="next"
+            testID="entry-title-input"
           />
           {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
         </View>
@@ -247,6 +249,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
             value={entryDate}
             onChangeText={setEntryDate}
             keyboardType="numbers-and-punctuation"
+            testID="entry-date-input"
           />
           <Text style={styles.hint}>Optional - when did this happen?</Text>
         </View>
@@ -278,6 +281,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
             multiline
             numberOfLines={4}
             textAlignVertical="top"
+            testID="entry-notes-input"
           />
         </View>
 
@@ -297,6 +301,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
           style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={isSubmitting}
+          testID="entry-save-button"
         >
           {isSubmitting ? (
             <ActivityIndicator size="small" color="#fff" />

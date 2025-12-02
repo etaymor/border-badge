@@ -100,6 +100,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         numColumns={3}
         contentContainerStyle={styles.gridContent}
         showsVerticalScrollIndicator={false}
+        testID="country-grid"
       />
 
       {/* Footer */}
@@ -108,6 +109,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           title="Save & Continue"
           onPress={handleSaveAndContinue}
           style={styles.footerButton}
+          testID="save-continue-button"
         />
       </View>
 

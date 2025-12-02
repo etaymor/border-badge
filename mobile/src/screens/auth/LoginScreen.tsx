@@ -87,6 +87,7 @@ export function LoginScreen({ navigation }: Props) {
             autoComplete="email"
             error={emailError}
             containerStyle={styles.input}
+            testID="login-email-input"
           />
 
           <Input
@@ -99,6 +100,7 @@ export function LoginScreen({ navigation }: Props) {
             autoComplete="password"
             error={passwordError}
             containerStyle={styles.input}
+            testID="login-password-input"
           />
 
           <Button
@@ -106,12 +108,21 @@ export function LoginScreen({ navigation }: Props) {
             onPress={handleLogin}
             loading={signIn.isPending}
             style={styles.button}
+            testID="login-submit-button"
           />
 
-          <Text style={styles.link} onPress={() => navigateToScreen('SignUp')}>
+          <Text
+            style={styles.link}
+            onPress={() => navigateToScreen('SignUp')}
+            testID="login-signup-link"
+          >
             {"Don't have an account? Sign up"}
           </Text>
-          <Text style={styles.link} onPress={() => navigateToScreen('ForgotPassword')}>
+          <Text
+            style={styles.link}
+            onPress={() => navigateToScreen('ForgotPassword')}
+            testID="login-forgot-link"
+          >
             Forgot password?
           </Text>
         </View>
