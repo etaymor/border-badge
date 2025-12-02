@@ -123,10 +123,10 @@ describe('Entry Flow', () => {
       await element(by.id('places-search-input')).typeText('xyz');
 
       // Wait for "Enter manually" option
-      await waitFor(element(by.text('Enter manually')))
+      await waitFor(element(by.id('manual-entry-button')))
         .toBeVisible()
         .withTimeout(5000);
-      await element(by.text('Enter manually')).tap();
+      await element(by.id('manual-entry-button')).tap();
 
       // Fill manual place details
       await waitFor(element(by.id('places-search-manual-name')))

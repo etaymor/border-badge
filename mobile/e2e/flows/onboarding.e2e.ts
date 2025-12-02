@@ -27,14 +27,14 @@ describe('Onboarding Flow', () => {
     });
 
     it('displays welcome carousel on first launch', async () => {
-      // Should see first slide with title
-      await waitFor(element(by.text('Hello, Explorer!')))
+      // Should see first slide with title (testID: carousel-title-1)
+      await waitFor(element(by.id('carousel-title-1')))
         .toBeVisible()
         .withTimeout(10000);
     });
 
     it('can swipe through carousel slides', async () => {
-      await waitFor(element(by.text('Hello, Explorer!')))
+      await waitFor(element(by.id('carousel-slide-1')))
         .toBeVisible()
         .withTimeout(10000);
 

@@ -20,8 +20,8 @@ describe('App Launch', () => {
   });
 
   it('should show the onboarding or home screen', async () => {
-    // Depending on auth state, should show either onboarding carousel or main tabs
-    await waitForEither(by.text('Hello, Explorer!'), by.label('trips-tab'), 15000);
+    // Depending on auth state, should show either onboarding carousel (slide 1) or main tabs
+    await waitForEither(by.id('carousel-slide-1'), by.label('trips-tab'), 15000);
   });
 });
 

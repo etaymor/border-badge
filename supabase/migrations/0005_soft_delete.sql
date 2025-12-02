@@ -41,10 +41,12 @@ CREATE POLICY "Users can create trips"
   FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
+-- Note: UPDATE allows updating deleted trips (for restore functionality)
+-- The application controls what can be updated; RLS only ensures ownership
 CREATE POLICY "Users can update own trips"
   ON trip
   FOR UPDATE
-  USING (user_id = auth.uid() AND deleted_at IS NULL)
+  USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
 CREATE POLICY "Users can delete own trips"
@@ -84,16 +86,16 @@ CREATE POLICY "Users can create entries for own trips"
     )
   );
 
+-- Note: UPDATE allows updating deleted entries (for restore functionality)
+-- The application controls what can be updated; RLS only ensures ownership
 CREATE POLICY "Users can update entries in own trips"
   ON entry
   FOR UPDATE
   USING (
-    deleted_at IS NULL
-    AND EXISTS (
+    EXISTS (
       SELECT 1 FROM trip
       WHERE trip.id = entry.trip_id
       AND trip.user_id = auth.uid()
-      AND trip.deleted_at IS NULL
     )
   )
   WITH CHECK (
@@ -101,7 +103,6 @@ CREATE POLICY "Users can update entries in own trips"
       SELECT 1 FROM trip
       WHERE trip.id = entry.trip_id
       AND trip.user_id = auth.uid()
-      AND trip.deleted_at IS NULL
     )
   );
 
@@ -121,11 +122,28 @@ DROP POLICY IF EXISTS "Owner can manage own lists" ON list;
 DROP POLICY IF EXISTS "Anyone can view public lists" ON list;
 
 -- Recreate list policies with soft-delete filter
-CREATE POLICY "Owner can manage own lists"
+-- Split into separate policies to allow restore functionality
+CREATE POLICY "Owner can view own lists"
   ON list
-  FOR ALL
-  USING (owner_id = auth.uid() AND deleted_at IS NULL)
+  FOR SELECT
+  USING (owner_id = auth.uid() AND deleted_at IS NULL);
+
+CREATE POLICY "Owner can create lists"
+  ON list
+  FOR INSERT
   WITH CHECK (owner_id = auth.uid());
+
+-- Note: UPDATE allows updating deleted lists (for restore functionality)
+CREATE POLICY "Owner can update own lists"
+  ON list
+  FOR UPDATE
+  USING (owner_id = auth.uid())
+  WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "Owner can delete own lists"
+  ON list
+  FOR DELETE
+  USING (owner_id = auth.uid());
 
 CREATE POLICY "Anyone can view public lists"
   ON list
