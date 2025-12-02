@@ -26,8 +26,8 @@ function uniqueSuffix(): string {
  * Uses unique emails per test run since email verification is disabled in Supabase
  */
 export const testData = {
-  /** Generate a unique email for this test run */
-  uniqueEmail: () => `test+${uniqueSuffix()}@example.com`,
+  /** Generate a unique email for this test run - uses test.e2e. prefix for easier cleanup queries */
+  uniqueEmail: () => `test.e2e.${uniqueSuffix()}@example.com`,
   /** Generate a unique trip name */
   uniqueTripName: () => `Test Trip ${uniqueSuffix()}`,
   /** Generate a unique entry name */

@@ -202,8 +202,6 @@ async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       const statusCode = response.status;
       let errorMessage = 'Upload failed';
@@ -230,8 +228,6 @@ async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void
       throw new Error(errorMessage);
     }
   } catch (error) {
-    clearTimeout(timeoutId);
-
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         throw new Error('Upload timed out. Please check your connection and try again.');
@@ -240,6 +236,9 @@ async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void
     }
 
     throw new Error('Upload failed. Please try again.');
+  } finally {
+    // Guaranteed cleanup in all paths
+    clearTimeout(timeoutId);
   }
 }
 

@@ -91,8 +91,10 @@ export function TripDetailScreen({ route, navigation }: Props) {
       setShowUndoSnackbar(true);
       // Don't navigate immediately - wait for snackbar to dismiss
       // This allows user to see and use the "Undo" button
-    } catch {
-      Alert.alert('Error', 'Failed to delete trip. Please try again.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete trip. Please try again.';
+      Alert.alert('Error', message);
       setIsDeleting(false);
     }
   }, [deleteTrip, tripId]);
@@ -104,8 +106,10 @@ export function TripDetailScreen({ route, navigation }: Props) {
         await restoreTrip.mutateAsync(deletedTripId);
         setDeletedTripId(null);
         setIsDeleting(false);
-      } catch {
-        Alert.alert('Error', 'Failed to restore trip.');
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to restore trip. Please try again.';
+        Alert.alert('Error', message);
       }
     }
   }, [deletedTripId, restoreTrip]);
