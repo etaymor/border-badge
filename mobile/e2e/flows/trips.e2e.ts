@@ -12,6 +12,7 @@ import {
   clearAppState,
   completeOnboarding,
   navigateToTab,
+  waitForEither,
 } from '../init';
 
 describe('Trip Flow', () => {
@@ -51,9 +52,7 @@ describe('Trip Flow', () => {
       await element(by.id('trip-save-button')).tap();
 
       // Should navigate back to trips list
-      await waitFor(element(by.id('trips-list')).or(element(by.text(tripName))))
-        .toBeVisible()
-        .withTimeout(10000);
+      await waitForEither(by.id('trips-list'), by.text(tripName), 10000);
 
       // Verify trip appears in list
       await expect(element(by.text(tripName))).toBeVisible();
