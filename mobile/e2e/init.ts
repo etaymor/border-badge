@@ -32,7 +32,11 @@ export const testData = {
   uniqueTripName: () => `Test Trip ${uniqueSuffix()}`,
   /** Generate a unique entry name */
   uniqueEntryName: () => `Test Entry ${uniqueSuffix()}`,
-  /** Standard password that meets complexity requirements */
+  /**
+   * Standard password that meets complexity requirements.
+   * This is for E2E tests only - test users are isolated by unique email
+   * and RLS prevents cross-user data access.
+   */
   testPassword: 'TestPassword123!',
 };
 
@@ -245,6 +249,25 @@ export async function createTrip(name: string): Promise<void> {
 
   // Wait for trips list
   await waitForEither(by.id('trips-list'), by.id('empty-add-trip-button'), 10000);
+}
+
+/**
+ * Tap the add button for trips or entries.
+ * Handles both FAB (when items exist) and empty state button (when list is empty).
+ */
+export async function tapAddButton(type: 'trip' | 'entry'): Promise<void> {
+  const fabId = `fab-add-${type}`;
+  const emptyId = `empty-add-${type}-button`;
+
+  try {
+    await waitFor(element(by.id(fabId)))
+      .toBeVisible()
+      .withTimeout(2000);
+    await element(by.id(fabId)).tap();
+  } catch {
+    // No FAB visible, try empty state button
+    await element(by.id(emptyId)).tap();
+  }
 }
 
 /**
