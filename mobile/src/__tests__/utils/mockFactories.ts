@@ -13,6 +13,8 @@ import type {
 } from '@hooks/useEntries';
 import type { MediaFile, MediaStatus, LocalFile } from '@hooks/useMedia';
 import type { ListDetail, ListSummary, ListEntry, CreateListInput } from '@hooks/useLists';
+import type { Country } from '@hooks/useCountries';
+import type { UserCountry } from '@hooks/useUserCountries';
 
 // ============ Trip Factories ============
 
@@ -255,6 +257,28 @@ export function createMockApiError(message: string, status = 400) {
   };
   error.response = { status, data: { message } };
   return error;
+}
+
+// ============ Country Factories ============
+
+export function createMockCountry(overrides?: Partial<Country>): Country {
+  return {
+    code: 'JP',
+    name: 'Japan',
+    region: 'Asia',
+    ...overrides,
+  };
+}
+
+export function createMockUserCountry(overrides?: Partial<UserCountry>): UserCountry {
+  return {
+    id: `uc-${Date.now()}`,
+    user_id: 'user-123',
+    country_code: 'JP',
+    status: 'wishlist',
+    created_at: new Date().toISOString(),
+    ...overrides,
+  };
 }
 
 // ============ Google Places API Mocks ============

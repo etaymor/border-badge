@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   GestureResponderEvent,
@@ -53,6 +53,13 @@ export const CountryCard = React.memo(function CountryCard({
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
   const heartScale = useRef(new Animated.Value(1)).current;
 
+  // Cleanup: stop any running animation on unmount
+  useEffect(() => {
+    return () => {
+      heartScale.stopAnimation();
+    };
+  }, [heartScale]);
+
   const animateHeartPulse = useCallback(() => {
     Animated.sequence([
       Animated.spring(heartScale, {
@@ -86,7 +93,8 @@ export const CountryCard = React.memo(function CountryCard({
       }
       onToggleWishlist();
     },
-    [onToggleWishlist, isWishlisted, animateHeartPulse]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- animateHeartPulse is stable (only depends on heartScale ref)
+    [onToggleWishlist, isWishlisted]
   );
 
   return (
