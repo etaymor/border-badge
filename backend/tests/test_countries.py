@@ -358,8 +358,8 @@ async def test_country_code_cache_hit(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Country code lookup hits the cache after first fetch."""
-    from tests.conftest import TEST_COUNTRY_ID
     from app.api.countries import get_country_id_by_code
+    from tests.conftest import TEST_COUNTRY_ID
 
     mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
 
@@ -379,8 +379,8 @@ async def test_country_code_cache_clear_forces_refresh(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Clearing the cache causes the next lookup to refetch from DB."""
-    from tests.conftest import TEST_COUNTRY_ID
     from app.api.countries import clear_country_code_cache, get_country_id_by_code
+    from tests.conftest import TEST_COUNTRY_ID
 
     mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
 
