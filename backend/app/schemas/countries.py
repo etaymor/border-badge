@@ -77,3 +77,23 @@ class UserCountryBatchUpdate(BaseModel):
     """Batch update user countries."""
 
     countries: list[UserCountryCreate]
+
+    @field_validator("countries")
+    @classmethod
+    def validate_countries_batch(
+        cls, v: list[UserCountryCreate]
+    ) -> list[UserCountryCreate]:
+        """Validate batch size and deduplicate entries."""
+        if len(v) > 100:
+            raise ValueError("Cannot update more than 100 countries at once")
+
+        # Deduplicate by country_code (keep first occurrence)
+        seen: set[str] = set()
+        deduplicated: list[UserCountryCreate] = []
+        for item in v:
+            code = item.country_code.upper()
+            if code not in seen:
+                seen.add(code)
+                deduplicated.append(item)
+
+        return deduplicated

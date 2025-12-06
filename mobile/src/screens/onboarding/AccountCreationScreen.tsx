@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Input } from '@components/ui';
@@ -20,8 +28,16 @@ export function AccountCreationScreen({ navigation: _navigation }: Props) {
 
   const signUp = useSignUp({
     onMigrationComplete: (result) => {
-      if (!result.success) {
-        console.warn('Some data failed to migrate:', result.errors);
+      if (result.success) {
+        setHasCompletedOnboarding(true);
+        storeOnboardingComplete();
+      } else {
+        // Keep onboarding state intact so user can retry migration
+        const message =
+          result.errors.length > 0
+            ? result.errors.join('\n')
+            : 'Some data could not be migrated. Please try again.';
+        Alert.alert('Migration incomplete', message);
       }
     },
   });
@@ -67,20 +83,7 @@ export function AccountCreationScreen({ navigation: _navigation }: Props) {
 
   const handleCreateAccount = () => {
     if (!validateForm()) return;
-    signUp.mutate(
-      { email: email.trim(), password },
-      {
-        onSuccess: async (data) => {
-          if (data.session) {
-            // Mark onboarding complete - migration is handled in useSignUp hook
-            // after tokens are stored to avoid race condition
-            setHasCompletedOnboarding(true);
-            await storeOnboardingComplete();
-          }
-          // If email confirmation required, the alert is handled by useSignUp
-        },
-      }
-    );
+    signUp.mutate({ email: email.trim(), password });
   };
 
   return (
