@@ -84,7 +84,7 @@ export function useRemoveUserCountry() {
 
   return useMutation({
     mutationFn: async (countryCode: string) => {
-      await api.delete(`/countries/user/${countryCode}`);
+      await api.delete(`/countries/user/by-code/${countryCode}`);
     },
     onSuccess: () => {
       // Invalidate all user-countries queries (any session)

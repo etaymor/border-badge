@@ -13,7 +13,7 @@ export function PassportNavigator() {
       <Stack.Screen
         name="PassportHome"
         component={PassportScreen}
-        options={{ title: 'Passport' }}
+        options={{ title: 'BorderBadge' }}
       />
       <Stack.Screen
         name="CountryDetail"

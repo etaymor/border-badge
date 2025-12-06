@@ -1,5 +1,8 @@
 """Country and user_countries endpoints."""
 
+import asyncio
+import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -16,6 +19,53 @@ from app.schemas.countries import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Module-level country code cache to avoid repeated lookups for static reference data.
+# Country table is ~200 rows, so unbounded in-memory caching is acceptable and small.
+_country_code_cache: dict[str, tuple[str, datetime]] = {}
+_country_code_lock = asyncio.Lock()
+CACHE_TTL = timedelta(hours=24)
+
+
+async def get_country_id_by_code(country_code: str) -> str | None:
+    """Resolve a country code to its UUID using an in-memory cache."""
+    code = country_code.upper()
+
+    cached = _country_code_cache.get(code)
+    if cached:
+        country_id, expiry = cached
+        if datetime.now(UTC) < expiry:
+            return country_id
+        # Expired cache entry; remove before refetching
+        _country_code_cache.pop(code, None)
+
+    async with _country_code_lock:
+        # Re-check inside lock to avoid duplicate fetches.
+        cached = _country_code_cache.get(code)
+        if cached:
+            country_id, expiry = cached
+            if datetime.now(UTC) < expiry:
+                return country_id
+            _country_code_cache.pop(code, None)
+
+        db = get_supabase_client()
+        rows = await db.get(
+            "country",
+            {"code": f"eq.{code}", "select": "id"},
+        )
+        if not rows:
+            return None
+
+        country_id = rows[0]["id"]
+        _country_code_cache[code] = (country_id, datetime.now(UTC) + CACHE_TTL)
+        return country_id
+
+
+def clear_country_code_cache() -> None:
+    """Clear the country code cache (used after country data changes)."""
+    _country_code_cache.clear()
+    # No expiry map to clear; entries include their expiry.
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:
@@ -118,21 +168,14 @@ async def set_user_country(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Look up country by code to get the UUID
-    country_rows = await db.get(
-        "country",
-        {
-            "code": f"eq.{data.country_code.upper()}",
-            "select": "id",
-        },
-    )
-    if not country_rows:
+    country_code = data.country_code.upper()
+    country_id = await get_country_id_by_code(country_code)
+
+    if not country_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Country with code '{data.country_code}' not found",
         )
-    country_id = country_rows[0]["id"]
-    country_code = data.country_code.upper()
 
     # Check if association exists
     existing = await db.get(
@@ -205,14 +248,11 @@ async def set_user_countries_batch(
         if country_code in country_ids:
             continue  # Already validated
 
-        country_rows = await db.get(
-            "country",
-            {"code": f"eq.{country_code}", "select": "id"},
-        )
-        if not country_rows:
+        country_id = await get_country_id_by_code(country_code)
+        if not country_id:
             invalid_codes.append(country_code)
         else:
-            country_ids[country_code] = country_rows[0]["id"]
+            country_ids[country_code] = country_id
 
     if invalid_codes:
         raise HTTPException(
@@ -262,13 +302,48 @@ async def set_user_countries_batch(
     return results
 
 
+@router.delete("/user/by-code/{country_code}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_user_country_by_code(
+    request: Request,
+    country_code: str,
+    user: CurrentUser,
+) -> None:
+    """Remove a country from the user's visited/wishlist by country code."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    try:
+        country_id = await get_country_id_by_code(country_code)
+    except TimeoutError as exc:
+        logger.warning("Timeout looking up country code %s", country_code, exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Country lookup timed out",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error looking up country code %s", country_code)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Country lookup failed",
+        ) from exc
+
+    if not country_id:
+        # Country not found, but return 204 for idempotency
+        return
+
+    await db.delete(
+        "user_countries",
+        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
+    )
+
+
 @router.delete("/user/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_user_country(
     request: Request,
     country_id: str,
     user: CurrentUser,
 ) -> None:
-    """Remove a country from the user's visited/wishlist."""
+    """Remove a country from the user's visited/wishlist by country UUID."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
     await db.delete(

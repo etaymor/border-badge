@@ -3,11 +3,22 @@
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import mock_auth_dependency
+
+
+@pytest.fixture(autouse=True)
+def clear_country_cache() -> None:
+    """Ensure country code cache is cleared between tests."""
+    from app.api.countries import clear_country_code_cache
+
+    clear_country_code_cache()
+    yield
+    clear_country_code_cache()
 
 
 def test_list_countries_returns_empty_list(
@@ -261,3 +272,141 @@ def test_delete_user_country_idempotent(
         assert response.status_code == 204
     finally:
         app.dependency_overrides.clear()
+
+
+def test_delete_user_country_by_code(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting a user country by country code."""
+    from tests.conftest import TEST_COUNTRY_ID
+
+    mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
+    mock_supabase_client.delete.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/countries/user/by-code/US",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_user_country_by_code_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test deleting non-existent country code returns 204 (idempotent)."""
+    mock_supabase_client.get.return_value = []  # Country not found
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/countries/user/by-code/XX",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_user_country_by_code_case_insensitive(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test country code lookup is case-insensitive (lowercase input uppercased)."""
+    from tests.conftest import TEST_COUNTRY_ID
+
+    mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
+    mock_supabase_client.delete.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.delete(
+                "/countries/user/by-code/us",
+                headers=auth_headers,
+            )
+        assert response.status_code == 204
+        # Verify uppercase was used in query
+        mock_supabase_client.get.assert_called_once()
+        call_args = mock_supabase_client.get.call_args
+        assert "eq.US" in str(call_args)
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_country_code_cache_hit(
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Country code lookup hits the cache after first fetch."""
+    from app.api.countries import get_country_id_by_code
+    from tests.conftest import TEST_COUNTRY_ID
+
+    mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
+
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
+        first = await get_country_id_by_code("us")
+        second = await get_country_id_by_code("US")
+
+    assert first == TEST_COUNTRY_ID
+    assert second == TEST_COUNTRY_ID
+    assert mock_supabase_client.get.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_country_code_cache_clear_forces_refresh(
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Clearing the cache causes the next lookup to refetch from DB."""
+    from app.api.countries import clear_country_code_cache, get_country_id_by_code
+    from tests.conftest import TEST_COUNTRY_ID
+
+    mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
+
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
+        await get_country_id_by_code("US")
+        clear_country_code_cache()
+        await get_country_id_by_code("US")
+
+    assert mock_supabase_client.get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_country_code_cache_miss_returns_none(
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Missing country code returns None from cached lookup."""
+    from app.api.countries import get_country_id_by_code
+
+    mock_supabase_client.get.return_value = []
+
+    with patch(
+        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    ):
+        result = await get_country_id_by_code("ZZ")
+
+    assert result is None
+    assert mock_supabase_client.get.await_count == 1
