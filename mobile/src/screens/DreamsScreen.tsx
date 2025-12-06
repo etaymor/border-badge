@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -16,6 +16,12 @@ import { colors } from '@constants/colors';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
+
+// Animation timing constants
+const HEART_PULSE_DELAY_MS = 150;
+const CARD_EXIT_DURATION_MS = 250;
+const CARD_EXIT_TRANSLATE_Y = -20;
+const CARD_EXIT_SCALE = 0.95;
 
 type Props = DreamsStackScreenProps<'DreamsHome'>;
 
@@ -39,11 +45,30 @@ export function DreamsScreen({ navigation }: Props) {
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Animation state
-  const [animatingCard, setAnimatingCard] = useState<string | null>(null);
-  const cardScale = useRef(new Animated.Value(1)).current;
-  const cardOpacity = useRef(new Animated.Value(1)).current;
-  const cardTranslateY = useRef(new Animated.Value(0)).current;
+  // Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Animation state (per-card to prevent shared interference)
+  const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
+  const animationValuesRef = useRef(
+    new Map<string, { scale: Animated.Value; opacity: Animated.Value; translateY: Animated.Value }>()
+  );
+
+  const getAnimationValues = useCallback((code: string) => {
+    if (!animationValuesRef.current.has(code)) {
+      animationValuesRef.current.set(code, {
+        scale: new Animated.Value(1),
+        opacity: new Animated.Value(1),
+        translateY: new Animated.Value(0),
+      });
+    }
+    return animationValuesRef.current.get(code)!;
+  }, []);
 
   // Snackbar state
   const [snackbar, setSnackbar] = useState<SnackbarState>({ visible: false, message: '' });
@@ -109,8 +134,19 @@ export function DreamsScreen({ navigation }: Props) {
   );
 
   const handleAddVisited = useCallback(
-    (countryCode: string) => {
-      addUserCountry.mutate({ country_code: countryCode, status: 'visited' });
+    (countryCode: string, countryName: string) => {
+      addUserCountry.mutate(
+        { country_code: countryCode, status: 'visited' },
+        {
+          onError: () => {
+            if (!isMountedRef.current) return;
+            setSnackbar({
+              visible: true,
+              message: `Failed to mark ${countryName} as visited`,
+            });
+          },
+        }
+      );
     },
     [addUserCountry]
   );
@@ -121,40 +157,74 @@ export function DreamsScreen({ navigation }: Props) {
 
       if (isCurrentlyWishlisted) {
         // Removing from wishlist - no exit animation needed
-        removeUserCountry.mutate(countryCode);
+        removeUserCountry.mutate(countryCode, {
+          onError: () => {
+            if (!isMountedRef.current) return;
+            setSnackbar({
+              visible: true,
+              message: `Failed to remove ${countryName} from dreams`,
+            });
+          },
+        });
       } else {
+        // Prevent duplicate animation if already animating
+        if (animatingCards.has(countryCode)) return;
+
         // Adding to wishlist - animate card exit then add
-        setAnimatingCard(countryCode);
+        const { scale, opacity, translateY } = getAnimationValues(countryCode);
+        setAnimatingCards((prev) => {
+          const next = new Set(prev);
+          next.add(countryCode);
+          return next;
+        });
 
         // Short delay to let the heart pulse animation start first
         setTimeout(() => {
           Animated.parallel([
-            Animated.timing(cardScale, {
-              toValue: 0.95,
-              duration: 250,
+            Animated.timing(scale, {
+              toValue: CARD_EXIT_SCALE,
+              duration: CARD_EXIT_DURATION_MS,
               useNativeDriver: true,
             }),
-            Animated.timing(cardOpacity, {
+            Animated.timing(opacity, {
               toValue: 0,
-              duration: 250,
+              duration: CARD_EXIT_DURATION_MS,
               useNativeDriver: true,
             }),
-            Animated.timing(cardTranslateY, {
-              toValue: -20,
-              duration: 250,
+            Animated.timing(translateY, {
+              toValue: CARD_EXIT_TRANSLATE_Y,
+              duration: CARD_EXIT_DURATION_MS,
               useNativeDriver: true,
             }),
           ]).start(() => {
+            // Check if still mounted before updating state
+            if (!isMountedRef.current) return;
+
             // After animation completes, add to wishlist
-            addUserCountry.mutate({ country_code: countryCode, status: 'wishlist' });
+            addUserCountry.mutate(
+              { country_code: countryCode, status: 'wishlist' },
+              {
+                onError: () => {
+                  if (!isMountedRef.current) return;
+                  setSnackbar({
+                    visible: true,
+                    message: `Failed to add ${countryName} to dreams`,
+                  });
+                },
+              }
+            );
 
             // Reset animation values
-            cardScale.setValue(1);
-            cardOpacity.setValue(1);
-            cardTranslateY.setValue(0);
-            setAnimatingCard(null);
+            scale.setValue(1);
+            opacity.setValue(1);
+            translateY.setValue(0);
+            setAnimatingCards((prev) => {
+              const next = new Set(prev);
+              next.delete(countryCode);
+              return next;
+            });
           });
-        }, 150);
+        }, HEART_PULSE_DELAY_MS);
 
         // Show snackbar immediately
         setSnackbar({
@@ -164,20 +234,21 @@ export function DreamsScreen({ navigation }: Props) {
         });
       }
     },
-    [addUserCountry, removeUserCountry, wishlistCountries, cardScale, cardOpacity, cardTranslateY]
+    [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues, animatingCards]
   );
 
   const renderItem = useCallback(
     ({ item }: { item: DreamCountry }) => {
-      const isAnimating = animatingCard === item.code;
+      const { scale, opacity, translateY } = getAnimationValues(item.code);
+      const isAnimating = animatingCards.has(item.code);
 
       return (
         <Animated.View
           style={[
             styles.countryCardWrapper,
             isAnimating && {
-              transform: [{ scale: cardScale }, { translateY: cardTranslateY }],
-              opacity: cardOpacity,
+              transform: [{ scale }, { translateY }],
+              opacity,
             },
           ]}
         >
@@ -188,7 +259,7 @@ export function DreamsScreen({ navigation }: Props) {
             isVisited={false}
             isWishlisted={item.isWishlisted}
             onPress={() => handleCountryPress(item)}
-            onAddVisited={() => handleAddVisited(item.code)}
+            onAddVisited={() => handleAddVisited(item.code, item.name)}
             onToggleWishlist={() => handleToggleWishlist(item.code, item.name)}
           />
         </Animated.View>
@@ -198,10 +269,8 @@ export function DreamsScreen({ navigation }: Props) {
       handleCountryPress,
       handleAddVisited,
       handleToggleWishlist,
-      animatingCard,
-      cardScale,
-      cardOpacity,
-      cardTranslateY,
+      animatingCards,
+      getAnimationValues,
     ]
   );
 
