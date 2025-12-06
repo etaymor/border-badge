@@ -2,9 +2,12 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -14,6 +17,14 @@ from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.db.session import close_http_client
+
+# Template and static file paths
+APP_DIR = Path(__file__).parent
+TEMPLATES_DIR = APP_DIR / "templates"
+STATIC_DIR = APP_DIR / "static"
+
+# Jinja2 templates instance (shared across the application)
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 settings = get_settings()
 
@@ -70,6 +81,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Include API routers
 app.include_router(api_router)

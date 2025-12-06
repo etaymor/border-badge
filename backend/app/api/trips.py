@@ -10,6 +10,8 @@ from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
+from app.core.config import get_settings
+from app.schemas.public import TripShareResponse
 from app.schemas.trips import (
     Trip,
     TripCreate,
@@ -380,3 +382,96 @@ async def _update_tag_status(
         status=new_status,
         responded_at=datetime.fromisoformat(rows[0]["responded_at"]),
     )
+
+
+@router.post("/{trip_id}/share", response_model=TripShareResponse)
+@limiter.limit("10/minute")
+async def generate_share_link(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> TripShareResponse:
+    """Generate a public share link for a trip (owner only).
+
+    Creates a unique share_slug that allows the trip to be viewed publicly.
+    If a share link already exists, returns the existing one.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+    settings = get_settings()
+
+    # Check if trip exists and user owns it
+    trips = await db.get(
+        "trip",
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}", "select": "id, name, share_slug"},
+    )
+
+    if not trips:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+    trip = trips[0]
+
+    # If already has a share slug, return it
+    if trip.get("share_slug"):
+        return TripShareResponse(
+            share_slug=trip["share_slug"],
+            share_url=f"{settings.base_url}/t/{trip['share_slug']}",
+        )
+
+    # Generate a new share slug using the database function
+    result = await db.rpc("generate_trip_share_slug", {"trip_name": trip["name"]})
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate share link",
+        )
+
+    share_slug = result
+
+    # Update the trip with the new share slug
+    rows = await db.patch(
+        "trip",
+        {"share_slug": share_slug},
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save share link",
+        )
+
+    return TripShareResponse(
+        share_slug=share_slug,
+        share_url=f"{settings.base_url}/t/{share_slug}",
+    )
+
+
+@router.delete("/{trip_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
+async def revoke_share_link(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> None:
+    """Remove public share access for a trip (owner only).
+
+    Clears the share_slug, making the trip private again.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    rows = await db.patch(
+        "trip",
+        {"share_slug": None},
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )

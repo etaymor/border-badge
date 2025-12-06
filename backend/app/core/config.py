@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_jwt_secret: str = ""
 
+    # Public web settings
+    base_url: str = "http://localhost:8000"
+    app_store_url: str = ""  # iOS App Store URL (placeholder)
+    play_store_url: str = ""  # Google Play Store URL (placeholder)
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:
