@@ -72,8 +72,9 @@ def test_list_trips_returns_trips(
     sample_country: dict[str, Any],
 ) -> None:
     """Test listing trips returns user's trips."""
-    # First call returns trips, second call returns countries for country_code lookup
-    mock_supabase_client.get.side_effect = [[sample_trip], [sample_country]]
+    # Trip now includes nested country from JOIN
+    trip_with_country = {**sample_trip, "country": {"code": "US"}}
+    mock_supabase_client.get.return_value = [trip_with_country]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -182,8 +183,9 @@ def test_get_trip(
     sample_country: dict[str, Any],
 ) -> None:
     """Test getting a single trip."""
-    # trip, then country for country_code lookup, then tags
-    mock_supabase_client.get.side_effect = [[sample_trip], [sample_country], []]
+    # Trip now includes nested country from JOIN, then tags
+    trip_with_country = {**sample_trip, "country": {"code": "US"}}
+    mock_supabase_client.get.side_effect = [[trip_with_country], []]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -453,11 +455,10 @@ def test_update_trip(
     sample_country: dict[str, Any],
 ) -> None:
     """Test updating a trip."""
-    updated_trip = {**sample_trip, "name": "Winter Getaway"}
+    # Patch now returns trip with nested country from JOIN
+    updated_trip = {**sample_trip, "name": "Winter Getaway", "country": {"code": "US"}}
 
     mock_supabase_client.patch.return_value = [updated_trip]
-    # Country lookup after patch
-    mock_supabase_client.get.return_value = [sample_country]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -486,10 +487,15 @@ def test_update_trip_with_dates(
     sample_country: dict[str, Any],
 ) -> None:
     """Test updating a trip with date range."""
-    updated_trip = {**sample_trip, "date_range": "[2024-07-01,2024-07-15]"}
+    # Patch now returns trip with nested country from JOIN
+    updated_trip = {
+        **sample_trip,
+        "date_range": "[2024-07-01,2024-07-15]",
+        "country": {"code": "US"},
+    }
 
-    # for fetching existing date_range, then for country lookup after patch
-    mock_supabase_client.get.side_effect = [[sample_trip], [sample_country]]
+    # for fetching existing date_range (no longer needs country lookup)
+    mock_supabase_client.get.return_value = [sample_trip]
     mock_supabase_client.patch.return_value = [updated_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -624,11 +630,10 @@ def test_restore_trip(
     sample_country: dict[str, Any],
 ) -> None:
     """Test restoring a soft-deleted trip."""
-    restored_trip = {**sample_trip, "deleted_at": None}
+    # Patch now returns trip with nested country from JOIN
+    restored_trip = {**sample_trip, "deleted_at": None, "country": {"code": "US"}}
 
     mock_supabase_client.patch.return_value = [restored_trip]
-    # Country lookup after patch
-    mock_supabase_client.get.return_value = [sample_country]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

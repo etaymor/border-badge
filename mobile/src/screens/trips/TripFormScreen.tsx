@@ -205,9 +205,7 @@ export function TripFormScreen({ navigation, route }: Props) {
                   </View>
                 )}
 
-                {loadingCountries && (
-                  <Text style={styles.loadingHint}>Loading countries...</Text>
-                )}
+                {loadingCountries && <Text style={styles.loadingHint}>Loading countries...</Text>}
               </View>
             )}
             {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}

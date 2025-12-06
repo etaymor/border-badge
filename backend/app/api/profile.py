@@ -51,7 +51,9 @@ async def update_profile(
 ) -> Profile:
     """Update the current user's profile preferences."""
     token = get_token_from_request(request)
-    logger.debug("update_profile: user.id=%s, token exists=%s", user.id, token is not None)
+    logger.debug(
+        "update_profile: user.id=%s, token exists=%s", user.id, token is not None
+    )
     db = get_supabase_client(user_token=token)
 
     # Convert to dict, excluding unset fields for partial updates

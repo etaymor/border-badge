@@ -52,7 +52,6 @@
 ## Tasks
 
 - [x] 1.0 Establish `mobile/` app structure with Expo and TypeScript
-
   - [x] 1.1 ~~Create a `mobile/` directory~~ Mobile directory already exists. Removed nested `.git` to integrate into monorepo.
   - [x] 1.2 Configure `mobile/app.json` with app name (Border Badge), slug, iOS bundle identifier (com.borderbadge.app), and custom URL scheme (borderbadge).
   - [x] 1.3 Add core dependencies: React Navigation (native + native-stack + bottom-tabs), React Query (@tanstack/react-query), Axios, Zustand, expo-secure-store, react-native-screens, react-native-gesture-handler.
@@ -60,7 +59,6 @@
   - [x] 1.5 Verified `npm test` runs successfully (3 smoke tests pass) and TypeScript compiles without errors.
 
 - [x] 2.0 Implement navigation container with auth stack, onboarding, and main tab navigator
-
   - [x] 2.1 Created `mobile/src/navigation/types.ts` defining TypeScript route types for RootStack, AuthStack, MainTabs, and TripsStack.
   - [x] 2.2 Implemented `RootNavigator` that conditionally renders Auth, Onboarding, or Main based on auth state from Zustand store.
   - [x] 2.3 Created auth screen shells: LoginScreen, SignUpScreen, ForgotPasswordScreen under `mobile/src/screens/auth/`.
@@ -69,7 +67,6 @@
   - [x] 2.6 Updated `mobile/App.tsx` to render RootNavigator with NavigationContainer, QueryClientProvider, and SafeAreaProvider.
 
 - [x] 3.0 Create shared UI primitives and a minimal neutral design system
-
   - [x] 3.1 Created color tokens and spacing constants inline in components (neutral template iOS design - no branding until Phase 8).
   - [x] 3.2 Implemented `mobile/src/components/ui/Screen.tsx` as SafeAreaView wrapper with consistent background.
   - [x] 3.3 Implemented `mobile/src/components/ui/Text.tsx` with variants: title, subtitle, body, label, caption.
@@ -78,9 +75,8 @@
   - [x] 3.6 Screen shells use shared primitives (SafeAreaView, Text, StyleSheet patterns).
 
 - [x] 4.0 Implement API client and React Query–based data layer scaffolding
-
   - [x] 4.1 Configured React Query with QueryClient in App.tsx (5min staleTime, 2 retries).
-  - [x] 4.2 Created `mobile/src/config/env.ts` for API base URL and environment variables using EXPO_PUBLIC_ prefix.
+  - [x] 4.2 Created `mobile/src/config/env.ts` for API base URL and environment variables using EXPO*PUBLIC* prefix.
   - [x] 4.3 Implemented `mobile/src/services/api.ts` with Axios, auth token interceptor, and refresh token logic.
   - [x] 4.4 Created Zustand auth store in `mobile/src/stores/authStore.ts` with session, onboarding status, and actions.
   - [x] 4.5 Implemented `mobile/src/hooks/useCountries.ts` with useCountries and useVisitedCountries hooks.
@@ -88,15 +84,13 @@
   - [x] 4.7 Implemented `mobile/src/hooks/useProfile.ts` with useProfile and useUpdateProfile hooks. All hooks return isLoading/isError/error.
 
 - [x] 5.0 Wire environment configuration and basic feature flags
-
-  - [x] 5.1 Using Expo's EXPO_PUBLIC_ environment variable prefix strategy. Documented in .env.example.
+  - [x] 5.1 Using Expo's EXPO*PUBLIC* environment variable prefix strategy. Documented in .env.example.
   - [x] 5.2 Implemented `mobile/src/config/env.ts` that reads env variables (API_URL, SUPABASE_URL, APP_ENV, ENABLE_DEV_TOOLS).
   - [x] 5.3 Created `mobile/src/config/features.ts` with feature flags (enableInteractiveMap, enableTripPhotos, enablePremiumBadges, etc.).
   - [x] 5.4 API client uses env.apiUrl from config instead of hardcoded URL.
   - [x] 5.5 Added note in api.ts and .env.example about iOS Simulator localhost limitation.
 
 - [x] 6.0 Set up Jest and React Native Testing Library for smoke and component tests
-
   - [x] 6.1 Jest dependencies already in package.json (jest, @testing-library/react-native, jest-expo). Added babel-preset-expo.
   - [x] 6.2 jest.config.js already configured with jest-expo preset and moduleNameMapper for path aliases.
   - [x] 6.3 Created jest.setup.js with mocks for react-native-safe-area-context, react-native-screens, expo-secure-store.
@@ -107,6 +101,7 @@
 ## Summary
 
 Phase 2 is **complete**. The mobile app now has:
+
 - Full navigation structure (Auth -> Onboarding -> Main tabs with nested trips stack)
 - Screen shells for all routes
 - Reusable UI primitives (Screen, Text, Button, Input)

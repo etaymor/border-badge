@@ -142,9 +142,7 @@ describe('PlacesAutocomplete Integration', () => {
           },
         }),
       ];
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse(createMockPlacesApiResponse(predictions))
-      );
+      mockFetch.mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse(predictions)));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />

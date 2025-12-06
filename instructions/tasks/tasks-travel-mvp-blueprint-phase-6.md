@@ -27,7 +27,6 @@
 ## Tasks
 
 - [ ] 1.0 Implement paywall surfaces and entry points across the mobile app
-
   - [ ] 1.1 Define when and where users should see the paywall based on PRD guidance (`docs/travel-prd.md` L217–231, L349–359) and the blueprint (e.g., after passport reveal, on attempting premium-only actions), and document these triggers.
   - [ ] 1.2 Add a `Paywall` route to `mobile/src/navigation/types.ts` and configure it in `mobile/src/navigation/index.tsx`, ensuring it can be reached both modally and via deep-link-style navigation from key flows.
   - [ ] 1.3 Implement `PaywallScreen` with content matching `docs/travel-mvp-blueprint.md` §10.1 (L495–505): headline, bullet list of benefits, primary “Start Free Trial” CTA, and secondary “Continue with Free Plan” option.
@@ -38,7 +37,6 @@
   - [ ] 1.6 Integrate basic analytics calls in `PaywallScreen` (via `analytics.track`) to log paywall viewed, primary CTA tapped, and secondary CTA tapped events (details fleshed out in Task 4.0).
 
 - [ ] 2.0 Integrate RevenueCat SDK on mobile and manage subscription state
-
   - [ ] 2.1 Add RevenueCat dependencies to `mobile/package.json` according to the provider’s React Native/Expo integration guidance, and configure any native modules or plugins required for iOS.
   - [ ] 2.2 Extend `mobile/src/config/env.ts` to include RevenueCat app identifiers and product IDs for at least one subscription product (e.g., monthly plan), sourced from environment variables.
   - [ ] 2.3 Implement `mobile/src/state/subscriptionStore.ts` to hold subscription status (e.g., `none`, `in_trial`, `active`, `expired`), current product details, and last refreshed timestamp.
@@ -52,7 +50,6 @@
   - [ ] 2.6 Optionally, implement a minimal backend verification endpoint (`backend/app/api/subscriptions.py`) to validate RevenueCat webhooks or subscription status for server-side gated behavior.
 
 - [ ] 3.0 Gate premium features using subscription status and feature flags
-
   - [ ] 3.1 Identify which features are premium vs free from the PRD and blueprint (e.g., social overlays, deeper trip journaling, AI tips, advanced analytics surfaces) and create a small matrix mapping feature → gating rule.
   - [ ] 3.2 Extend `mobile/src/config/env.ts` with feature flags (e.g., `FEATURE_PAYWALL_ENABLED`, `FEATURE_AI_TIPS_ENABLED`) so environments can enable or disable premium gating without code changes.
   - [ ] 3.3 Implement a `usePremiumGate` helper or simple utility that, given a feature identifier, returns whether it is allowed for the current subscription status and environment settings.
@@ -64,7 +61,6 @@
   - [ ] 3.6 Add clear UI copy for gated actions explaining that they are part of the premium experience and offer a way to learn more (link to paywall) without breaking core flows.
 
 - [ ] 4.0 Define and implement analytics event schema for key product actions
-
   - [ ] 4.1 Based on PRD analytics requirements (`docs/travel-prd.md` L341–359, L541–545) and the technical design (`docs/travel-technical-design.md` L587–595), draft a concise event schema document detailing:
     - Event names (e.g., `onboarding_started`, `country_added`, `trip_created`, `friend_request_sent`, `trip_tag_approved`, `paywall_viewed`, `subscription_started`).
     - Required and optional properties for each event (e.g., `source`, `country_count`, `trial_length`, `plan_type`).
@@ -80,7 +76,6 @@
   - [ ] 4.6 Ensure that all analytics calls are **explicit and user-action based**, and avoid adding any hidden or passive tracking beyond what is described in PRD and technical design.
 
 - [ ] 5.0 Wire Google Analytics and PostHog instrumentation to emit events
-
   - [ ] 5.1 Configure Google Analytics and PostHog project keys and endpoints in `mobile/src/config/env.ts` and `backend/app/core/config.py`, ensuring they are environment-specific and not hard-coded.
   - [ ] 5.2 Integrate the official or recommended SDKs for Google Analytics and PostHog on mobile, and ensure they are initialized early in the app lifecycle (e.g., in `App.tsx` or an analytics provider wrapper).
   - [ ] 5.3 Integrate corresponding clients on the backend (e.g., HTTP APIs or client libraries) in `backend/app/core/analytics.py`, with error handling that logs but does not fail the main request on analytics errors.
@@ -89,7 +84,6 @@
   - [ ] 5.6 Validate in a staging environment that key events appear correctly in Google Analytics and PostHog dashboards, and adjust payloads or naming as needed for clarity.
 
 - [ ] 6.0 Add tests to validate paywall behavior, subscription flows, and analytics event emission
-
   - [ ] 6.1 Implement `backend/tests/test_analytics_events.py` to assert that representative backend actions (e.g., trip creation, friend acceptance, subscription verification) call the analytics helper with the expected event names and properties.
   - [ ] 6.2 Implement `backend/tests/test_subscriptions.py` (if backend subscription verification endpoints are used) to cover happy paths, invalid tokens, and expired/invalid subscription scenarios.
   - [ ] 6.3 Implement `mobile/src/__tests__/screens/PaywallScreen.test.tsx` to verify that:
@@ -100,5 +94,3 @@
     - A successful subscription (mocking RevenueCat responses) and return to the gated feature with access granted.
   - [ ] 6.5 Add unit tests for `mobile/src/lib/analytics.ts` to verify that provider-specific calls are correctly formed and that events are dropped or gracefully handled when analytics is disabled.
   - [ ] 6.6 Run both backend and mobile test suites to confirm Phase 6 changes do not regress existing functionality and that paywall + analytics behaviors are covered by automated tests.
-
-

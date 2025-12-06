@@ -80,12 +80,14 @@ npx expo start
 ### Running Tests
 
 **Backend:**
+
 ```bash
 cd backend
 poetry run pytest
 ```
 
 **Mobile:**
+
 ```bash
 cd mobile
 npm test
@@ -94,6 +96,7 @@ npm test
 ### Linting & Formatting
 
 **Backend:**
+
 ```bash
 cd backend
 poetry run ruff check .
@@ -101,6 +104,7 @@ poetry run black --check .
 ```
 
 **Mobile:**
+
 ```bash
 cd mobile
 npm run lint
@@ -110,6 +114,7 @@ npm run format:check
 ## CI/CD
 
 All pull requests must pass CI checks before merging:
+
 - Backend: ruff lint, black format check, pytest
 - Mobile: ESLint, Prettier check, Jest tests
 

@@ -32,7 +32,6 @@
 ## Tasks
 
 - [x] 1.0 Define and apply Supabase schema for Phase 1 entities
-
   - [x] 1.1 Create `infra/supabase/migrations/0001_init_schema.sql` and wire it into your Supabase migration workflow (CLI or SQL runner).
   - [x] 1.2 Translate the `country` entity from `docs/travel-technical-design.md` L98–104 into a `country` table (id, code, name, region, flag_url) with appropriate types and a unique constraint on `code`. Added `recognition` enum for filtering UN/observer/disputed/territory.
   - [x] 1.3 Translate the `user` entity from `docs/travel-technical-design.md` L91–97 into a user profile table that references Supabase `auth.users` (e.g., via a `user_id uuid` FK) and stores display_name, avatar_url, created_at. Added `is_test` flag and auto-creation trigger.
@@ -44,7 +43,6 @@
   - [x] 1.9 Run the migration against a local/dev Supabase instance, then inspect tables and constraints using the Supabase UI or `psql` to confirm they match the ERD. (Migrations copied to `supabase/migrations/` and applied via `supabase db push`.)
 
 - [x] 2.0 Implement Supabase Row Level Security (RLS) and access rules
-
   - [x] 2.1 Enable RLS on all user-scoped tables (`user_countries`, `trip`, `trip_tags`, `entry`, `place`, `media_files`) per `docs/travel-technical-design.md` L81–82 and L603–607.
   - [x] 2.2 Add a policy on `country` to allow read access to all authenticated and unauthenticated users (since countries are global reference data).
   - [x] 2.3 Add policies on `user_countries` so that users can only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rows where `user_id` equals their own auth user id.
@@ -54,7 +52,6 @@
   - [x] 2.7 Write a small SQL script or use Supabase SQL editor to simulate different users and verify that unauthorized users cannot read or modify other users' data. (RLS policies verified via backend tests with mocked auth contexts.)
 
 - [x] 3.0 Scaffold FastAPI project structure and shared infrastructure
-
   - [x] 3.1 Create the `backend/app` package with `__init__.py`, `main.py`, and subpackages `core/`, `db/`, `api/`, `schemas/`.
   - [x] 3.2 Implement `backend/app/core/config.py` to load environment variables (Supabase URL, anon/service keys, JWT secret/audience, environment flags) with sensible defaults for development.
   - [x] 3.3 Implement `backend/app/db/session.py` with a reusable helper for executing SQL/queries against the Supabase Postgres instance (via httpx HTTP client).
@@ -64,7 +61,6 @@
   - [x] 3.7 Add a simple health check endpoint (e.g., `/health`) to verify the app is running.
 
 - [x] 4.0 Implement Phase 1 REST endpoints for countries, trips, entries, places, and media
-
   - [x] 4.1 ~~Create `backend/app/schemas/auth.py`~~ N/A - Auth handled directly by Supabase Auth client SDK; no backend proxy needed.
   - [x] 4.2 ~~Implement `backend/app/api/auth.py`~~ N/A - Auth handled directly by Supabase Auth client SDK; no backend proxy needed.
   - [x] 4.3 Create `backend/app/schemas/countries.py` and implement `/countries` GET in `backend/app/api/countries.py` to return all countries, filtered by optional `search`/`region`/`recognition` query params.
@@ -78,7 +74,6 @@
   - [x] 4.11 All endpoints use appropriate HTTP status codes for success and error cases.
 
 - [x] 5.0 Implement consent and notification stubs for trip tagging workflow
-
   - [x] 5.1 In `/trips` POST handler, create `trip_tags` rows with `status = 'pending'` for each `tagged_user_id` provided.
   - [x] 5.2 In `/trips/:id/approve` and `/trips/:id/decline`, update the corresponding `trip_tags` row for the current user, set `responded_at`, and enforce 409 errors if the tag was already actioned.
   - [x] 5.3 Add `backend/app/core/notifications.py` helper that logs notification payload for future push/email integration.

@@ -27,7 +27,6 @@
 ## Tasks
 
 - [x] 1.0 Establish repo layout and high-level documentation
-
   - [x] 1.1 Create the core directory structure in the repo root:
     - `backend/` (FastAPI app and tests).
     - `mobile/` (React Native/Expo app and tests).
@@ -39,7 +38,6 @@
   - [x] 1.3 Add any repo-wide configuration files (e.g., `.editorconfig`) that help enforce consistent indentation, line endings, and charset across backend and mobile.
 
 - [x] 2.0 Bootstrap Supabase project and local development configuration
-
   - [x] 2.1 Create a Supabase project (in the Supabase dashboard) and capture:
     - Supabase URL.
     - Anon/public key.
@@ -52,7 +50,6 @@
   - [x] 2.5 Verify that you can run the migration pipeline against a dev Supabase instance and that Supabase's SQL editor or CLI can see the applied migration.
 
 - [x] 3.0 Scaffold FastAPI backend skeleton
-
   - [x] 3.1 Initialize a Python project under `backend/`:
     - Create `pyproject.toml` or `requirements.txt` with at least: `fastapi`, `uvicorn[standard]`, an HTTP client for Supabase (e.g., `httpx` or `psycopg2`/`asyncpg`), and testing tools (`pytest`).
   - [x] 3.2 Create `backend/app/__init__.py`, `backend/app/main.py`, `backend/app/core/config.py`, and `backend/app/db/session.py`:
@@ -66,7 +63,6 @@
   - [x] 3.5 Add a small "How to run backend" section to `README.md` (or a `backend/README.md`) documenting the command to start the dev server (e.g., `uvicorn backend.app.main:app --reload`).
 
 - [x] 4.0 Scaffold React Native (Expo) mobile skeleton with TypeScript
-
   - [x] 4.1 Initialize an Expo-managed React Native project in `mobile/` (e.g., `npx create-expo-app mobile -t expo-template-blank-typescript` or equivalent), ensuring TypeScript support.
   - [x] 4.2 Configure `mobile/app.json` or `app.config.(js|ts)` with:
     - App name and slug.
@@ -82,7 +78,6 @@
   - [x] 4.6 Add a "How to run mobile" section to `README.md` documenting how to start Expo and open the app in the iOS simulator.
 
 - [x] 5.0 Set up tooling and CI (linting, formatting, and tests)
-
   - [x] 5.1 Configure backend tooling:
     - Add `ruff` and/or `black` to `backend/pyproject.toml` or requirements.
     - Optionally add a `Makefile` or `backend/README.md` snippets for running `ruff`, `black`, and `pytest`.
@@ -97,5 +92,3 @@
     - Installs mobile dependencies and runs ESLint, Prettier check (if configured), and Jest.
     - Runs on pull requests and pushes to the main branch.
   - [x] 5.5 Confirm CI passes with the initial skeleton and document in `README.md` that passing CI is a prerequisite for merging future changes.
-
-

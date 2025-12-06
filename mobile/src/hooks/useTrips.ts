@@ -37,7 +37,7 @@ export interface TripWithTags extends Trip {
 
 export interface CreateTripInput {
   name: string;
-  country_code: string;  // 2-letter ISO code
+  country_code: string; // 2-letter ISO code
   cover_image_url?: string;
   tagged_user_ids?: string[];
 }

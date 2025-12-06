@@ -193,7 +193,9 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
       Alert.alert('Cover Image', 'Choose an option', [
         { text: 'Choose from Library', onPress: handlePickImage },
         { text: 'Take Photo', onPress: handleTakePhoto },
-        ...(value ? [{ text: 'Remove Image', style: 'destructive' as const, onPress: handleRemove }] : []),
+        ...(value
+          ? [{ text: 'Remove Image', style: 'destructive' as const, onPress: handleRemove }]
+          : []),
         { text: 'Cancel', style: 'cancel' },
       ]);
     }
