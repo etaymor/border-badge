@@ -1,6 +1,8 @@
 """Country and user_countries endpoints."""
 
 import asyncio
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -17,10 +19,13 @@ from app.schemas.countries import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Module-level country code cache to avoid repeated lookups for static reference data.
 _country_code_cache: dict[str, str] = {}
 _country_code_lock = asyncio.Lock()
+_cache_expiry: dict[str, datetime] = {}
+CACHE_TTL = timedelta(hours=24)
 
 
 async def get_country_id_by_code(country_code: str) -> str | None:
@@ -28,14 +33,23 @@ async def get_country_id_by_code(country_code: str) -> str | None:
     code = country_code.upper()
 
     cached = _country_code_cache.get(code)
-    if cached:
+    expiry = _cache_expiry.get(code)
+    if cached and expiry and datetime.utcnow() < expiry:
         return cached
+    elif cached:
+        # Expired cache entry; remove before refetching
+        _country_code_cache.pop(code, None)
+        _cache_expiry.pop(code, None)
 
     async with _country_code_lock:
         # Re-check inside lock to avoid duplicate fetches.
         cached = _country_code_cache.get(code)
-        if cached:
+        expiry = _cache_expiry.get(code)
+        if cached and expiry and datetime.utcnow() < expiry:
             return cached
+        elif cached:
+            _country_code_cache.pop(code, None)
+            _cache_expiry.pop(code, None)
 
         db = get_supabase_client()
         rows = await db.get(
@@ -47,12 +61,14 @@ async def get_country_id_by_code(country_code: str) -> str | None:
 
         country_id = rows[0]["id"]
         _country_code_cache[code] = country_id
+        _cache_expiry[code] = datetime.utcnow() + CACHE_TTL
         return country_id
 
 
 def clear_country_code_cache() -> None:
     """Clear the country code cache (used after country data changes)."""
     _country_code_cache.clear()
+    _cache_expiry.clear()
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:
@@ -314,7 +330,12 @@ async def remove_user_country_by_code(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    country_id = await get_country_id_by_code(country_code)
+    try:
+        country_id = await get_country_id_by_code(country_code)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Error looking up country code %s: %s", country_code, exc)
+        return
+
     if not country_id:
         # Country not found, but return 204 for idempotency
         return
