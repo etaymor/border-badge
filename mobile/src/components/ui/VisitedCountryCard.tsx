@@ -19,17 +19,6 @@ export interface VisitedCountryCardProps {
   testID?: string;
 }
 
-function arePropsEqual(
-  prevProps: VisitedCountryCardProps,
-  nextProps: VisitedCountryCardProps
-): boolean {
-  return (
-    prevProps.code === nextProps.code &&
-    prevProps.name === nextProps.name &&
-    prevProps.region === nextProps.region
-  );
-}
-
 export const VisitedCountryCard = React.memo(function VisitedCountryCard({
   code,
   name,
@@ -61,7 +50,7 @@ export const VisitedCountryCard = React.memo(function VisitedCountryCard({
       <Text style={styles.chevron}>{'>'}</Text>
     </TouchableOpacity>
   );
-}, arePropsEqual);
+});
 
 const styles = StyleSheet.create({
   container: {
