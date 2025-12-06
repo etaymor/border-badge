@@ -34,14 +34,12 @@ export interface ListDetail extends Omit<ListSummary, 'entry_count'> {
 export interface CreateListInput {
   name: string;
   description?: string;
-  is_public?: boolean;
   entry_ids?: string[];
 }
 
 export interface UpdateListInput {
   name?: string;
   description?: string;
-  is_public?: boolean;
 }
 
 // Query keys

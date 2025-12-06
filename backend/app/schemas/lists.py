@@ -18,7 +18,6 @@ class ListCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
-    is_public: bool = True
     entry_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -27,7 +26,6 @@ class ListUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
-    is_public: bool | None = None
 
 
 class ListEntriesUpdate(BaseModel):

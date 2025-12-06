@@ -149,7 +149,8 @@ async def create_list(
         "owner_id": user.id,
         "name": data.name,
         "description": data.description,
-        "is_public": data.is_public,
+        # Lists are always public going forward
+        "is_public": True,
     }
 
     rows = await db.post("list", list_data)
@@ -160,6 +161,8 @@ async def create_list(
         )
 
     lst = rows[0]
+    # Enforce public visibility in response even if DB default differs
+    lst["is_public"] = True
     entries: list[ListEntry] = []
 
     # Add entries to list using bulk insert for atomicity and performance
@@ -242,6 +245,8 @@ async def update_list(
     db = get_supabase_client(user_token=token)
 
     update_data = data.model_dump(exclude_unset=True)
+    # Force lists to stay public even if callers try to pass the field
+    update_data.pop("is_public", None)
     if not update_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
