@@ -37,8 +37,15 @@ export type OnboardingStackParamList = {
 // Main bottom tab navigator
 export type MainTabParamList = {
   Passport: NavigatorScreenParams<PassportStackParamList>;
+  Dreams: NavigatorScreenParams<DreamsStackParamList>;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   Profile: undefined;
+};
+
+// Dreams stack (nested in tab)
+export type DreamsStackParamList = {
+  DreamsHome: undefined;
+  CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
 };
 
 // Passport stack (nested in tab)
@@ -90,6 +97,11 @@ export type TripsStackScreenProps<T extends keyof TripsStackParamList> = Composi
 
 export type PassportStackScreenProps<T extends keyof PassportStackParamList> = CompositeScreenProps<
   NativeStackScreenProps<PassportStackParamList, T>,
+  MainTabScreenProps<keyof MainTabParamList>
+>;
+
+export type DreamsStackScreenProps<T extends keyof DreamsStackParamList> = CompositeScreenProps<
+  NativeStackScreenProps<DreamsStackParamList, T>,
   MainTabScreenProps<keyof MainTabParamList>
 >;
 
