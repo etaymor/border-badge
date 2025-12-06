@@ -13,6 +13,8 @@
 - `backend/app/core/config.py` - Configuration for base URL, public domain, analytics keys, and caching headers for public endpoints.
 - `backend/tests/test_public_endpoints.py` - Backend tests for public endpoints: landing page, list by slug, trip by id/slug, SEO fields, and privacy constraints.
 - `docs/travel-mvp-blueprint.md` - Phase 9 blueprint (`§12.5 Phase 9 – Shared Lists & Public Web Views`) driving requirements.
+- `backend/app/db/session.py` - Supabase client for REST/RPC operations used by API routes.
+- `backend/tests/test_db_session.py` - Tests covering Supabase client header setup and RPC helper behavior.
 
 ### Notes
 
@@ -92,3 +94,5 @@
     - Presence of key SEO tags in rendered HTML.
   - [x] 5.4 Perform basic performance checks (e.g., using `ab`/`wrk` or timing logs) to ensure public pages respond quickly under expected traffic and remain within P75 targets (building on PRD technical metrics `docs/travel-prd.md` L317–323).
   - [x] 5.5 Document how to run and test the public web views (dev/staging URLs, expected environment variables, how to validate SEO/open-graph previews) in `README.md` or a small `docs/public-web.md`.
+- [x] 6.0 Fix Supabase RPC support for trip sharing
+  - [x] 6.1 Add `SupabaseClient.rpc` helper and tests to support slug generation

@@ -7,10 +7,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Path, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
-from app.core.config import get_settings
 from app.schemas.lists import (
     ListCreate,
     ListDetail,
@@ -466,14 +466,6 @@ async def restore_list(
     return _build_list_detail(lst, entries)
 
 
-def _build_media_url(file_path: str) -> str:
-    """Build a public URL for a media file in Supabase storage."""
-    settings = get_settings()
-    if not settings.supabase_url:
-        return ""
-    return f"{settings.supabase_url}/storage/v1/object/public/media/{file_path}"
-
-
 # Public endpoint (no auth required)
 @router.get("/public/lists/{slug}", response_model=PublicListView)
 async def get_public_list(
@@ -524,7 +516,7 @@ async def get_public_list(
                     # Prefer thumbnail for list views, fall back to full image
                     path = media.get("thumbnail_path") or media.get("file_path")
                     if path:
-                        media_urls.append(_build_media_url(path))
+                        media_urls.append(build_media_url(path))
 
             entries.append(
                 PublicListEntry(

@@ -7,9 +7,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
+from app.core.media import build_media_url
 from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
 from app.db.session import get_supabase_client
-from app.main import templates
+from app.main import limiter, templates
 from app.schemas.lists import PublicListEntry, PublicListView
 from app.schemas.public import PublicTripEntry, PublicTripView
 
@@ -18,15 +19,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["public"])
 
 
-def _build_media_url(file_path: str) -> str:
-    """Build a public URL for a media file in Supabase storage."""
-    settings = get_settings()
-    if not settings.supabase_url:
-        return ""
-    return f"{settings.supabase_url}/storage/v1/object/public/media/{file_path}"
-
-
 @router.get("/", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def landing_page(request: Request) -> HTMLResponse:
     """Render the public landing page."""
     settings = get_settings()
@@ -45,11 +39,12 @@ async def landing_page(request: Request) -> HTMLResponse:
             "canonical_url": seo.canonical_url,
         },
     )
-    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["Cache-Control"] = "public, max-age=3600"
     return response
 
 
 @router.get("/l/{slug}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def view_public_list(
     request: Request,
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
@@ -84,6 +79,7 @@ async def view_public_list(
             "list_id": f"eq.{lst['id']}",
             "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
+            "limit": 50,  # Limit entries for public view
         },
     )
 
@@ -98,7 +94,7 @@ async def view_public_list(
                 if media.get("status") == "uploaded":
                     path = media.get("thumbnail_path") or media.get("file_path")
                     if path:
-                        media_urls.append(_build_media_url(path))
+                        media_urls.append(build_media_url(path))
 
             entries.append(
                 PublicListEntry(
@@ -146,11 +142,12 @@ async def view_public_list(
             "canonical_url": seo.canonical_url,
         },
     )
-    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
     return response
 
 
 @router.get("/t/{slug}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def view_public_trip(
     request: Request,
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
@@ -199,7 +196,7 @@ async def view_public_trip(
             if media.get("status") == "uploaded":
                 path = media.get("thumbnail_path") or media.get("file_path")
                 if path:
-                    media_urls.append(_build_media_url(path))
+                    media_urls.append(build_media_url(path))
 
         entries.append(
             PublicTripEntry(
@@ -248,7 +245,7 @@ async def view_public_trip(
             "canonical_url": seo.canonical_url,
         },
     )
-    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
     return response
 
 
