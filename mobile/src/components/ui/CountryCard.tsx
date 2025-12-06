@@ -36,10 +36,7 @@ export interface CountryCardProps {
   testID?: string;
 }
 
-function arePropsEqual(
-  prevProps: CountryCardProps,
-  nextProps: CountryCardProps
-): boolean {
+function arePropsEqual(prevProps: CountryCardProps, nextProps: CountryCardProps): boolean {
   return (
     prevProps.code === nextProps.code &&
     prevProps.name === nextProps.name &&
@@ -119,16 +116,11 @@ export const CountryCard = React.memo(function CountryCard({
 
         {/* Heart Button - Add to Wishlist */}
         <TouchableOpacity
-          style={[
-            styles.actionButton,
-            isWishlisted && styles.actionButtonWishlisted,
-          ]}
+          style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
           onPress={handleWishlistPress}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
-          accessibilityLabel={
-            isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'
-          }
+          accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
           testID={`country-card-wishlist-${code}`}
         >
           <Ionicons
