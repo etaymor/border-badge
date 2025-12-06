@@ -34,7 +34,6 @@
 ## Tasks
 
 - [ ] 1.0 Design and implement friend graph schema and backend endpoints (search, request, accept/reject, list)
-
   - [ ] 1.1 Design the friend model(s) supporting US-013/014 using `docs/travel-technical-design.md` L575–583 as guidance (e.g., `friend_requests` table for pending invites and a `friends` or status-based relationship table), and write a Supabase migration in `infra/supabase/migrations/0003_friends.sql`.
   - [ ] 1.2 Ensure the schema captures at least: requester, recipient, status (`pending`/`accepted`/`declined`), created_at, responded_at, and optional notification metadata (e.g., IDs for sent notifications).
   - [ ] 1.3 Add RLS policies for the friend tables so that only involved users (requester or recipient) can see or modify a given friendship row, and admins retain elevated access for moderation (consistent with RLS principles in `docs/travel-technical-design.md` L81–82, L603–607).
@@ -48,7 +47,6 @@
   - [ ] 1.6 Ensure all friend endpoints return the standard error format from `docs/travel-technical-design.md` L486–495 and respect JWT-based auth from Phase 1 (US-017).
 
 - [ ] 2.0 Build mobile friend UI flows: friend search, requests list, and basic friend profile stats
-
   - [ ] 2.1 Extend `mobile/src/navigation/types.ts` and `navigation/index.tsx` to include routes for `FriendSearchScreen`, `FriendRequestsScreen`, and (optionally) `FriendProfileScreen` accessible through the Friends tab.
   - [ ] 2.2 Implement `FriendsScreen` as a hub that surfaces: summary of friend count, quick link to search, quick link to requests, and optionally a short list of top friends with their country counts (PRD L133–133).
   - [ ] 2.3 Implement `FriendSearchScreen` UI to search by username/email using `useFriends().search`, show results with a clear “Add friend” button, and handle success/error states consistent with US-013 acceptance criteria.
@@ -57,7 +55,6 @@
   - [ ] 2.6 Ensure the Friends flows reuse shared UI primitives (`Screen`, `Text`, `Button`) and feel coherent with the rest of the app, keeping visual polish minimal until Phase 8.
 
 - [ ] 3.0 Complete trip tagging & consent workflow end-to-end on backend and mobile
-
   - [ ] 3.1 Review trip-tag consent requirements in PRD (social approval system `docs/travel-prd.md` L135–143, L257–263; US-006/007 L419–433) and consent state machine details in `docs/travel-technical-design.md` L121–130, L328–360, L472–485, and sync any gaps with existing Phase 1/4 implementations.
   - [ ] 3.2 Ensure `trip_tags` schema and RLS policies enforce that only the trip owner and the tagged user can view/change consent status, and that only the tagged user can change their own status from `pending` to `approved` or `declined`.
   - [ ] 3.3 In `backend/app/api/trips.py`, verify or implement:
@@ -71,7 +68,6 @@
   - [ ] 3.6 Add inline entry points in relevant screens (notification center, trip detail) that allow the tagged user to approve or decline directly, wiring these actions to `useTripTags` update functions.
 
 - [ ] 4.0 Implement in-app notification center and connect it to friend + trip-tag events
-
   - [ ] 4.1 Define a simple internal notification model in `backend/app/schemas/notifications.py` (e.g., `type`, `title`, `body`, `entity_type`, `entity_id`, `created_at`, `read_at`), aligning event types with PRD notifications (friend request, trip tagged) and technical design notes (`docs/travel-technical-design.md` L499–511).
   - [ ] 4.2 Extend `backend/app/core/notifications.py` so that friend and trip-tag events enqueue a notification record (e.g., in a `notifications` table) for the relevant user(s), in addition to any push/email delivery.
   - [ ] 4.3 Implement `backend/app/api/notifications.py` with:
@@ -86,7 +82,6 @@
   - [ ] 4.6 Add notification badges or indicators in the tab bar (Friends or a dedicated Notifications icon) to show when the user has unread notifications, using data from `useNotifications`.
 
 - [ ] 5.0 Wire push/email notification delivery using existing notification hooks and a minimal provider integration
-
   - [ ] 5.1 Choose a minimal push notification provider (e.g., Expo push notifications for mobile) and a basic transactional email provider (e.g., SendGrid, Postmark), consistent with integration notes in `docs/travel-prd.md` L181–189 and `docs/travel-technical-design.md` L499–511.
   - [ ] 5.2 Extend `backend/app/core/notifications.py` with provider-specific clients or adapters that can send:
     - Push notifications for friend requests and trip tags.
@@ -96,7 +91,6 @@
   - [ ] 5.5 Add configuration options (env flags) to enable/disable push/email sending per environment (dev/staging/prod), and document how to test notifications locally and in a staging environment.
 
 - [ ] 6.0 Enforce privacy and visibility rules for trips and entries across backend and mobile UIs, with tests
-
   - [ ] 6.1 Review privacy and visibility requirements from PRD (default private trips, consent-based visibility `docs/travel-prd.md` L135–143, L249–263) and security/scoping requirements from the technical design (`docs/travel-technical-design.md` L81–82, L603–607).
   - [ ] 6.2 Ensure that all trip/entry queries on the backend (e.g., `/trips`, `/trips/:id`, `/trips/:trip_id/entries`) enforce that:
     - Only the trip owner or approved tagged users can view a trip and its entries.
@@ -112,5 +106,3 @@
     - Creating a trip, tagging the friend, and seeing pending/approved states in the UI.
     - Confirming that before approval, the tagged user does not see the trip in their own lists, and after approval, it appears as expected.
   - [ ] 6.7 Run backend and mobile test suites to ensure all new social/consent/notification logic is covered and does not break existing flows from earlier phases.
-
-

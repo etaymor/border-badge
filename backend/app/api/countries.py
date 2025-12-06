@@ -88,7 +88,9 @@ async def get_user_countries(
     # Transform to include country_code at top level for frontend
     result = []
     for row in rows:
-        country_code = row.get("country", {}).get("code") if row.get("country") else None
+        country_code = (
+            row.get("country", {}).get("code") if row.get("country") else None
+        )
         result.append(
             UserCountry(
                 id=row["id"],
@@ -177,7 +179,9 @@ async def set_user_country(
     )
 
 
-@router.post("/user/batch", response_model=list[UserCountry], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/user/batch", response_model=list[UserCountry], status_code=status.HTTP_201_CREATED
+)
 async def set_user_countries_batch(
     request: Request,
     data: UserCountryBatchUpdate,

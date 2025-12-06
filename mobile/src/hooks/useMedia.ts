@@ -343,7 +343,9 @@ export function useUploadMedia() {
       if (variables.tripId) {
         queryClient.invalidateQueries({ queryKey: [...MEDIA_QUERY_KEY, 'trip', variables.tripId] });
         // Also invalidate pending query so uploaded media appears in gallery
-        queryClient.invalidateQueries({ queryKey: [...MEDIA_QUERY_KEY, 'pending', variables.tripId] });
+        queryClient.invalidateQueries({
+          queryKey: [...MEDIA_QUERY_KEY, 'pending', variables.tripId],
+        });
       }
     },
     onError: (error) => {

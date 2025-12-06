@@ -1,7 +1,12 @@
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { clearOnboardingComplete, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import {
+  clearOnboardingComplete,
+  clearTokens,
+  storeOnboardingComplete,
+  storeTokens,
+} from '@services/api';
 import { migrateGuestData, MigrationResult } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';

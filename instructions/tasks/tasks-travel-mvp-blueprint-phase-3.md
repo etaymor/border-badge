@@ -32,7 +32,6 @@
 ## Tasks
 
 - [ ] 1.0 Wire mobile auth flows (login/signup) to backend `/auth` endpoints and manage session state
-
   - [ ] 1.1 Implement `mobile/src/api/hooks/useAuth.ts` that exposes `signup`, `login`, and `logout` functions, calling `/auth/signup` and `/auth/login` using `mobile/src/api/client.ts` and types matching `docs/travel-technical-design.md` L198–232.
   - [ ] 1.2 Extend `mobile/src/state/authStore.ts` (or `authContext.tsx`) to store `accessToken`, current user profile data, and an auth status enum (e.g., `unauthenticated`, `authenticating`, `authenticated`).
   - [ ] 1.3 Update `mobile/src/api/client.ts` so that it reads the latest `accessToken` from the auth store on each request and attaches it as an `Authorization: Bearer <token>` header for authenticated endpoints.
@@ -41,7 +40,6 @@
   - [ ] 1.6 Ensure `App.tsx` or `RootNavigator` conditionally renders the auth stack vs onboarding/main tabs based on auth status from the auth store (e.g., unauthenticated → auth stack, authenticated but not onboarded → onboarding stack, authenticated and onboarded → main tabs).
 
 - [ ] 2.0 Implement guest mode and guest → registered migration
-
   - [ ] 2.1 Update `WelcomeScreen` to present clear options for “Continue as Guest”, “Log in”, and “Sign up”, matching copy and intent from `docs/travel-prd.md` L209–221.
   - [ ] 2.2 When a user chooses “Continue as Guest”, set the auth status to a `guest` state in the auth store and navigate directly into the onboarding stack (starting at `MotivationScreen`).
   - [ ] 2.3 Implement `mobile/src/state/onboardingStore.ts` to hold guest-onboarding data: selected motivation/personality tags, visited countries, wishlist countries, and onboarding progress flags.
@@ -50,7 +48,6 @@
   - [ ] 2.6 After successful signup and migration, clear guest-only data from `onboardingStore` and mark a flag in the auth or onboarding store indicating that onboarding has been completed for this user.
 
 - [ ] 3.0 Build motivation/personality tag onboarding screen and persist captured tags through signup
-
   - [ ] 3.1 Design the `MotivationScreen` UI to reflect the “Why I Travel” and “I Am A…” bubble-tag UX described in `docs/travel-prd.md` L217–221, using the shared `Screen`, `Text`, and `Button` components.
   - [ ] 3.2 Implement local state on `MotivationScreen` that allows selecting/deselecting tags, with clear visual feedback for selected vs unselected states.
   - [ ] 3.3 On continue/next, persist the selected tags into `onboardingStore` so they are available later at signup time and can survive navigation back/forward.
@@ -58,7 +55,6 @@
   - [ ] 3.5 Add validation and UX safeguards (e.g., at least one tag per category or a sensible default) so that the user cannot accidentally proceed without capturing meaningful preference data.
 
 - [ ] 4.0 Implement onboarding country selection flow backed by `/countries` and `/user_countries`
-
   - [ ] 4.1 Extend `CountrySelectionScreen` to support the three onboarding steps from the PRD: current country autocomplete, dream destination autocomplete, and continent-based grid selection (`docs/travel-prd.md` L217–221, L233–241, L277–279).
   - [ ] 4.2 Use `useCountries` to power the autocomplete fields, wiring query text to the `search` parameter and, where applicable, region filters to the `region` parameter in `/countries` (`docs/travel-technical-design.md` L234–244).
   - [ ] 4.3 Implement continent grid views that group countries by region, allow toggling visited vs wishlist, and visually distinguish between the two statuses using neutral styles consistent with Phase 2.
@@ -67,7 +63,6 @@
   - [ ] 4.6 Ensure that the onboarding flow properly advances from country selection to the progress summary only when required data (at least one visited country) is available, matching the intent of user stories US-001/002 in `docs/travel-prd.md` L381–393.
 
 - [ ] 5.0 Implement passport summary and map reveal powered by `user_countries`
-
   - [ ] 5.1 Implement `ProgressSummaryScreen` to compute and display: total visited countries, wishlist count, and visited percentage out of ~195 countries, as described in `docs/travel-prd.md` L217–221 and L523–529.
   - [ ] 5.2 Use `useUserCountries` to fetch the current user’s countries after migration or onboarding is complete, and derive summary metrics directly from the response shape in `docs/travel-technical-design.md` L261–263.
   - [ ] 5.3 Add basic celebratory UX (e.g., simple text feedback or small confetti placeholder) when the user reaches the summary screen, keeping heavy visual polish (custom animations, final art) for Phase 8.
@@ -75,12 +70,9 @@
   - [ ] 5.5 Ensure performance of the summary and passport views by minimizing unnecessary re-queries (e.g., using React Query caching and appropriate `staleTime`) and keeping perceived latency within the P75 < 2.5s target (`docs/travel-prd.md` L317–321).
 
 - [ ] 6.0 Add basic tests and instrumentation for the Phase 3 auth + onboarding + passport flow
-
   - [ ] 6.1 Create `mobile/src/__tests__/hooks/useAuth.test.tsx` to cover success and failure cases for `signup` and `login`, mocking the underlying HTTP client and verifying that the auth store is updated correctly on success and untouched on error.
   - [ ] 6.2 Add `mobile/src/__tests__/flows/AuthOnboardingFlow.test.tsx` that renders a test harness around `App`, steps through a simplified flow (guest → motivation → country selection → signup), and asserts that, at the end, the passport summary or main passport view is shown.
   - [ ] 6.3 Add smaller tests for `CountrySelectionScreen` to verify that toggling a country updates local state and, when authenticated, triggers a call to `/user_countries` with the correct `status` value.
   - [ ] 6.4 Add tests for `ProgressSummaryScreen` to ensure that given a mocked `user_countries` response, the correct visited and wishlist counts and percentages are displayed.
   - [ ] 6.5 Optionally, introduce a lightweight analytics or logging helper (e.g., `analytics.track(event, props)`) with a no-op implementation in this phase so that later phases (especially Phase 6) can attach real analytics without changing screen logic; log at least onboarding started/completed events to help with debugging.
   - [ ] 6.6 Run the mobile test suite (`cd mobile && npm test` or `npx jest`) and document any remaining gaps in coverage or known edge cases (e.g., offline onboarding) as TODOs in the tests or code comments for later phases.
-
-
