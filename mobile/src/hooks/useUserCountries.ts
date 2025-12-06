@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert } from 'react-native';
 
 import { api } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
@@ -74,7 +73,7 @@ export function useAddUserCountry() {
     },
     onError: (error) => {
       console.error('Failed to add country:', error);
-      Alert.alert('Error', 'Failed to add country. Please try again.');
+      // Error UI is handled by the calling component via mutation options
     },
   });
 }
@@ -92,7 +91,7 @@ export function useRemoveUserCountry() {
     },
     onError: (error) => {
       console.error('Failed to remove country:', error);
-      Alert.alert('Error', 'Failed to remove country. Please try again.');
+      // Error UI is handled by the calling component via mutation options
     },
   });
 }

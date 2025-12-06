@@ -186,6 +186,46 @@ jest.mock(
   { virtual: true }
 );
 
+// Mock expo-sqlite (used by countriesDb)
+jest.mock(
+  'expo-sqlite',
+  () => ({
+    openDatabaseAsync: jest.fn().mockResolvedValue({
+      execAsync: jest.fn(),
+      runAsync: jest.fn(),
+      getAllAsync: jest.fn().mockResolvedValue([]),
+      getFirstAsync: jest.fn().mockResolvedValue(null),
+    }),
+    useSQLiteContext: jest.fn(),
+  }),
+  { virtual: true }
+);
+
+// Mock expo-asset (dependency of expo-sqlite)
+jest.mock(
+  'expo-asset',
+  () => ({
+    Asset: {
+      loadAsync: jest.fn(),
+      fromModule: jest.fn().mockReturnValue({
+        downloadAsync: jest.fn().mockResolvedValue({ localUri: 'file:///mock/asset.db' }),
+        uri: 'file:///mock/asset.db',
+        localUri: 'file:///mock/asset.db',
+      }),
+    },
+  }),
+  { virtual: true }
+);
+
+// Mock countriesDb service
+jest.mock('@services/countriesDb', () => ({
+  getAllCountries: jest.fn().mockResolvedValue([]),
+  getCountriesByRegion: jest.fn().mockResolvedValue([]),
+  searchCountries: jest.fn().mockResolvedValue([]),
+  getCountryByCode: jest.fn().mockResolvedValue(null),
+  getCountriesByCodes: jest.fn().mockResolvedValue([]),
+}));
+
 // Reset all mocks between tests
 beforeEach(() => {
   jest.clearAllMocks();
