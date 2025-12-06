@@ -47,16 +47,25 @@ export function DreamsScreen({ navigation }: Props) {
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
+  // Track pending timeouts for cleanup
+  const pendingTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      // Clear all pending timeouts on unmount
+      pendingTimeoutsRef.current.forEach(clearTimeout);
+      pendingTimeoutsRef.current.clear();
     };
   }, []);
 
   // Animation state (per-card to prevent shared interference)
   const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
   const animationValuesRef = useRef(
-    new Map<string, { scale: Animated.Value; opacity: Animated.Value; translateY: Animated.Value }>()
+    new Map<
+      string,
+      { scale: Animated.Value; opacity: Animated.Value; translateY: Animated.Value }
+    >()
   );
 
   const getAnimationValues = useCallback((code: string) => {
@@ -179,7 +188,8 @@ export function DreamsScreen({ navigation }: Props) {
         });
 
         // Short delay to let the heart pulse animation start first
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
+          pendingTimeoutsRef.current.delete(timeoutId);
           Animated.parallel([
             Animated.timing(scale, {
               toValue: CARD_EXIT_SCALE,
@@ -225,6 +235,7 @@ export function DreamsScreen({ navigation }: Props) {
             });
           });
         }, HEART_PULSE_DELAY_MS);
+        pendingTimeoutsRef.current.add(timeoutId);
 
         // Show snackbar immediately
         setSnackbar({
@@ -265,13 +276,7 @@ export function DreamsScreen({ navigation }: Props) {
         </Animated.View>
       );
     },
-    [
-      handleCountryPress,
-      handleAddVisited,
-      handleToggleWishlist,
-      animatingCards,
-      getAnimationValues,
-    ]
+    [handleCountryPress, handleAddVisited, handleToggleWishlist, animatingCards, getAnimationValues]
   );
 
   const getItemKey = useCallback((item: DreamCountry) => item.code, []);
