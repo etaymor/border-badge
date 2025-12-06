@@ -367,19 +367,29 @@ describe('ListCreateFlow Integration', () => {
   // ============ Public URL Generation Tests ============
 
   describe('Public URL Generation', () => {
+    const originalWebBase = process.env.EXPO_PUBLIC_WEB_BASE_URL;
+
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_WEB_BASE_URL = 'https://example.com';
+    });
+
+    afterEach(() => {
+      process.env.EXPO_PUBLIC_WEB_BASE_URL = originalWebBase;
+    });
+
     it('generates correct public URL from slug', () => {
       const url = getPublicListUrl('best-spots-abc123');
-      expect(url).toBe('https://borderbadge.app/public/lists/best-spots-abc123');
+      expect(url).toBe('https://example.com/l/best-spots-abc123');
     });
 
     it('handles special characters in slug', () => {
       const url = getPublicListUrl('my-list-123');
-      expect(url).toContain('/public/lists/my-list-123');
+      expect(url).toContain('/l/my-list-123');
     });
 
     it('handles empty slug', () => {
       const url = getPublicListUrl('');
-      expect(url).toBe('https://borderbadge.app/public/lists/');
+      expect(url).toBe('https://example.com/l/');
     });
   });
 
