@@ -1,5 +1,6 @@
 """Country and user_countries endpoints."""
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -16,6 +17,42 @@ from app.schemas.countries import (
 )
 
 router = APIRouter()
+
+# Module-level country code cache to avoid repeated lookups for static reference data.
+_country_code_cache: dict[str, str] = {}
+_country_code_lock = asyncio.Lock()
+
+
+async def get_country_id_by_code(country_code: str) -> str | None:
+    """Resolve a country code to its UUID using an in-memory cache."""
+    code = country_code.upper()
+
+    cached = _country_code_cache.get(code)
+    if cached:
+        return cached
+
+    async with _country_code_lock:
+        # Re-check inside lock to avoid duplicate fetches.
+        cached = _country_code_cache.get(code)
+        if cached:
+            return cached
+
+        db = get_supabase_client()
+        rows = await db.get(
+            "country",
+            {"code": f"eq.{code}", "select": "id"},
+        )
+        if not rows:
+            return None
+
+        country_id = rows[0]["id"]
+        _country_code_cache[code] = country_id
+        return country_id
+
+
+def clear_country_code_cache() -> None:
+    """Clear the country code cache (used after country data changes)."""
+    _country_code_cache.clear()
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:
@@ -118,21 +155,14 @@ async def set_user_country(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Look up country by code to get the UUID
-    country_rows = await db.get(
-        "country",
-        {
-            "code": f"eq.{data.country_code.upper()}",
-            "select": "id",
-        },
-    )
-    if not country_rows:
+    country_code = data.country_code.upper()
+    country_id = await get_country_id_by_code(country_code)
+
+    if not country_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Country with code '{data.country_code}' not found",
         )
-    country_id = country_rows[0]["id"]
-    country_code = data.country_code.upper()
 
     # Check if association exists
     existing = await db.get(
@@ -205,14 +235,11 @@ async def set_user_countries_batch(
         if country_code in country_ids:
             continue  # Already validated
 
-        country_rows = await db.get(
-            "country",
-            {"code": f"eq.{country_code}", "select": "id"},
-        )
-        if not country_rows:
+        country_id = await get_country_id_by_code(country_code)
+        if not country_id:
             invalid_codes.append(country_code)
         else:
-            country_ids[country_code] = country_rows[0]["id"]
+            country_ids[country_code] = country_id
 
     if invalid_codes:
         raise HTTPException(
@@ -287,19 +314,11 @@ async def remove_user_country_by_code(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Look up country by code to get the UUID
-    country_rows = await db.get(
-        "country",
-        {
-            "code": f"eq.{country_code.upper()}",
-            "select": "id",
-        },
-    )
-    if not country_rows:
+    country_id = await get_country_id_by_code(country_code)
+    if not country_id:
         # Country not found, but return 204 for idempotency
         return
 
-    country_id = country_rows[0]["id"]
     await db.delete(
         "user_countries",
         {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},

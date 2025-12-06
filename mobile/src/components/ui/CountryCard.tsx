@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
 
 export interface CountryCardProps {
@@ -62,16 +63,16 @@ export const CountryCard = React.memo(function CountryCard({
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
 
   const handleAddVisitedPress = useCallback(
-    (e: GestureResponderEvent) => {
-      e.stopPropagation?.();
+    (e?: GestureResponderEvent) => {
+      e?.stopPropagation?.();
       onAddVisited();
     },
     [onAddVisited]
   );
 
   const handleWishlistPress = useCallback(
-    (e: GestureResponderEvent) => {
-      e.stopPropagation?.();
+    (e?: GestureResponderEvent) => {
+      e?.stopPropagation?.();
       onToggleWishlist();
     },
     [onToggleWishlist]
@@ -88,7 +89,7 @@ export const CountryCard = React.memo(function CountryCard({
     >
       {/* Image Placeholder */}
       <View style={styles.imagePlaceholder}>
-        <Ionicons name="image-outline" size={48} color="#A0A0A5" />
+        <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
       </View>
 
       {/* Flag Badge - Top Left */}
@@ -110,7 +111,7 @@ export const CountryCard = React.memo(function CountryCard({
           <Ionicons
             name={isVisited ? 'checkmark' : 'add'}
             size={24}
-            color={isVisited ? '#fff' : '#2E7D32'}
+            color={isVisited ? colors.white : colors.successDark}
           />
         </TouchableOpacity>
 
@@ -126,7 +127,7 @@ export const CountryCard = React.memo(function CountryCard({
           <Ionicons
             name={isWishlisted ? 'heart' : 'heart-outline'}
             size={22}
-            color={isWishlisted ? '#B8860B' : '#999'}
+            color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
           />
         </TouchableOpacity>
       </View>
@@ -151,14 +152,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: '#E5E5EA',
+    backgroundColor: colors.backgroundSecondary,
     height: 200,
     position: 'relative',
   },
   imagePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#D1D1D6',
+    backgroundColor: colors.backgroundPlaceholder,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -169,10 +170,10 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: colors.overlayLight,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -186,11 +187,11 @@ const styles = StyleSheet.create({
     bottom: 12,
     left: 12,
     right: 60,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: colors.overlayLight,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -199,11 +200,11 @@ const styles = StyleSheet.create({
   countryName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: colors.textPrimary,
   },
   regionName: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textSecondary,
     marginTop: 2,
   },
   actionsContainer: {
@@ -216,19 +217,19 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: colors.overlayLight,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
   actionButtonVisited: {
-    backgroundColor: '#2E7D32',
+    backgroundColor: colors.successDark,
   },
   actionButtonWishlisted: {
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.wishlistGold,
   },
 });
