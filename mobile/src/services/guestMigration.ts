@@ -1,43 +1,87 @@
-import axios from 'axios';
+import type { Session } from '@supabase/supabase-js';
 
-import { api } from './api';
+import { queryClient } from '../queryClient';
+import { api, getStoredToken, setSuppressAutoSignOut } from './api';
+import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
-// Helper to migrate a set of countries with a given status
+// Type for user country data returned by API
+interface UserCountry {
+  id: string;
+  user_id: string;
+  country_code: string;
+  status: 'visited' | 'wishlist';
+  created_at: string;
+}
+
+// Helper to migrate a set of countries with a given status using batch endpoint
 async function migrateCountries(
   countries: Set<string>,
   status: 'visited' | 'wishlist'
-): Promise<{ count: number; errors: string[] }> {
-  let count = 0;
-  const errors: string[] = [];
-
-  for (const countryCode of countries) {
-    try {
-      await api.post('/countries/user', {
-        country_code: countryCode,
-        status,
-      });
-      count++;
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 409) {
-        console.log(`Country ${countryCode} already exists as ${status}, skipping`);
-        continue;
-      }
-      errors.push(`Failed to migrate ${status} country ${countryCode}`);
-    }
+): Promise<{ data: UserCountry[]; errors: string[] }> {
+  if (countries.size === 0) {
+    return { data: [], errors: [] };
   }
 
-  return { count, errors };
+  try {
+    // Debug logging to diagnose network issues
+    const token = await getStoredToken();
+    console.log('Migration debug:', {
+      status,
+      countriesCount: countries.size,
+      apiBaseURL: api.defaults.baseURL,
+      hasToken: !!token,
+      tokenPrefix: token ? token.substring(0, 20) + '...' : 'none',
+    });
+
+    // Batch all countries in a single request for performance
+    const payload = {
+      countries: Array.from(countries).map((code) => ({
+        country_code: code,
+        status,
+      })),
+    };
+    const response = await api.post('/countries/user/batch', payload);
+    console.log('Migration success:', { status, count: response.data.length });
+    return { data: response.data as UserCountry[], errors: [] };
+  } catch (error) {
+    console.error(`Failed to migrate ${status} countries:`, error);
+    return { data: [], errors: [`Failed to migrate ${status} countries`] };
+  }
 }
 
-interface MigrationResult {
+export interface MigrationResult {
   success: boolean;
   migratedCountries: number;
   migratedProfile: boolean;
   errors: string[];
 }
 
-export async function migrateGuestData(): Promise<MigrationResult> {
+export async function migrateGuestData(session: Session): Promise<MigrationResult> {
+  const { setIsMigrating } = useAuthStore.getState();
+
+  // Mark migration as in progress so UI can show onboarding store data
+  setIsMigrating(true);
+
+  // Suppress auto-sign-out during migration to avoid race condition where
+  // a 401 during token establishment could sign out the user prematurely
+  setSuppressAutoSignOut(true);
+
+  try {
+    const result = await doMigration(session);
+
+    // Invalidate trips and profile caches (user-countries is set directly by doMigration)
+    await queryClient.invalidateQueries({ queryKey: ['trips'] });
+    await queryClient.invalidateQueries({ queryKey: ['profile'] });
+
+    return result;
+  } finally {
+    setSuppressAutoSignOut(false);
+    setIsMigrating(false);
+  }
+}
+
+async function doMigration(session: Session): Promise<MigrationResult> {
   const {
     selectedCountries,
     bucketListCountries,
@@ -60,7 +104,7 @@ export async function migrateGuestData(): Promise<MigrationResult> {
 
   // Migrate visited countries
   const visitedResult = await migrateCountries(allVisitedCountries, 'visited');
-  migratedCountries += visitedResult.count;
+  migratedCountries += visitedResult.data.length;
   errors.push(...visitedResult.errors);
 
   // Combine all wishlist countries (bucket list + dream destination)
@@ -71,8 +115,14 @@ export async function migrateGuestData(): Promise<MigrationResult> {
 
   // Migrate wishlist countries
   const wishlistResult = await migrateCountries(allWishlistCountries, 'wishlist');
-  migratedCountries += wishlistResult.count;
+  migratedCountries += wishlistResult.data.length;
   errors.push(...wishlistResult.errors);
+
+  // Directly populate the React Query cache with migrated data
+  // This ensures the passport screen shows countries immediately after account creation
+  // The query key includes the user ID to match useUserCountries query key format
+  const allMigratedCountries = [...visitedResult.data, ...wishlistResult.data];
+  queryClient.setQueryData(['user-countries', session.user.id], allMigratedCountries);
 
   // Migrate profile preferences (home country, travel motives, persona tags)
   const hasProfileData = homeCountry || motivationTags.length > 0 || personaTags.length > 0;

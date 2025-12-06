@@ -22,6 +22,8 @@ import {
   CreateEntryInput,
   PlaceInput,
 } from '@hooks/useEntries';
+import { useTrip } from '@hooks/useTrips';
+import { EntryMediaGallery } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
@@ -39,37 +41,50 @@ const ENTRY_TYPES: {
   { type: 'experience', icon: 'star', label: 'Experience', color: '#34C759' },
 ];
 
-function formatDateForInput(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
 export function EntryFormScreen({ route, navigation }: Props) {
   const { tripId, entryId, entryType: initialEntryType } = route.params;
   const isEditing = !!entryId;
 
   // Fetch existing entry data for editing
   const { data: existingEntry, isLoading: isLoadingEntry } = useEntry(entryId ?? '');
+  // Fetch trip to get country code for scoping place search
+  const { data: trip } = useTrip(tripId);
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
 
   // Form state
-  const [entryType, setEntryType] = useState<EntryType>(initialEntryType ?? 'place');
+  const [entryType, setEntryType] = useState<EntryType | null>(initialEntryType ?? null);
+  const [hasSelectedType, setHasSelectedType] = useState(!!initialEntryType || isEditing);
   const [title, setTitle] = useState('');
-  const [entryDate, setEntryDate] = useState(formatDateForInput(new Date()));
+  const [link, setLink] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
+  const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Reset form when navigating to a new entry (different trip or creating new)
+  useEffect(() => {
+    if (!isEditing) {
+      setTitle('');
+      setEntryType(initialEntryType ?? null);
+      setHasSelectedType(!!initialEntryType);
+      setLink('');
+      setNotes('');
+      setSelectedPlace(null);
+      setPendingMediaIds([]);
+      setErrors({});
+    }
+  }, [tripId, entryId, isEditing, initialEntryType]);
 
   // Populate form when editing
   useEffect(() => {
     if (existingEntry && isEditing) {
       setTitle(existingEntry.title);
       setEntryType(existingEntry.entry_type as EntryType);
+      setHasSelectedType(true);
       setNotes(existingEntry.notes ?? '');
-      if (existingEntry.entry_date) {
-        setEntryDate(existingEntry.entry_date.split('T')[0]);
-      }
+      setLink(existingEntry.link ?? '');
       if (existingEntry.place) {
         setSelectedPlace({
           google_place_id:
@@ -90,25 +105,46 @@ export function EntryFormScreen({ route, navigation }: Props) {
     });
   }, [navigation, isEditing]);
 
+  // Simple URL validation
+  const isValidUrl = useCallback((url: string): boolean => {
+    if (!url.trim()) return true; // Empty is valid (optional field)
+    try {
+      const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!title.trim()) {
-      newErrors.title = 'Title is required';
+    if (!entryType) {
+      newErrors.type = 'Please select an entry type';
     }
 
     // Place is required for place, food, and stay types
-    const requiresPlace = ['place', 'food', 'stay'].includes(entryType);
+    const requiresPlace = entryType && ['place', 'food', 'stay'].includes(entryType);
     if (requiresPlace && !selectedPlace) {
       newErrors.place = 'Please select or enter a location';
     }
 
+    // Title is only required when no place is selected (for "experience" type)
+    if (!selectedPlace && !title.trim()) {
+      newErrors.title = 'Name is required';
+    }
+
+    // Validate URL if provided
+    if (link.trim() && !isValidUrl(link)) {
+      newErrors.link = 'Please enter a valid URL';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [title, entryType, selectedPlace]);
+  }, [title, entryType, selectedPlace, link, isValidUrl]);
 
   const handleSubmit = useCallback(async () => {
-    if (!validateForm()) return;
+    if (!validateForm() || !entryType) return;
 
     setIsSubmitting(true);
     try {
@@ -122,25 +158,29 @@ export function EntryFormScreen({ route, navigation }: Props) {
           }
         : undefined;
 
+      // Use place name as title when a place is selected, otherwise use the title field
+      const entryTitle = selectedPlace ? selectedPlace.name : title.trim();
+
       if (isEditing && entryId) {
         await updateEntry.mutateAsync({
           entryId,
           data: {
-            title: title.trim(),
+            title: entryTitle,
             entry_type: entryType,
-            entry_date: entryDate || undefined,
             notes: notes.trim() || undefined,
+            link: link.trim() || undefined,
             place,
           },
         });
       } else {
         const entryData: CreateEntryInput = {
           trip_id: tripId,
-          title: title.trim(),
+          title: entryTitle,
           entry_type: entryType,
-          entry_date: entryDate || undefined,
           notes: notes.trim() || undefined,
+          link: link.trim() || undefined,
           place,
+          pending_media_ids: pendingMediaIds.length > 0 ? pendingMediaIds : undefined,
         };
 
         await createEntry.mutateAsync(entryData);
@@ -164,9 +204,10 @@ export function EntryFormScreen({ route, navigation }: Props) {
     tripId,
     title,
     entryType,
-    entryDate,
+    link,
     notes,
     selectedPlace,
+    pendingMediaIds,
     createEntry,
     updateEntry,
     navigation,
@@ -180,7 +221,13 @@ export function EntryFormScreen({ route, navigation }: Props) {
     );
   }
 
-  const showPlaceInput = ['place', 'food', 'stay'].includes(entryType);
+  const showPlaceInput = entryType && ['place', 'food', 'stay'].includes(entryType);
+
+  // Handle type selection
+  const handleTypeSelect = (type: EntryType) => {
+    setEntryType(type);
+    setHasSelectedType(true);
+  };
 
   return (
     <KeyboardAvoidingView
@@ -194,7 +241,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
       >
         {/* Entry Type Selector */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Type</Text>
+          <Text style={styles.sectionLabel}>What are you adding?</Text>
           <View style={styles.typeGrid}>
             {ENTRY_TYPES.map((item) => {
               const isSelected = entryType === item.type;
@@ -205,7 +252,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     styles.typeButton,
                     isSelected && { backgroundColor: item.color + '15', borderColor: item.color },
                   ]}
-                  onPress={() => setEntryType(item.type)}
+                  onPress={() => handleTypeSelect(item.type)}
                   testID={`entry-type-${item.type}`}
                 >
                   <Ionicons name={item.icon} size={24} color={isSelected ? item.color : '#666'} />
@@ -223,106 +270,125 @@ export function EntryFormScreen({ route, navigation }: Props) {
           </View>
         </View>
 
-        {/* Title */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Title *</Text>
-          <TextInput
-            style={[styles.input, errors.title && styles.inputError]}
-            placeholder="Give this entry a name"
-            value={title}
-            onChangeText={(text) => {
-              setTitle(text);
-              if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
-            }}
-            returnKeyType="next"
-            testID="entry-title-input"
-          />
-          {errors.title && (
-            <Text style={styles.errorText} testID="error-title-required">
-              {errors.title}
-            </Text>
-          )}
-        </View>
-
-        {/* Date */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Date</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            value={entryDate}
-            onChangeText={setEntryDate}
-            keyboardType="numbers-and-punctuation"
-            testID="entry-date-input"
-          />
-          <Text style={styles.hint}>Optional - when did this happen?</Text>
-        </View>
-
-        {/* Place (conditional) */}
-        {showPlaceInput && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Location {showPlaceInput ? '*' : ''}</Text>
-            <PlacesAutocomplete
-              value={selectedPlace}
-              onSelect={(place) => {
-                setSelectedPlace(place);
-                if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
-              }}
-              placeholder="Search for a place..."
-            />
-            {errors.place && (
-              <Text style={styles.errorText} testID="error-location-required">
-                {errors.place}
-              </Text>
+        {/* Show remaining fields only after type is selected */}
+        {hasSelectedType && (
+          <>
+            {/* Location (conditional - for place, food, stay) */}
+            {showPlaceInput && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Location *</Text>
+                <PlacesAutocomplete
+                  value={selectedPlace}
+                  onSelect={(place) => {
+                    setSelectedPlace(place);
+                    if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
+                  }}
+                  placeholder="Search for a place..."
+                  countryCode={trip?.country_code}
+                />
+                {errors.place && (
+                  <Text style={styles.errorText} testID="error-location-required">
+                    {errors.place}
+                  </Text>
+                )}
+              </View>
             )}
-          </View>
+
+            {/* Name - only shown when no place is selected */}
+            {!selectedPlace && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Name *</Text>
+                <TextInput
+                  style={[styles.input, errors.title && styles.inputError]}
+                  placeholder="Give this entry a name"
+                  value={title}
+                  onChangeText={(text) => {
+                    setTitle(text);
+                    if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
+                  }}
+                  returnKeyType="next"
+                  testID="entry-title-input"
+                />
+                {errors.title && (
+                  <Text style={styles.errorText} testID="error-title-required">
+                    {errors.title}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {/* Link (optional) */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Link</Text>
+              <TextInput
+                style={[styles.input, errors.link && styles.inputError]}
+                placeholder="Add website URL"
+                value={link}
+                onChangeText={(text) => {
+                  setLink(text);
+                  if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
+                }}
+                keyboardType="url"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                testID="entry-link-input"
+              />
+              {errors.link && (
+                <Text style={styles.errorText} testID="error-link-invalid">
+                  {errors.link}
+                </Text>
+              )}
+            </View>
+
+            {/* Notes */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Notes</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="What made this memorable?"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                testID="entry-notes-input"
+              />
+            </View>
+
+            {/* Photos Section */}
+            <EntryMediaGallery
+              entryId={isEditing ? entryId : undefined}
+              tripId={!isEditing ? tripId : undefined}
+              editable={true}
+              onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
+            />
+          </>
         )}
-
-        {/* Notes */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Notes</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="What made this memorable?"
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-            testID="entry-notes-input"
-          />
-        </View>
-
-        {/* Photos Section Placeholder */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Photos</Text>
-          <Pressable style={styles.photosPlaceholder}>
-            <Ionicons name="camera-outline" size={32} color="#ccc" />
-            <Text style={styles.photosPlaceholderText}>Add photos (Coming soon)</Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
-      {/* Submit Button */}
-      <View style={styles.footer}>
-        <Pressable
-          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={isSubmitting}
-          testID="entry-save-button"
-        >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name={isEditing ? 'checkmark' : 'add'} size={20} color="#fff" />
-              <Text style={styles.submitButtonText}>
-                {isEditing ? 'Save Changes' : 'Add Entry'}
-              </Text>
-            </>
-          )}
-        </Pressable>
-      </View>
+      {/* Submit Button - only show after type is selected */}
+      {hasSelectedType && (
+        <View style={styles.footer}>
+          <Pressable
+            style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+            testID="entry-save-button"
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name={isEditing ? 'checkmark' : 'add'} size={20} color="#fff" />
+                <Text style={styles.submitButtonText}>
+                  {isEditing ? 'Save Changes' : 'Add Entry'}
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -404,20 +470,6 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 6,
     marginLeft: 4,
-  },
-  photosPlaceholder: {
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    paddingVertical: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photosPlaceholderText: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
   },
   footer: {
     position: 'absolute',

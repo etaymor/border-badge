@@ -82,6 +82,7 @@ async def create_entry(
         "type": data.type.value,
         "title": data.title,
         "notes": data.notes,
+        "link": data.link,
         "metadata": data.metadata,
         "date": data.date.isoformat() if data.date else None,
     }
@@ -116,6 +117,32 @@ async def create_entry(
                 detail="Failed to create place for entry",
             )
         place = Place(**place_rows[0])
+
+    # Reassign pending media to this entry
+    if data.pending_media_ids:
+        media_ids = ",".join(str(mid) for mid in data.pending_media_ids)
+
+        # Verify all media belongs to current user (defense in depth)
+        owned_media = await db.get(
+            "media_files",
+            {
+                "id": f"in.({media_ids})",
+                "owner_id": f"eq.{user.id}",
+                "select": "id",
+            },
+        )
+
+        if len(owned_media) != len(data.pending_media_ids):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="One or more media files do not belong to you",
+            )
+
+        await db.patch(
+            "media_files",
+            {"entry_id": str(entry.id)},
+            {"id": f"in.({media_ids})"},
+        )
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

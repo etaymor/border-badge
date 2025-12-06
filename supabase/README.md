@@ -19,12 +19,12 @@ This directory contains database migrations and seed data for the Border Badge S
 1. Go to **Project Settings** > **API**
 2. Copy the following values to your `.env` files:
 
-| Key | Location | Usage |
-|-----|----------|-------|
-| `SUPABASE_URL` | Project URL | Both backend and mobile |
-| `SUPABASE_ANON_KEY` | `anon` `public` | Mobile app (respects RLS) |
-| `SUPABASE_SERVICE_ROLE_KEY` | `service_role` `secret` | Backend only (bypasses RLS) |
-| `SUPABASE_JWT_SECRET` | JWT Settings > JWT Secret | Backend JWT verification |
+| Key                         | Location                  | Usage                       |
+| --------------------------- | ------------------------- | --------------------------- |
+| `SUPABASE_URL`              | Project URL               | Both backend and mobile     |
+| `SUPABASE_ANON_KEY`         | `anon` `public`           | Mobile app (respects RLS)   |
+| `SUPABASE_SERVICE_ROLE_KEY` | `service_role` `secret`   | Backend only (bypasses RLS) |
+| `SUPABASE_JWT_SECRET`       | JWT Settings > JWT Secret | Backend JWT verification    |
 
 ### 3. Configure Environment Files
 
@@ -67,6 +67,7 @@ seed/
 #### Option B: Supabase CLI (For local development)
 
 1. Install Supabase CLI:
+
    ```bash
    # macOS
    brew install supabase/tap/supabase
@@ -76,11 +77,13 @@ seed/
    ```
 
 2. Login:
+
    ```bash
    supabase login
    ```
 
 3. Link to your project:
+
    ```bash
    supabase link --project-ref YOUR_PROJECT_ID
    ```
@@ -104,14 +107,17 @@ After applying migrations, verify in the Supabase dashboard:
 ## Troubleshooting
 
 ### "Permission denied" errors
+
 - Ensure you're using the `service_role` key for backend operations
 - Check that RLS policies are correctly configured
 
 ### Migration order matters
+
 - Always apply migrations in numerical order
 - Never skip a migration
 
 ### Reset database (development only)
+
 In the Supabase dashboard: **Database** > **Database Settings** > **Reset Database**
 
 > **Warning**: This deletes ALL data. Only use in development.

@@ -3,17 +3,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
 import type { AuthStackScreenProps } from '@navigation/types';
-import { useAuthStore } from '@stores/authStore';
 
 type Props = AuthStackScreenProps<'Welcome'>;
 
 export function WelcomeScreen({ navigation }: Props) {
-  const { setIsGuest } = useAuthStore();
-
-  const handleGuestMode = () => {
-    setIsGuest(true);
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -36,14 +29,6 @@ export function WelcomeScreen({ navigation }: Props) {
             variant="outline"
             style={styles.button}
             testID="welcome-login-button"
-          />
-
-          <Button
-            title="Browse as Guest"
-            onPress={handleGuestMode}
-            variant="ghost"
-            style={styles.guestButton}
-            testID="welcome-guest-button"
           />
         </View>
       </View>
@@ -82,9 +67,5 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
-  },
-  guestButton: {
-    width: '100%',
-    marginTop: 8,
   },
 });

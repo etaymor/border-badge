@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Keyboard,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -69,44 +69,66 @@ async function searchPlaces(
     return [];
   }
 
-  const params = new URLSearchParams({
+  // Use the new Places API (New) endpoint
+  const url = 'https://places.googleapis.com/v1/places:autocomplete';
+  const body: Record<string, unknown> = {
     input: query,
-    key: GOOGLE_PLACES_API_KEY,
-    types: 'establishment',
-  });
+    includedPrimaryTypes: ['establishment'],
+  };
 
   if (countryCode) {
-    params.append('components', `country:${countryCode.toLowerCase()}`);
+    body.includedRegionCodes = [countryCode.toLowerCase()];
   }
 
-  const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`;
-
   try {
-    const response = await fetch(url, { signal });
-    const data = await response.json();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
 
-    if (data.status === 'OK') {
-      return data.predictions ?? [];
-    }
-
-    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
-      throw new Error('QUOTA_EXCEEDED');
-    }
-
-    // For ZERO_RESULTS, just return empty
-    if (data.status === 'ZERO_RESULTS') {
+    // New API uses HTTP status codes for errors
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 429) {
+        throw new Error('QUOTA_EXCEEDED');
+      }
+      if (retryCount < MAX_RETRIES && !signal?.aborted) {
+        await delay(RETRY_DELAY_MS * (retryCount + 1));
+        return searchPlaces(query, countryCode, signal, retryCount + 1);
+      }
+      console.warn(`Places API returned status ${response.status} after ${MAX_RETRIES} retries`);
       return [];
     }
 
-    // For other errors (UNKNOWN_ERROR, etc.), retry if possible
-    if (retryCount < MAX_RETRIES && !signal?.aborted) {
-      await delay(RETRY_DELAY_MS * (retryCount + 1));
-      return searchPlaces(query, countryCode, signal, retryCount + 1);
-    }
+    const data = await response.json();
 
-    // Max retries reached
-    console.warn(`Places API returned status: ${data.status} after ${MAX_RETRIES} retries`);
-    return [];
+    // New API returns suggestions array directly
+    const suggestions = data.suggestions ?? [];
+    return suggestions
+      .filter((s: { placePrediction?: unknown }) => s.placePrediction)
+      .map(
+        (s: {
+          placePrediction: {
+            placeId: string;
+            text?: { text: string };
+            structuredFormat?: {
+              mainText?: { text: string };
+              secondaryText?: { text: string };
+            };
+          };
+        }) => ({
+          place_id: s.placePrediction.placeId,
+          description: s.placePrediction.text?.text ?? '',
+          structured_formatting: {
+            main_text: s.placePrediction.structuredFormat?.mainText?.text ?? '',
+            secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text ?? '',
+          },
+        })
+      );
   } catch (error) {
     // Silently ignore aborted requests
     if ((error as Error).name === 'AbortError') {
@@ -134,23 +156,38 @@ async function getPlaceDetails(placeId: string): Promise<PlaceResult | null> {
     return null;
   }
 
-  const params = new URLSearchParams({
-    place_id: placeId,
-    key: GOOGLE_PLACES_API_KEY,
-    fields: 'place_id,name,formatted_address,geometry',
-  });
-
-  const url = `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`;
+  // Use the new Places API (New) endpoint
+  const url = `https://places.googleapis.com/v1/places/${placeId}`;
 
   try {
-    const response = await fetch(url);
-    const data = await response.json();
+    const response = await fetch(url, {
+      headers: {
+        'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location',
+      },
+    });
 
-    if (data.status === 'OK' && data.result) {
-      return data.result;
+    if (!response.ok) {
+      console.error('Place details API error:', response.status);
+      return null;
     }
 
-    return null;
+    const data = await response.json();
+
+    // Transform new API response to match expected PlaceResult format
+    return {
+      place_id: data.id,
+      name: data.displayName?.text ?? '',
+      formatted_address: data.formattedAddress ?? '',
+      geometry: data.location
+        ? {
+            location: {
+              lat: data.location.latitude,
+              lng: data.location.longitude,
+            },
+          }
+        : undefined,
+    };
   } catch (error) {
     console.error('Place details error:', error);
     return null;
@@ -240,8 +277,18 @@ export function PlacesAutocomplete({
   // Handle prediction selection
   const handleSelectPrediction = useCallback(
     async (prediction: Prediction) => {
-      Keyboard.dismiss();
+      // Immediately hide dropdown and clear predictions BEFORE any async work
       setShowDropdown(false);
+      setPredictions([]);
+      Keyboard.dismiss();
+
+      // Cancel any pending search requests
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      abortControllerRef.current?.abort();
+
       setIsLoading(true);
 
       try {
@@ -327,24 +374,6 @@ export function PlacesAutocomplete({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value?.name]);
 
-  // Render prediction item
-  const renderPrediction = useCallback(
-    ({ item }: { item: Prediction }) => (
-      <Pressable style={styles.predictionItem} onPress={() => handleSelectPrediction(item)}>
-        <Ionicons name="location-outline" size={20} color="#666" style={styles.predictionIcon} />
-        <View style={styles.predictionText}>
-          <Text style={styles.predictionMain} numberOfLines={1}>
-            {item.structured_formatting.main_text}
-          </Text>
-          <Text style={styles.predictionSecondary} numberOfLines={1}>
-            {item.structured_formatting.secondary_text}
-          </Text>
-        </View>
-      </Pressable>
-    ),
-    [handleSelectPrediction]
-  );
-
   // Manual entry form
   if (showManualEntry) {
     return (
@@ -398,7 +427,12 @@ export function PlacesAutocomplete({
           placeholder={placeholder}
           value={query}
           onChangeText={handleTextChange}
-          onFocus={() => query.length > 0 && predictions.length > 0 && setShowDropdown(true)}
+          onFocus={() => {
+            // Only show dropdown if we have predictions AND no place is currently selected
+            if (query.length > 0 && predictions.length > 0 && !value) {
+              setShowDropdown(true);
+            }
+          }}
           returnKeyType="search"
           testID={`${testID}-input`}
         />
@@ -438,13 +472,34 @@ export function PlacesAutocomplete({
       {/* Dropdown */}
       {showDropdown && predictions.length > 0 && (
         <View style={styles.dropdown} testID={`${testID}-dropdown`}>
-          <FlatList
-            data={predictions}
-            keyExtractor={(item) => item.place_id}
-            renderItem={renderPrediction}
+          <ScrollView
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
-          />
+            style={styles.predictionsList}
+          >
+            {predictions.map((item) => (
+              <Pressable
+                key={item.place_id}
+                style={styles.predictionItem}
+                onPress={() => handleSelectPrediction(item)}
+              >
+                <Ionicons
+                  name="location-outline"
+                  size={20}
+                  color="#666"
+                  style={styles.predictionIcon}
+                />
+                <View style={styles.predictionText}>
+                  <Text style={styles.predictionMain} numberOfLines={1}>
+                    {item.structured_formatting.main_text}
+                  </Text>
+                  <Text style={styles.predictionSecondary} numberOfLines={1}>
+                    {item.structured_formatting.secondary_text}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
           <Pressable
             style={styles.manualEntryButton}
             testID="manual-entry-button"
@@ -552,6 +607,9 @@ const styles = StyleSheet.create({
     elevation: 8,
     maxHeight: 300,
     zIndex: 1000,
+  },
+  predictionsList: {
+    maxHeight: 250,
   },
   predictionItem: {
     flexDirection: 'row',

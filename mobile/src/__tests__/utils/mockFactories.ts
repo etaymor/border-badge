@@ -21,6 +21,7 @@ export function createMockTrip(overrides?: Partial<Trip>): Trip {
     id: `trip-${Date.now()}`,
     user_id: 'user-123',
     country_id: 'JPN',
+    country_code: 'JP',
     name: 'Tokyo Adventure',
     cover_image_url: undefined,
     date_range: '[2024-01-01,2024-01-15]',
@@ -51,7 +52,7 @@ export function createMockTripWithTags(overrides?: Partial<TripWithTags>): TripW
 export function createMockCreateTripInput(overrides?: Partial<CreateTripInput>): CreateTripInput {
   return {
     name: 'Test Trip',
-    country_id: 'JPN',
+    country_code: 'JP',
     ...overrides,
   };
 }
@@ -91,6 +92,7 @@ export function createMockEntry(overrides?: Partial<Entry>): Entry {
     entry_type: 'place',
     title: 'Test Entry',
     notes: 'Test notes',
+    link: null,
     entry_date: '2024-01-10',
     created_at: new Date().toISOString(),
     ...overrides,
@@ -256,6 +258,7 @@ export function createMockApiError(message: string, status = 400) {
 }
 
 // ============ Google Places API Mocks ============
+// Updated for new Places API (New) format
 
 export interface MockPrediction {
   place_id: string;
@@ -278,30 +281,36 @@ export function createMockPrediction(overrides?: Partial<MockPrediction>): MockP
   };
 }
 
+// New API format for Place Details response
 export function createMockPlaceDetails() {
   return {
-    place_id: 'ChIJ123abc',
-    name: 'Test Restaurant',
-    formatted_address: 'Tokyo, Japan',
-    geometry: {
-      location: {
-        lat: 35.6762,
-        lng: 139.6503,
-      },
+    id: 'ChIJ123abc',
+    displayName: { text: 'Test Restaurant' },
+    formattedAddress: 'Tokyo, Japan',
+    location: {
+      latitude: 35.6762,
+      longitude: 139.6503,
     },
   };
 }
 
+// New API format for autocomplete response - converts MockPrediction to new API format
 export function createMockPlacesApiResponse(predictions: MockPrediction[]) {
   return {
-    status: 'OK',
-    predictions,
+    suggestions: predictions.map((p) => ({
+      placePrediction: {
+        placeId: p.place_id,
+        text: { text: p.description },
+        structuredFormat: {
+          mainText: { text: p.structured_formatting.main_text },
+          secondaryText: { text: p.structured_formatting.secondary_text },
+        },
+      },
+    })),
   };
 }
 
+// New API format for place details response
 export function createMockPlaceDetailsResponse() {
-  return {
-    status: 'OK',
-    result: createMockPlaceDetails(),
-  };
+  return createMockPlaceDetails();
 }

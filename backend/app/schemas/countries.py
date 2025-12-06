@@ -1,10 +1,11 @@
 """Schemas for country and user_countries endpoints."""
 
+import re
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class CountryRecognition(str, Enum):
@@ -40,6 +41,7 @@ class UserCountry(BaseModel):
     id: UUID
     user_id: UUID
     country_id: UUID
+    country_code: str  # 2-letter ISO code for frontend compatibility
     status: UserCountryStatus
     created_at: datetime
 
@@ -58,11 +60,45 @@ class UserCountryWithCountry(BaseModel):
 class UserCountryCreate(BaseModel):
     """Request to create/update user country association."""
 
-    country_id: UUID
+    country_code: str  # 2-letter ISO code, looked up to UUID on backend
     status: UserCountryStatus
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str) -> str:
+        """Validate and normalize country code to 2 uppercase letters."""
+        v = v.upper()
+        if not re.match(r"^[A-Z]{2}$", v):
+            raise ValueError("Country code must be exactly 2 letters")
+        return v
 
 
 class UserCountryBatchUpdate(BaseModel):
     """Batch update user countries."""
 
     countries: list[UserCountryCreate]
+
+    @field_validator("countries")
+    @classmethod
+    def validate_countries_batch(
+        cls, v: list[UserCountryCreate]
+    ) -> list[UserCountryCreate]:
+        """Validate batch size and reject duplicate entries."""
+        if len(v) > 100:
+            raise ValueError("Cannot update more than 100 countries at once")
+
+        # Check for duplicate country codes
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for item in v:
+            code = item.country_code.upper()
+            if code in seen:
+                duplicates.append(code)
+            seen.add(code)
+
+        if duplicates:
+            raise ValueError(
+                f"Duplicate country codes: {', '.join(sorted(set(duplicates)))}"
+            )
+
+        return v
