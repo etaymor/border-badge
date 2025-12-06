@@ -18,6 +18,13 @@ import { render } from '../utils/testUtils';
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
+// Helper to create a mock Response object for new API format
+const createMockResponse = (data: unknown, ok = true, status = 200) => ({
+  ok,
+  status,
+  json: () => Promise.resolve(data),
+});
+
 describe('PlacesAutocomplete Integration', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -33,9 +40,9 @@ describe('PlacesAutocomplete Integration', () => {
   describe('Debounced Search', () => {
     it('debounces search requests by 300ms', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValue({
-        json: () => Promise.resolve(createMockPlacesApiResponse([createMockPrediction()])),
-      });
+      mockFetch.mockResolvedValue(
+        createMockResponse(createMockPlacesApiResponse([createMockPrediction()]))
+      );
 
       const { getByPlaceholderText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -66,10 +73,15 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       // Only one fetch call should be made (for the final query "cafe")
+      // New API uses POST with JSON body instead of GET with query params
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('input=cafe'),
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
+        'https://places.googleapis.com/v1/places:autocomplete',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"input":"cafe"'),
+          signal: expect.any(AbortSignal),
+        })
       );
     }, 10000);
 
@@ -130,9 +142,7 @@ describe('PlacesAutocomplete Integration', () => {
           },
         }),
       ];
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(createMockPlacesApiResponse(predictions)),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse(predictions)));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -159,9 +169,9 @@ describe('PlacesAutocomplete Integration', () => {
           secondary_text: 'Asakusa, Taito City, Tokyo, Japan',
         },
       });
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(createMockPlacesApiResponse([prediction])),
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse(createMockPlacesApiResponse([prediction]))
+      );
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -186,13 +196,11 @@ describe('PlacesAutocomplete Integration', () => {
       const detailsResponse = createMockPlaceDetailsResponse();
 
       // First call: autocomplete search
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(createMockPlacesApiResponse([prediction])),
-      });
-      // Second call: place details
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(detailsResponse),
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse(createMockPlacesApiResponse([prediction]))
+      );
+      // Second call: place details (new API format)
+      mockFetch.mockResolvedValueOnce(createMockResponse(detailsResponse));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -213,37 +221,36 @@ describe('PlacesAutocomplete Integration', () => {
       fireEvent.press(getByText(prediction.structured_formatting.main_text));
 
       await waitFor(() => {
-        // Verify place details was fetched
+        // Verify place details was fetched using new API endpoint format
         expect(mockFetch).toHaveBeenCalledTimes(2);
-        expect(mockFetch).toHaveBeenLastCalledWith(expect.stringContaining('place_id=ChIJ123abc'));
+        expect(mockFetch).toHaveBeenLastCalledWith(
+          expect.stringContaining('places.googleapis.com/v1/places/ChIJ123abc'),
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              'X-Goog-Api-Key': expect.any(String),
+            }),
+          })
+        );
       });
     });
 
     it('returns coordinates from place details', async () => {
       const onSelect = jest.fn();
       const prediction = createMockPrediction({ place_id: 'ChIJ123abc' });
+      // New API format for place details
       const detailsResponse = {
-        status: 'OK',
-        result: {
-          place_id: 'ChIJ123abc',
-          name: 'Test Place',
-          formatted_address: 'Tokyo, Japan',
-          geometry: {
-            location: {
-              lat: 35.6762,
-              lng: 139.6503,
-            },
-          },
+        id: 'ChIJ123abc',
+        displayName: { text: 'Test Place' },
+        formattedAddress: 'Tokyo, Japan',
+        location: {
+          latitude: 35.6762,
+          longitude: 139.6503,
         },
       };
 
       mockFetch
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve(createMockPlacesApiResponse([prediction])),
-        })
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve(detailsResponse),
-        });
+        .mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse([prediction])))
+        .mockResolvedValueOnce(createMockResponse(detailsResponse));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -283,9 +290,7 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       mockFetch
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve(createMockPlacesApiResponse([prediction])),
-        })
+        .mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse([prediction])))
         .mockRejectedValueOnce(new Error('Network error'));
 
       const { getByPlaceholderText, getByText } = render(
@@ -315,7 +320,7 @@ describe('PlacesAutocomplete Integration', () => {
       });
     });
 
-    it('falls back to prediction data if details API returns null', async () => {
+    it('falls back to prediction data if details API returns error status', async () => {
       const onSelect = jest.fn();
       const prediction = createMockPrediction({
         place_id: 'ChIJ123abc',
@@ -326,12 +331,9 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       mockFetch
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve(createMockPlacesApiResponse([prediction])),
-        })
-        .mockResolvedValueOnce({
-          json: () => Promise.resolve({ status: 'NOT_FOUND', result: null }),
-        });
+        .mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse([prediction])))
+        // New API uses HTTP status codes for errors
+        .mockResolvedValueOnce(createMockResponse({}, false, 404));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -364,11 +366,10 @@ describe('PlacesAutocomplete Integration', () => {
   // ============ API Quota Exceeded Tests ============
 
   describe('API Quota Exceeded Flow', () => {
-    it('shows manual entry form on OVER_QUERY_LIMIT', async () => {
+    it('shows manual entry form on HTTP 429 (rate limit)', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OVER_QUERY_LIMIT', predictions: [] }),
-      });
+      // New API uses HTTP status codes instead of status field in response
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 429));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -387,11 +388,10 @@ describe('PlacesAutocomplete Integration', () => {
       });
     });
 
-    it('shows manual entry form on REQUEST_DENIED', async () => {
+    it('shows manual entry form on HTTP 403 (request denied)', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'REQUEST_DENIED', predictions: [] }),
-      });
+      // New API uses HTTP 403 for request denied
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 403));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -415,9 +415,8 @@ describe('PlacesAutocomplete Integration', () => {
   describe('Manual Entry Flow', () => {
     it('validates place name is required - button disabled when empty', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OVER_QUERY_LIMIT' }),
-      });
+      // HTTP 429 triggers manual entry mode
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 429));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -443,9 +442,7 @@ describe('PlacesAutocomplete Integration', () => {
 
     it('creates place with manual_ prefix for google_place_id', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OVER_QUERY_LIMIT' }),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 429));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -482,9 +479,7 @@ describe('PlacesAutocomplete Integration', () => {
 
     it('address is optional in manual entry', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OVER_QUERY_LIMIT' }),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 429));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -516,9 +511,7 @@ describe('PlacesAutocomplete Integration', () => {
 
     it('includes address when provided in manual entry', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OVER_QUERY_LIMIT' }),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse({}, false, 429));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -553,11 +546,9 @@ describe('PlacesAutocomplete Integration', () => {
   // ============ Country Code Filtering Tests ============
 
   describe('Country Code Filtering', () => {
-    it('includes country component in API request when countryCode provided', async () => {
+    it('includes country code in API request when countryCode provided', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(createMockPlacesApiResponse([])),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse([])));
 
       const { getByPlaceholderText } = render(
         <PlacesAutocomplete onSelect={onSelect} countryCode="JP" placeholder="Search..." />
@@ -570,18 +561,19 @@ describe('PlacesAutocomplete Integration', () => {
       });
 
       await waitFor(() => {
+        // New API uses includedRegionCodes in JSON body instead of query param
         expect(mockFetch).toHaveBeenCalledWith(
-          expect.stringContaining('components=country%3Ajp'),
-          expect.objectContaining({ signal: expect.any(AbortSignal) })
+          'https://places.googleapis.com/v1/places:autocomplete',
+          expect.objectContaining({
+            body: expect.stringContaining('"includedRegionCodes":["jp"]'),
+          })
         );
       });
     });
 
-    it('does not include country component when countryCode is not provided', async () => {
+    it('does not include country code when countryCode is not provided', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(createMockPlacesApiResponse([])),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse(createMockPlacesApiResponse([])));
 
       const { getByPlaceholderText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -595,8 +587,8 @@ describe('PlacesAutocomplete Integration', () => {
 
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalled();
-        const fetchUrl = mockFetch.mock.calls[0][0];
-        expect(fetchUrl).not.toContain('components=country');
+        const fetchOptions = mockFetch.mock.calls[0][1];
+        expect(fetchOptions.body).not.toContain('includedRegionCodes');
       });
     });
   });
@@ -680,9 +672,8 @@ describe('PlacesAutocomplete Integration', () => {
   describe('No Results Handling', () => {
     it('shows no results message and manual entry option when API returns empty', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OK', predictions: [] }),
-      });
+      // New API returns empty suggestions array for no results
+      mockFetch.mockResolvedValueOnce(createMockResponse({ suggestions: [] }));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />
@@ -702,9 +693,7 @@ describe('PlacesAutocomplete Integration', () => {
 
     it('allows manual entry from no results state', async () => {
       const onSelect = jest.fn();
-      mockFetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ status: 'OK', predictions: [] }),
-      });
+      mockFetch.mockResolvedValueOnce(createMockResponse({ suggestions: [] }));
 
       const { getByPlaceholderText, getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} placeholder="Search..." />

@@ -27,9 +27,9 @@ describe('authStore', () => {
     // Reset store to initial state before each test
     useAuthStore.setState({
       session: null,
-      isGuest: false,
       hasCompletedOnboarding: false,
       isLoading: true,
+      isMigrating: false,
     });
   });
 
@@ -37,9 +37,9 @@ describe('authStore', () => {
     const state = useAuthStore.getState();
 
     expect(state.session).toBeNull();
-    expect(state.isGuest).toBe(false);
     expect(state.hasCompletedOnboarding).toBe(false);
     expect(state.isLoading).toBe(true);
+    expect(state.isMigrating).toBe(false);
   });
 
   it('sets session', () => {
@@ -48,12 +48,6 @@ describe('authStore', () => {
     useAuthStore.getState().setSession(mockSession);
 
     expect(useAuthStore.getState().session).toEqual(mockSession);
-  });
-
-  it('sets isGuest', () => {
-    useAuthStore.getState().setIsGuest(true);
-
-    expect(useAuthStore.getState().isGuest).toBe(true);
   });
 
   it('sets hasCompletedOnboarding', () => {
@@ -68,13 +62,19 @@ describe('authStore', () => {
     expect(useAuthStore.getState().isLoading).toBe(false);
   });
 
+  it('sets isMigrating', () => {
+    useAuthStore.getState().setIsMigrating(true);
+
+    expect(useAuthStore.getState().isMigrating).toBe(true);
+  });
+
   it('signs out and clears state', () => {
     // Set up logged in state
     useAuthStore.setState({
       session: createMockSession(),
-      isGuest: false,
       hasCompletedOnboarding: true,
       isLoading: false,
+      isMigrating: false,
     });
 
     // Sign out
@@ -83,24 +83,7 @@ describe('authStore', () => {
     // Verify state is cleared
     const state = useAuthStore.getState();
     expect(state.session).toBeNull();
-    expect(state.isGuest).toBe(false);
     expect(state.hasCompletedOnboarding).toBe(false);
-  });
-
-  it('clears guest mode on sign out', () => {
-    // Set up guest state
-    useAuthStore.setState({
-      session: null,
-      isGuest: true,
-      hasCompletedOnboarding: true,
-      isLoading: false,
-    });
-
-    // Sign out
-    useAuthStore.getState().signOut();
-
-    // Verify guest state is cleared
-    expect(useAuthStore.getState().isGuest).toBe(false);
-    expect(useAuthStore.getState().hasCompletedOnboarding).toBe(false);
+    expect(state.isMigrating).toBe(false);
   });
 });

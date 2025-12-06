@@ -22,7 +22,6 @@
 ## Tasks
 
 - [ ] 1.0 Design and implement backend data/API layer for shared lists and public trip views
-
   - [ ] 1.1 Review PRD shared list requirements and user stories US-011/012 (`docs/travel-prd.md` L173–179, L459–473) plus trip-sharing/privacy notes (L135–143, L145–163) and map them onto the existing schema (`docs/travel-technical-design.md` L85–193).
   - [ ] 1.2 Define the public data contract for shared lists (e.g., `/public/lists/:slug`) including: list name, description, owner display name (if allowed), curated entries (title, notes, limited place/media info), and creation metadata.
   - [ ] 1.3 Implement backend logic (e.g., views or helper queries) that fetch list data by slug and assemble a **denormalized DTO** suitable for a single render, avoiding N+1 queries and ensuring only whitelisted fields are exposed.
@@ -36,7 +35,6 @@
   - [ ] 1.6 Ensure these endpoints use existing RLS/privacy guarantees plus additional safeguards (e.g., checking list/trip share flags) so that private or non-consented data is never leaked.
 
 - [ ] 2.0 Build FastAPI-rendered public web pages that reuse the core design aesthetic
-
   - [ ] 2.1 Set up Jinja2 or equivalent template rendering in the FastAPI app (if not already present), configuring template and static directories (e.g., `backend/app/templates`, `backend/app/static`).
   - [ ] 2.2 Create `base.html` that:
     - Defines a consistent `<head>` with responsive meta tag, favicon links, CSS includes, and placeholder blocks for SEO/OG tags.
@@ -55,7 +53,6 @@
   - [ ] 2.6 Implement `backend/app/static/css/styles.css` with a small set of **CSS tokens** (CSS variables) that mirror the mobile design (colors, typography, spacing) without recreating the entire design system.
 
 - [ ] 3.0 Implement SEO and shareability (meta tags, OG/Twitter cards, canonical URLs)
-
   - [ ] 3.1 Implement `backend/app/core/seo.py` with helpers to build per-route SEO context:
     - Title, description, canonical URL.
     - Open Graph tags (og:title, og:description, og:image, og:url).
@@ -72,7 +69,6 @@
   - [ ] 3.5 Add basic `robots.txt` and, if appropriate, `sitemap.xml` generation for landing and public list/trip routes to help search engines discover the pages.
 
 - [ ] 4.0 Implement CTAs, deep links, and analytics for public → app funnel
-
   - [ ] 4.1 Decide on primary CTAs for landing and public pages (e.g., “Download on the App Store”, “Open in the app”) and ensure these are consistent in header, hero, and end-of-page sections.
   - [ ] 4.2 Implement platform-specific links:
     - App Store URL for iOS.
@@ -85,7 +81,6 @@
   - [ ] 4.5 Keep tracking explicit and non-invasive: do not add extra tracking beyond page views and CTA clicks described in the PRD, and ensure any cookies/identifiers respect privacy expectations.
 
 - [ ] 5.0 Add caching, performance hardening, and tests for public endpoints
-
   - [ ] 5.1 Add appropriate caching headers to public endpoints (e.g., short to medium TTL with ETag or Last-Modified) to improve load times while allowing updates to propagate reasonably quickly.
   - [ ] 5.2 Consider optional in-memory or CDN caching for public list/trip payloads, leveraging scalability advice in `docs/travel-technical-design.md` L595–601 (e.g., caching small JSON blobs keyed by slug/ID).
   - [ ] 5.3 Implement `backend/tests/test_public_endpoints.py` to cover:
@@ -95,5 +90,3 @@
     - Presence of key SEO tags in rendered HTML.
   - [ ] 5.4 Perform basic performance checks (e.g., using `ab`/`wrk` or timing logs) to ensure public pages respond quickly under expected traffic and remain within P75 targets (building on PRD technical metrics `docs/travel-prd.md` L317–323).
   - [ ] 5.5 Document how to run and test the public web views (dev/staging URLs, expected environment variables, how to validate SEO/open-graph previews) in `README.md` or a small `docs/public-web.md`.
-
-

@@ -32,7 +32,7 @@ class TripBase(BaseModel):
     """Base trip fields."""
 
     name: str
-    country_id: UUID
+    country_code: str  # 2-letter ISO code, looked up to UUID on backend
     cover_image_url: str | None = None
     date_start: date | None = None
     date_end: date | None = None
@@ -59,6 +59,7 @@ class Trip(BaseModel):
     id: UUID
     user_id: UUID
     country_id: UUID
+    country_code: str  # ISO 3166-1 alpha-2 code
     name: str
     cover_image_url: str | None = None
     date_range: str | None = None  # PostgreSQL daterange as string

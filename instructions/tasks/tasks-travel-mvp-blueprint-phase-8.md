@@ -27,7 +27,6 @@
 ## Tasks
 
 - [ ] 1.0 Define a cohesive visual language and design tokens
-
   - [ ] 1.1 Review PRD visual and animation guidance (`docs/travel-prd.md` L223–231, L229–230) and any existing brand references to extract requirements for colors, typography, spacing, and motion.
   - [ ] 1.2 Extend `mobile/src/theme/colors.ts` into a full color system:
     - Core brand colors (primary, secondary, accent).
@@ -43,7 +42,6 @@
   - [ ] 1.5 Document token usage in comments or a short markdown note (e.g., `docs/design-tokens.md`) so future contributors know how to apply them consistently.
 
 - [ ] 2.0 Apply the design token system to core mobile UI primitives
-
   - [ ] 2.1 Update `Screen.tsx` to:
     - Use token-based padding, background colors, and safe-area handling.
     - Provide optional variants (e.g., default, fullscreen, scrollable) where helpful.
@@ -62,7 +60,6 @@
   - [ ] 2.5 Ensure all major screens (onboarding, passport, trips, entries) are refactored to use only these primitives (and any new token-aware components) instead of ad hoc styles. **[DEFERRED: friends screen, paywall screen - requires Phase 5 social layer and paywall]**
 
 - [ ] 3.0 Upgrade passport grid and country visuals
-
   - [ ] 3.1 Extract or create `CountryTile` and `StampGrid` components to encapsulate passport grid visuals:
     - Country illustration, flag, and name.
     - States for `visited`, `wishlist`, and `not set`.
@@ -79,7 +76,6 @@
   - [ ] 3.5 Validate that the passport grid still performs well (scrolling and interaction) on target devices and meets P75 performance goals from PRD (`docs/travel-prd.md` L317–323).
 
 - [ ] 4.0 Polish onboarding experiences **[DEFERRED: paywall experiences - requires paywall implementation]**
-
   - [ ] 4.1 Update onboarding welcome slides (screens 1-A to 1-D in `docs/travel-prd.md` L217–221) to:
     - Use final illustrations and colors consistent with the token system.
     - Apply a consistent layout grid and typography.
@@ -91,7 +87,7 @@
     - Ensure continent cards and grids align visually with the passport grid.
     - Use consistent iconography and spacing.
     - Integrate small, non-distracting animations on progress reveal.
-  - [ ] **[DEFERRED]** 4.4 Apply the visual system to `PaywallScreen` *(requires paywall implementation)*:
+  - [ ] **[DEFERRED]** 4.4 Apply the visual system to `PaywallScreen` _(requires paywall implementation)_:
     - Align typography, spacing, and colors with the new design tokens.
     - Ensure layout works well on different device sizes.
     - Leave room for future CRO experiments (trial-length ribbons, testimonials) without hardcoding them yet (`docs/travel-prd.md` L229–231, L349–359).
@@ -102,7 +98,6 @@
     - **[DEFERRED: paywall accessibility - requires paywall implementation]**
 
 - [ ] 5.0 Run a visual QA & design-debt sweep
-
   - [ ] 5.1 Audit all major screens and flows (onboarding, passport, country detail, trip detail, entry flows, and public web views if present) for: **[DEFERRED: friends, notifications, paywall screens - requires Phase 5 social layer and paywall]**
     - Inconsistent spacing, alignment, or typography.
     - Inconsistent button or input variants.
@@ -111,5 +106,3 @@
   - [ ] 5.3 Update any snapshot or component tests impacted by visual refactors (e.g., `Text`/`Button` snapshots) and ensure tests continue to assert structural consistency without overfitting on minor visual changes.
   - [ ] 5.4 Sanity-check the experience on a range of device sizes and orientations (small phones, large phones) and adjust layouts where necessary (e.g., avoiding cramped or overflowing content).
   - [ ] 5.5 Coordinate final sign-off with design/PM stakeholders (or self-review if solo) and mark any remaining design improvements as post-MVP enhancements for future iterations.
-
-

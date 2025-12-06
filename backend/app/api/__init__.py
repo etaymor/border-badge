@@ -2,11 +2,12 @@
 
 from fastapi import APIRouter
 
-from app.api import countries, entries, lists, media, places, trips
+from app.api import countries, entries, lists, media, places, profile, trips
 
 router = APIRouter()
 
 router.include_router(countries.router, prefix="/countries", tags=["countries"])
+router.include_router(profile.router, prefix="/profile", tags=["profile"])
 router.include_router(trips.router, prefix="/trips", tags=["trips"])
 router.include_router(entries.router, tags=["entries"])
 router.include_router(places.router, prefix="/places", tags=["places"])

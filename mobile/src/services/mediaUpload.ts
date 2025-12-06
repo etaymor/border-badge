@@ -111,7 +111,7 @@ export async function pickImages(options?: {
   }
 
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ['images'],
     allowsEditing,
     allowsMultipleSelection: !allowsEditing && maxCount > 1,
     selectionLimit: maxCount,
@@ -162,7 +162,7 @@ export async function takePhoto(): Promise<LocalFile | null> {
   }
 
   const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ['images'],
     quality: 0.8,
     exif: false,
   });

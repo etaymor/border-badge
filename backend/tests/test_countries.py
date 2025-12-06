@@ -172,12 +172,17 @@ def test_set_user_country(
     """Test setting a user country status."""
     from tests.conftest import TEST_COUNTRY_ID, TEST_USER_COUNTRY_ID
 
-    mock_supabase_client.get.return_value = []  # No existing entry
+    # First call: look up country by code, second call: check existing association
+    mock_supabase_client.get.side_effect = [
+        [{"id": TEST_COUNTRY_ID}],  # Country lookup by code
+        [],  # No existing user_countries entry
+    ]
     mock_supabase_client.post.return_value = [
         {
             "id": TEST_USER_COUNTRY_ID,
             "user_id": mock_user.id,
             "country_id": TEST_COUNTRY_ID,
+            "country_code": "US",
             "status": "visited",
             "created_at": "2024-01-01T00:00:00Z",
         }
@@ -191,11 +196,12 @@ def test_set_user_country(
             response = client.post(
                 "/countries/user",
                 headers=auth_headers,
-                json={"country_id": TEST_COUNTRY_ID, "status": "visited"},
+                json={"country_code": "US", "status": "visited"},
             )
         assert response.status_code == 201
         data = response.json()
         assert data["status"] == "visited"
+        assert data["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 

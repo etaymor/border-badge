@@ -23,6 +23,7 @@ export interface Trip {
   id: string;
   user_id: string;
   country_id: string;
+  country_code: string; // ISO 3166-1 alpha-2 code (e.g., "JP", "US")
   name: string;
   cover_image_url?: string;
   date_range?: string; // PostgreSQL daterange as string e.g. "[2024-01-01,2024-01-15]"
@@ -36,10 +37,8 @@ export interface TripWithTags extends Trip {
 
 export interface CreateTripInput {
   name: string;
-  country_id: string;
+  country_code: string; // 2-letter ISO code
   cover_image_url?: string;
-  date_start?: string; // ISO date string
-  date_end?: string; // ISO date string
   tagged_user_ids?: string[];
 }
 
@@ -47,8 +46,6 @@ export interface UpdateTripInput {
   id: string;
   name?: string;
   cover_image_url?: string;
-  date_start?: string;
-  date_end?: string;
 }
 
 const TRIPS_QUERY_KEY = ['trips'];
@@ -69,7 +66,7 @@ export function useTripsByCountry(countryId: string) {
   return useQuery({
     queryKey: [...TRIPS_QUERY_KEY, { countryId }],
     queryFn: async (): Promise<Trip[]> => {
-      const response = await api.get(`/trips?country_id=${countryId}`);
+      const response = await api.get(`/trips?country_code=${countryId}`);
       return response.data;
     },
     enabled: !!countryId,

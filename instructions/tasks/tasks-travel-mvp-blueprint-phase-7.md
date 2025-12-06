@@ -31,7 +31,6 @@
 ## Tasks
 
 - [ ] 1.0 Harden edge cases and error handling across backend and mobile
-
   - [ ] 1.1 Compile an edge-case checklist from PRD and technical design:
     - Places quota fallback and manual entry (PRD L289–291; US-018 L515–521).
     - Duplicate trip names behavior (append “(2)”) (PRD L291).
@@ -50,7 +49,6 @@
   - [ ] 1.7 Review and standardize error/empty/loading states across major screens using shared components (e.g., `Screen` + shared `ErrorState`, `EmptyState`, `Loading` patterns) so behavior is consistent and understandable for users.
 
 - [ ] 2.0 Optimize performance and scalability for critical flows
-
   - [ ] 2.1 Identify and document the most performance-critical flows (passport grid, trip list/country detail, entry list, shared lists/public web pages), mapping them to PRD technical metrics (`docs/travel-prd.md` L317–323, L369–375).
   - [ ] 2.2 At the database level:
     - Review query patterns used by critical endpoints (`/user_countries`, `/trips`, `/trips/:trip_id/entries`, `/public/*`).
@@ -69,7 +67,6 @@
   - [ ] 2.6 (Optional) Run small-scale load tests or use synthetic traffic against critical backend endpoints to validate that performance holds under expected early-stage traffic patterns.
 
 - [ ] 3.0 Expand and formalize the test strategy (backend, mobile, E2E)
-
   - [ ] 3.1 Audit existing tests against PRD user stories (`docs/travel-prd.md` L377–545) and blueprint coverage mappings (§13.1), creating a matrix that shows which stories are fully, partially, or not at all covered.
   - [ ] 3.2 For backend tests:
     - Ensure each endpoint group (auth, countries, trips, entries, places, media, public web) has corresponding unit/integration tests. **[DEFERRED: friends, notifications, subscriptions tests - requires Phase 5 social layer and paywall]**
@@ -80,12 +77,11 @@
   - [ ] 3.4 Introduce or extend an E2E test suite (e.g., Detox) with a small set of high-value flows:
     - Onboarding: guest → signup → passport view.
     - Trip creation + entry logging with images.
-    - **[DEFERRED]** Tagging & approval flow with two test users. *(requires Phase 5 social layer)*
-    - **[DEFERRED]** Paywall display and navigation around it. *(requires paywall implementation)*
+    - **[DEFERRED]** Tagging & approval flow with two test users. _(requires Phase 5 social layer)_
+    - **[DEFERRED]** Paywall display and navigation around it. _(requires paywall implementation)_
   - [ ] 3.5 Document the testing strategy in `README.md` or a dedicated `docs/testing-strategy.md`: how to run unit, integration, and E2E tests; expected runtime; and which tests must pass before a release.
 
 - [ ] 4.0 Implement and finalize the release pipeline for iOS (and optional Android)
-
   - [ ] 4.1 Configure CI workflows (e.g., `.github/workflows/ci.yml`) to:
     - Run lint and tests (backend + mobile) on every PR/merge to main.
     - Optionally, run E2E tests on a nightly or pre-release basis.
@@ -99,7 +95,6 @@
   - [ ] 4.5 Add simple smoke checks to the release pipeline (e.g., run a subset of E2E tests or automated UI checks on a freshly built app) to catch obvious regressions before distributing builds.
 
 - [ ] 5.0 Run a structured QA/bug-bash cycle and capture a launch-readiness checklist
-
   - [ ] 5.1 Create a QA checklist mapped to PRD user stories and key flows (onboarding, passport, trip creation, entries, shared lists), and share it with testers. **[DEFERRED: tagging/approvals, notifications, paywall - requires Phase 5 social layer and paywall]**
   - [ ] 5.2 Set up a simple issue-tracking convention (labels for severity, area, regression vs new) and bug template so findings from QA/bug-bash sessions are consistent and actionable.
   - [ ] 5.3 Run at least one internal bug-bash session using a near-production build (TestFlight/staging), capturing issues across devices and network conditions.
@@ -110,5 +105,3 @@
     - Open known issues and rationale for deferring them.
     - Status of analytics wiring. **[DEFERRED: paywall and notification status - requires Phase 5 social layer and paywall]**
   - [ ] 5.6 Use the checklist as a gate before initiating the final TestFlight/production release, updating it for subsequent releases as the product evolves.
-
-

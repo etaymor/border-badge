@@ -69,9 +69,12 @@ def test_list_trips_returns_trips(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test listing trips returns user's trips."""
-    mock_supabase_client.get.return_value = [sample_trip]
+    # Trip now includes nested country from JOIN
+    trip_with_country = {**sample_trip, "country": {"code": "US"}}
+    mock_supabase_client.get.return_value = [trip_with_country]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -83,6 +86,7 @@ def test_list_trips_returns_trips(
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "Summer Vacation"
+        assert data[0]["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 
@@ -93,10 +97,11 @@ def test_create_trip(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test creating a new trip."""
-    # First call is for checking existing names, second is creating the trip
-    mock_supabase_client.get.return_value = []
+    # First call is for country lookup, second is checking existing names
+    mock_supabase_client.get.side_effect = [[sample_country], []]
     mock_supabase_client.post.return_value = [sample_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -109,12 +114,13 @@ def test_create_trip(
                 headers=auth_headers,
                 json={
                     "name": "Summer Vacation",
-                    "country_id": "550e8400-e29b-41d4-a716-446655440001",
+                    "country_code": "US",
                 },
             )
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "Summer Vacation"
+        assert data["country_code"] == "US"
         assert "tags" in data
     finally:
         app.dependency_overrides.clear()
@@ -126,9 +132,10 @@ def test_create_trip_with_tags(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test creating a trip with tagged users."""
-    from tests.conftest import OTHER_USER_ID, TEST_COUNTRY_ID, TEST_TAG_ID
+    from tests.conftest import OTHER_USER_ID, TEST_TAG_ID
 
     tag_data = {
         "id": TEST_TAG_ID,
@@ -141,8 +148,8 @@ def test_create_trip_with_tags(
         "responded_at": None,
     }
 
-    # get is called for checking existing names
-    mock_supabase_client.get.return_value = []
+    # First get is for country lookup, second is for checking existing names
+    mock_supabase_client.get.side_effect = [[sample_country], []]
     mock_supabase_client.post.side_effect = [[sample_trip], [tag_data]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -155,7 +162,7 @@ def test_create_trip_with_tags(
                 headers=auth_headers,
                 json={
                     "name": "Summer Vacation",
-                    "country_id": TEST_COUNTRY_ID,
+                    "country_code": "US",
                     "tagged_user_ids": [OTHER_USER_ID],
                 },
             )
@@ -173,9 +180,12 @@ def test_get_trip(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test getting a single trip."""
-    mock_supabase_client.get.side_effect = [[sample_trip], []]  # trip, then tags
+    # Trip now includes nested country from JOIN, then tags
+    trip_with_country = {**sample_trip, "country": {"code": "US"}}
+    mock_supabase_client.get.side_effect = [[trip_with_country], []]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -186,6 +196,7 @@ def test_get_trip(
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Summer Vacation"
+        assert data["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 
@@ -319,16 +330,16 @@ def test_create_trip_with_duplicate_name_appends_suffix(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test that creating a trip with a duplicate name appends (2) suffix."""
-    from tests.conftest import TEST_COUNTRY_ID
-
     # Existing trip with same name
     existing_trip = {**sample_trip, "name": "Summer Vacation"}
     # New trip should get (2) suffix
     new_trip = {**sample_trip, "name": "Summer Vacation (2)"}
 
-    mock_supabase_client.get.return_value = [existing_trip]
+    # First get is for country lookup, second is for checking existing names
+    mock_supabase_client.get.side_effect = [[sample_country], [existing_trip]]
     mock_supabase_client.post.return_value = [new_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -341,7 +352,7 @@ def test_create_trip_with_duplicate_name_appends_suffix(
                 headers=auth_headers,
                 json={
                     "name": "Summer Vacation",
-                    "country_id": TEST_COUNTRY_ID,
+                    "country_code": "US",
                 },
             )
         assert response.status_code == 201
@@ -357,10 +368,9 @@ def test_create_trip_with_multiple_duplicates_increments_suffix(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test that creating a trip finds the next available suffix."""
-    from tests.conftest import TEST_COUNTRY_ID
-
     # Existing trips with name and (2) suffix
     existing_trips = [
         {**sample_trip, "name": "Summer Vacation"},
@@ -369,7 +379,8 @@ def test_create_trip_with_multiple_duplicates_increments_suffix(
     # New trip should get (3) suffix
     new_trip = {**sample_trip, "name": "Summer Vacation (3)"}
 
-    mock_supabase_client.get.return_value = existing_trips
+    # First get is for country lookup, second is for checking existing names
+    mock_supabase_client.get.side_effect = [[sample_country], existing_trips]
     mock_supabase_client.post.return_value = [new_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -382,7 +393,7 @@ def test_create_trip_with_multiple_duplicates_increments_suffix(
                 headers=auth_headers,
                 json={
                     "name": "Summer Vacation",
-                    "country_id": TEST_COUNTRY_ID,
+                    "country_code": "US",
                 },
             )
         assert response.status_code == 201
@@ -398,16 +409,16 @@ def test_create_trip_strips_existing_suffix_before_checking(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test that creating a trip with "(2)" in name normalizes correctly."""
-    from tests.conftest import TEST_COUNTRY_ID
-
     # User submits "Summer Vacation (2)" but "Summer Vacation" exists
     existing_trip = {**sample_trip, "name": "Summer Vacation"}
     # Should get (2) suffix since base name exists
     new_trip = {**sample_trip, "name": "Summer Vacation (2)"}
 
-    mock_supabase_client.get.return_value = [existing_trip]
+    # First get is for country lookup, second is for checking existing names
+    mock_supabase_client.get.side_effect = [[sample_country], [existing_trip]]
     mock_supabase_client.post.return_value = [new_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -420,7 +431,7 @@ def test_create_trip_strips_existing_suffix_before_checking(
                 headers=auth_headers,
                 json={
                     "name": "Summer Vacation (2)",  # User explicitly adds (2)
-                    "country_id": TEST_COUNTRY_ID,
+                    "country_code": "US",
                 },
             )
         assert response.status_code == 201
@@ -441,9 +452,11 @@ def test_update_trip(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test updating a trip."""
-    updated_trip = {**sample_trip, "name": "Winter Getaway"}
+    # Patch now returns trip with nested country from JOIN
+    updated_trip = {**sample_trip, "name": "Winter Getaway", "country": {"code": "US"}}
 
     mock_supabase_client.patch.return_value = [updated_trip]
 
@@ -460,6 +473,7 @@ def test_update_trip(
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Winter Getaway"
+        assert data["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 
@@ -470,11 +484,18 @@ def test_update_trip_with_dates(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test updating a trip with date range."""
-    updated_trip = {**sample_trip, "date_range": "[2024-07-01,2024-07-15]"}
+    # Patch now returns trip with nested country from JOIN
+    updated_trip = {
+        **sample_trip,
+        "date_range": "[2024-07-01,2024-07-15]",
+        "country": {"code": "US"},
+    }
 
-    mock_supabase_client.get.return_value = [sample_trip]  # for fetching existing
+    # for fetching existing date_range (no longer needs country lookup)
+    mock_supabase_client.get.return_value = [sample_trip]
     mock_supabase_client.patch.return_value = [updated_trip]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -493,6 +514,7 @@ def test_update_trip_with_dates(
         assert response.status_code == 200
         data = response.json()
         assert data["date_range"] == "[2024-07-01,2024-07-15]"
+        assert data["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 
@@ -605,9 +627,11 @@ def test_restore_trip(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
 ) -> None:
     """Test restoring a soft-deleted trip."""
-    restored_trip = {**sample_trip, "deleted_at": None}
+    # Patch now returns trip with nested country from JOIN
+    restored_trip = {**sample_trip, "deleted_at": None, "country": {"code": "US"}}
 
     mock_supabase_client.patch.return_value = [restored_trip]
 
@@ -623,6 +647,7 @@ def test_restore_trip(
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == sample_trip["id"]
+        assert data["country_code"] == "US"
     finally:
         app.dependency_overrides.clear()
 

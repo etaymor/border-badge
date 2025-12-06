@@ -6,4 +6,3 @@
 ## Tasks
 
 - [x] 1.0 Harden country search filter to prevent PostgREST filter injection
-

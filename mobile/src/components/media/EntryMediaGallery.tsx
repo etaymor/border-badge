@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,20 +14,23 @@ import { Ionicons } from '@expo/vector-icons';
 
 import {
   useEntryMedia,
+  usePendingTripMedia,
   useUploadMedia,
   useDeleteMedia,
   useRetryUpload,
   MediaFile,
 } from '@hooks/useMedia';
-import { pickImages, takePhoto, LocalFile, MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { pickImages, LocalFile, MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const ITEM_SIZE = (SCREEN_WIDTH - 48 - 16) / 3; // 3 columns with gaps
 
 interface EntryMediaGalleryProps {
-  entryId: string;
+  entryId?: string; // Optional - not available during creation
+  tripId?: string; // Required if entryId not provided (for pending uploads)
   editable?: boolean;
   onImagePress?: (media: MediaFile, index: number) => void;
+  onPendingMediaChange?: (mediaIds: string[]) => void; // Track IDs for later reassignment
 }
 
 interface LocalMediaItem {
@@ -36,20 +39,51 @@ interface LocalMediaItem {
   uploading: boolean;
   progress: number;
   error?: string;
+  mediaId?: string; // Set after successful upload
 }
 
 export function EntryMediaGallery({
   entryId,
+  tripId,
   editable = true,
   onImagePress,
+  onPendingMediaChange,
 }: EntryMediaGalleryProps) {
-  const { data: mediaFiles, isLoading } = useEntryMedia(entryId);
+  // Use entry media when editing, pending trip media when creating
+  const isPendingMode = !entryId && !!tripId;
+
+  const { data: entryMediaFiles, isLoading: isLoadingEntry } = useEntryMedia(entryId || '');
+  const { data: pendingMediaFiles, isLoading: isLoadingPending } = usePendingTripMedia(
+    tripId || '',
+    isPendingMode
+  );
+
+  const mediaFiles = isPendingMode ? pendingMediaFiles : entryMediaFiles;
+  const isLoading = isPendingMode ? isLoadingPending : isLoadingEntry;
+
   const uploadMedia = useUploadMedia();
   const deleteMedia = useDeleteMedia();
   const retryUpload = useRetryUpload();
 
   const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  // Track pending media IDs for parent component
+  useEffect(() => {
+    if (isPendingMode && onPendingMediaChange) {
+      const serverMediaIds = (mediaFiles || []).map((m) => m.id);
+      const localMediaIds = localMedia.filter((m) => m.mediaId).map((m) => m.mediaId!);
+      onPendingMediaChange([...serverMediaIds, ...localMediaIds]);
+    }
+  }, [isPendingMode, mediaFiles, localMedia, onPendingMediaChange]);
+
+  // Once pending media is persisted and fetched from server, drop local copies to avoid duplicates
+  useEffect(() => {
+    if (!isPendingMode || !mediaFiles) return;
+    setLocalMedia((prev) =>
+      prev.filter((item) => !(item.mediaId && mediaFiles.some((m) => m.id === item.mediaId)))
+    );
+  }, [isPendingMode, mediaFiles]);
 
   const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
   const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
@@ -81,8 +115,9 @@ export function EntryMediaGallery({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         try {
-          await uploadMedia.mutateAsync({
-            entryId,
+          const result = await uploadMedia.mutateAsync({
+            entryId: isPendingMode ? undefined : entryId,
+            tripId: isPendingMode ? tripId : undefined,
             file,
             onProgress: (progress) => {
               setLocalMedia((prev) =>
@@ -93,8 +128,19 @@ export function EntryMediaGallery({
             },
           });
 
-          // Remove from local state on success
-          setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
+          // In pending mode, keep the local placeholder with the new media ID until server fetch
+          if (isPendingMode) {
+            setLocalMedia((prev) =>
+              prev.map((item) =>
+                item.localUri === file.uri
+                  ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                  : item
+              )
+            );
+          } else {
+            // Remove from local state on success (server has it now)
+            setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
+          }
         } catch {
           // Mark as failed
           setLocalMedia((prev) =>
@@ -114,51 +160,7 @@ export function EntryMediaGallery({
     } finally {
       setIsPickerOpen(false);
     }
-  }, [entryId, remainingSlots, uploadMedia]);
-
-  // Handle taking a photo
-  const handleTakePhoto = useCallback(async () => {
-    if (remainingSlots <= 0) {
-      Alert.alert('Limit Reached', `Maximum ${MAX_PHOTOS_PER_ENTRY} photos per entry.`);
-      return;
-    }
-
-    try {
-      const file = await takePhoto();
-      if (!file) return;
-
-      // Add to local state
-      const localItem: LocalMediaItem = {
-        localUri: file.uri,
-        file,
-        uploading: true,
-        progress: 0,
-      };
-
-      setLocalMedia((prev) => [...prev, localItem]);
-
-      // Upload
-      await uploadMedia.mutateAsync({
-        entryId,
-        file,
-        onProgress: (progress) => {
-          setLocalMedia((prev) =>
-            prev.map((item) =>
-              item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
-            )
-          );
-        },
-      });
-
-      // Remove from local state on success
-      setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
-    } catch (error) {
-      console.error('Failed to take photo:', error);
-      if ((error as Error).message.includes('denied')) {
-        Alert.alert('Permission Required', 'Please allow camera access in Settings.');
-      }
-    }
-  }, [entryId, remainingSlots, uploadMedia]);
+  }, [entryId, tripId, isPendingMode, remainingSlots, uploadMedia]);
 
   // Handle delete
   const handleDelete = useCallback(
@@ -189,8 +191,9 @@ export function EntryMediaGallery({
       );
 
       try {
-        await uploadMedia.mutateAsync({
-          entryId,
+        const result = await uploadMedia.mutateAsync({
+          entryId: isPendingMode ? undefined : entryId,
+          tripId: isPendingMode ? tripId : undefined,
           file: localItem.file,
           onProgress: (progress) => {
             setLocalMedia((prev) =>
@@ -203,7 +206,17 @@ export function EntryMediaGallery({
           },
         });
 
-        setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
+        if (isPendingMode) {
+          setLocalMedia((prev) =>
+            prev.map((item) =>
+              item.localUri === localItem.localUri
+                ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                : item
+            )
+          );
+        } else {
+          setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
+        }
       } catch {
         setLocalMedia((prev) =>
           prev.map((item) =>
@@ -214,7 +227,7 @@ export function EntryMediaGallery({
         );
       }
     },
-    [entryId, uploadMedia]
+    [entryId, tripId, isPendingMode, uploadMedia]
   );
 
   // Handle remove failed upload
@@ -338,21 +351,14 @@ export function EntryMediaGallery({
       ) : (
         <View style={styles.emptyState}>
           {editable ? (
-            <View style={styles.emptyActions}>
-              <Pressable
-                style={styles.emptyButton}
-                onPress={handlePickImages}
-                disabled={isPickerOpen}
-              >
-                <Ionicons name="images-outline" size={24} color="#007AFF" />
-                <Text style={styles.emptyButtonText}>Choose Photos</Text>
-              </Pressable>
-
-              <Pressable style={styles.emptyButton} onPress={handleTakePhoto}>
-                <Ionicons name="camera-outline" size={24} color="#007AFF" />
-                <Text style={styles.emptyButtonText}>Take Photo</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              style={styles.emptyButton}
+              onPress={handlePickImages}
+              disabled={isPickerOpen}
+            >
+              <Ionicons name="images-outline" size={24} color="#007AFF" />
+              <Text style={styles.emptyButtonText}>Choose Photos</Text>
+            </Pressable>
           ) : (
             <Text style={styles.emptyText}>No photos</Text>
           )}
@@ -468,10 +474,6 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     paddingVertical: 24,
     alignItems: 'center',
-  },
-  emptyActions: {
-    flexDirection: 'row',
-    gap: 16,
   },
   emptyButton: {
     alignItems: 'center',

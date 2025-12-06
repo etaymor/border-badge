@@ -11,6 +11,7 @@ from app.schemas.countries import (
     Country,
     CountryRecognition,
     UserCountry,
+    UserCountryBatchUpdate,
     UserCountryCreate,
 )
 
@@ -79,12 +80,28 @@ async def get_user_countries(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
     params = {
-        "select": "*",
+        "select": "*, country:country_id(code)",  # Join to get country code
         "user_id": f"eq.{user.id}",
         "order": "created_at.desc",
     }
     rows = await db.get("user_countries", params)
-    return [UserCountry(**row) for row in rows]
+    # Transform to include country_code at top level for frontend
+    result = []
+    for row in rows:
+        country_code = (
+            row.get("country", {}).get("code") if row.get("country") else None
+        )
+        result.append(
+            UserCountry(
+                id=row["id"],
+                user_id=row["user_id"],
+                country_id=row["country_id"],
+                country_code=country_code or "",
+                status=row["status"],
+                created_at=row["created_at"],
+            )
+        )
+    return result
 
 
 @router.post("/user", response_model=UserCountry, status_code=status.HTTP_201_CREATED)
@@ -101,12 +118,28 @@ async def set_user_country(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Look up country by code to get the UUID
+    country_rows = await db.get(
+        "country",
+        {
+            "code": f"eq.{data.country_code.upper()}",
+            "select": "id",
+        },
+    )
+    if not country_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Country with code '{data.country_code}' not found",
+        )
+    country_id = country_rows[0]["id"]
+    country_code = data.country_code.upper()
+
     # Check if association exists
     existing = await db.get(
         "user_countries",
         {
             "user_id": f"eq.{user.id}",
-            "country_id": f"eq.{data.country_id}",
+            "country_id": f"eq.{country_id}",
             "select": "id",
         },
     )
@@ -124,7 +157,7 @@ async def set_user_country(
             "user_countries",
             {
                 "user_id": user.id,
-                "country_id": str(data.country_id),
+                "country_id": str(country_id),
                 "status": data.status.value,
             },
         )
@@ -135,7 +168,98 @@ async def set_user_country(
             detail="Failed to update country status",
         )
 
-    return UserCountry(**rows[0])
+    row = rows[0]
+    return UserCountry(
+        id=row["id"],
+        user_id=row["user_id"],
+        country_id=row["country_id"],
+        country_code=country_code,
+        status=row["status"],
+        created_at=row["created_at"],
+    )
+
+
+@router.post(
+    "/user/batch", response_model=list[UserCountry], status_code=status.HTTP_201_CREATED
+)
+async def set_user_countries_batch(
+    request: Request,
+    data: UserCountryBatchUpdate,
+    user: CurrentUser,
+) -> list[UserCountry]:
+    """
+    Set multiple country statuses in a single request.
+
+    Creates or updates user-country associations for all provided countries.
+    Fails with 400 if any country codes are invalid.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Validate all country codes upfront
+    country_ids: dict[str, str] = {}  # code -> id mapping
+    invalid_codes: list[str] = []
+
+    for country_data in data.countries:
+        country_code = country_data.country_code.upper()
+        if country_code in country_ids:
+            continue  # Already validated
+
+        country_rows = await db.get(
+            "country",
+            {"code": f"eq.{country_code}", "select": "id"},
+        )
+        if not country_rows:
+            invalid_codes.append(country_code)
+        else:
+            country_ids[country_code] = country_rows[0]["id"]
+
+    if invalid_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid country codes: {', '.join(invalid_codes)}",
+        )
+
+    # Build records for atomic bulk upsert
+    records = [
+        {
+            "user_id": user.id,
+            "country_id": str(country_ids[country_data.country_code.upper()]),
+            "status": country_data.status.value,
+        }
+        for country_data in data.countries
+    ]
+
+    # Single atomic upsert - all succeed or all fail together
+    rows = await db.upsert(
+        "user_countries",
+        records,
+        on_conflict="user_id,country_id",
+    )
+
+    if len(rows) != len(records):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save all countries",
+        )
+
+    # Build response with country codes
+    # Create a mapping from country_id to code for efficient lookup
+    id_to_code = {v: k for k, v in country_ids.items()}
+
+    results = [
+        UserCountry(
+            id=row["id"],
+            user_id=row["user_id"],
+            country_id=row["country_id"],
+            country_code=id_to_code.get(row["country_id"], ""),
+            status=row["status"],
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+    return results
 
 
 @router.delete("/user/{country_id}", status_code=status.HTTP_204_NO_CONTENT)

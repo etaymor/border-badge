@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 24,
   },
   title: {
     fontSize: 28,
@@ -170,12 +170,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   },
   backButton: {
-    position: 'absolute',
-    top: 16,
-    left: 20,
-    zIndex: 10,
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 20,
+    alignSelf: 'flex-start',
   },
   backText: {
     fontSize: 16,
