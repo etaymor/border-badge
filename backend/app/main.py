@@ -24,7 +24,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 STATIC_DIR = APP_DIR / "static"
 
 # Jinja2 templates instance (shared across the application)
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
 
 settings = get_settings()
 
