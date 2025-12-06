@@ -287,18 +287,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);
 
-  const isLoading = loadingUserCountries || loadingCountries;
-
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
+  // ListHeader must be defined before any early returns to satisfy Rules of Hooks
   const ListHeader = useMemo(
     () => (
       <View>
@@ -363,6 +352,18 @@ export function PassportScreen({ navigation }: Props) {
     ),
     [stats, searchQuery]
   );
+
+  const isLoading = loadingUserCountries || loadingCountries;
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
