@@ -37,17 +37,6 @@ export interface CountryCardProps {
   testID?: string;
 }
 
-function arePropsEqual(prevProps: CountryCardProps, nextProps: CountryCardProps): boolean {
-  return (
-    prevProps.code === nextProps.code &&
-    prevProps.name === nextProps.name &&
-    prevProps.region === nextProps.region &&
-    prevProps.imageUrl === nextProps.imageUrl &&
-    prevProps.isVisited === nextProps.isVisited &&
-    prevProps.isWishlisted === nextProps.isWishlisted
-  );
-}
-
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
@@ -145,7 +134,7 @@ export const CountryCard = React.memo(function CountryCard({
       </View>
     </TouchableOpacity>
   );
-}, arePropsEqual);
+});
 
 const styles = StyleSheet.create({
   container: {
