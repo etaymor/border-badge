@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -34,7 +34,7 @@ async def get_country_id_by_code(country_code: str) -> str | None:
 
     cached = _country_code_cache.get(code)
     expiry = _cache_expiry.get(code)
-    if cached and expiry and datetime.utcnow() < expiry:
+    if cached and expiry and datetime.now(UTC) < expiry:
         return cached
     elif cached:
         # Expired cache entry; remove before refetching
@@ -45,7 +45,7 @@ async def get_country_id_by_code(country_code: str) -> str | None:
         # Re-check inside lock to avoid duplicate fetches.
         cached = _country_code_cache.get(code)
         expiry = _cache_expiry.get(code)
-        if cached and expiry and datetime.utcnow() < expiry:
+        if cached and expiry and datetime.now(UTC) < expiry:
             return cached
         elif cached:
             _country_code_cache.pop(code, None)
@@ -61,7 +61,7 @@ async def get_country_id_by_code(country_code: str) -> str | None:
 
         country_id = rows[0]["id"]
         _country_code_cache[code] = country_id
-        _cache_expiry[code] = datetime.utcnow() + CACHE_TTL
+        _cache_expiry[code] = datetime.now(UTC) + CACHE_TTL
         return country_id
 
 
@@ -317,8 +317,8 @@ async def remove_user_country_by_code(
 
     try:
         country_id = await get_country_id_by_code(country_code)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Error looking up country code %s: %s", country_code, exc)
+    except Exception:  # noqa: BLE001
+        logger.exception("Error looking up country code %s", country_code)
         return
 
     if not country_id:
