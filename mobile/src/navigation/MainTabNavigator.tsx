@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 
 import { ProfileScreen } from '@screens/ProfileScreen';
 
+import { DreamsNavigator } from './DreamsNavigator';
 import { PassportNavigator } from './PassportNavigator';
 import { TripsNavigator } from './TripsNavigator';
 import type { MainTabParamList } from './types';
@@ -13,6 +14,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
     Passport: '🛂',
+    Dreams: '❤️',
     Trips: '✈️',
     Profile: '👤',
   };
@@ -33,6 +35,11 @@ export function MainTabNavigator() {
         name="Passport"
         component={PassportNavigator}
         options={{ title: 'Passport', tabBarAccessibilityLabel: 'passport-tab' }}
+      />
+      <Tab.Screen
+        name="Dreams"
+        component={DreamsNavigator}
+        options={{ title: 'Dreams', tabBarAccessibilityLabel: 'dreams-tab' }}
       />
       <Tab.Screen
         name="Trips"

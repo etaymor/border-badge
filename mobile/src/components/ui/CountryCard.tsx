@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import {
+  Animated,
   GestureResponderEvent,
   StyleSheet,
   Text,
@@ -50,6 +51,23 @@ export const CountryCard = React.memo(function CountryCard({
   testID,
 }: CountryCardProps) {
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
+  const heartScale = useRef(new Animated.Value(1)).current;
+
+  const animateHeartPulse = useCallback(() => {
+    Animated.sequence([
+      Animated.spring(heartScale, {
+        toValue: 1.3,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(heartScale, {
+        toValue: 1,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [heartScale]);
 
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
@@ -62,9 +80,13 @@ export const CountryCard = React.memo(function CountryCard({
   const handleWishlistPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
+      // Animate heart pulse when adding to wishlist (not when removing)
+      if (!isWishlisted) {
+        animateHeartPulse();
+      }
       onToggleWishlist();
     },
-    [onToggleWishlist]
+    [onToggleWishlist, isWishlisted, animateHeartPulse]
   );
 
   return (
@@ -105,20 +127,22 @@ export const CountryCard = React.memo(function CountryCard({
         </TouchableOpacity>
 
         {/* Heart Button - Add to Wishlist */}
-        <TouchableOpacity
-          style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
-          onPress={handleWishlistPress}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-          testID={`country-card-wishlist-${code}`}
-        >
-          <Ionicons
-            name={isWishlisted ? 'heart' : 'heart-outline'}
-            size={22}
-            color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-          />
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+          <TouchableOpacity
+            style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
+            onPress={handleWishlistPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+            testID={`country-card-wishlist-${code}`}
+          >
+            <Ionicons
+              name={isWishlisted ? 'heart' : 'heart-outline'}
+              size={22}
+              color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+            />
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {/* Country Name Label - Bottom Left */}
