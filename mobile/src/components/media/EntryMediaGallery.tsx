@@ -77,6 +77,14 @@ export function EntryMediaGallery({
     }
   }, [isPendingMode, mediaFiles, localMedia, onPendingMediaChange]);
 
+  // Once pending media is persisted and fetched from server, drop local copies to avoid duplicates
+  useEffect(() => {
+    if (!isPendingMode || !mediaFiles) return;
+    setLocalMedia((prev) =>
+      prev.filter((item) => !(item.mediaId && mediaFiles.some((m) => m.id === item.mediaId)))
+    );
+  }, [isPendingMode, mediaFiles]);
+
   const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
   const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
 
@@ -120,17 +128,19 @@ export function EntryMediaGallery({
             },
           });
 
-          // In pending mode, keep track of the media ID, then remove from local
+          // In pending mode, keep the local placeholder with the new media ID until server fetch
           if (isPendingMode) {
             setLocalMedia((prev) =>
               prev.map((item) =>
-                item.localUri === file.uri ? { ...item, mediaId: result.id } : item
+                item.localUri === file.uri
+                  ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                  : item
               )
             );
+          } else {
+            // Remove from local state on success (server has it now)
+            setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
           }
-
-          // Remove from local state on success (server has it now)
-          setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
         } catch {
           // Mark as failed
           setLocalMedia((prev) =>
@@ -199,12 +209,14 @@ export function EntryMediaGallery({
         if (isPendingMode) {
           setLocalMedia((prev) =>
             prev.map((item) =>
-              item.localUri === localItem.localUri ? { ...item, mediaId: result.id } : item
+              item.localUri === localItem.localUri
+                ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                : item
             )
           );
+        } else {
+          setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
         }
-
-        setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
       } catch {
         setLocalMedia((prev) =>
           prev.map((item) =>

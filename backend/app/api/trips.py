@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.utils import get_token_from_request
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter
 from app.schemas.trips import (
     Trip,
@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 async def _get_country_codes(
-    db: "SupabaseClient", country_ids: list[str]
+    db: SupabaseClient, country_ids: list[str]
 ) -> dict[str, str]:
     """Look up country codes for given country IDs.
 

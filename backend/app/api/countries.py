@@ -251,18 +251,24 @@ async def set_user_countries_batch(
                 },
             )
 
-        if rows:
-            row = rows[0]
-            results.append(
-                UserCountry(
-                    id=row["id"],
-                    user_id=row["user_id"],
-                    country_id=row["country_id"],
-                    country_code=country_code,
-                    status=row["status"],
-                    created_at=row["created_at"],
-                )
+        if not rows:
+            # Surface the failure instead of silently skipping so clients can retry
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save country {country_code}",
             )
+
+        row = rows[0]
+        results.append(
+            UserCountry(
+                id=row["id"],
+                user_id=row["user_id"],
+                country_id=row["country_id"],
+                country_code=country_code,
+                status=row["status"],
+                created_at=row["created_at"],
+            )
+        )
 
     return results
 
