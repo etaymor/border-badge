@@ -1,6 +1,7 @@
 export { Button } from './Button';
 export { Chip } from './Chip';
 export { ConfirmDialog } from './ConfirmDialog';
+export { CountryCard } from './CountryCard';
 export { CountryGridItem } from './CountryGridItem';
 export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';
@@ -11,3 +12,4 @@ export { Screen } from './Screen';
 export { SearchInput } from './SearchInput';
 export { Snackbar } from './Snackbar';
 export { Text } from './Text';
+export { VisitedCountryCard } from './VisitedCountryCard';
