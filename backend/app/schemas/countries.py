@@ -1,10 +1,11 @@
 """Schemas for country and user_countries endpoints."""
 
+import re
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class CountryRecognition(str, Enum):
@@ -61,6 +62,15 @@ class UserCountryCreate(BaseModel):
 
     country_code: str  # 2-letter ISO code, looked up to UUID on backend
     status: UserCountryStatus
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str) -> str:
+        """Validate and normalize country code to 2 uppercase letters."""
+        v = v.upper()
+        if not re.match(r"^[A-Z]{2}$", v):
+            raise ValueError("Country code must be exactly 2 letters")
+        return v
 
 
 class UserCountryBatchUpdate(BaseModel):

@@ -1,5 +1,7 @@
 """User profile endpoints."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
@@ -7,6 +9,8 @@ from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.profile import Profile, ProfileUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -47,7 +51,7 @@ async def update_profile(
 ) -> Profile:
     """Update the current user's profile preferences."""
     token = get_token_from_request(request)
-    print(f"DEBUG update_profile: user.id={user.id}, token exists={token is not None}")
+    logger.debug("update_profile: user.id=%s, token exists=%s", user.id, token is not None)
     db = get_supabase_client(user_token=token)
 
     # Convert to dict, excluding unset fields for partial updates
