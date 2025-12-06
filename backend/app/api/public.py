@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
-from app.core.media import build_media_url
+from app.core.media import extract_media_urls
 from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
@@ -88,14 +88,6 @@ async def view_public_list(
         entry = row.get("entry", {})
         if entry:
             place = entry.get("place", {}) if entry.get("place") else {}
-            media_urls: list[str] = []
-            media_files = entry.get("media_files", []) or []
-            for media in media_files:
-                if media.get("status") == "uploaded":
-                    path = media.get("thumbnail_path") or media.get("file_path")
-                    if path:
-                        media_urls.append(build_media_url(path))
-
             entries.append(
                 PublicListEntry(
                     id=entry.get("id"),
@@ -104,7 +96,7 @@ async def view_public_list(
                     notes=entry.get("notes"),
                     place_name=place.get("place_name"),
                     address=place.get("address"),
-                    media_urls=media_urls,
+                    media_urls=extract_media_urls(entry.get("media_files")),
                 )
             )
 
@@ -190,14 +182,6 @@ async def view_public_trip(
     entries: list[PublicTripEntry] = []
     for entry in entry_rows:
         place = entry.get("place", {}) if entry.get("place") else {}
-        media_urls: list[str] = []
-        media_files = entry.get("media_files", []) or []
-        for media in media_files:
-            if media.get("status") == "uploaded":
-                path = media.get("thumbnail_path") or media.get("file_path")
-                if path:
-                    media_urls.append(build_media_url(path))
-
         entries.append(
             PublicTripEntry(
                 id=entry.get("id"),
@@ -206,7 +190,7 @@ async def view_public_trip(
                 notes=entry.get("notes"),
                 place_name=place.get("place_name"),
                 address=place.get("address"),
-                media_urls=media_urls,
+                media_urls=extract_media_urls(entry.get("media_files")),
             )
         )
 
@@ -261,3 +245,45 @@ Allow: /t/
 Sitemap: {settings.base_url}/sitemap.xml
 """
     return PlainTextResponse(content=content, media_type="text/plain")
+
+
+@router.get("/sitemap.xml", response_class=PlainTextResponse)
+async def sitemap_xml() -> PlainTextResponse:
+    """Generate sitemap.xml for search engines."""
+    settings = get_settings()
+    db = get_supabase_client()
+
+    urls = [f"  <url><loc>{settings.base_url}</loc></url>"]
+
+    # Public lists
+    lists = await db.get(
+        "list",
+        {
+            "is_public": "eq.true",
+            "deleted_at": "is.null",
+            "select": "slug",
+        },
+    )
+    for lst in lists:
+        urls.append(f"  <url><loc>{settings.base_url}/l/{lst['slug']}</loc></url>")
+
+    # Public trips
+    trips = await db.get(
+        "trip",
+        {
+            "share_slug": "not.is.null",
+            "deleted_at": "is.null",
+            "select": "share_slug",
+        },
+    )
+    for trip in trips:
+        urls.append(f"  <url><loc>{settings.base_url}/t/{trip['share_slug']}</loc></url>")
+
+    content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{chr(10).join(urls)}
+</urlset>"""
+
+    response = PlainTextResponse(content=content, media_type="application/xml")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response

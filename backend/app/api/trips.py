@@ -424,6 +424,7 @@ async def generate_share_link(
     # Generate a new share slug using the database function
     result = await db.rpc("generate_trip_share_slug", {"trip_name": trip["name"]})
     if not result:
+        logger.error(f"RPC generate_trip_share_slug returned empty for trip {trip_id}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate share link",

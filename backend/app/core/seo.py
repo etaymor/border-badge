@@ -59,14 +59,20 @@ def build_trip_seo(
     cover_image_url: str | None = None,
 ) -> SEOContext:
     """Build SEO context for a public trip page."""
-    title = f"{trip_name} in {country_name} - Border Badge"
-    description = f"Explore {trip_name} in {country_name} - A trip shared on Border Badge"
+    if country_name:
+        title = f"{trip_name} in {country_name} - Border Badge"
+        description = f"Explore {trip_name} in {country_name} - A trip shared on Border Badge"
+        og_title = f"{trip_name} in {country_name}"
+    else:
+        title = f"{trip_name} - Border Badge"
+        description = f"Explore {trip_name} - A trip shared on Border Badge"
+        og_title = trip_name
 
     return SEOContext(
         title=title,
         description=description,
         canonical_url=f"{base_url}/t/{share_slug}",
-        og_title=f"{trip_name} in {country_name}",
+        og_title=og_title,
         og_description=description,
         og_image=cover_image_url,
         og_type="article",

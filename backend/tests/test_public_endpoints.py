@@ -241,6 +241,53 @@ def test_robots_txt(client: TestClient) -> None:
 
 
 # ============================================================================
+# Sitemap.xml Tests
+# ============================================================================
+
+
+def test_sitemap_xml(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that sitemap.xml is generated correctly."""
+    mock_supabase_client.get.side_effect = [
+        [{"slug": "best-tacos-abc123"}, {"slug": "cool-spots-def456"}],  # public lists
+        [{"share_slug": "summer-trip-xyz"}],  # public trips
+    ]
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert "application/xml" in response.headers["content-type"]
+    assert "Cache-Control" in response.headers
+    assert '<?xml version="1.0"' in response.text
+    assert "<urlset" in response.text
+    assert "/l/best-tacos-abc123" in response.text
+    assert "/l/cool-spots-def456" in response.text
+    assert "/t/summer-trip-xyz" in response.text
+
+
+def test_sitemap_xml_empty(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test sitemap.xml with no public content."""
+    mock_supabase_client.get.side_effect = [
+        [],  # no public lists
+        [],  # no public trips
+    ]
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert '<?xml version="1.0"' in response.text
+    # Should still have the landing page URL
+    assert "<url>" in response.text
+
+
+# ============================================================================
 # Trip Share API Tests
 # ============================================================================
 
