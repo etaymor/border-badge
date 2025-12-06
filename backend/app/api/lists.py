@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Path, Request, status
 
 from app.api.utils import get_token_from_request
-from app.core.media import build_media_url
+from app.core.media import extract_media_urls
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
@@ -507,17 +507,6 @@ async def get_public_list(
         entry = row.get("entry", {})
         if entry:
             place = entry.get("place", {}) if entry.get("place") else {}
-
-            # Build media URLs from uploaded media files
-            media_urls: list[str] = []
-            media_files = entry.get("media_files", []) or []
-            for media in media_files:
-                if media.get("status") == "uploaded":
-                    # Prefer thumbnail for list views, fall back to full image
-                    path = media.get("thumbnail_path") or media.get("file_path")
-                    if path:
-                        media_urls.append(build_media_url(path))
-
             entries.append(
                 PublicListEntry(
                     id=entry.get("id"),
@@ -526,7 +515,7 @@ async def get_public_list(
                     notes=entry.get("notes"),
                     place_name=place.get("place_name"),
                     address=place.get("address"),
-                    media_urls=media_urls,
+                    media_urls=extract_media_urls(entry.get("media_files")),
                 )
             )
 

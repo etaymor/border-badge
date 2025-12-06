@@ -49,3 +49,19 @@ CREATE POLICY "Anyone can view shared trips"
   ON trip
   FOR SELECT
   USING (share_slug IS NOT NULL AND deleted_at IS NULL);
+
+-- Allow anyone to view entries that belong to shared trips
+-- This ensures public trip pages can render entry data without authentication
+CREATE POLICY "Anyone can view entries from shared trips"
+  ON entry
+  FOR SELECT
+  USING (
+    deleted_at IS NULL
+    AND EXISTS (
+      SELECT 1
+      FROM trip
+      WHERE trip.id = entry.trip_id
+        AND trip.share_slug IS NOT NULL
+        AND trip.deleted_at IS NULL
+    )
+  );
