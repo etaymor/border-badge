@@ -22,9 +22,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Module-level country code cache to avoid repeated lookups for static reference data.
-_country_code_cache: dict[str, str] = {}
+# Country table is ~200 rows, so unbounded in-memory caching is acceptable and small.
+_country_code_cache: dict[str, tuple[str, datetime]] = {}
 _country_code_lock = asyncio.Lock()
-_cache_expiry: dict[str, datetime] = {}
 CACHE_TTL = timedelta(hours=24)
 
 
@@ -33,23 +33,21 @@ async def get_country_id_by_code(country_code: str) -> str | None:
     code = country_code.upper()
 
     cached = _country_code_cache.get(code)
-    expiry = _cache_expiry.get(code)
-    if cached and expiry and datetime.now(UTC) < expiry:
-        return cached
-    elif cached:
+    if cached:
+        country_id, expiry = cached
+        if datetime.now(UTC) < expiry:
+            return country_id
         # Expired cache entry; remove before refetching
         _country_code_cache.pop(code, None)
-        _cache_expiry.pop(code, None)
 
     async with _country_code_lock:
         # Re-check inside lock to avoid duplicate fetches.
         cached = _country_code_cache.get(code)
-        expiry = _cache_expiry.get(code)
-        if cached and expiry and datetime.now(UTC) < expiry:
-            return cached
-        elif cached:
+        if cached:
+            country_id, expiry = cached
+            if datetime.now(UTC) < expiry:
+                return country_id
             _country_code_cache.pop(code, None)
-            _cache_expiry.pop(code, None)
 
         db = get_supabase_client()
         rows = await db.get(
@@ -60,15 +58,14 @@ async def get_country_id_by_code(country_code: str) -> str | None:
             return None
 
         country_id = rows[0]["id"]
-        _country_code_cache[code] = country_id
-        _cache_expiry[code] = datetime.now(UTC) + CACHE_TTL
+        _country_code_cache[code] = (country_id, datetime.now(UTC) + CACHE_TTL)
         return country_id
 
 
 def clear_country_code_cache() -> None:
     """Clear the country code cache (used after country data changes)."""
     _country_code_cache.clear()
-    _cache_expiry.clear()
+    # No expiry map to clear; entries include their expiry.
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:
@@ -317,9 +314,18 @@ async def remove_user_country_by_code(
 
     try:
         country_id = await get_country_id_by_code(country_code)
-    except Exception:  # noqa: BLE001
+    except asyncio.TimeoutError as exc:
+        logger.warning("Timeout looking up country code %s", country_code, exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Country lookup timed out",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Error looking up country code %s", country_code)
-        return
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Country lookup failed",
+        ) from exc
 
     if not country_id:
         # Country not found, but return 204 for idempotency
