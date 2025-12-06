@@ -10,6 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
+from app.core.config import get_settings
 from app.schemas.lists import (
     ListCreate,
     ListDetail,
@@ -17,6 +18,7 @@ from app.schemas.lists import (
     ListEntry,
     ListSummary,
     ListUpdate,
+    PublicListEntry,
     PublicListView,
 )
 
@@ -464,6 +466,14 @@ async def restore_list(
     return _build_list_detail(lst, entries)
 
 
+def _build_media_url(file_path: str) -> str:
+    """Build a public URL for a media file in Supabase storage."""
+    settings = get_settings()
+    if not settings.supabase_url:
+        return ""
+    return f"{settings.supabase_url}/storage/v1/object/public/media/{file_path}"
+
+
 # Public endpoint (no auth required)
 @router.get("/public/lists/{slug}", response_model=PublicListView)
 async def get_public_list(
@@ -490,30 +500,42 @@ async def get_public_list(
 
     lst = lists[0]
 
-    # Fetch entries with details
+    # Fetch entries with details including media
     entry_rows = await db.get(
         "list_entries",
         {
             "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address))",
+            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
         },
     )
 
-    entries = []
+    entries: list[PublicListEntry] = []
     for row in entry_rows:
         entry = row.get("entry", {})
         if entry:
             place = entry.get("place", {}) if entry.get("place") else {}
+
+            # Build media URLs from uploaded media files
+            media_urls: list[str] = []
+            media_files = entry.get("media_files", []) or []
+            for media in media_files:
+                if media.get("status") == "uploaded":
+                    # Prefer thumbnail for list views, fall back to full image
+                    path = media.get("thumbnail_path") or media.get("file_path")
+                    if path:
+                        media_urls.append(_build_media_url(path))
+
             entries.append(
-                {
-                    "id": entry.get("id"),
-                    "title": entry.get("title"),
-                    "type": entry.get("type"),
-                    "notes": entry.get("notes"),
-                    "place_name": place.get("place_name"),
-                    "address": place.get("address"),
-                }
+                PublicListEntry(
+                    id=entry.get("id"),
+                    title=entry.get("title"),
+                    type=entry.get("type"),
+                    notes=entry.get("notes"),
+                    place_name=place.get("place_name"),
+                    address=place.get("address"),
+                    media_urls=media_urls,
+                )
             )
 
     trip = lst.get("trip", {}) or {}
