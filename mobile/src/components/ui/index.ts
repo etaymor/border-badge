@@ -12,3 +12,4 @@ export { Screen } from './Screen';
 export { SearchInput } from './SearchInput';
 export { Snackbar } from './Snackbar';
 export { Text } from './Text';
+export { VisitedCountryCard } from './VisitedCountryCard';
