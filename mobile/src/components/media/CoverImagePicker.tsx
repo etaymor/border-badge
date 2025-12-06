@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -37,8 +37,22 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup: abort any in-flight upload on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const uploadImage = useCallback(
     async (file: LocalFile) => {
+      // Cancel any in-flight upload and create new controller
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
       setUploading(true);
       setProgress(0);
       setError(null);
@@ -94,6 +108,7 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
             'x-upsert': 'true',
           },
           body: expoFile,
+          signal,
         });
 
         if (!response.ok) {
@@ -102,15 +117,23 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
           throw new MediaUploadError('Failed to upload image', 'UPLOAD');
         }
 
+        // Check if aborted before updating state
+        if (signal.aborted) return;
+
         setProgress(90);
 
         // Get public URL
         const { data: urlData } = supabase.storage.from('media').getPublicUrl(filePath);
 
+        if (signal.aborted) return;
+
         setProgress(100);
         setLocalUri(null);
         onChange(urlData.publicUrl);
       } catch (err) {
+        // Silently ignore aborted requests (component unmounted or new upload started)
+        if ((err as Error).name === 'AbortError') return;
+
         console.error('Cover image upload failed:', err);
         const message =
           err instanceof MediaUploadError
@@ -119,7 +142,10 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         setError(message);
         setLocalUri(null);
       } finally {
-        setUploading(false);
+        // Only update state if not aborted
+        if (!signal.aborted) {
+          setUploading(false);
+        }
       }
     },
     [onChange]

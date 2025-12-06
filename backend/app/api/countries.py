@@ -220,59 +220,44 @@ async def set_user_countries_batch(
             detail=f"Invalid country codes: {', '.join(invalid_codes)}",
         )
 
-    # Process all countries now that we know they're valid
-    results: list[UserCountry] = []
+    # Build records for atomic bulk upsert
+    records = [
+        {
+            "user_id": user.id,
+            "country_id": str(country_ids[country_data.country_code.upper()]),
+            "status": country_data.status.value,
+        }
+        for country_data in data.countries
+    ]
 
-    for country_data in data.countries:
-        country_code = country_data.country_code.upper()
-        country_id = country_ids[country_code]
+    # Single atomic upsert - all succeed or all fail together
+    rows = await db.upsert(
+        "user_countries",
+        records,
+        on_conflict="user_id,country_id",
+    )
 
-        # Check if association exists
-        existing = await db.get(
-            "user_countries",
-            {
-                "user_id": f"eq.{user.id}",
-                "country_id": f"eq.{country_id}",
-                "select": "id",
-            },
+    if len(rows) != len(records):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save all countries",
         )
 
-        if existing:
-            # Update existing
-            rows = await db.patch(
-                "user_countries",
-                {"status": country_data.status.value},
-                {"id": f"eq.{existing[0]['id']}"},
-            )
-        else:
-            # Create new
-            rows = await db.post(
-                "user_countries",
-                {
-                    "user_id": user.id,
-                    "country_id": str(country_id),
-                    "status": country_data.status.value,
-                },
-            )
+    # Build response with country codes
+    # Create a mapping from country_id to code for efficient lookup
+    id_to_code = {v: k for k, v in country_ids.items()}
 
-        if not rows:
-            # Surface the failure instead of silently skipping so clients can retry
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to save country {country_code}",
-            )
-
-        row = rows[0]
-        results.append(
-            UserCountry(
-                id=row["id"],
-                user_id=row["user_id"],
-                country_id=row["country_id"],
-                country_code=country_code,
-                status=row["status"],
-                created_at=row["created_at"],
-            )
+    results = [
+        UserCountry(
+            id=row["id"],
+            user_id=row["user_id"],
+            country_id=row["country_id"],
+            country_code=id_to_code.get(row["country_id"], ""),
+            status=row["status"],
+            created_at=row["created_at"],
         )
+        for row in rows
+    ]
 
     return results
 
