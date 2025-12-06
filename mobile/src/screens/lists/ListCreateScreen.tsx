@@ -8,7 +8,6 @@ import {
   Pressable,
   Share,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -84,12 +83,12 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
       </View>
       <Text style={styles.successTitle}>List Created!</Text>
       <Text style={styles.successSubtitle}>
-        Your list &quot;{list.name}&quot; is ready to share
+        Anyone with the link can view &quot;{list.name}&quot;
       </Text>
 
       {/* Share URL */}
       <View style={styles.urlContainer}>
-        <Text style={styles.urlLabel}>Share Link</Text>
+        <Text style={styles.urlLabel}>Public link</Text>
         <View style={styles.urlBox}>
           <Text style={styles.urlText} numberOfLines={1}>
             {shareUrl}
@@ -124,7 +123,6 @@ export function ListCreateScreen({ route, navigation }: Props) {
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdList, setCreatedList] = useState<ListDetail | null>(null);
@@ -181,7 +179,6 @@ export function ListCreateScreen({ route, navigation }: Props) {
         data: {
           name: name.trim(),
           description: description.trim() || undefined,
-          is_public: isPublic,
           entry_ids: Array.from(selectedEntryIds),
         },
       });
@@ -192,7 +189,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [validateForm, tripId, name, description, isPublic, selectedEntryIds, createList]);
+  }, [validateForm, tripId, name, description, selectedEntryIds, createList]);
 
   // Handle done
   const handleDone = useCallback(() => {
@@ -257,22 +254,13 @@ export function ListCreateScreen({ route, navigation }: Props) {
               />
             </View>
 
-            {/* Public Toggle */}
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleInfo}>
-                <Text style={styles.toggleLabel}>Public List</Text>
-                <Text style={styles.toggleHint}>
-                  {isPublic
-                    ? 'Anyone with the link can view this list'
-                    : 'Only you can see this list'}
-                </Text>
+            {/* Public info */}
+            <View style={styles.infoBanner}>
+              <Ionicons name="globe-outline" size={18} color="#007AFF" style={styles.infoIcon} />
+              <View style={styles.infoTextContainer}>
+                <Text style={styles.infoTitle}>Lists are public</Text>
+                <Text style={styles.infoDescription}>Anyone with the link can view this list.</Text>
               </View>
-              <Switch
-                value={isPublic}
-                onValueChange={setIsPublic}
-                trackColor={{ false: '#e0e0e0', true: '#007AFF' }}
-                ios_backgroundColor="#e0e0e0"
-              />
             </View>
 
             {/* Entries Header */}
@@ -379,25 +367,30 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginLeft: 4,
   },
-  toggleRow: {
+  infoBanner: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    backgroundColor: '#f0f5ff',
+    borderRadius: 10,
+    paddingHorizontal: 14,
     paddingVertical: 12,
+    gap: 10,
     marginBottom: 20,
   },
-  toggleInfo: {
+  infoIcon: {
+    marginTop: 1,
+  },
+  infoTextContainer: {
     flex: 1,
-    marginRight: 16,
   },
-  toggleLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1a1a1a',
+  infoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0a1a2f',
   },
-  toggleHint: {
+  infoDescription: {
     fontSize: 13,
-    color: '#666',
+    color: '#2c3e5d',
     marginTop: 2,
   },
   entriesHeader: {

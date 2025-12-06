@@ -112,6 +112,61 @@ def test_create_list_success(
         app.dependency_overrides.clear()
 
 
+def test_create_list_always_public(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_entry: dict[str, Any],
+    sample_list_entry: dict[str, Any],
+) -> None:
+    """Ensure new lists are forced to public visibility."""
+    mock_supabase_client.get.side_effect = [
+        [sample_trip],
+        [sample_entry],
+    ]
+    mock_supabase_client.post.side_effect = [
+        [
+            {
+                "id": str(TEST_LIST_ID),
+                "trip_id": str(TEST_TRIP_ID),
+                "owner_id": TEST_USER_ID,
+                "name": "Always Public List",
+                "slug": "always-public-list",
+                "is_public": False,  # Simulate DB default; API should override to true
+                "description": None,
+                "created_at": "2024-01-01T00:00:00+00:00",
+                "updated_at": "2024-01-01T00:00:00+00:00",
+            }
+        ],
+        [sample_list_entry],
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.lists.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/trips/{TEST_TRIP_ID}/lists",
+                headers=auth_headers,
+                json={
+                    "name": "Always Public List",
+                    "entry_ids": [TEST_ENTRY_ID],
+                },
+            )
+
+        assert response.status_code == 201
+        # First call is to the list table, second is entries
+        list_payload = mock_supabase_client.post.call_args_list[0].args[1]
+        assert list_payload["is_public"] is True
+        # Response should reflect public visibility regardless of DB default
+        assert response.json()["is_public"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_get_list_success(
     client: TestClient,
     mock_supabase_client: AsyncMock,

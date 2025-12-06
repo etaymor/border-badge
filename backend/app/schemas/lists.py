@@ -18,7 +18,6 @@ class ListCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
-    is_public: bool = True
     entry_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -27,7 +26,6 @@ class ListUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
-    is_public: bool | None = None
 
 
 class ListEntriesUpdate(BaseModel):
@@ -77,6 +75,18 @@ class ListDetail(BaseModel):
     entries: list[ListEntry] = []
 
 
+class PublicListEntry(BaseModel):
+    """Entry data for public list view with media URLs."""
+
+    id: UUID
+    title: str
+    type: str
+    notes: str | None = None
+    place_name: str | None = None
+    address: str | None = None
+    media_urls: list[str] = []
+
+
 class PublicListView(BaseModel):
     """Public view of a list (accessible by slug without authentication)."""
 
@@ -87,4 +97,4 @@ class PublicListView(BaseModel):
     trip_name: str | None = None
     country_name: str | None = None
     created_at: datetime
-    entries: list[dict] = []  # Simplified entry data for public view
+    entries: list[PublicListEntry] = []

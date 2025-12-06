@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Border Badge - Track Your Travels{% endblock %}
+{% block description %}Mark countries visited, build your wishlist, and share your travel experiences with friends. Download Border Badge today.{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Your Travel Story, Beautifully Tracked</h1>
+    <p class="hero-subtitle">
+        Mark the countries you've visited, build your travel wishlist,
+        and share curated recommendations with friends.
+    </p>
+    <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--large">
+        Download Border Badge
+    </a>
+</section>
+
+<section class="features">
+    <div class="features-grid">
+        <div class="feature-card">
+            <div class="feature-icon">🗺️</div>
+            <h3 class="feature-title">Passport Grid</h3>
+            <p class="feature-description">
+                Visualize every country you've visited on your personal passport grid.
+                Track your progress toward visiting more of the world.
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">✈️</div>
+            <h3 class="feature-title">Trip Logging</h3>
+            <p class="feature-description">
+                Log your trips with photos, notes, and places.
+                Remember where you stayed, what you ate, and experiences you loved.
+            </p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">🤝</div>
+            <h3 class="feature-title">Share with Friends</h3>
+            <p class="feature-description">
+                Create shareable lists of your favorite spots.
+                Help friends discover the best places when they travel.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="cta-section">
+    <h2 class="cta-section-title">Ready to start tracking?</h2>
+    <p class="cta-section-text">
+        Join travelers who use Border Badge to remember and share their adventures.
+    </p>
+    <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--large">
+        Get the App
+    </a>
+</section>
+{% endblock %}

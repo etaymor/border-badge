@@ -51,11 +51,12 @@ export function DreamsScreen({ navigation }: Props) {
   const pendingTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
 
   useEffect(() => {
+    const timeouts = pendingTimeoutsRef.current;
     return () => {
       isMountedRef.current = false;
       // Clear all pending timeouts on unmount
-      pendingTimeoutsRef.current.forEach(clearTimeout);
-      pendingTimeoutsRef.current.clear();
+      timeouts.forEach(clearTimeout);
+      timeouts.clear();
     };
   }, []);
 

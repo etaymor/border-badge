@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Path, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.media import extract_media_urls
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
@@ -17,6 +18,7 @@ from app.schemas.lists import (
     ListEntry,
     ListSummary,
     ListUpdate,
+    PublicListEntry,
     PublicListView,
 )
 
@@ -147,7 +149,8 @@ async def create_list(
         "owner_id": user.id,
         "name": data.name,
         "description": data.description,
-        "is_public": data.is_public,
+        # Lists are always public going forward
+        "is_public": True,
     }
 
     rows = await db.post("list", list_data)
@@ -158,6 +161,8 @@ async def create_list(
         )
 
     lst = rows[0]
+    # Enforce public visibility in response even if DB default differs
+    lst["is_public"] = True
     entries: list[ListEntry] = []
 
     # Add entries to list using bulk insert for atomicity and performance
@@ -240,6 +245,8 @@ async def update_list(
     db = get_supabase_client(user_token=token)
 
     update_data = data.model_dump(exclude_unset=True)
+    # Force lists to stay public even if callers try to pass the field
+    update_data.pop("is_public", None)
     if not update_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -490,30 +497,31 @@ async def get_public_list(
 
     lst = lists[0]
 
-    # Fetch entries with details
+    # Fetch entries with details including media
     entry_rows = await db.get(
         "list_entries",
         {
             "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address))",
+            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
         },
     )
 
-    entries = []
+    entries: list[PublicListEntry] = []
     for row in entry_rows:
         entry = row.get("entry", {})
         if entry:
             place = entry.get("place", {}) if entry.get("place") else {}
             entries.append(
-                {
-                    "id": entry.get("id"),
-                    "title": entry.get("title"),
-                    "type": entry.get("type"),
-                    "notes": entry.get("notes"),
-                    "place_name": place.get("place_name"),
-                    "address": place.get("address"),
-                }
+                PublicListEntry(
+                    id=entry.get("id"),
+                    title=entry.get("title"),
+                    type=entry.get("type"),
+                    notes=entry.get("notes"),
+                    place_name=place.get("place_name"),
+                    address=place.get("address"),
+                    media_urls=extract_media_urls(entry.get("media_files")),
+                )
             )
 
     trip = lst.get("trip", {}) or {}

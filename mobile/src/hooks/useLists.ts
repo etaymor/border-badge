@@ -34,14 +34,12 @@ export interface ListDetail extends Omit<ListSummary, 'entry_count'> {
 export interface CreateListInput {
   name: string;
   description?: string;
-  is_public?: boolean;
   entry_ids?: string[];
 }
 
 export interface UpdateListInput {
   name?: string;
   description?: string;
-  is_public?: boolean;
 }
 
 // Query keys
@@ -189,6 +187,13 @@ export function useDeleteList() {
  * Get public share URL for a list
  */
 export function getPublicListUrl(slug: string): string {
-  const baseUrl = process.env.EXPO_PUBLIC_WEB_URL ?? 'https://borderbadge.app';
-  return `${baseUrl}/public/lists/${slug}`;
+  const baseUrl =
+    process.env.EXPO_PUBLIC_WEB_BASE_URL ?? process.env.EXPO_PUBLIC_WEB_URL ?? '';
+
+  if (!baseUrl) {
+    return '';
+  }
+
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  return `${normalizedBase}/l/${slug}`;
 }
