@@ -3,9 +3,10 @@
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class EntryType(str, Enum):
@@ -51,6 +52,17 @@ class EntryBase(BaseModel):
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
 
+    @field_validator("link")
+    @classmethod
+    def validate_link(cls, v: str | None) -> str | None:
+        """Validate that link is a well-formed URL if provided."""
+        if v is None:
+            return v
+        parsed = urlparse(v)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError("Link must be a valid URL with scheme and host")
+        return v
+
 
 class EntryCreate(EntryBase):
     """Request to create an entry."""
@@ -67,6 +79,17 @@ class EntryUpdate(BaseModel):
     link: str | None = None
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
+
+    @field_validator("link")
+    @classmethod
+    def validate_link(cls, v: str | None) -> str | None:
+        """Validate that link is a well-formed URL if provided."""
+        if v is None:
+            return v
+        parsed = urlparse(v)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError("Link must be a valid URL with scheme and host")
+        return v
 
 
 class Entry(BaseModel):

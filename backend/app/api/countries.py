@@ -187,24 +187,41 @@ async def set_user_countries_batch(
     Set multiple country statuses in a single request.
 
     Creates or updates user-country associations for all provided countries.
+    Fails with 400 if any country codes are invalid.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    results: list[UserCountry] = []
+    # Validate all country codes upfront
+    country_ids: dict[str, str] = {}  # code -> id mapping
+    invalid_codes: list[str] = []
 
     for country_data in data.countries:
         country_code = country_data.country_code.upper()
+        if country_code in country_ids:
+            continue  # Already validated
 
-        # Look up country UUID
         country_rows = await db.get(
             "country",
             {"code": f"eq.{country_code}", "select": "id"},
         )
         if not country_rows:
-            continue  # Skip unknown countries
+            invalid_codes.append(country_code)
+        else:
+            country_ids[country_code] = country_rows[0]["id"]
 
-        country_id = country_rows[0]["id"]
+    if invalid_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid country codes: {', '.join(invalid_codes)}",
+        )
+
+    # Process all countries now that we know they're valid
+    results: list[UserCountry] = []
+
+    for country_data in data.countries:
+        country_code = country_data.country_code.upper()
+        country_id = country_ids[country_code]
 
         # Check if association exists
         existing = await db.get(
