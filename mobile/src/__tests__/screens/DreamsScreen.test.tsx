@@ -12,7 +12,11 @@
  */
 
 import { act, fireEvent, render, screen } from '../utils/testUtils';
-import { createMockCountry, createMockNavigation, createMockUserCountry } from '../utils/mockFactories';
+import {
+  createMockCountry,
+  createMockNavigation,
+  createMockUserCountry,
+} from '../utils/mockFactories';
 
 import { DreamsScreen } from '@screens/DreamsScreen';
 import * as useCountriesModule from '@hooks/useCountries';
@@ -23,8 +27,12 @@ import type { UserCountry } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
 
 // Mock navigation and route
-const mockNavigation = createMockNavigation() as unknown as DreamsStackScreenProps<'DreamsHome'>['navigation'];
-const mockRoute = { key: 'test', name: 'DreamsHome', params: {} } as DreamsStackScreenProps<'DreamsHome'>['route'];
+const mockNavigation =
+  createMockNavigation() as unknown as DreamsStackScreenProps<'DreamsHome'>['navigation'];
+const mockRoute = {
+  key: 'test',
+  name: 'DreamsHome',
+} as DreamsStackScreenProps<'DreamsHome'>['route'];
 
 // Helper to mock all hooks with provided data
 function mockHooksWithData({
