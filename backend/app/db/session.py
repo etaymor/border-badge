@@ -207,6 +207,46 @@ class SupabaseClient:
             self._handle_request_error(e)
         return []
 
+    async def upsert(
+        self,
+        table: str,
+        data: list[dict[str, Any]],
+        on_conflict: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Upsert records (insert or update on conflict).
+
+        Uses Supabase's bulk upsert which is atomic - all records succeed or fail together.
+
+        Args:
+            table: The table name
+            data: List of records to upsert
+            on_conflict: Comma-separated column names for conflict resolution
+
+        Returns:
+            List of upserted records
+        """
+        try:
+            client = get_http_client()
+            # Merge headers with upsert-specific Prefer header
+            headers = {
+                **self.headers,
+                "Prefer": "return=representation,resolution=merge-duplicates",
+            }
+            response = await client.post(
+                f"{self.rest_url}/{table}",
+                headers=headers,
+                json=data,
+                params={"on_conflict": on_conflict},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return []
+
 
 def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
     """
