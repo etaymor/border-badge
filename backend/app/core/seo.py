@@ -37,7 +37,7 @@ def build_list_seo(
 ) -> SEOContext:
     """Build SEO context for a public list page."""
     title = f"{list_name} - Border Badge"
-    meta_description = description or f"A curated travel list shared on Border Badge"
+    meta_description = description or "A curated travel list shared on Border Badge"
     if country_name:
         meta_description = f"{list_name} in {country_name} - {meta_description}"
 

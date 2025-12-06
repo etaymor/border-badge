@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ list.name }} - Border Badge{% endblock %}
-{% block description %}{{ list.description or 'A curated travel list shared on Border Badge' }}{% endblock %}
+{% block description %}{{ list.description or 'A public travel list on Border Badge' }}{% endblock %}
 
 {% block content %}
 <section class="page-header">
@@ -12,6 +12,9 @@
     <p class="page-meta">
         {% if list.country_name %}{{ list.country_name }}{% endif %}
         {% if list.trip_name %} &middot; {{ list.trip_name }}{% endif %}
+    </p>
+    <p class="page-meta" style="margin-top: 6px; color: var(--color-text-muted);">
+        Public list · Anyone with the link can view
     </p>
 </section>
 
@@ -48,7 +51,7 @@
 <section class="cta-section">
     <h2 class="cta-section-title">Want to create your own lists?</h2>
     <p class="cta-section-text">
-        Download Border Badge to track your travels and share recommendations with friends.
+        Download Border Badge to track your travels and share public recommendations with friends.
     </p>
     <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--large">
         Get Border Badge

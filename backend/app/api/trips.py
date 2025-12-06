@@ -1,16 +1,17 @@
 """Trip and trip_tags endpoints."""
 
+import logging
 from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.config import get_settings
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
-from app.core.config import get_settings
 from app.schemas.public import TripShareResponse
 from app.schemas.trips import (
     Trip,
@@ -21,6 +22,8 @@ from app.schemas.trips import (
     TripUpdate,
     TripWithTags,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

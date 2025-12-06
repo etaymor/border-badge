@@ -109,7 +109,6 @@ describe('ListCreateFlow Integration', () => {
         id: 'new-list',
         name: 'Best Spots',
         description: 'My favorite places',
-        is_public: true,
         slug: 'best-spots-abc123',
         entries: [
           createMockListEntry({ entry_id: 'entry-1' }),
@@ -128,7 +127,6 @@ describe('ListCreateFlow Integration', () => {
           data: {
             name: 'Best Spots',
             description: 'My favorite places',
-            is_public: true,
             entry_ids: ['entry-1', 'entry-2'],
           },
         });
@@ -137,7 +135,6 @@ describe('ListCreateFlow Integration', () => {
       expect(mockedApi.post).toHaveBeenCalledWith('/trips/trip-123/lists', {
         name: 'Best Spots',
         description: 'My favorite places',
-        is_public: true,
         entry_ids: ['entry-1', 'entry-2'],
       });
     });
@@ -146,7 +143,6 @@ describe('ListCreateFlow Integration', () => {
       const mockResponse = createMockListDetail({
         id: 'new-list',
         name: 'Quick List',
-        is_public: false,
       });
       mockedApi.post.mockResolvedValueOnce({ data: mockResponse });
 
@@ -265,7 +261,6 @@ describe('ListCreateFlow Integration', () => {
       const mockResponse = createMockListDetail({
         id: 'list-123',
         trip_id: 'trip-123',
-        is_public: false,
         entries: [],
       });
       mockedApi.patch.mockResolvedValueOnce({ data: mockResponse });
@@ -277,12 +272,12 @@ describe('ListCreateFlow Integration', () => {
       await act(async () => {
         await result.current.mutateAsync({
           listId: 'list-123',
-          data: { is_public: false },
+          data: { name: 'Updated Name' },
         });
       });
 
       expect(mockedApi.patch).toHaveBeenCalledWith('/lists/list-123', {
-        is_public: false,
+        name: 'Updated Name',
       });
     });
 
@@ -448,10 +443,10 @@ describe('ListCreateFlow Integration', () => {
     });
   });
 
-  // ============ List Visibility Tests ============
+  // ============ Public Visibility Tests ============
 
-  describe('List Visibility', () => {
-    it('creates public list by default when is_public is true', async () => {
+  describe('Public Visibility', () => {
+    it('creates lists that are always public without sending a visibility flag', async () => {
       const mockResponse = createMockListDetail({
         id: 'new-list',
         is_public: true,
@@ -469,38 +464,15 @@ describe('ListCreateFlow Integration', () => {
           tripId: 'trip-123',
           data: {
             name: 'Public List',
-            is_public: true,
           },
         });
       });
 
+      expect(mockedApi.post).toHaveBeenCalledWith('/trips/trip-123/lists', {
+        name: 'Public List',
+      });
       expect(createdList?.is_public).toBe(true);
       expect(createdList?.slug).toBeDefined();
-    });
-
-    it('creates private list when is_public is false', async () => {
-      const mockResponse = createMockListDetail({
-        id: 'new-list',
-        is_public: false,
-      });
-      mockedApi.post.mockResolvedValueOnce({ data: mockResponse });
-
-      const { result } = renderHook(() => useCreateList(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      let createdList: ListDetail | undefined;
-      await act(async () => {
-        createdList = await result.current.mutateAsync({
-          tripId: 'trip-123',
-          data: {
-            name: 'Private List',
-            is_public: false,
-          },
-        });
-      });
-
-      expect(createdList?.is_public).toBe(false);
     });
   });
 });
