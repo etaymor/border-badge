@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { storeOnboardingComplete } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import type { RootStackScreenProps } from '@navigation/types';
 
@@ -9,8 +10,9 @@ type Props = RootStackScreenProps<'Onboarding'>;
 export function OnboardingScreen(_props: Props) {
   const { setHasCompletedOnboarding } = useAuthStore();
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     setHasCompletedOnboarding(true);
+    await storeOnboardingComplete();
   };
 
   return (

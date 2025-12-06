@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -19,27 +18,19 @@ function LoadingScreen() {
 }
 
 export function RootNavigator() {
-  const { session, isGuest, hasCompletedOnboarding, isLoading, setIsGuest } = useAuthStore();
-
-  // Auto-start as guest if no session and not already a guest
-  useEffect(() => {
-    if (!isLoading && !session && !isGuest) {
-      setIsGuest(true);
-    }
-  }, [isLoading, session, isGuest, setIsGuest]);
+  const { session, hasCompletedOnboarding, isLoading } = useAuthStore();
 
   if (isLoading) {
     return <LoadingScreen />;
   }
 
-  // If still waiting for guest mode to be set, show loading
-  if (!session && !isGuest) {
-    return <LoadingScreen />;
-  }
+  // Show onboarding if user has no session AND hasn't completed onboarding
+  // After completing onboarding (which creates an account), they'll have a session
+  const showOnboarding = !session && !hasCompletedOnboarding;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {!hasCompletedOnboarding ? (
+      {showOnboarding ? (
         <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
       ) : (
         <Stack.Screen name="Main" component={MainTabNavigator} />

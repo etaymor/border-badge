@@ -33,6 +33,8 @@ export function TripsNavigator() {
         component={TripFormScreen}
         options={({ route }) => ({
           title: route.params?.tripId ? 'Edit Trip' : 'New Trip',
+          presentation: 'card',
+          headerBackVisible: true,
         })}
       />
       <Stack.Screen

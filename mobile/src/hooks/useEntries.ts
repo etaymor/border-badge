@@ -45,6 +45,7 @@ export interface Entry {
   entry_type: EntryType;
   title: string;
   notes: string | null;
+  link: string | null;
   entry_date: string | null; // ISO date string
   created_at: string;
 }
@@ -61,8 +62,10 @@ export interface CreateEntryInput {
   entry_type: EntryType;
   title: string;
   notes?: string;
+  link?: string;
   entry_date?: string; // ISO date string
   place?: PlaceInput;
+  pending_media_ids?: string[]; // Media uploaded before entry creation
 }
 
 // Input for updating an entry
@@ -70,6 +73,7 @@ export interface UpdateEntryInput {
   title?: string;
   entry_type?: EntryType;
   notes?: string;
+  link?: string;
   entry_date?: string;
   place?: PlaceInput;
 }
@@ -85,6 +89,7 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
     entry_type: (entry.type as EntryType) ?? 'place',
     title: entry.title as string,
     notes: (entry.notes as string) ?? null,
+    link: (entry.link as string) ?? null,
     entry_date: (entry.date as string) ?? null,
     created_at: entry.created_at as string,
     place: place
@@ -137,6 +142,7 @@ export function useCreateEntry() {
         type: input.entry_type,
         title: input.title,
         notes: input.notes,
+        link: input.link,
         date: input.entry_date,
         place: input.place
           ? {
@@ -147,6 +153,7 @@ export function useCreateEntry() {
               address: input.place.address,
             }
           : undefined,
+        pending_media_ids: input.pending_media_ids,
       };
       const response = await api.post(`/trips/${input.trip_id}/entries`, backendInput);
       return transformEntry(response.data as Record<string, unknown>);
@@ -154,6 +161,8 @@ export function useCreateEntry() {
     onSuccess: (data) => {
       // Invalidate entries for this trip
       queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, data.trip_id] });
+      // Invalidate pending media query so photos don't appear on next entry creation
+      queryClient.invalidateQueries({ queryKey: ['media', 'pending', data.trip_id] });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to create entry';
@@ -179,6 +188,7 @@ export function useUpdateEntry() {
       if (data.title !== undefined) backendInput.title = data.title;
       if (data.entry_type !== undefined) backendInput.type = data.entry_type;
       if (data.notes !== undefined) backendInput.notes = data.notes;
+      if (data.link !== undefined) backendInput.link = data.link;
       if (data.entry_date !== undefined) backendInput.date = data.entry_date;
       if (data.place !== undefined) {
         backendInput.place = {

@@ -86,12 +86,11 @@ describe('TripAndEntryFlow Integration', () => {
   // ============ Trip Creation Tests ============
 
   describe('Trip Creation', () => {
-    it('creates a trip with country, name, and dates', async () => {
+    it('creates a trip with country and name', async () => {
       const mockResponse = createMockTripWithTags({
         id: 'new-trip',
         name: 'Tokyo Adventure',
-        country_id: 'JPN',
-        date_range: '[2024-01-01,2024-01-15]',
+        country_id: 'JP',
       });
       mockedApi.post.mockResolvedValueOnce({ data: mockResponse });
 
@@ -102,25 +101,22 @@ describe('TripAndEntryFlow Integration', () => {
       await act(async () => {
         await result.current.mutateAsync({
           name: 'Tokyo Adventure',
-          country_id: 'JPN',
-          date_start: '2024-01-01',
-          date_end: '2024-01-15',
+          country_code: 'JP',
         });
       });
 
       expect(mockedApi.post).toHaveBeenCalledWith('/trips', {
         name: 'Tokyo Adventure',
-        country_id: 'JPN',
-        date_start: '2024-01-01',
-        date_end: '2024-01-15',
+        country_code: 'JP',
       });
     });
 
-    it('creates a trip without optional dates', async () => {
+    it('creates a trip with cover image', async () => {
       const mockResponse = createMockTripWithTags({
         id: 'new-trip',
         name: 'Quick Trip',
-        country_id: 'USA',
+        country_id: 'US',
+        cover_image_url: 'https://example.com/cover.jpg',
       });
       mockedApi.post.mockResolvedValueOnce({ data: mockResponse });
 
@@ -131,13 +127,15 @@ describe('TripAndEntryFlow Integration', () => {
       await act(async () => {
         await result.current.mutateAsync({
           name: 'Quick Trip',
-          country_id: 'USA',
+          country_code: 'US',
+          cover_image_url: 'https://example.com/cover.jpg',
         });
       });
 
       expect(mockedApi.post).toHaveBeenCalledWith('/trips', {
         name: 'Quick Trip',
-        country_id: 'USA',
+        country_code: 'US',
+        cover_image_url: 'https://example.com/cover.jpg',
       });
     });
 
@@ -156,7 +154,7 @@ describe('TripAndEntryFlow Integration', () => {
       await act(async () => {
         await result.current.mutateAsync({
           name: 'New Trip',
-          country_id: 'JPN',
+          country_code: 'JP',
         });
       });
 
@@ -176,7 +174,7 @@ describe('TripAndEntryFlow Integration', () => {
         try {
           await result.current.mutateAsync({
             name: 'Failed Trip',
-            country_id: 'JPN',
+            country_code: 'JP',
           });
         } catch (e) {
           caughtError = e as Error;
@@ -214,10 +212,10 @@ describe('TripAndEntryFlow Integration', () => {
       });
     });
 
-    it('updates trip with new date range', async () => {
+    it('updates trip with cover image', async () => {
       const mockResponse = createMockTrip({
         id: 'trip-123',
-        date_range: '[2024-02-01,2024-02-15]',
+        cover_image_url: 'https://example.com/new-cover.jpg',
       });
       mockedApi.patch.mockResolvedValueOnce({ data: mockResponse });
 
@@ -228,14 +226,12 @@ describe('TripAndEntryFlow Integration', () => {
       await act(async () => {
         await result.current.mutateAsync({
           id: 'trip-123',
-          date_start: '2024-02-01',
-          date_end: '2024-02-15',
+          cover_image_url: 'https://example.com/new-cover.jpg',
         });
       });
 
       expect(mockedApi.patch).toHaveBeenCalledWith('/trips/trip-123', {
-        date_start: '2024-02-01',
-        date_end: '2024-02-15',
+        cover_image_url: 'https://example.com/new-cover.jpg',
       });
     });
 

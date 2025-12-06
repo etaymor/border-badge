@@ -18,105 +18,105 @@ ALTER TABLE list ADD COLUMN deleted_at TIMESTAMPTZ DEFAULT NULL;
 CREATE INDEX idx_list_deleted ON list(deleted_at) WHERE deleted_at IS NOT NULL;
 
 --------------------------------------------------------------------------------
--- UPDATE RLS POLICIES
+-- UPDATE RLS POLICIES FOR SOFT DELETE SUPPORT
 --------------------------------------------------------------------------------
 
--- Note: RLS policies need to be updated to filter soft-deleted records.
--- We drop and recreate relevant policies to add the deleted_at IS NULL check.
+-- Note: We need to update trip and entry policies to filter soft-deleted records.
+-- Drop policies from 0002 and recreate with deleted_at IS NULL checks.
 
--- Trip policies (from 0002_rls_policies.sql)
-DROP POLICY IF EXISTS "Users can view own trips" ON trip;
-DROP POLICY IF EXISTS "Users can create trips" ON trip;
-DROP POLICY IF EXISTS "Users can update own trips" ON trip;
-DROP POLICY IF EXISTS "Users can delete own trips" ON trip;
+--------------------------------------------------------------------------------
+-- TRIP POLICIES - Update for soft delete
+--------------------------------------------------------------------------------
+
+-- Drop existing trip policies from 0002
+DROP POLICY IF EXISTS "Trip owner has full access" ON trip;
+DROP POLICY IF EXISTS "Approved tagged users can view trip" ON trip;
 
 -- Recreate trip policies with soft-delete filter
-CREATE POLICY "Users can view own trips"
-  ON trip
-  FOR SELECT
+-- Owner can view their own non-deleted trips
+CREATE POLICY "Trip owner can view own trips"
+  ON trip FOR SELECT
   USING (user_id = auth.uid() AND deleted_at IS NULL);
 
-CREATE POLICY "Users can create trips"
-  ON trip
-  FOR INSERT
+-- Owner can create trips
+CREATE POLICY "Trip owner can create trips"
+  ON trip FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
--- Note: UPDATE allows updating deleted trips (for restore functionality)
--- The application controls what can be updated; RLS only ensures ownership
-CREATE POLICY "Users can update own trips"
-  ON trip
-  FOR UPDATE
+-- Owner can update their trips (including deleted ones for restore)
+CREATE POLICY "Trip owner can update own trips"
+  ON trip FOR UPDATE
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY "Users can delete own trips"
-  ON trip
-  FOR DELETE
+-- Owner can delete their trips
+CREATE POLICY "Trip owner can delete own trips"
+  ON trip FOR DELETE
   USING (user_id = auth.uid());
 
--- Entry policies (from 0002_rls_policies.sql)
-DROP POLICY IF EXISTS "Users can view entries for accessible trips" ON entry;
-DROP POLICY IF EXISTS "Users can create entries for own trips" ON entry;
-DROP POLICY IF EXISTS "Users can update entries in own trips" ON entry;
-DROP POLICY IF EXISTS "Users can delete entries in own trips" ON entry;
+-- Approved tagged users can view non-deleted trips they're tagged in
+-- Uses SECURITY DEFINER function from 0002 to avoid RLS recursion
+CREATE POLICY "Approved tagged users can view trip"
+  ON trip FOR SELECT
+  USING (deleted_at IS NULL AND has_approved_trip_tag(id));
+
+--------------------------------------------------------------------------------
+-- ENTRY POLICIES - Update for soft delete
+--------------------------------------------------------------------------------
+
+-- Drop existing entry policies from 0002
+DROP POLICY IF EXISTS "Trip participants can view entries" ON entry;
+DROP POLICY IF EXISTS "Trip owner can insert entries" ON entry;
+DROP POLICY IF EXISTS "Trip owner can update entries" ON entry;
+DROP POLICY IF EXISTS "Trip owner can delete entries" ON entry;
 
 -- Recreate entry policies with soft-delete filter
-CREATE POLICY "Users can view entries for accessible trips"
-  ON entry
-  FOR SELECT
+CREATE POLICY "Trip participants can view entries"
+  ON entry FOR SELECT
   USING (
     deleted_at IS NULL
-    AND EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = entry.trip_id
-      AND trip.user_id = auth.uid()
+    AND is_trip_participant(trip_id)
+  );
+
+CREATE POLICY "Trip owner can insert entries"
+  ON entry FOR INSERT
+  WITH CHECK (is_trip_owner(trip_id));
+
+-- UPDATE allows updating deleted entries (for restore functionality)
+CREATE POLICY "Trip owner can update entries"
+  ON entry FOR UPDATE
+  USING (is_trip_owner(trip_id))
+  WITH CHECK (is_trip_owner(trip_id));
+
+CREATE POLICY "Trip owner can delete entries"
+  ON entry FOR DELETE
+  USING (is_trip_owner(trip_id));
+
+--------------------------------------------------------------------------------
+-- UPDATE HELPER FUNCTIONS FOR SOFT DELETE
+--------------------------------------------------------------------------------
+
+-- Update is_trip_participant to filter soft-deleted trips
+CREATE OR REPLACE FUNCTION is_trip_participant(p_trip_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM trip
+    WHERE trip.id = p_trip_id
       AND trip.deleted_at IS NULL
-    )
+      AND (
+        trip.user_id = auth.uid()
+        OR has_approved_trip_tag(trip.id)
+      )
   );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE POLICY "Users can create entries for own trips"
-  ON entry
-  FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = entry.trip_id
-      AND trip.user_id = auth.uid()
-      AND trip.deleted_at IS NULL
-    )
-  );
+-- Update is_trip_owner to filter soft-deleted trips (for non-restore operations)
+-- Note: The base is_trip_owner doesn't filter deleted because UPDATE needs to work
+-- on deleted trips for restore. The policies themselves handle this.
 
--- Note: UPDATE allows updating deleted entries (for restore functionality)
--- The application controls what can be updated; RLS only ensures ownership
-CREATE POLICY "Users can update entries in own trips"
-  ON entry
-  FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = entry.trip_id
-      AND trip.user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = entry.trip_id
-      AND trip.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can delete entries in own trips"
-  ON entry
-  FOR DELETE
-  USING (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = entry.trip_id
-      AND trip.user_id = auth.uid()
-    )
-  );
-
+--------------------------------------------------------------------------------
 -- List policies (from 0004_lists.sql)
 DROP POLICY IF EXISTS "Owner can manage own lists" ON list;
 DROP POLICY IF EXISTS "Anyone can view public lists" ON list;

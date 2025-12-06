@@ -7,9 +7,13 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 
 const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
+const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
+
+// Flag to suppress auto-sign-out during critical flows (e.g., migration after sign-up)
+let suppressAutoSignOut = false;
 
 /**
  * Register a callback to be invoked when authentication fails and user should be signed out.
@@ -17,6 +21,15 @@ let onSignOutCallback: (() => void) | null = null;
  */
 export function setSignOutCallback(callback: () => void): void {
   onSignOutCallback = callback;
+}
+
+/**
+ * Temporarily suppress automatic sign-out on 401 errors.
+ * Use during critical flows like migration where a race condition could cause
+ * premature sign-out before tokens are fully established.
+ */
+export function setSuppressAutoSignOut(suppress: boolean): void {
+  suppressAutoSignOut = suppress;
 }
 
 export const api: AxiosInstance = axios.create({
@@ -45,7 +58,8 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     // If 401, sign out the user (Supabase SDK couldn't refresh the token)
-    if (error.response?.status === 401) {
+    // Skip if suppressAutoSignOut is set (during migration flow)
+    if (error.response?.status === 401 && !suppressAutoSignOut) {
       console.error('Authentication failed - signing out');
       if (onSignOutCallback) {
         onSignOutCallback();
@@ -72,4 +86,20 @@ export async function clearTokens(): Promise<void> {
 // Helper to get stored token
 export async function getStoredToken(): Promise<string | null> {
   return SecureStore.getItemAsync(TOKEN_KEY);
+}
+
+// Helper to persist onboarding completion state
+export async function storeOnboardingComplete(): Promise<void> {
+  await SecureStore.setItemAsync(ONBOARDING_COMPLETE_KEY, 'true');
+}
+
+// Helper to check if onboarding was completed
+export async function getOnboardingComplete(): Promise<boolean> {
+  const value = await SecureStore.getItemAsync(ONBOARDING_COMPLETE_KEY);
+  return value === 'true';
+}
+
+// Helper to clear onboarding state (on logout)
+export async function clearOnboardingComplete(): Promise<void> {
+  await SecureStore.deleteItemAsync(ONBOARDING_COMPLETE_KEY);
 }

@@ -1,7 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { clearTokens, storeTokens } from '@services/api';
+import { clearOnboardingComplete, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { migrateGuestData, MigrationResult } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -17,7 +18,7 @@ interface SignUpInput {
 }
 
 export function useSignIn() {
-  const { setSession, setHasCompletedOnboarding, setIsGuest } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password }: SignInInput) => {
@@ -30,7 +31,8 @@ export function useSignIn() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        // Store tokens first
+        // Clear any stale tokens first, then store new ones
+        await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
         // Check if user has completed onboarding by checking if they have visited countries
@@ -45,12 +47,10 @@ export function useSignIn() {
           // If user has any countries saved, they've completed onboarding before
           const hasOnboarded = userCountries && userCountries.length > 0;
 
-          // Clear guest mode since we're now logged in
-          setIsGuest(false);
-
           // Set onboarding status based on whether they have data
           if (hasOnboarded) {
             setHasCompletedOnboarding(true);
+            await storeOnboardingComplete();
           }
         } catch {
           // If check fails, let them continue with current onboarding state
@@ -67,9 +67,12 @@ export function useSignIn() {
   });
 }
 
-export function useSignUp() {
-  const { setSession, isGuest, setIsGuest } = useAuthStore();
-  // Note: resetOnboarding is used in useSignOut, not here since migration happens after onboarding
+interface SignUpOptions {
+  onMigrationComplete?: (result: MigrationResult) => void;
+}
+
+export function useSignUp(options?: SignUpOptions) {
+  const { setSession } = useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password }: SignUpInput) => {
@@ -82,13 +85,18 @@ export function useSignUp() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        setSession(data.session);
+        // Clear any stale tokens first, then store new ones
+        // This prevents race conditions where old tokens could be used
+        await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
-        // If user was in guest mode, migration will happen after onboarding completes
-        if (isGuest) {
-          setIsGuest(false);
-        }
+        // Migrate onboarding data AFTER tokens are stored to avoid race condition
+        // Pass session so migration can populate the React Query cache with the correct key
+        const migrationResult = await migrateGuestData(data.session);
+        options?.onMigrationComplete?.(migrationResult);
+
+        // Set session last to trigger navigation
+        setSession(data.session);
       } else if (data.user && !data.session) {
         // Email confirmation required
         Alert.alert(
@@ -117,6 +125,7 @@ export function useSignOut() {
       signOut();
       resetOnboarding();
       await clearTokens();
+      await clearOnboardingComplete();
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to sign out';
