@@ -268,9 +268,38 @@ async def remove_user_country(
     country_id: str,
     user: CurrentUser,
 ) -> None:
-    """Remove a country from the user's visited/wishlist."""
+    """Remove a country from the user's visited/wishlist by country UUID."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+    await db.delete(
+        "user_countries",
+        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
+    )
+
+
+@router.delete("/user/by-code/{country_code}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_user_country_by_code(
+    request: Request,
+    country_code: str,
+    user: CurrentUser,
+) -> None:
+    """Remove a country from the user's visited/wishlist by country code."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Look up country by code to get the UUID
+    country_rows = await db.get(
+        "country",
+        {
+            "code": f"eq.{country_code.upper()}",
+            "select": "id",
+        },
+    )
+    if not country_rows:
+        # Country not found, but return 204 for idempotency
+        return
+
+    country_id = country_rows[0]["id"]
     await db.delete(
         "user_countries",
         {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},

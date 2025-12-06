@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CountryCard } from '@components/ui';
 import { useCountries } from '@hooks/useCountries';
-import { useAddUserCountry, useUserCountries } from '@hooks/useUserCountries';
+import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
 import { getFlagEmoji } from '@utils/flags';
 
@@ -16,6 +16,19 @@ interface CountryDisplayItem {
   region: string;
   status: 'visited' | 'wishlist';
 }
+
+interface UnvisitedCountry {
+  code: string;
+  name: string;
+  region: string;
+  isWishlisted: boolean;
+}
+
+type ListItem =
+  | { type: 'section-header'; title: string; key: string }
+  | { type: 'visited-country'; data: CountryDisplayItem; key: string }
+  | { type: 'unvisited-country'; data: UnvisitedCountry; key: string }
+  | { type: 'empty-state'; key: string };
 
 /**
  * Get travel status based on number of countries visited.
@@ -49,6 +62,7 @@ export function PassportScreen({ navigation }: Props) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const addUserCountry = useAddUserCountry();
+  const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Compute visited and wishlist countries
@@ -84,7 +98,8 @@ export function PassportScreen({ navigation }: Props) {
     const stampedCount = visitedCountries.length;
     const dreamsCount = wishlistCountries.length;
     const totalCountries = countries?.length || 197;
-    const worldPercentage = totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
+    const worldPercentage =
+      totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
     // Calculate unique regions visited
     const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
@@ -105,7 +120,7 @@ export function PassportScreen({ navigation }: Props) {
   }, [visitedCountries, wishlistCountries, countries]);
 
   // Compute unvisited countries for the Explore section (filtered by search)
-  const unvisitedCountries = useMemo(() => {
+  const unvisitedCountries = useMemo((): UnvisitedCountry[] => {
     if (!countries) return [];
 
     const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
@@ -123,6 +138,36 @@ export function PassportScreen({ navigation }: Props) {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [countries, visitedCountries, wishlistCountries, searchQuery]);
+
+  // Flatten data into single array with section markers for FlatList virtualization
+  const flatListData = useMemo((): ListItem[] => {
+    const items: ListItem[] = [];
+
+    // Add visited section header (only if there are visited countries or no search)
+    if (displayItems.length > 0 || !searchQuery) {
+      items.push({ type: 'section-header', title: "Where you've been", key: 'header-visited' });
+    }
+
+    // Add empty state if no visited countries and no search
+    if (!searchQuery && visitedCountries.length === 0) {
+      items.push({ type: 'empty-state', key: 'empty-state' });
+    }
+
+    // Add visited countries
+    displayItems.forEach((item) => {
+      items.push({ type: 'visited-country', data: item, key: `visited-${item.code}` });
+    });
+
+    // Add explore section header
+    items.push({ type: 'section-header', title: 'Explore the World', key: 'header-explore' });
+
+    // Add unvisited countries
+    unvisitedCountries.forEach((country) => {
+      items.push({ type: 'unvisited-country', data: country, key: `unvisited-${country.code}` });
+    });
+
+    return items;
+  }, [displayItems, unvisitedCountries, searchQuery, visitedCountries.length]);
 
   const handleCountryPress = useCallback(
     (item: CountryDisplayItem) => {
@@ -155,13 +200,19 @@ export function PassportScreen({ navigation }: Props) {
 
   const handleToggleWishlist = useCallback(
     (countryCode: string) => {
-      addUserCountry.mutate({ country_code: countryCode, status: 'wishlist' });
+      const isCurrentlyWishlisted = wishlistCountries.some((uc) => uc.country_code === countryCode);
+
+      if (isCurrentlyWishlisted) {
+        removeUserCountry.mutate(countryCode);
+      } else {
+        addUserCountry.mutate({ country_code: countryCode, status: 'wishlist' });
+      }
     },
-    [addUserCountry]
+    [addUserCountry, removeUserCountry, wishlistCountries]
   );
 
-  const renderCountryItem = useCallback(
-    ({ item }: { item: CountryDisplayItem }) => {
+  const renderVisitedCountryItem = useCallback(
+    (item: CountryDisplayItem) => {
       const flagEmoji = getFlagEmoji(item.code);
 
       return (
@@ -185,6 +236,54 @@ export function PassportScreen({ navigation }: Props) {
     },
     [handleCountryPress]
   );
+
+  const renderUnvisitedCountryItem = useCallback(
+    (country: UnvisitedCountry) => {
+      return (
+        <View style={styles.countryCardWrapper}>
+          <CountryCard
+            code={country.code}
+            name={country.name}
+            region={country.region}
+            isVisited={false}
+            isWishlisted={country.isWishlisted}
+            onPress={() => handleUnvisitedCountryPress(country)}
+            onAddVisited={() => handleAddVisited(country.code)}
+            onToggleWishlist={() => handleToggleWishlist(country.code)}
+          />
+        </View>
+      );
+    },
+    [handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: ListItem }) => {
+      switch (item.type) {
+        case 'section-header':
+          return <Text style={styles.sectionTitle}>{item.title}</Text>;
+        case 'visited-country':
+          return renderVisitedCountryItem(item.data);
+        case 'unvisited-country':
+          return renderUnvisitedCountryItem(item.data);
+        case 'empty-state':
+          return (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>🌍</Text>
+              <Text style={styles.emptyTitle}>No countries yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Create a trip to start building your passport!
+              </Text>
+            </View>
+          );
+        default:
+          return null;
+      }
+    },
+    [renderVisitedCountryItem, renderUnvisitedCountryItem]
+  );
+
+  const getItemKey = useCallback((item: ListItem) => item.key, []);
 
   const isLoading = loadingUserCountries || loadingCountries;
 
@@ -252,58 +351,24 @@ export function PassportScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
       </View>
-
-      {/* Section Title - only show if there are results or no search query */}
-      {(displayItems.length > 0 || !searchQuery) && (
-        <Text style={styles.sectionTitle}>Where you&apos;ve been</Text>
-      )}
-    </View>
-  );
-
-  // Only show empty state when there's no search query and no visited countries
-  const ListEmpty =
-    !searchQuery && visitedCountries.length === 0 ? (
-      <View style={styles.emptyState}>
-        <Text style={styles.emptyIcon}>🌍</Text>
-        <Text style={styles.emptyTitle}>No countries yet</Text>
-        <Text style={styles.emptySubtitle}>Create a trip to start building your passport!</Text>
-      </View>
-    ) : null;
-
-  const ListFooter = (
-    <View>
-      <Text style={styles.sectionTitle}>Explore the World</Text>
-      {unvisitedCountries.map((country) => (
-        <View key={country.code} style={styles.countryCardWrapper}>
-          <CountryCard
-            code={country.code}
-            name={country.name}
-            region={country.region}
-            isVisited={false}
-            isWishlisted={country.isWishlisted}
-            onPress={() => handleUnvisitedCountryPress(country)}
-            onAddVisited={() => handleAddVisited(country.code)}
-            onToggleWishlist={() => handleToggleWishlist(country.code)}
-          />
-        </View>
-      ))}
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <FlatList
-        data={displayItems}
-        renderItem={renderCountryItem}
-        keyExtractor={(item) => item.code}
+        data={flatListData}
+        renderItem={renderItem}
+        keyExtractor={getItemKey}
         ListHeaderComponent={ListHeader}
-        ListEmptyComponent={ListEmpty}
-        ListFooterComponent={ListFooter}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
       />
     </SafeAreaView>
   );
