@@ -314,7 +314,7 @@ async def remove_user_country_by_code(
 
     try:
         country_id = await get_country_id_by_code(country_code)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         logger.warning("Timeout looking up country code %s", country_code, exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
