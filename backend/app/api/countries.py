@@ -305,21 +305,6 @@ async def set_user_countries_batch(
     return results
 
 
-@router.delete("/user/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_user_country(
-    request: Request,
-    country_id: str,
-    user: CurrentUser,
-) -> None:
-    """Remove a country from the user's visited/wishlist by country UUID."""
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
-    await db.delete(
-        "user_countries",
-        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
-    )
-
-
 @router.delete("/user/by-code/{country_code}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_user_country_by_code(
     request: Request,
@@ -340,6 +325,21 @@ async def remove_user_country_by_code(
         # Country not found, but return 204 for idempotency
         return
 
+    await db.delete(
+        "user_countries",
+        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
+    )
+
+
+@router.delete("/user/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_user_country(
+    request: Request,
+    country_id: str,
+    user: CurrentUser,
+) -> None:
+    """Remove a country from the user's visited/wishlist by country UUID."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
     await db.delete(
         "user_countries",
         {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
