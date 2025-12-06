@@ -1,35 +1,48 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
+  FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 
-import { Button, Input } from '@components/ui';
+import { CoverImagePicker } from '@components/media';
+import { Button, Input, SearchInput } from '@components/ui';
+import { useCountries, type Country } from '@hooks/useCountries';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { getFlagEmoji } from '@utils/flags';
 
 type Props = TripsStackScreenProps<'TripForm'>;
 
 export function TripFormScreen({ navigation, route }: Props) {
   const tripId = route.params?.tripId;
-  const countryId = route.params?.countryId;
-  const countryName = route.params?.countryName;
+  const initialCountryId = route.params?.countryId;
+  const initialCountryName = route.params?.countryName;
   const isEditing = !!tripId;
 
   // Form state
   const [name, setName] = useState('');
-  const [dateStart, setDateStart] = useState('');
-  const [dateEnd, setDateEnd] = useState('');
   const [coverImageUrl, setCoverImageUrl] = useState('');
+
+  // Country picker state
+  const [countrySearch, setCountrySearch] = useState('');
+  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(
+    initialCountryId || null
+  );
+  const [showDropdown, setShowDropdown] = useState(false);
 
   // Validation state
   const [nameError, setNameError] = useState('');
-  const [dateError, setDateError] = useState('');
+  const [countryError, setCountryError] = useState('');
+
+  // Fetch countries for picker
+  const { data: countries, isLoading: loadingCountries } = useCountries();
 
   // Fetch existing trip if editing
   const { data: existingTrip, isLoading: loadingTrip } = useTrip(tripId || '');
@@ -38,31 +51,35 @@ export function TripFormScreen({ navigation, route }: Props) {
   const createTrip = useCreateTrip();
   const updateTrip = useUpdateTrip();
 
+  // Filter countries based on search
+  const filteredCountries = useMemo(() => {
+    if (!countries || !countrySearch) return [];
+    const query = countrySearch.toLowerCase();
+    return countries
+      .filter((c) => c.name.toLowerCase().includes(query) || c.code.toLowerCase().includes(query))
+      .slice(0, 10);
+  }, [countries, countrySearch]);
+
+  // Get selected country object
+  const selectedCountry = useMemo(() => {
+    if (!selectedCountryCode || !countries) return null;
+    return countries.find((c) => c.code === selectedCountryCode) || null;
+  }, [selectedCountryCode, countries]);
+
   // Populate form when editing
   useEffect(() => {
     if (existingTrip && isEditing) {
       setName(existingTrip.name);
       setCoverImageUrl(existingTrip.cover_image_url || '');
-
-      // Parse date range if present
-      if (existingTrip.date_range) {
-        const match = existingTrip.date_range.match(/\[([^,]+),([^\]]+)\]/);
-        if (match) {
-          const [, startStr, endStr] = match;
-          if (startStr !== '-infinity') setDateStart(startStr);
-          if (endStr !== 'infinity') setDateEnd(endStr);
-        }
-      }
     }
   }, [existingTrip, isEditing]);
 
-  // Validate date format (YYYY-MM-DD)
-  const isValidDate = (dateStr: string): boolean => {
-    if (!dateStr) return true; // Empty is valid (optional)
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regex.test(dateStr)) return false;
-    const date = new Date(dateStr);
-    return !isNaN(date.getTime());
+  const handleSelectCountry = (country: Country) => {
+    setSelectedCountryCode(country.code);
+    setCountrySearch('');
+    setShowDropdown(false);
+    setCountryError('');
+    Keyboard.dismiss();
   };
 
   const validate = (): boolean => {
@@ -76,18 +93,12 @@ export function TripFormScreen({ navigation, route }: Props) {
       setNameError('');
     }
 
-    // Validate dates if provided
-    if (dateStart && !isValidDate(dateStart)) {
-      setDateError('Start date must be in YYYY-MM-DD format');
-      isValid = false;
-    } else if (dateEnd && !isValidDate(dateEnd)) {
-      setDateError('End date must be in YYYY-MM-DD format');
-      isValid = false;
-    } else if (dateStart && dateEnd && new Date(dateStart) > new Date(dateEnd)) {
-      setDateError('Start date must be before end date');
+    // Country is required for new trips
+    if (!isEditing && !selectedCountryCode) {
+      setCountryError('Please select a country');
       isValid = false;
     } else {
-      setDateError('');
+      setCountryError('');
     }
 
     return isValid;
@@ -96,12 +107,6 @@ export function TripFormScreen({ navigation, route }: Props) {
   const handleSave = async () => {
     if (!validate()) return;
 
-    // Need countryId for new trips
-    if (!isEditing && !countryId) {
-      Alert.alert('Error', 'Country is required to create a trip');
-      return;
-    }
-
     try {
       if (isEditing && tripId) {
         // Update existing trip
@@ -109,21 +114,18 @@ export function TripFormScreen({ navigation, route }: Props) {
           id: tripId,
           name: name.trim(),
           cover_image_url: coverImageUrl.trim() || undefined,
-          date_start: dateStart || undefined,
-          date_end: dateEnd || undefined,
         });
+        navigation.goBack();
       } else {
-        // Create new trip
-        await createTrip.mutateAsync({
+        // Create new trip and navigate to trip details
+        const newTrip = await createTrip.mutateAsync({
           name: name.trim(),
-          country_id: countryId!,
+          country_code: selectedCountryCode!,
           cover_image_url: coverImageUrl.trim() || undefined,
-          date_start: dateStart || undefined,
-          date_end: dateEnd || undefined,
         });
+        // Navigate to trip details, replacing the form screen
+        navigation.replace('TripDetail', { tripId: newTrip.id });
       }
-
-      navigation.goBack();
     } catch {
       // Error is handled by the mutation's onError
     }
@@ -150,10 +152,72 @@ export function TripFormScreen({ navigation, route }: Props) {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Country Context */}
-        {countryName && !isEditing && (
+        {/* Country Picker - only show for new trips */}
+        {!isEditing && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Country *</Text>
+
+            {/* Show selected country or search input */}
+            {selectedCountry ? (
+              <TouchableOpacity
+                style={styles.selectedCountry}
+                onPress={() => {
+                  setSelectedCountryCode(null);
+                  setCountrySearch('');
+                }}
+              >
+                <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
+                <Text style={styles.selectedName}>{selectedCountry.name}</Text>
+                <Text style={styles.changeText}>Change</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.searchContainer}>
+                <SearchInput
+                  value={countrySearch}
+                  onChangeText={(text) => {
+                    setCountrySearch(text);
+                    setShowDropdown(text.length > 0);
+                  }}
+                  placeholder="Search countries..."
+                  onFocus={() => setShowDropdown(countrySearch.length > 0)}
+                  testID="country-search"
+                />
+
+                {/* Autocomplete dropdown */}
+                {showDropdown && filteredCountries.length > 0 && (
+                  <View style={styles.dropdown}>
+                    <FlatList
+                      data={filteredCountries}
+                      keyExtractor={(item) => item.code}
+                      renderItem={({ item }) => (
+                        <TouchableOpacity
+                          style={styles.dropdownItem}
+                          onPress={() => handleSelectCountry(item)}
+                          testID={`country-option-${item.code}`}
+                        >
+                          <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
+                          <Text style={styles.countryName}>{item.name}</Text>
+                        </TouchableOpacity>
+                      )}
+                      keyboardShouldPersistTaps="handled"
+                      style={styles.dropdownList}
+                    />
+                  </View>
+                )}
+
+                {loadingCountries && (
+                  <Text style={styles.loadingHint}>Loading countries...</Text>
+                )}
+              </View>
+            )}
+            {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
+          </View>
+        )}
+
+        {/* Show country context when editing or pre-selected */}
+        {isEditing && initialCountryName && (
           <View style={styles.contextBanner}>
-            <Text style={styles.contextText}>Adding trip to {countryName}</Text>
+            <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
           </View>
         )}
 
@@ -165,49 +229,16 @@ export function TripFormScreen({ navigation, route }: Props) {
           placeholder="e.g., Spring in Kyoto"
           error={nameError}
           autoCapitalize="words"
-          autoFocus={!isEditing}
+          autoFocus={isEditing || !!selectedCountryCode}
           testID="trip-name-input"
         />
 
-        {/* Date Range */}
-        <View style={styles.dateRow}>
-          <View style={styles.dateInput}>
-            <Input
-              label="Start Date"
-              value={dateStart}
-              onChangeText={setDateStart}
-              placeholder="YYYY-MM-DD"
-              keyboardType="numbers-and-punctuation"
-              testID="trip-start-date-input"
-            />
-          </View>
-          <View style={styles.dateSeparator}>
-            <Text style={styles.dateSeparatorText}>to</Text>
-          </View>
-          <View style={styles.dateInput}>
-            <Input
-              label="End Date"
-              value={dateEnd}
-              onChangeText={setDateEnd}
-              placeholder="YYYY-MM-DD"
-              keyboardType="numbers-and-punctuation"
-              testID="trip-end-date-input"
-            />
-          </View>
-        </View>
-        {dateError ? <Text style={styles.errorText}>{dateError}</Text> : null}
-
-        {/* Cover Image URL */}
-        <Input
-          label="Cover Image URL"
-          value={coverImageUrl}
-          onChangeText={setCoverImageUrl}
-          placeholder="https://..."
-          autoCapitalize="none"
-          keyboardType="url"
-          testID="trip-cover-image-input"
+        {/* Cover Image */}
+        <CoverImagePicker
+          value={coverImageUrl || undefined}
+          onChange={(url) => setCoverImageUrl(url || '')}
+          disabled={isLoading}
         />
-        <Text style={styles.hint}>Optional: Add a cover image for your trip</Text>
 
         {/* Future Feature Hint */}
         <View style={styles.comingSoon}>
@@ -254,6 +285,83 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 100,
   },
+  section: {
+    marginBottom: 20,
+    zIndex: 1,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  searchContainer: {
+    position: 'relative',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    maxHeight: 250,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    zIndex: 10,
+  },
+  dropdownList: {
+    maxHeight: 250,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  flagEmoji: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  countryName: {
+    fontSize: 16,
+    color: '#1a1a1a',
+  },
+  selectedCountry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F2F2F7',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  selectedFlag: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  selectedName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    flex: 1,
+  },
+  changeText: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  loadingHint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+  },
   contextBanner: {
     backgroundColor: '#E8F4FF',
     padding: 12,
@@ -266,34 +374,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 4,
-  },
-  dateInput: {
-    flex: 1,
-  },
-  dateSeparator: {
-    paddingHorizontal: 12,
-    paddingBottom: 16,
-  },
-  dateSeparatorText: {
-    fontSize: 14,
-    color: '#666',
-  },
   errorText: {
     fontSize: 12,
     color: '#FF3B30',
-    marginTop: -8,
-    marginBottom: 16,
-    marginLeft: 4,
-  },
-  hint: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: -8,
-    marginBottom: 16,
+    marginTop: 8,
     marginLeft: 4,
   },
   comingSoon: {

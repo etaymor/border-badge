@@ -182,29 +182,53 @@ export function TripDetailScreen({ route, navigation }: Props) {
         </View>
       </View>
 
+      {/* First Entry Prompt - shown when trip has no entries */}
+      {!entriesLoading && entryCount === 0 && (
+        <Pressable
+          style={styles.firstEntryPrompt}
+          onPress={() => navigation.navigate('EntryForm', { tripId })}
+          testID="first-entry-prompt"
+        >
+          <View style={styles.firstEntryIcon}>
+            <Ionicons name="add-circle" size={48} color="#34C759" />
+          </View>
+          <Text style={styles.firstEntryTitle}>Add your first entry!</Text>
+          <Text style={styles.firstEntrySubtitle}>
+            Start documenting your trip by adding places you visited, food you tried, where you
+            stayed, or memorable experiences.
+          </Text>
+          <View style={styles.firstEntryButton}>
+            <Ionicons name="add" size={20} color="#fff" />
+            <Text style={styles.firstEntryButtonText}>Add Entry</Text>
+          </View>
+        </Pressable>
+      )}
+
       {/* Action Buttons */}
       <View style={styles.actionsSection}>
         <Text style={styles.sectionTitle}>Actions</Text>
 
-        {/* View Entries */}
-        <Pressable
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('EntryList', { tripId, tripName: trip.name })}
-          testID="view-entries-button"
-        >
-          <View style={styles.actionButtonContent}>
-            <Ionicons name="list-outline" size={24} color="#007AFF" />
-            <View style={styles.actionButtonText}>
-              <Text style={styles.actionButtonTitle}>View Entries</Text>
-              <Text style={styles.actionButtonSubtitle}>
-                {entriesLoading
-                  ? 'Loading...'
-                  : `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} logged`}
-              </Text>
+        {/* View Entries - only show if there are entries */}
+        {entryCount > 0 && (
+          <Pressable
+            style={styles.actionButton}
+            onPress={() => navigation.navigate('EntryList', { tripId, tripName: trip.name })}
+            testID="view-entries-button"
+          >
+            <View style={styles.actionButtonContent}>
+              <Ionicons name="list-outline" size={24} color="#007AFF" />
+              <View style={styles.actionButtonText}>
+                <Text style={styles.actionButtonTitle}>View Entries</Text>
+                <Text style={styles.actionButtonSubtitle}>
+                  {entriesLoading
+                    ? 'Loading...'
+                    : `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} logged`}
+                </Text>
+              </View>
             </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </Pressable>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </Pressable>
+        )}
 
         {/* Add Entry */}
         <Pressable
@@ -461,6 +485,47 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   deleteButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  firstEntryPrompt: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#34C759',
+    borderStyle: 'dashed',
+  },
+  firstEntryIcon: {
+    marginBottom: 12,
+  },
+  firstEntryTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  firstEntrySubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  firstEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#34C759',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    gap: 6,
+  },
+  firstEntryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',

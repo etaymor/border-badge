@@ -150,6 +150,26 @@ export function useTripMedia(tripId: string) {
   });
 }
 
+// Fetch pending media for a trip (media with tripId but no entryId yet)
+// Used during entry creation before the entry exists
+export function usePendingTripMedia(tripId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...MEDIA_QUERY_KEY, 'pending', tripId],
+    queryFn: async (): Promise<MediaFile[]> => {
+      const { data, error } = await supabase
+        .from('media_files')
+        .select('*')
+        .eq('trip_id', tripId)
+        .is('entry_id', null)
+        .order('created_at', { ascending: true });
+
+      if (error) throw new Error(error.message);
+      return (data || []).map((raw) => transformMediaFile(raw as Record<string, unknown>));
+    },
+    enabled: !!tripId && enabled,
+  });
+}
+
 // Get a single media file
 export function useMedia(mediaId: string) {
   return useQuery({
@@ -322,6 +342,8 @@ export function useUploadMedia() {
       }
       if (variables.tripId) {
         queryClient.invalidateQueries({ queryKey: [...MEDIA_QUERY_KEY, 'trip', variables.tripId] });
+        // Also invalidate pending query so uploaded media appears in gallery
+        queryClient.invalidateQueries({ queryKey: [...MEDIA_QUERY_KEY, 'pending', variables.tripId] });
       }
     },
     onError: (error) => {

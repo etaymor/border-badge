@@ -47,6 +47,7 @@ class EntryBase(BaseModel):
     type: EntryType
     title: str
     notes: str | None = None
+    link: str | None = None
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
 
@@ -55,6 +56,7 @@ class EntryCreate(EntryBase):
     """Request to create an entry."""
 
     place: PlaceCreate | None = None
+    pending_media_ids: list[UUID] | None = None  # Media uploaded before entry creation
 
 
 class EntryUpdate(BaseModel):
@@ -62,6 +64,7 @@ class EntryUpdate(BaseModel):
 
     title: str | None = None
     notes: str | None = None
+    link: str | None = None
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
 
@@ -74,6 +77,7 @@ class Entry(BaseModel):
     type: EntryType
     title: str
     notes: str | None = None
+    link: str | None = None
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
     created_at: datetime

@@ -1,33 +1,19 @@
 import { useEffect } from 'react';
 
 import { NavigationContainer } from '@react-navigation/native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
-import { clearTokens, setSignOutCallback, storeTokens } from '@services/api';
+import { queryClient } from './src/queryClient';
+import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      gcTime: 1000 * 60 * 30, // 30 minutes - keep unused data in cache longer
-      retry: 2,
-      refetchOnWindowFocus: false, // Don't refetch when app comes to foreground
-      refetchOnReconnect: true, // Refetch when network reconnects
-    },
-    mutations: {
-      retry: 1,
-    },
-  },
-});
-
 export default function App() {
-  const { signOut, setSession, setIsLoading } = useAuthStore();
+  const { signOut, setSession, setIsLoading, setHasCompletedOnboarding } = useAuthStore();
 
   // Sync countries to local SQLite database on app launch
   // The hook handles errors internally - sync failures don't block the app
@@ -58,6 +44,11 @@ export default function App() {
         if (session) {
           setSession(session);
           await storeTokens(session.access_token, session.refresh_token ?? '');
+          // Restore onboarding state for returning users
+          const onboardingComplete = await getOnboardingComplete();
+          if (onboardingComplete) {
+            setHasCompletedOnboarding(true);
+          }
         }
       } catch (error) {
         console.error('Failed to restore session:', error);
@@ -91,7 +82,7 @@ export default function App() {
       isMounted = false;
       subscription?.unsubscribe();
     };
-  }, [signOut, setSession, setIsLoading]);
+  }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
 
   return (
     <QueryClientProvider client={queryClient}>

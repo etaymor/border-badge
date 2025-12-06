@@ -40,6 +40,7 @@ class UserCountry(BaseModel):
     id: UUID
     user_id: UUID
     country_id: UUID
+    country_code: str  # 2-letter ISO code for frontend compatibility
     status: UserCountryStatus
     created_at: datetime
 
@@ -58,7 +59,7 @@ class UserCountryWithCountry(BaseModel):
 class UserCountryCreate(BaseModel):
     """Request to create/update user country association."""
 
-    country_id: UUID
+    country_code: str  # 2-letter ISO code, looked up to UUID on backend
     status: UserCountryStatus
 
 

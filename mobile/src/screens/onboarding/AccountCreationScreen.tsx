@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Input } from '@components/ui';
 import { useSignUp } from '@hooks/useAuth';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { storeOnboardingComplete } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
@@ -17,8 +18,14 @@ export function AccountCreationScreen({ navigation: _navigation }: Props) {
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
-  const signUp = useSignUp();
-  const { setHasCompletedOnboarding, setIsGuest } = useAuthStore();
+  const signUp = useSignUp({
+    onMigrationComplete: (result) => {
+      if (!result.success) {
+        console.warn('Some data failed to migrate:', result.errors);
+      }
+    },
+  });
+  const { setHasCompletedOnboarding } = useAuthStore();
 
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -63,21 +70,17 @@ export function AccountCreationScreen({ navigation: _navigation }: Props) {
     signUp.mutate(
       { email: email.trim(), password },
       {
-        onSuccess: (data) => {
+        onSuccess: async (data) => {
           if (data.session) {
-            // Account created and logged in - complete onboarding
+            // Mark onboarding complete - migration is handled in useSignUp hook
+            // after tokens are stored to avoid race condition
             setHasCompletedOnboarding(true);
+            await storeOnboardingComplete();
           }
           // If email confirmation required, the alert is handled by useSignUp
         },
       }
     );
-  };
-
-  const handleSkip = () => {
-    // Continue as guest - mark onboarding complete
-    setIsGuest(true);
-    setHasCompletedOnboarding(true);
   };
 
   return (
@@ -138,23 +141,6 @@ export function AccountCreationScreen({ navigation: _navigation }: Props) {
               loading={signUp.isPending}
               style={styles.createButton}
             />
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <Button
-              title="Continue as Guest"
-              onPress={handleSkip}
-              variant="outline"
-              style={styles.skipButton}
-            />
-
-            <Text style={styles.guestNote}>
-              You can create an account later from the settings menu.
-            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -196,29 +182,5 @@ const styles = StyleSheet.create({
   },
   createButton: {
     marginTop: 8,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E5EA',
-  },
-  dividerText: {
-    fontSize: 14,
-    color: '#666',
-    marginHorizontal: 16,
-  },
-  skipButton: {
-    width: '100%',
-  },
-  guestNote: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 16,
   },
 });

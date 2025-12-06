@@ -23,6 +23,28 @@ from app.schemas.trips import (
 router = APIRouter()
 
 
+async def _get_country_codes(
+    db: "SupabaseClient", country_ids: list[str]
+) -> dict[str, str]:
+    """Look up country codes for given country IDs.
+
+    Returns a dict mapping country_id -> country_code.
+    """
+    if not country_ids:
+        return {}
+
+    # Get unique country IDs
+    unique_ids = list(set(country_ids))
+
+    # Fetch countries
+    countries = await db.get(
+        "country",
+        {"id": f"in.({','.join(unique_ids)})", "select": "id,code"},
+    )
+
+    return {str(c["id"]): c["code"] for c in countries}
+
+
 def format_daterange(start: date | None, end: date | None) -> str | None:
     """Format start/end dates as a PostgreSQL daterange literal.
 
@@ -53,13 +75,13 @@ def format_daterange(start: date | None, end: date | None) -> str | None:
 async def list_trips(
     request: Request,
     user: CurrentUser,
-    country_id: UUID | None = Query(None, description="Filter trips by country"),
+    country_code: str | None = Query(None, description="Filter trips by country code"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> list[Trip]:
     """List all trips accessible to the current user (owned or approved tags).
 
-    Optionally filter by country_id to get trips for a specific country.
+    Optionally filter by country_code to get trips for a specific country.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -69,10 +91,23 @@ async def list_trips(
         "limit": limit,
         "offset": offset,
     }
-    if country_id:
-        params["country_id"] = f"eq.{country_id}"
+    if country_code:
+        # Look up country UUID from code
+        countries = await db.get("country", {"code": f"eq.{country_code}"})
+        if countries:
+            params["country_id"] = f"eq.{countries[0]['id']}"
+        else:
+            return []  # No matching country, return empty list
     rows = await db.get("trip", params)
-    return [Trip(**row) for row in rows]
+
+    # Look up country codes for all trips
+    country_ids = [str(row["country_id"]) for row in rows]
+    country_codes = await _get_country_codes(db, country_ids)
+
+    return [
+        Trip(**row, country_code=country_codes.get(str(row["country_id"]), ""))
+        for row in rows
+    ]
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
@@ -90,10 +125,19 @@ async def create_trip(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Look up country UUID from code
+    countries = await db.get("country", {"code": f"eq.{data.country_code}"})
+    if not countries:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Country not found: {data.country_code}",
+        )
+    country_id = countries[0]["id"]
+
     # Build trip data
     trip_data = {
         "user_id": user.id,
-        "country_id": str(data.country_id),
+        "country_id": str(country_id),
         "name": data.name,
         "cover_image_url": data.cover_image_url,
         "date_range": format_daterange(data.date_start, data.date_end),
@@ -106,7 +150,8 @@ async def create_trip(
             detail="Failed to create trip",
         )
 
-    trip = Trip(**rows[0])
+    # We already have the country_code from the input
+    trip = Trip(**rows[0], country_code=data.country_code)
     tags: list[TripTag] = []
 
     # Create trip tags for tagged users
@@ -155,7 +200,11 @@ async def get_trip(
             detail="Trip not found",
         )
 
-    trip = Trip(**trips[0])
+    # Look up country code
+    country_codes = await _get_country_codes(db, [str(trips[0]["country_id"])])
+    country_code = country_codes.get(str(trips[0]["country_id"]), "")
+
+    trip = Trip(**trips[0], country_code=country_code)
 
     # Fetch tags
     tag_rows = await db.get("trip_tags", {"trip_id": f"eq.{trip_id}"})
@@ -207,7 +256,11 @@ async def update_trip(
             detail="Trip not found or not authorized",
         )
 
-    return Trip(**rows[0])
+    # Look up country code
+    country_codes = await _get_country_codes(db, [str(rows[0]["country_id"])])
+    country_code = country_codes.get(str(rows[0]["country_id"]), "")
+
+    return Trip(**rows[0], country_code=country_code)
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -267,7 +320,11 @@ async def restore_trip(
             detail="Trip not found or not deleted",
         )
 
-    return Trip(**rows[0])
+    # Look up country code
+    country_codes = await _get_country_codes(db, [str(rows[0]["country_id"])])
+    country_code = country_codes.get(str(rows[0]["country_id"]), "")
+
+    return Trip(**rows[0], country_code=country_code)
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)

@@ -70,6 +70,36 @@ CREATE POLICY "Users can delete own user_countries"
   USING (auth.uid() = user_id);
 
 --------------------------------------------------------------------------------
+-- HELPER FUNCTIONS FOR RLS (SECURITY DEFINER to bypass RLS in subqueries)
+-- These prevent infinite recursion between trip and trip_tags policies
+--------------------------------------------------------------------------------
+
+-- Check if user is the owner of a trip (used by trip_tags policies)
+CREATE OR REPLACE FUNCTION is_trip_owner(p_trip_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM trip
+    WHERE id = p_trip_id
+      AND user_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Check if user has approved tag for a trip (used by trip policies)
+CREATE OR REPLACE FUNCTION has_approved_trip_tag(p_trip_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM trip_tags
+    WHERE trip_id = p_trip_id
+      AND tagged_user_id = auth.uid()
+      AND status = 'approved'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+--------------------------------------------------------------------------------
 -- TRIP POLICIES
 --------------------------------------------------------------------------------
 
@@ -79,31 +109,20 @@ CREATE POLICY "Trip owner has full access"
   USING (auth.uid() = user_id);
 
 -- Approved tagged users can view trips they're tagged in
+-- Uses SECURITY DEFINER function to avoid RLS recursion with trip_tags
 CREATE POLICY "Approved tagged users can view trip"
   ON trip FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM trip_tags
-      WHERE trip_tags.trip_id = trip.id
-        AND trip_tags.tagged_user_id = auth.uid()
-        AND trip_tags.status = 'approved'
-    )
-  );
+  USING (has_approved_trip_tag(id));
 
 --------------------------------------------------------------------------------
 -- TRIP TAGS POLICIES
 --------------------------------------------------------------------------------
 
 -- Trip owner can view all tags on their trips
+-- Uses SECURITY DEFINER function to avoid RLS recursion with trip
 CREATE POLICY "Trip owner can view tags"
   ON trip_tags FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = trip_tags.trip_id
-        AND trip.user_id = auth.uid()
-    )
-  );
+  USING (is_trip_owner(trip_id));
 
 -- Tagged users can view their own tags (to see pending invitations)
 CREATE POLICY "Tagged user can view own tag"
@@ -113,13 +132,7 @@ CREATE POLICY "Tagged user can view own tag"
 -- Trip owner can create tags on their trips
 CREATE POLICY "Trip owner can create tags"
   ON trip_tags FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = trip_tags.trip_id
-        AND trip.user_id = auth.uid()
-    )
-  );
+  WITH CHECK (is_trip_owner(trip_id));
 
 -- Tagged user can update their own tag status (approve/decline)
 CREATE POLICY "Tagged user can update own tag status"
@@ -130,13 +143,7 @@ CREATE POLICY "Tagged user can update own tag status"
 -- Trip owner can delete tags from their trips
 CREATE POLICY "Trip owner can delete tags"
   ON trip_tags FOR DELETE
-  USING (
-    EXISTS (
-      SELECT 1 FROM trip
-      WHERE trip.id = trip_tags.trip_id
-        AND trip.user_id = auth.uid()
-    )
-  );
+  USING (is_trip_owner(trip_id));
 
 --------------------------------------------------------------------------------
 -- ENTRY POLICIES
