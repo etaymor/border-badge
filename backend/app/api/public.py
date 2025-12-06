@@ -175,7 +175,6 @@ async def view_public_trip(
             "deleted_at": "is.null",
             "select": "id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status)",
             "order": "created_at.desc",
-            "limit": 20,  # Limit entries for public view
         },
     )
 
@@ -277,7 +276,9 @@ async def sitemap_xml() -> PlainTextResponse:
         },
     )
     for trip in trips:
-        urls.append(f"  <url><loc>{settings.base_url}/t/{trip['share_slug']}</loc></url>")
+        urls.append(
+            f"  <url><loc>{settings.base_url}/t/{trip['share_slug']}</loc></url>"
+        )
 
     content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

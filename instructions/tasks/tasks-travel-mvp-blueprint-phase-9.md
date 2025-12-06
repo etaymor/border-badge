@@ -101,3 +101,9 @@
 - [x] 6.0 Fix Supabase RPC support for trip sharing
   - [x] 6.1 Add `SupabaseClient.rpc` helper and tests to support slug generation
   - [x] 6.2 Add entry RLS policy to allow viewing entries from shared trips
+- [ ] 7.0 Fix public trip entry fetch and display accuracy
+  - [x] 7.1 Verify current public trip entry limit/count behavior
+  - [x] 7.2 Update public trip entry query to return all needed entries (or detect overflow)
+  - [x] 7.3 Update trip template to display all entries and accurate messaging
+  - [x] 7.4 Add test coverage for trips exceeding the previous limit
+  - [x] 7.5 Run formatting and test suite for regressions

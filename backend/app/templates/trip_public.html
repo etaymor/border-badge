@@ -19,7 +19,7 @@
 <section class="entries-section">
     {% if trip.entries %}
     <div class="entries-grid">
-        {% for entry in trip.entries[:12] %}
+        {% for entry in trip.entries %}
         <article class="entry-card">
             {% if entry.media_urls and entry.media_urls|length > 0 %}
             <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image">
@@ -44,14 +44,6 @@
         </article>
         {% endfor %}
     </div>
-
-    {% if trip.entries|length > 12 %}
-    <div class="container" style="text-align: center; margin-top: var(--spacing-xl);">
-        <p style="color: var(--color-text-muted);">
-            + {{ trip.entries|length - 12 }} more entries in the app
-        </p>
-    </div>
-    {% endif %}
     {% else %}
     <div class="container" style="text-align: center;">
         <p style="color: var(--color-text-muted);">This trip doesn't have any entries yet.</p>

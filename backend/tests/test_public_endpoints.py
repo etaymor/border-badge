@@ -464,6 +464,47 @@ def test_public_trip_with_entries(
     assert "Golden Gate Bridge" in response.text
 
 
+def test_public_trip_with_many_entries(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test public trip page renders all entries when many exist."""
+    trip_data = {
+        "id": TEST_TRIP_ID,
+        "user_id": TEST_USER_ID,
+        "name": "Summer Vacation",
+        "share_slug": "summer-vacation-abc123",
+        "cover_image_url": None,
+        "date_range": "[2024-06-01,2024-06-15]",
+        "created_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "country": {"name": "United States", "code": "US"},
+    }
+    entry_rows = [
+        {
+            "id": f"00000000-0000-0000-0000-{i:012d}",
+            "title": f"Entry {i}",
+            "type": "place",
+            "notes": f"Notes {i}",
+            "place": {"place_name": f"Place {i}", "address": f"Address {i}"},
+            "media_files": [],
+        }
+        for i in range(25)
+    ]
+    mock_supabase_client.get.side_effect = [
+        [trip_data],
+        entry_rows,
+    ]
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/t/summer-vacation-abc123")
+
+    assert response.status_code == 200
+    assert response.text.count("entry-card") == len(entry_rows)
+    assert "Entry 0" in response.text
+    assert "Entry 24" in response.text
+
+
 def test_public_list_private_returns_404(
     client: TestClient,
     mock_supabase_client: AsyncMock,
