@@ -406,7 +406,11 @@ async def generate_share_link(
     # Check if trip exists and user owns it
     trips = await db.get(
         "trip",
-        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}", "select": "id, name, share_slug"},
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "select": "id, name, share_slug",
+        },
     )
 
     if not trips:
