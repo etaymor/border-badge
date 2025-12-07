@@ -67,7 +67,7 @@ export function AccountCreationScreen({ navigation }: Props) {
     setPhoneError('');
 
     sendOTP.mutate(
-      { phone },
+      { phone, displayName: displayName ?? undefined },
       {
         onSuccess: () => {
           setOtpSentAt(Date.now());
@@ -101,7 +101,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   // Handle resend OTP
   const handleResendOTP = () => {
     sendOTP.mutate(
-      { phone },
+      { phone, displayName: displayName ?? undefined },
       {
         onSuccess: () => {
           setOtpSentAt(Date.now());
