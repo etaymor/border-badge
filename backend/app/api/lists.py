@@ -1,10 +1,9 @@
 """Shareable list endpoints."""
 
 import logging
-from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -17,7 +16,6 @@ from app.schemas.lists import (
     ListEntry,
     ListSummary,
     ListUpdate,
-    PublicListView,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +32,6 @@ def _build_list_detail(lst: dict, entries: list[ListEntry]) -> ListDetail:
         name=lst["name"],
         slug=lst["slug"],
         description=lst.get("description"),
-        is_public=lst["is_public"],
         created_at=lst["created_at"],
         updated_at=lst["updated_at"],
         entries=entries,
@@ -85,7 +82,6 @@ async def list_trip_lists(
                 name=lst["name"],
                 slug=lst["slug"],
                 description=lst.get("description"),
-                is_public=lst["is_public"],
                 entry_count=entry_count,
                 created_at=lst["created_at"],
                 updated_at=lst["updated_at"],
@@ -147,7 +143,6 @@ async def create_list(
         "owner_id": user.id,
         "name": data.name,
         "description": data.description,
-        "is_public": data.is_public,
     }
 
     rows = await db.post("list", list_data)
@@ -206,13 +201,7 @@ async def get_list(
 
     lst = lists[0]
 
-    # Authorization: only owner or public lists can be viewed
-    if lst["owner_id"] != user.id and not lst["is_public"]:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="List not found",
-        )
-
+    # All lists are public, so any authenticated user can view
     # Fetch entries
     entry_rows = await db.get(
         "list_entries",
@@ -366,18 +355,23 @@ async def update_list_entries(
             },
         )
 
-    # Update positions for existing entries that remain
+    # Update positions for existing entries that remain (batch upsert for performance)
     if data.entry_ids:
-        for position, entry_id in enumerate(data.entry_ids):
-            if str(entry_id) not in entries_to_add:
-                await db.patch(
-                    "list_entries",
-                    {"position": position},
-                    {
-                        "list_id": f"eq.{list_id}",
-                        "entry_id": f"eq.{entry_id}",
-                    },
-                )
+        position_updates = [
+            {
+                "list_id": str(list_id),
+                "entry_id": str(entry_id),
+                "position": position,
+            }
+            for position, entry_id in enumerate(data.entry_ids)
+            if str(entry_id) not in entries_to_add
+        ]
+        if position_updates:
+            await db.upsert(
+                "list_entries",
+                position_updates,
+                on_conflict="list_id,entry_id",
+            )
 
     # Fetch final state
     final_entry_rows = await db.get(
@@ -406,14 +400,12 @@ async def delete_list(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Soft delete by setting deleted_at timestamp
-    rows = await db.patch(
-        "list",
-        {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{list_id}", "owner_id": f"eq.{user.id}"},
-    )
+    # Atomic soft delete using SECURITY DEFINER function
+    # This verifies ownership and sets deleted_at in a single operation
+    result = await db.rpc("soft_delete_list", {"p_list_id": str(list_id)})
 
-    if not rows:
+    # RPC returns boolean: True if deleted, False if not found/not authorized
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="List not found or not authorized",
@@ -462,70 +454,3 @@ async def restore_list(
     entries = [ListEntry(**row) for row in entry_rows]
 
     return _build_list_detail(lst, entries)
-
-
-# Public endpoint (no auth required)
-@router.get("/public/lists/{slug}", response_model=PublicListView)
-async def get_public_list(
-    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
-) -> PublicListView:
-    """Get a public list by slug (no authentication required)."""
-    db = get_supabase_client()  # No user token - uses service role or anon
-
-    # Fetch list by slug
-    lists = await db.get(
-        "list",
-        {
-            "slug": f"eq.{slug}",
-            "is_public": "eq.true",
-            "select": "*, trip:trip_id(name, country:country_id(name))",
-        },
-    )
-
-    if not lists:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="List not found",
-        )
-
-    lst = lists[0]
-
-    # Fetch entries with details
-    entry_rows = await db.get(
-        "list_entries",
-        {
-            "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address))",
-            "order": "position.asc",
-        },
-    )
-
-    entries = []
-    for row in entry_rows:
-        entry = row.get("entry", {})
-        if entry:
-            place = entry.get("place", {}) if entry.get("place") else {}
-            entries.append(
-                {
-                    "id": entry.get("id"),
-                    "title": entry.get("title"),
-                    "type": entry.get("type"),
-                    "notes": entry.get("notes"),
-                    "place_name": place.get("place_name"),
-                    "address": place.get("address"),
-                }
-            )
-
-    trip = lst.get("trip", {}) or {}
-    country = trip.get("country", {}) or {}
-
-    return PublicListView(
-        id=lst["id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        trip_name=trip.get("name"),
-        country_name=country.get("name"),
-        created_at=lst["created_at"],
-        entries=entries,
-    )

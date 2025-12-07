@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,9 +17,15 @@ import * as Clipboard from 'expo-clipboard';
 
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
-import { useCreateList, getPublicListUrl, ListDetail } from '@hooks/useLists';
+import {
+  useList,
+  useUpdateList,
+  useUpdateListEntries,
+  getPublicListUrl,
+  ListDetail,
+} from '@hooks/useLists';
 
-type Props = TripsStackScreenProps<'ListCreate'>;
+type Props = TripsStackScreenProps<'ListEdit'>;
 
 interface EntrySelectionItemProps {
   entry: EntryWithPlace;
@@ -81,19 +87,19 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
       <View style={styles.successIcon}>
         <Ionicons name="checkmark-circle" size={64} color="#34C759" />
       </View>
-      <Text style={styles.successTitle}>List Created!</Text>
+      <Text style={styles.successTitle}>List Updated!</Text>
       <Text style={styles.successSubtitle}>
         Anyone with the link can view &quot;{list.name}&quot;
       </Text>
 
       {/* Share URL */}
-      <View style={styles.urlContainer}>
-        <Text style={styles.urlLabel}>Public link</Text>
-        <View style={styles.urlBox}>
-          <Text style={styles.urlText} numberOfLines={1}>
+      <View style={styles.successUrlContainer}>
+        <Text style={styles.successUrlLabel}>Public link</Text>
+        <View style={styles.successUrlBox}>
+          <Text style={styles.successUrlText} numberOfLines={1}>
             {shareUrl}
           </Text>
-          <Pressable style={styles.copyButton} onPress={handleCopy}>
+          <Pressable style={styles.successCopyButton} onPress={handleCopy}>
             <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={20} color="#007AFF" />
           </Pressable>
         </View>
@@ -101,32 +107,58 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
 
       {/* Actions */}
       <View style={styles.successActions}>
-        <Pressable style={styles.shareButton} onPress={handleShare}>
+        <Pressable style={styles.successShareButton} onPress={handleShare}>
           <Ionicons name="share-outline" size={20} color="#fff" />
-          <Text style={styles.shareButtonText}>Share</Text>
+          <Text style={styles.successShareButtonText}>Share</Text>
         </Pressable>
 
-        <Pressable style={styles.doneButton} onPress={onDone}>
-          <Text style={styles.doneButtonText}>Done</Text>
+        <Pressable style={styles.successDoneButton} onPress={onDone}>
+          <Text style={styles.successDoneButtonText}>Done</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
-export function ListCreateScreen({ route, navigation }: Props) {
-  const { tripId } = route.params;
+export function ListEditScreen({ route, navigation }: Props) {
+  const { listId, tripId } = route.params;
 
+  const { data: list, isLoading: listLoading } = useList(listId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
-  const createList = useCreateList();
+  const updateList = useUpdateList();
+  const updateListEntries = useUpdateListEntries();
 
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [createdList, setCreatedList] = useState<ListDetail | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Initialize form with list data
+  useEffect(() => {
+    if (list) {
+      setName(list.name);
+      setDescription(list.description ?? '');
+      setSelectedEntryIds(new Set(list.entries.map((e) => e.entry_id)));
+    }
+  }, [list]);
+
+  const shareUrl = useMemo(() => (list ? getPublicListUrl(list.slug) : ''), [list]);
+
+  // Check if anything changed
+  const hasChanges = useMemo(() => {
+    if (!list) return false;
+    const originalEntryIds = new Set(list.entries.map((e) => e.entry_id));
+    const nameChanged = name !== list.name;
+    const descChanged = description !== (list.description ?? '');
+    const entriesChanged =
+      selectedEntryIds.size !== originalEntryIds.size ||
+      [...selectedEntryIds].some((id) => !originalEntryIds.has(id));
+    return nameChanged || descChanged || entriesChanged;
+  }, [list, name, description, selectedEntryIds]);
 
   // Toggle entry selection
   const toggleEntry = useCallback((entryId: string) => {
@@ -152,6 +184,26 @@ export function ListCreateScreen({ route, navigation }: Props) {
     setSelectedEntryIds(new Set());
   }, []);
 
+  // Copy URL
+  const handleCopy = useCallback(async () => {
+    await Clipboard.setStringAsync(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [shareUrl]);
+
+  // Share
+  const handleShare = useCallback(async () => {
+    if (!list) return;
+    try {
+      await Share.share({
+        message: `Check out my list "${list.name}": ${shareUrl}`,
+        url: shareUrl,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  }, [list, shareUrl]);
+
   // Validate form
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
@@ -170,31 +222,56 @@ export function ListCreateScreen({ route, navigation }: Props) {
 
   // Submit
   const handleSubmit = useCallback(async () => {
-    if (!validateForm()) return;
+    if (!validateForm() || !list) return;
 
     setIsSubmitting(true);
     try {
-      const list = await createList.mutateAsync({
-        tripId,
-        data: {
-          name: name.trim(),
-          description: description.trim() || undefined,
-          entry_ids: Array.from(selectedEntryIds),
-        },
-      });
+      // Check what changed
+      const originalEntryIds = new Set(list.entries.map((e) => e.entry_id));
+      const entriesChanged =
+        selectedEntryIds.size !== originalEntryIds.size ||
+        [...selectedEntryIds].some((id) => !originalEntryIds.has(id));
 
-      setCreatedList(list);
+      const nameChanged = name.trim() !== list.name;
+      const descChanged = description.trim() !== (list.description ?? '');
+
+      // Update metadata if changed
+      if (nameChanged || descChanged) {
+        await updateList.mutateAsync({
+          listId,
+          data: {
+            name: name.trim(),
+            description: description.trim() || undefined,
+          },
+        });
+      }
+
+      // Update entries if changed
+      if (entriesChanged) {
+        await updateListEntries.mutateAsync({
+          listId,
+          entryIds: Array.from(selectedEntryIds),
+        });
+      }
+
+      // Show success view with share URL
+      setShowSuccess(true);
     } catch {
-      Alert.alert('Error', 'Failed to create list. Please try again.');
+      Alert.alert('Error', 'Failed to update list. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
-  }, [validateForm, tripId, name, description, selectedEntryIds, createList]);
-
-  // Handle done
-  const handleDone = useCallback(() => {
-    navigation.goBack();
-  }, [navigation]);
+  }, [
+    validateForm,
+    list,
+    listId,
+    name,
+    description,
+    selectedEntryIds,
+    updateList,
+    updateListEntries,
+    navigation,
+  ]);
 
   // Render entry item
   const renderEntry = useCallback(
@@ -208,9 +285,41 @@ export function ListCreateScreen({ route, navigation }: Props) {
     [selectedEntryIds, toggleEntry]
   );
 
-  // Show success view after creation
-  if (createdList) {
-    return <SuccessView list={createdList} onDone={handleDone} />;
+  // Handle done from success view
+  const handleDone = useCallback(() => {
+    // Navigate back to trip detail (pop twice: ListEdit -> TripLists -> TripDetail)
+    navigation.pop(2);
+  }, [navigation]);
+
+  // Show success view after update
+  if (showSuccess && list) {
+    // Create an updated list object with the new name for display
+    const updatedList: ListDetail = {
+      ...list,
+      name: name.trim(),
+      description: description.trim() || null,
+    };
+    return <SuccessView list={updatedList} onDone={handleDone} />;
+  }
+
+  if (listLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
+  if (!list) {
+    return (
+      <View style={styles.centered}>
+        <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+        <Text style={styles.errorText}>List not found</Text>
+        <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -224,6 +333,26 @@ export function ListCreateScreen({ route, navigation }: Props) {
         renderItem={renderEntry}
         ListHeaderComponent={
           <View style={styles.formSection}>
+            {/* Share URL */}
+            <View style={styles.urlContainer}>
+              <Text style={styles.label}>Public link</Text>
+              <View style={styles.urlBox}>
+                <Text style={styles.urlText} numberOfLines={1}>
+                  {shareUrl}
+                </Text>
+                <Pressable style={styles.copyButton} onPress={handleCopy}>
+                  <Ionicons
+                    name={copied ? 'checkmark' : 'copy-outline'}
+                    size={18}
+                    color="#007AFF"
+                  />
+                </Pressable>
+                <Pressable style={styles.shareIconButton} onPress={handleShare}>
+                  <Ionicons name="share-outline" size={18} color="#007AFF" />
+                </Pressable>
+              </View>
+            </View>
+
             {/* List Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>List Name *</Text>
@@ -237,7 +366,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
                 }}
                 returnKeyType="next"
               />
-              {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
+              {errors.name && <Text style={styles.errorTextSmall}>{errors.name}</Text>}
             </View>
 
             {/* Description */}
@@ -276,7 +405,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
                 </Pressable>
               </View>
             </View>
-            {errors.entries && <Text style={styles.errorText}>{errors.entries}</Text>}
+            {errors.entries && <Text style={styles.errorTextSmall}>{errors.entries}</Text>}
           </View>
         }
         ListEmptyComponent={
@@ -288,10 +417,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="bookmark-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>No entries in this trip yet</Text>
-              <Text style={styles.emptySubtext}>
-                Add some entries to your trip first, then create a shareable list
-              </Text>
+              <Text style={styles.emptyText}>No entries in this trip</Text>
             </View>
           )
         }
@@ -304,17 +430,18 @@ export function ListCreateScreen({ route, navigation }: Props) {
         <Pressable
           style={[
             styles.submitButton,
-            (isSubmitting || selectedEntryIds.size === 0) && styles.submitButtonDisabled,
+            (isSubmitting || selectedEntryIds.size === 0 || !hasChanges) &&
+              styles.submitButtonDisabled,
           ]}
           onPress={handleSubmit}
-          disabled={isSubmitting || selectedEntryIds.size === 0}
+          disabled={isSubmitting || selectedEntryIds.size === 0 || !hasChanges}
         >
           {isSubmitting ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <>
-              <Ionicons name="share-outline" size={20} color="#fff" />
-              <Text style={styles.submitButtonText}>Create List</Text>
+              <Ionicons name="checkmark" size={20} color="#fff" />
+              <Text style={styles.submitButtonText}>Save Changes</Text>
             </>
           )}
         </Pressable>
@@ -328,11 +455,59 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  backButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   listContent: {
     paddingBottom: 100,
   },
   formSection: {
     padding: 20,
+  },
+  urlContainer: {
+    marginBottom: 20,
+  },
+  urlBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  urlText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#007AFF',
+    marginRight: 8,
+  },
+  copyButton: {
+    padding: 4,
+    marginRight: 4,
+  },
+  shareIconButton: {
+    padding: 4,
   },
   inputGroup: {
     marginBottom: 20,
@@ -361,7 +536,7 @@ const styles = StyleSheet.create({
     minHeight: 80,
     paddingTop: 14,
   },
-  errorText: {
+  errorTextSmall: {
     fontSize: 13,
     color: '#FF3B30',
     marginTop: 6,
@@ -484,12 +659,6 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     marginTop: 16,
   },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 8,
-  },
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -517,7 +686,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  // Success view
+  // Success view styles
   successContainer: {
     flex: 1,
     backgroundColor: '#fff',
@@ -540,11 +709,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 32,
   },
-  urlContainer: {
+  successUrlContainer: {
     width: '100%',
     marginBottom: 32,
   },
-  urlLabel: {
+  successUrlLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: '#666',
@@ -552,7 +721,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 8,
   },
-  urlBox: {
+  successUrlBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
@@ -560,13 +729,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  urlText: {
+  successUrlText: {
     flex: 1,
     fontSize: 14,
     color: '#007AFF',
     marginRight: 8,
   },
-  copyButton: {
+  successCopyButton: {
     padding: 4,
   },
   successActions: {
@@ -574,7 +743,7 @@ const styles = StyleSheet.create({
     gap: 12,
     width: '100%',
   },
-  shareButton: {
+  successShareButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -584,12 +753,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 8,
   },
-  shareButtonText: {
+  successShareButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
   },
-  doneButton: {
+  successDoneButton: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -597,7 +766,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
   },
-  doneButtonText: {
+  successDoneButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1a1a1a',

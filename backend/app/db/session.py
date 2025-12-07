@@ -66,11 +66,20 @@ class SupabaseClient:
 
     def _handle_http_error(self, e: httpx.HTTPStatusError) -> None:
         """Convert httpx HTTP errors to FastAPI HTTPException."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         # Try to extract error message from response
         try:
-            error_detail = e.response.json().get("message", e.response.text[:200])
+            error_body = e.response.json()
+            error_detail = error_body.get("message", e.response.text[:200])
+            logger.error(f"Supabase HTTP error {e.response.status_code}: {error_body}")
         except Exception:
             error_detail = e.response.text[:200] if e.response.text else "Unknown error"
+            logger.error(
+                f"Supabase HTTP error {e.response.status_code}: {e.response.text[:500]}"
+            )
 
         raise HTTPException(
             status_code=e.response.status_code,
@@ -246,6 +255,36 @@ class SupabaseClient:
         except httpx.RequestError as e:
             self._handle_request_error(e)
         return []
+
+    async def rpc(
+        self,
+        function: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """
+        Call a Supabase RPC (PostgREST function).
+
+        Args:
+            function: The function name to call
+            params: Optional parameters to pass to the function
+
+        Returns:
+            The RPC function result payload
+        """
+        try:
+            client = get_http_client()
+            response = await client.post(
+                f"{self.rest_url}/rpc/{function}",
+                headers=self.headers,
+                json=params or {},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return None
 
 
 def get_supabase_client(user_token: str | None = None) -> SupabaseClient:

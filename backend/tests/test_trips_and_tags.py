@@ -605,7 +605,8 @@ def test_delete_trip_not_found(
     auth_headers: dict[str, str],
 ) -> None:
     """Test deleting a trip that doesn't exist returns 404."""
-    mock_supabase_client.patch.return_value = []
+    # RPC soft_delete_trip returns False when trip not found or not authorized
+    mock_supabase_client.rpc.return_value = False
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

@@ -1,15 +1,18 @@
 """Trip and trip_tags endpoints."""
 
+import logging
 from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.config import get_settings
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
+from app.schemas.public import TripShareResponse
 from app.schemas.trips import (
     Trip,
     TripCreate,
@@ -19,6 +22,8 @@ from app.schemas.trips import (
     TripUpdate,
     TripWithTags,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -262,14 +267,12 @@ async def delete_trip(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Soft delete by setting deleted_at timestamp
-    rows = await db.patch(
-        "trip",
-        {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
-    )
+    # Atomic soft delete using SECURITY DEFINER function
+    # This verifies ownership and sets deleted_at in a single operation
+    result = await db.rpc("soft_delete_trip", {"p_trip_id": str(trip_id)})
 
-    if not rows:
+    # RPC returns boolean: True if deleted, False if not found/not authorized
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trip not found or not authorized",
@@ -380,3 +383,123 @@ async def _update_tag_status(
         status=new_status,
         responded_at=datetime.fromisoformat(rows[0]["responded_at"]),
     )
+
+
+@router.post("/{trip_id}/share", response_model=TripShareResponse)
+@limiter.limit("10/minute")
+async def generate_share_link(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> TripShareResponse:
+    """Generate a public share link for a trip (owner only).
+
+    Creates a unique share_slug that allows the trip to be viewed publicly.
+    If a share link already exists, returns the existing one.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+    settings = get_settings()
+
+    # Check if trip exists and user owns it
+    trips = await db.get(
+        "trip",
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "select": "id, name, share_slug",
+        },
+    )
+
+    if not trips:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+    trip = trips[0]
+
+    # If already has a share slug, return it
+    if trip.get("share_slug"):
+        return TripShareResponse(
+            share_slug=trip["share_slug"],
+            share_url=f"{settings.base_url}/t/{trip['share_slug']}",
+        )
+
+    # Generate a new share slug using the database function
+    result = await db.rpc("generate_trip_share_slug", {"trip_name": trip["name"]})
+    if not result:
+        logger.error(f"RPC generate_trip_share_slug returned empty for trip {trip_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate share link",
+        )
+
+    # Validate result type - RPC may return string directly or wrapped in list
+    if isinstance(result, list) and len(result) > 0:
+        share_slug = result[0] if isinstance(result[0], str) else str(result[0])
+    elif isinstance(result, str):
+        share_slug = result
+    else:
+        logger.error(f"Unexpected RPC result type: {type(result)} - {result}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate share link",
+        )
+
+    # Atomic update - only succeeds if share_slug is still NULL (prevents race condition)
+    rows = await db.patch(
+        "trip",
+        {"share_slug": share_slug},
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "share_slug": "is.null",
+        },
+    )
+
+    if not rows:
+        # Race condition: another request already set the share_slug
+        # Re-fetch to get the existing slug
+        trips = await db.get(
+            "trip",
+            {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}", "select": "share_slug"},
+        )
+        if not trips or not trips[0].get("share_slug"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save share link",
+            )
+        share_slug = trips[0]["share_slug"]
+
+    return TripShareResponse(
+        share_slug=share_slug,
+        share_url=f"{settings.base_url}/t/{share_slug}",
+    )
+
+
+@router.delete("/{trip_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
+async def revoke_share_link(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> None:
+    """Remove public share access for a trip (owner only).
+
+    Clears the share_slug, making the trip private again.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    rows = await db.patch(
+        "trip",
+        {"share_slug": None},
+        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
     supabase_jwt_secret: str = ""
+
+    # Public web settings
+    base_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias=AliasChoices("PUBLIC_WEB_BASE_URL", "BASE_URL"),
+        description="Base URL for public web pages (landing, lists, trips)",
+    )
+    app_store_url: str = ""  # iOS App Store URL (placeholder)
+    play_store_url: str = ""  # Google Play Store URL (placeholder)
 
     @field_validator("supabase_url")
     @classmethod
