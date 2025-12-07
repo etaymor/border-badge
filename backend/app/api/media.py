@@ -4,7 +4,7 @@ import logging
 import uuid as uuid_mod
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
@@ -18,6 +18,7 @@ from app.schemas.media import (
     UploadUrlRequest,
     UploadUrlResponse,
 )
+from app.services.media_processing import process_media_thumbnail
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -146,11 +147,13 @@ async def update_media_status(
     media_id: UUID,
     data: MediaStatusUpdate,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> MediaFile:
     """
     Update media status after upload completes.
 
     Used by client to mark upload as complete or failed.
+    When status is 'uploaded', triggers background thumbnail generation.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -170,7 +173,18 @@ async def update_media_status(
             detail="Media not found or not authorized",
         )
 
-    return MediaFile(**rows[0])
+    media = rows[0]
+
+    # Trigger background thumbnail generation for uploaded images
+    # Only if no thumbnail_path was provided by the client
+    if data.status == MediaStatus.UPLOADED and not data.thumbnail_path:
+        background_tasks.add_task(
+            process_media_thumbnail,
+            str(media_id),
+            media["file_path"],
+        )
+
+    return MediaFile(**media)
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

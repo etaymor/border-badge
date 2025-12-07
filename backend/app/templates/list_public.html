@@ -22,9 +22,13 @@
     {% if list.entries %}
     <div class="entries-grid">
         {% for entry in list.entries %}
-        <article class="entry-card">
+        {% set entry_url = entry.link if entry.link else ('https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '')) %}
+        {% if entry_url %}
+        <a href="{{ entry_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
+        {% endif %}
+        <article class="entry-card{% if entry_url %} entry-card--clickable{% endif %}">
             {% if entry.media_urls and entry.media_urls|length > 0 %}
-            <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image">
+            <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image" loading="lazy">
             {% else %}
             <div class="entry-image-placeholder">📍</div>
             {% endif %}
@@ -39,6 +43,9 @@
                 {% endif %}
             </div>
         </article>
+        {% if entry_url %}
+        </a>
+        {% endif %}
         {% endfor %}
     </div>
     {% else %}

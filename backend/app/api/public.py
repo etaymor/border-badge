@@ -53,12 +53,12 @@ async def view_public_list(
     settings = get_settings()
     db = get_supabase_client()
 
-    # Fetch list by slug
+    # Fetch list by slug (all lists are public)
     lists = await db.get(
         "list",
         {
             "slug": f"eq.{slug}",
-            "is_public": "eq.true",
+            "deleted_at": "is.null",
             "select": "*, trip:trip_id(name, country:country_id(name))",
         },
     )
@@ -77,7 +77,7 @@ async def view_public_list(
         "list_entries",
         {
             "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status))",
+            "select": "*, entry:entry_id(id, title, type, notes, link, place:place(place_name, address, google_place_id, lat, lng), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
             "limit": 50,  # Limit entries for public view
         },
@@ -94,8 +94,12 @@ async def view_public_list(
                     title=entry.get("title"),
                     type=entry.get("type"),
                     notes=entry.get("notes"),
+                    link=entry.get("link"),
                     place_name=place.get("place_name"),
                     address=place.get("address"),
+                    google_place_id=place.get("google_place_id"),
+                    latitude=place.get("lat"),
+                    longitude=place.get("lng"),
                     media_urls=extract_media_urls(entry.get("media_files")),
                 )
             )
@@ -254,11 +258,10 @@ async def sitemap_xml() -> PlainTextResponse:
 
     urls = [f"  <url><loc>{settings.base_url}</loc></url>"]
 
-    # Public lists
+    # All lists (all lists are public)
     lists = await db.get(
         "list",
         {
-            "is_public": "eq.true",
             "deleted_at": "is.null",
             "select": "slug",
         },

@@ -52,7 +52,6 @@ class ListSummary(BaseModel):
     name: str
     slug: str
     description: str | None = None
-    is_public: bool
     entry_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -68,7 +67,6 @@ class ListDetail(BaseModel):
     name: str
     slug: str
     description: str | None = None
-    is_public: bool
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -82,8 +80,12 @@ class PublicListEntry(BaseModel):
     title: str
     type: str
     notes: str | None = None
+    link: str | None = None
     place_name: str | None = None
     address: str | None = None
+    google_place_id: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     media_urls: list[str] = []
 
 
