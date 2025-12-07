@@ -2,102 +2,90 @@ import { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
+  Platform,
   Pressable,
-  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
-import { useEntries } from '@hooks/useEntries';
+import { useEntries, EntryWithPlace } from '@hooks/useEntries';
 import { useCountryByCode } from '@hooks/useCountries';
-import { useTripLists } from '@hooks/useLists';
 import { ConfirmDialog, Snackbar } from '@components/ui';
+import { EntryGridCard } from '@components/entries';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
-// Parse PostgreSQL daterange format [start,end] or [start,end)
-function parseDateRange(dateRange: string | null | undefined): {
-  start: Date | null;
-  end: Date | null;
-} {
-  if (!dateRange) return { start: null, end: null };
-
-  // Handle various daterange formats: [2024-01-01,2024-01-15], (2024-01-01,2024-01-15], etc.
-  const match = dateRange.match(/[[(]([^,]*),([^\])]*)[\])]/);
-  if (!match) {
-    if (__DEV__) {
-      console.warn('Failed to parse date range:', dateRange);
-    }
-    return { start: null, end: null };
-  }
-
-  const startStr = match[1].trim();
-  const endStr = match[2].trim();
-
-  const start =
-    startStr && startStr !== '-infinity' && startStr !== 'infinity' ? new Date(startStr) : null;
-  const end = endStr && endStr !== 'infinity' && endStr !== '-infinity' ? new Date(endStr) : null;
-
-  return { start, end };
-}
-
-function formatDateRange(dateRange: string | null | undefined): string {
-  const { start, end } = parseDateRange(dateRange);
-
-  if (!start && !end) return 'No dates set';
-
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-  if (start && end) {
-    return `${formatDate(start)} - ${formatDate(end)}`;
-  }
-  if (start) {
-    return `From ${formatDate(start)}`;
-  }
-  if (end) {
-    return `Until ${formatDate(end)}`;
-  }
-  return 'No dates set';
+function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
+  return (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="bookmark-outline" size={64} color="#ccc" />
+      <Text style={styles.emptyTitle}>No entries yet</Text>
+      <Text style={styles.emptySubtitle}>
+        Start documenting your trip by adding places, food, stays, or experiences
+      </Text>
+      <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
+        <Ionicons name="add" size={20} color="#fff" />
+        <Text style={styles.emptyButtonText}>Add Your First Entry</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 export function TripDetailScreen({ route, navigation }: Props) {
   const { tripId } = route.params;
-  const [isDeleting, setIsDeleting] = useState(false);
+  const insets = useSafeAreaInsets();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
+  const [coverImageError, setCoverImageError] = useState(false);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
-  const { data: lists } = useTripLists(tripId);
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
 
-  const handleDelete = useCallback(() => {
-    setShowDeleteConfirm(true);
-  }, []);
+  const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
+
+  const handleAddEntry = useCallback(() => {
+    navigation.navigate('EntryForm', { tripId });
+  }, [navigation, tripId]);
+
+  const handleEditTrip = useCallback(() => {
+    navigation.navigate('TripForm', { tripId });
+  }, [navigation, tripId]);
+
+  const handleSharePress = useCallback(() => {
+    // Always navigate to TripLists - it handles empty state internally
+    navigation.navigate('TripLists', { tripId, tripName: trip?.name });
+  }, [tripId, trip?.name, navigation]);
+
+  const handleEntryPress = useCallback(
+    (entryId: string) => {
+      navigation.navigate('EntryForm', { tripId, entryId });
+    },
+    [navigation, tripId]
+  );
 
   const handleConfirmDelete = useCallback(async () => {
     setShowDeleteConfirm(false);
-    setIsDeleting(true);
     try {
       await deleteTrip.mutateAsync(tripId);
       setDeletedTripId(tripId);
       setShowUndoSnackbar(true);
-      // Don't navigate immediately - wait for snackbar to dismiss
-      // This allows user to see and use the "Undo" button
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to delete trip. Please try again.';
       Alert.alert('Error', message);
-      setIsDeleting(false);
     }
   }, [deleteTrip, tripId]);
 
@@ -107,7 +95,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
       try {
         await restoreTrip.mutateAsync(deletedTripId);
         setDeletedTripId(null);
-        setIsDeleting(false);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to restore trip. Please try again.';
@@ -119,21 +106,20 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const handleDismissSnackbar = useCallback(() => {
     setShowUndoSnackbar(false);
     setDeletedTripId(null);
-    // Navigate back after snackbar dismisses (either by timeout or user action)
     navigation.goBack();
   }, [navigation]);
 
-  const handleSharePress = useCallback(() => {
-    if (lists && lists.length > 0) {
-      navigation.navigate('TripLists', { tripId, tripName: trip?.name });
-    } else {
-      navigation.navigate('ListCreate', { tripId, tripName: trip?.name });
-    }
-  }, [lists, tripId, trip?.name, navigation]);
+  const renderEntry = useCallback(
+    ({ item }: { item: EntryWithPlace }) => (
+      <EntryGridCard entry={item} onPress={() => handleEntryPress(item.id)} />
+    ),
+    [handleEntryPress]
+  );
 
   if (tripLoading) {
     return (
       <View style={styles.centered}>
+        <StatusBar barStyle="dark-content" />
         <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
@@ -142,6 +128,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
   if (tripError || !trip) {
     return (
       <View style={styles.centered}>
+        <StatusBar barStyle="dark-content" />
         <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
         <Text style={styles.errorText}>Failed to load trip</Text>
         <Pressable style={styles.retryButton} onPress={() => navigation.goBack()}>
@@ -151,168 +138,106 @@ export function TripDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const entryCount = entries?.length ?? 0;
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Cover Image */}
-      {trip.cover_image_url ? (
-        <Image source={{ uri: trip.cover_image_url }} style={styles.coverImage} />
+    <View style={styles.container}>
+      <StatusBar barStyle={hasCoverPhoto ? 'light-content' : 'dark-content'} />
+
+      {hasCoverPhoto ? (
+        // WITH COVER PHOTO - Hero Section
+        <View style={styles.heroContainer}>
+          <Image
+            source={{ uri: trip.cover_image_url! }}
+            style={styles.coverImage}
+            onError={() => setCoverImageError(true)}
+          />
+
+          {/* Gradient overlay */}
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.gradient} />
+
+          {/* Trip name at bottom of hero */}
+          <Text style={styles.tripNameOverlay}>{trip.name}</Text>
+
+          {/* Header row - white icons with dark circle backgrounds */}
+          <View style={[styles.headerRow, { top: insets.top + 8 }]}>
+            <Pressable style={styles.iconButton} onPress={() => navigation.goBack()} hitSlop={8}>
+              <Ionicons name="chevron-back" size={24} color="#fff" />
+            </Pressable>
+            <View style={styles.headerRightIcons}>
+              <Pressable style={styles.iconButton} onPress={handleEditTrip} hitSlop={8}>
+                <Ionicons name="pencil" size={20} color="#fff" />
+              </Pressable>
+              <Pressable style={styles.iconButton} onPress={handleSharePress} hitSlop={8}>
+                <Ionicons name="share-outline" size={22} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
       ) : (
-        <View style={styles.coverPlaceholder}>
-          <Ionicons name="image-outline" size={48} color="#ccc" />
-          <Text style={styles.coverPlaceholderText}>No cover image</Text>
+        // NO COVER PHOTO - Simple header
+        <View style={[styles.noCoverHeader, { paddingTop: insets.top }]}>
+          {/* Header row - dark icons */}
+          <View style={styles.noCoverHeaderRow}>
+            <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+              <Ionicons name="chevron-back" size={28} color="#1a1a1a" />
+            </Pressable>
+            <View style={styles.headerRightIcons}>
+              <Pressable onPress={handleEditTrip} hitSlop={8}>
+                <Ionicons name="pencil" size={22} color="#1a1a1a" />
+              </Pressable>
+              <Pressable onPress={handleSharePress} hitSlop={8}>
+                <Ionicons name="share-outline" size={24} color="#1a1a1a" />
+              </Pressable>
+            </View>
+          </View>
+          {/* Trip name */}
+          <Text style={styles.tripNameNoCover}>{trip.name}</Text>
         </View>
       )}
 
-      {/* Trip Info */}
-      <View style={styles.infoSection}>
-        <Text style={styles.tripName}>{trip.name}</Text>
-
-        {/* Country Badge */}
-        {country && (
+      {/* Country badge */}
+      {country && (
+        <View style={styles.countryBadgeContainer}>
           <View style={styles.countryBadge}>
             <Text style={styles.countryName}>{country.name}</Text>
           </View>
-        )}
-
-        {/* Date Range */}
-        <View style={styles.dateRow}>
-          <Ionicons name="calendar-outline" size={18} color="#666" />
-          <Text style={styles.dateText}>{formatDateRange(trip.date_range)}</Text>
         </View>
-
-        {/* Entry Count */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Ionicons name="bookmark-outline" size={20} color="#007AFF" />
-            <Text style={styles.statNumber}>{entryCount}</Text>
-            <Text style={styles.statLabel}>{entryCount === 1 ? 'Entry' : 'Entries'}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* First Entry Prompt - shown when trip has no entries */}
-      {!entriesLoading && entryCount === 0 && (
-        <Pressable
-          style={styles.firstEntryPrompt}
-          onPress={() => navigation.navigate('EntryForm', { tripId })}
-          testID="first-entry-prompt"
-        >
-          <View style={styles.firstEntryIcon}>
-            <Ionicons name="add-circle" size={48} color="#34C759" />
-          </View>
-          <Text style={styles.firstEntryTitle}>Add your first entry!</Text>
-          <Text style={styles.firstEntrySubtitle}>
-            Start documenting your trip by adding places you visited, food you tried, where you
-            stayed, or memorable experiences.
-          </Text>
-          <View style={styles.firstEntryButton}>
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.firstEntryButtonText}>Add Entry</Text>
-          </View>
-        </Pressable>
       )}
 
-      {/* Action Buttons */}
-      <View style={styles.actionsSection}>
-        <Text style={styles.sectionTitle}>Actions</Text>
+      {/* Entries grid */}
+      {entriesLoading ? (
+        <View style={styles.entriesLoading}>
+          <ActivityIndicator size="small" color="#007AFF" />
+        </View>
+      ) : (
+        <FlatList
+          data={entries}
+          keyExtractor={(item) => item.id}
+          renderItem={renderEntry}
+          numColumns={2}
+          columnWrapperStyle={styles.gridRow}
+          contentContainerStyle={styles.entriesListContent}
+          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={6}
+        />
+      )}
 
-        {/* View Entries - only show if there are entries */}
-        {entryCount > 0 && (
-          <Pressable
-            style={styles.actionButton}
-            onPress={() => navigation.navigate('EntryList', { tripId, tripName: trip.name })}
-            testID="view-entries-button"
-          >
-            <View style={styles.actionButtonContent}>
-              <Ionicons name="list-outline" size={24} color="#007AFF" />
-              <View style={styles.actionButtonText}>
-                <Text style={styles.actionButtonTitle}>View Entries</Text>
-                <Text style={styles.actionButtonSubtitle}>
-                  {entriesLoading
-                    ? 'Loading...'
-                    : `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} logged`}
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#ccc" />
-          </Pressable>
-        )}
+      {/* Floating Add Entry Button */}
+      <Pressable
+        style={styles.fab}
+        onPress={handleAddEntry}
+        testID="fab-add-entry"
+        accessibilityLabel="Add new entry"
+        accessibilityRole="button"
+      >
+        <Ionicons name="add" size={24} color="#fff" />
+        <Text style={styles.fabText}>Add Entry</Text>
+      </Pressable>
 
-        {/* Add Entry */}
-        <Pressable
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('EntryForm', { tripId })}
-          testID="add-entry-button"
-        >
-          <View style={styles.actionButtonContent}>
-            <Ionicons name="add-circle-outline" size={24} color="#34C759" />
-            <View style={styles.actionButtonText}>
-              <Text style={styles.actionButtonTitle}>Add Entry</Text>
-              <Text style={styles.actionButtonSubtitle}>
-                Log a place, food, stay, or experience
-              </Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </Pressable>
-
-        {/* Create Shareable List */}
-        <Pressable
-          style={styles.actionButton}
-          onPress={handleSharePress}
-          testID="create-list-button"
-        >
-          <View style={styles.actionButtonContent}>
-            <Ionicons name="share-outline" size={24} color="#FF9500" />
-            <View style={styles.actionButtonText}>
-              <Text style={styles.actionButtonTitle}>Create Shareable List</Text>
-              <Text style={styles.actionButtonSubtitle}>
-                Share your favorite spots from this trip
-              </Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </Pressable>
-
-        {/* Edit Trip */}
-        <Pressable
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('TripForm', { tripId })}
-          testID="edit-trip-button"
-        >
-          <View style={styles.actionButtonContent}>
-            <Ionicons name="pencil-outline" size={24} color="#5856D6" />
-            <View style={styles.actionButtonText}>
-              <Text style={styles.actionButtonTitle}>Edit Trip</Text>
-              <Text style={styles.actionButtonSubtitle}>Update name, dates, or cover image</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </Pressable>
-      </View>
-
-      {/* Danger Zone */}
-      <View style={styles.dangerSection}>
-        <Pressable
-          style={[styles.deleteButton, isDeleting && styles.deleteButtonDisabled]}
-          onPress={handleDelete}
-          disabled={isDeleting}
-          testID="delete-trip-button"
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="trash-outline" size={20} color="#fff" />
-              <Text style={styles.deleteButtonText}>Delete Trip</Text>
-            </>
-          )}
-        </Pressable>
-      </View>
-
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog (kept for potential future use from Edit screen) */}
       <ConfirmDialog
         visible={showDeleteConfirm}
         title="Delete Trip"
@@ -335,7 +260,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         duration={5000}
         testID="trip-deleted-snackbar"
       />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -343,9 +268,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  contentContainer: {
-    paddingBottom: 40,
   },
   centered: {
     flex: 1,
@@ -371,171 +293,164 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+
+  // Hero section (with cover photo)
+  heroContainer: {
+    position: 'relative',
+  },
   coverImage: {
     width: '100%',
-    height: 200,
+    height: 250,
     backgroundColor: '#e0e0e0',
   },
-  coverPlaceholder: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#f0f0f0',
+  gradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 120,
+  },
+  tripNameOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  headerRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  headerRightIcons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  coverPlaceholderText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#999',
-  },
-  infoSection: {
+
+  // No cover header
+  noCoverHeader: {
     backgroundColor: '#fff',
-    padding: 20,
-    marginBottom: 12,
   },
-  tripName: {
-    fontSize: 24,
+  noCoverHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  tripNameNoCover: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#1a1a1a',
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  countryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  countryName: {
-    fontSize: 16,
-    color: '#666',
-  },
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dateText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 16,
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginLeft: 8,
-    marginRight: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  actionsSection: {
+
+  // Country badge
+  countryBadgeContainer: {
     backgroundColor: '#fff',
-    padding: 20,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#999',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  actionButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  countryBadge: {
+    alignSelf: 'flex-start',
+  },
+  countryName: {
+    fontSize: 15,
+    color: '#666',
+  },
+
+  // Entries grid
+  entriesLoading: {
     flex: 1,
-  },
-  actionButtonText: {
-    marginLeft: 14,
-    flex: 1,
-  },
-  actionButtonTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1a1a1a',
-  },
-  actionButtonSubtitle: {
-    fontSize: 13,
-    color: '#999',
-    marginTop: 2,
-  },
-  dangerSection: {
-    padding: 20,
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FF3B30',
-    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  entriesListContent: {
+    padding: 16,
+    paddingBottom: 100, // Space for FAB
+    flexGrow: 1,
+    gap: 12,
+  },
+  gridRow: {
+    justifyContent: 'space-between',
+  },
+
+  // Empty state
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderRadius: 10,
     gap: 8,
   },
-  deleteButtonDisabled: {
-    opacity: 0.6,
-  },
-  deleteButtonText: {
+  emptyButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-  firstEntryPrompt: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#34C759',
-    borderStyle: 'dashed',
-  },
-  firstEntryIcon: {
-    marginBottom: 12,
-  },
-  firstEntryTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 8,
-  },
-  firstEntrySubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  firstEntryButton: {
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#34C759',
+    backgroundColor: '#007AFF',
     paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 28,
+    gap: 8,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  firstEntryButtonText: {
+  fabText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',

@@ -4,7 +4,9 @@ from datetime import date, datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.validators import validate_image_url
 
 
 class TripTagStatus(str, Enum):
@@ -37,6 +39,12 @@ class TripBase(BaseModel):
     date_start: date | None = None
     date_end: date | None = None
 
+    @field_validator("cover_image_url")
+    @classmethod
+    def validate_cover_image_url(cls, v: str | None) -> str | None:
+        """Validate cover image URL uses https protocol."""
+        return validate_image_url(v)
+
 
 class TripCreate(TripBase):
     """Request to create a trip."""
@@ -51,6 +59,12 @@ class TripUpdate(BaseModel):
     cover_image_url: str | None = None
     date_start: date | None = None
     date_end: date | None = None
+
+    @field_validator("cover_image_url")
+    @classmethod
+    def validate_cover_image_url(cls, v: str | None) -> str | None:
+        """Validate cover image URL uses https protocol."""
+        return validate_image_url(v)
 
 
 class Trip(BaseModel):

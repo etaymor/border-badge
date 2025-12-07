@@ -3,7 +3,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.validators import validate_image_url
 
 
 class PublicTripEntry(BaseModel):
@@ -30,6 +32,12 @@ class PublicTripView(BaseModel):
     date_range: str | None = None
     created_at: datetime
     entries: list[PublicTripEntry] = []
+
+    @field_validator("cover_image_url")
+    @classmethod
+    def validate_cover_image_url(cls, v: str | None) -> str | None:
+        """Validate cover image URL uses https protocol."""
+        return validate_image_url(v)
 
 
 class TripShareResponse(BaseModel):
