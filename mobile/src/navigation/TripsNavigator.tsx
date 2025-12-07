@@ -26,15 +26,17 @@ export function TripsNavigator() {
       <Stack.Screen
         name="TripDetail"
         component={TripDetailScreen}
-        options={{ headerShown: false }}
+        options={{ headerShown: false, headerBackTitle: ' ' }}
       />
       <Stack.Screen
         name="TripForm"
         component={TripFormScreen}
-        options={({ route }) => ({
-          title: route.params?.tripId ? 'Edit Trip' : 'New Trip',
+        options={() => ({
+          title: '',
           presentation: 'card',
           headerBackVisible: true,
+          headerBackTitle: ' ',
+          headerShadowVisible: false,
         })}
       />
       <Stack.Screen
@@ -52,21 +54,39 @@ export function TripsNavigator() {
       <Stack.Screen
         name="EntryForm"
         component={EntryFormScreen}
-        options={({ route }) => ({
-          title: route.params?.entryId ? 'Edit Entry' : 'New Entry',
+        options={() => ({
+          title: '',
+          headerBackTitle: ' ',
+          headerShadowVisible: false,
         })}
       />
       <Stack.Screen
         name="TripLists"
         component={TripListsScreen}
-        options={{ title: 'Shareable Lists' }}
+        options={() => ({
+          title: '',
+          headerBackTitle: ' ',
+          headerShadowVisible: false,
+        })}
       />
       <Stack.Screen
         name="ListCreate"
         component={ListCreateScreen}
-        options={{ title: 'Create List' }}
+        options={() => ({
+          title: '',
+          headerBackTitle: ' ',
+          headerShadowVisible: false,
+        })}
       />
-      <Stack.Screen name="ListEdit" component={ListEditScreen} options={{ title: 'Edit List' }} />
+      <Stack.Screen
+        name="ListEdit"
+        component={ListEditScreen}
+        options={() => ({
+          title: '',
+          headerBackTitle: ' ',
+          headerShadowVisible: false,
+        })}
+      />
     </Stack.Navigator>
   );
 }
