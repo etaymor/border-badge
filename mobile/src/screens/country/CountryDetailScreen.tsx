@@ -1,5 +1,13 @@
 import { useCallback, useMemo } from 'react';
-import { Dimensions, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Dimensions,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
@@ -60,7 +68,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const displayName = country?.name || countryName || code;
   const region = country?.region || '';
 
-  const handleAddTrip = () => {
+  const handleAddTrip = useCallback(() => {
     // Navigate to trips stack and then to TripForm
     navigation.getParent()?.navigate('Trips', {
       screen: 'TripForm',
@@ -69,7 +77,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         countryName: displayName,
       },
     });
-  };
+  }, [countryId, displayName, navigation]);
 
   const handleTripPress = useCallback(
     (trip: Trip) => {
