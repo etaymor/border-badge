@@ -76,8 +76,11 @@ export function OTPInput({
       if (digit && index < length - 1) {
         inputRefs.current[index + 1]?.focus();
       }
-    } catch {
-      // Silently ignore malformed input (e.g., corrupted clipboard data)
+    } catch (error) {
+      // Log in development for debugging, continue silently in production
+      if (__DEV__) {
+        console.warn('OTPInput: Error handling input:', error);
+      }
     }
   };
 

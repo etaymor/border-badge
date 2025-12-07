@@ -31,6 +31,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
   const [otp, setOtp] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [otpError, setOtpError] = useState('');
+  const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
 
   const sendOTP = useSendOTP();
   const verifyOTP = useVerifyOTP();
@@ -50,6 +51,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
       { phone },
       {
         onSuccess: () => {
+          setOtpSentAt(Date.now());
           setStep('otp');
           setOtpError('');
         },
@@ -78,7 +80,14 @@ export function PhoneAuthScreen({ navigation }: Props) {
 
   // Handle resend OTP
   const handleResendOTP = () => {
-    sendOTP.mutate({ phone });
+    sendOTP.mutate(
+      { phone },
+      {
+        onSuccess: () => {
+          setOtpSentAt(Date.now());
+        },
+      }
+    );
   };
 
   // Handle back to phone entry
@@ -168,6 +177,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 onResend={handleResendOTP}
                 isResending={sendOTP.isPending}
                 cooldownSeconds={RESEND_COOLDOWN_SECONDS}
+                startTime={otpSentAt}
                 testID="phone-auth-resend"
               />
             </View>

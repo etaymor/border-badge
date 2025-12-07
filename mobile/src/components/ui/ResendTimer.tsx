@@ -14,6 +14,8 @@ interface ResendTimerProps {
   onResend: () => void;
   isResending?: boolean;
   cooldownSeconds?: number;
+  /** Unix timestamp (ms) when OTP was sent. Used to persist timer across remounts. */
+  startTime?: number;
   containerStyle?: ViewStyle;
   testID?: string;
 }
@@ -22,28 +24,30 @@ export function ResendTimer({
   onResend,
   isResending = false,
   cooldownSeconds = 60,
+  startTime,
   containerStyle,
   testID,
 }: ResendTimerProps) {
-  const [secondsLeft, setSecondsLeft] = useState(cooldownSeconds);
-  const [canResend, setCanResend] = useState(false);
+  // Calculate remaining seconds based on startTime if provided
+  const calculateRemainingSeconds = useCallback(() => {
+    if (!startTime) return cooldownSeconds;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    return Math.max(0, cooldownSeconds - elapsed);
+  }, [startTime, cooldownSeconds]);
 
-  // Countdown timer
+  const [secondsLeft, setSecondsLeft] = useState(calculateRemainingSeconds);
+  const [canResend, setCanResend] = useState(() => calculateRemainingSeconds() <= 0);
+
+  // Countdown timer - recalculates when startTime changes
   useEffect(() => {
-    // Enable resend immediately if starting at or below zero
-    setSecondsLeft((prev) => {
-      if (prev <= 0) {
-        setCanResend(true);
-        return 0;
-      }
-      return prev;
-    });
+    const remaining = calculateRemainingSeconds();
+    setSecondsLeft(remaining);
+    setCanResend(remaining <= 0);
+
+    if (remaining <= 0) return;
 
     const timer = setInterval(() => {
       setSecondsLeft((prev) => {
-        if (prev <= 0) {
-          return prev;
-        }
         if (prev <= 1) {
           setCanResend(true);
           return 0;
@@ -53,7 +57,7 @@ export function ResendTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [calculateRemainingSeconds]);
 
   // Handle resend press
   const handleResend = useCallback(() => {
@@ -61,7 +65,7 @@ export function ResendTimer({
 
     onResend();
 
-    // Reset timer after resend
+    // Reset timer after resend (parent should update startTime)
     setCanResend(false);
     setSecondsLeft(cooldownSeconds);
   }, [canResend, isResending, onResend, cooldownSeconds]);

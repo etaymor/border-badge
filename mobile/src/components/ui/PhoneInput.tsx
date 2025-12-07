@@ -34,7 +34,7 @@ interface PhoneInputProps {
 }
 
 export function PhoneInput({
-  value,
+  value: _value, // Kept for API compatibility, write-only component
   onChangeText,
   defaultCountryCode,
   label,
@@ -58,18 +58,9 @@ export function PhoneInput({
     }
   }, [defaultCountryCode]);
 
-  // Parse initial value if provided (only on mount)
-  useEffect(() => {
-    if (value && value.startsWith('+')) {
-      // Try to find matching country by dial code
-      const matchingCountry = COUNTRY_DIAL_CODES.find((c) => value.startsWith(c.dialCode));
-      if (matchingCountry) {
-        setSelectedCountry(matchingCountry);
-        setLocalNumber(value.slice(matchingCountry.dialCode.length));
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Note: Auto-detection of country from phone number removed.
+  // It's ambiguous for shared dial codes (e.g., +1 is US/Canada).
+  // Users can manually select their country via the picker.
 
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {

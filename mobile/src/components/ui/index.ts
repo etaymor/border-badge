@@ -9,6 +9,8 @@ export { ErrorState } from './ErrorState';
 export { Input } from './Input';
 export { Loading } from './Loading';
 export { OTPInput } from './OTPInput';
+export { PassportSkeleton } from './PassportSkeleton';
+export { Skeleton } from './Skeleton';
 export { PhoneInput } from './PhoneInput';
 export { ResendTimer } from './ResendTimer';
 export { Screen } from './Screen';

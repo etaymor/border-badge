@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, CountryGridItem } from '@components/ui';
+import { colors } from '@constants/colors';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -73,6 +74,9 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
           <Text style={styles.regionTitle}>{region}</Text>
           <Button
             title="Save & Continue"
@@ -157,7 +161,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  backButton: {
+    paddingRight: 8,
+    paddingVertical: 4,
+  },
+  backIcon: {
+    fontSize: 28,
+    color: colors.textPrimary,
+    fontWeight: '300',
+  },
   regionTitle: {
+    flex: 1,
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1a1a1a',

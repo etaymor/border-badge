@@ -4,6 +4,10 @@ import { isValidPhoneNumber } from 'libphonenumber-js';
 export const OTP_LENGTH = 6;
 export const RESEND_COOLDOWN_SECONDS = 60;
 
+// Dev-only: Allow 555 area code for local testing
+// 555-0100 through 555-0199 are reserved for fictional use
+const DEV_PHONE_REGEX = /^\+1555\d{7}$/;
+
 // Validation result type
 export interface ValidationResult {
   isValid: boolean;
@@ -13,10 +17,16 @@ export interface ValidationResult {
 /**
  * Validates a phone number using libphonenumber-js.
  * Expects E.164 format (e.g., +14155552671)
+ * In development, also allows 555 area code numbers for testing.
  */
 export function validatePhone(phone: string): ValidationResult {
   if (!phone) {
     return { isValid: false, error: 'Please enter your phone number' };
+  }
+
+  // Allow 555 numbers in development for testing
+  if (__DEV__ && DEV_PHONE_REGEX.test(phone)) {
+    return { isValid: true };
   }
 
   if (!isValidPhoneNumber(phone)) {
@@ -26,11 +36,15 @@ export function validatePhone(phone: string): ValidationResult {
   return { isValid: true };
 }
 
+// Regex for exactly 6 digits
+const OTP_REGEX = /^\d{6}$/;
+
 /**
  * Validates an OTP code.
+ * Ensures the code is exactly 6 digits (not just 6 characters).
  */
 export function validateOTP(otp: string): ValidationResult {
-  if (otp.length !== OTP_LENGTH) {
+  if (!OTP_REGEX.test(otp)) {
     return { isValid: false, error: `Please enter the ${OTP_LENGTH}-digit code` };
   }
   return { isValid: true };
