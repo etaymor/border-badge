@@ -18,6 +18,12 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { storeOnboardingComplete } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  formatPhoneForDisplay,
+  RESEND_COOLDOWN_SECONDS,
+  validateOTP,
+  validatePhone,
+} from '@utils/phoneValidation';
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
@@ -50,25 +56,14 @@ export function AccountCreationScreen({ navigation }: Props) {
     },
   });
 
-  // Validate phone number (basic E.164 validation)
-  const validatePhone = (): boolean => {
-    if (!phone) {
-      setPhoneError('Please enter your phone number');
-      return false;
-    }
-    // E.164 format: + followed by 7-15 digits
-    const e164Regex = /^\+[1-9]\d{6,14}$/;
-    if (!e164Regex.test(phone)) {
-      setPhoneError('Please enter a valid phone number');
-      return false;
-    }
-    setPhoneError('');
-    return true;
-  };
-
   // Handle sending OTP
   const handleSendOTP = () => {
-    if (!validatePhone()) return;
+    const result = validatePhone(phone);
+    if (!result.isValid) {
+      setPhoneError(result.error!);
+      return;
+    }
+    setPhoneError('');
 
     sendOTP.mutate(
       { phone },
@@ -83,8 +78,9 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle OTP verification
   const handleVerifyOTP = () => {
-    if (otp.length !== 6) {
-      setOtpError('Please enter the 6-digit code');
+    const result = validateOTP(otp);
+    if (!result.isValid) {
+      setOtpError(result.error!);
       return;
     }
 
@@ -115,15 +111,6 @@ export function AccountCreationScreen({ navigation }: Props) {
   // Handle navigation to login for existing users
   const handleAlreadyHaveAccount = () => {
     navigation.navigate('PhoneAuth');
-  };
-
-  // Format phone for display
-  const formatPhoneForDisplay = (phoneNumber: string): string => {
-    // Just show the last part of the number for privacy
-    if (phoneNumber.length > 4) {
-      return `${phoneNumber.slice(0, -4).replace(/./g, '*')}${phoneNumber.slice(-4)}`;
-    }
-    return phoneNumber;
   };
 
   return (
@@ -173,26 +160,17 @@ export function AccountCreationScreen({ navigation }: Props) {
                 testID="account-creation-send-button"
               />
 
-              <Text style={styles.helperText}>
-                We'll send you a verification code
-              </Text>
+              <Text style={styles.helperText}>We&apos;ll send you a verification code</Text>
 
-              <TouchableOpacity
-                onPress={handleAlreadyHaveAccount}
-                style={styles.loginLink}
-              >
-                <Text style={styles.loginLinkText}>
-                  Already have an account? Sign in
-                </Text>
+              <TouchableOpacity onPress={handleAlreadyHaveAccount} style={styles.loginLink}>
+                <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
               </TouchableOpacity>
             </View>
           ) : (
             // OTP Entry Step
             <View style={styles.content}>
               <Text style={styles.title}>Enter verification code</Text>
-              <Text style={styles.subtitle}>
-                Sent to {formatPhoneForDisplay(phone)}
-              </Text>
+              <Text style={styles.subtitle}>Sent to {formatPhoneForDisplay(phone)}</Text>
 
               <View style={styles.otpContainer}>
                 <OTPInput
@@ -218,7 +196,7 @@ export function AccountCreationScreen({ navigation }: Props) {
               <ResendTimer
                 onResend={handleResendOTP}
                 isResending={sendOTP.isPending}
-                cooldownSeconds={60}
+                cooldownSeconds={RESEND_COOLDOWN_SECONDS}
                 testID="account-creation-resend"
               />
             </View>
