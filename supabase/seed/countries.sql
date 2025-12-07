@@ -1,27 +1,35 @@
 -- Seed file for country table
--- 198 countries: 193 UN member states + 2 observers (Vatican, Palestine) + 2 disputed (Kosovo, Taiwan) + 1 territory (Antarctica)
--- Recognition types: un_member, observer, disputed, territory
+-- 227 countries/territories including:
+-- - UN member states
+-- - UN observers (Vatican, Palestine)
+-- - Disputed territories (Kosovo, Taiwan, Northern Cyprus)
+-- - Dependent territories (various)
+-- - Special regions (Antarctica, Hong Kong, Macau, etc.)
+-- Recognition types: un_member, observer, disputed, territory, dependent_territory, special_region, constituent_country
+
+-- Clear existing countries and insert fresh data
+TRUNCATE TABLE country CASCADE;
 
 INSERT INTO country (code, name, region, recognition) VALUES
--- Africa (54 UN members)
+-- Africa (54 UN members + territories)
 ('DZ', 'Algeria', 'Africa', 'un_member'),
 ('AO', 'Angola', 'Africa', 'un_member'),
 ('BJ', 'Benin', 'Africa', 'un_member'),
 ('BW', 'Botswana', 'Africa', 'un_member'),
 ('BF', 'Burkina Faso', 'Africa', 'un_member'),
 ('BI', 'Burundi', 'Africa', 'un_member'),
-('CV', 'Cabo Verde', 'Africa', 'un_member'),
+('CV', 'Cape Verde', 'Africa', 'un_member'),
 ('CM', 'Cameroon', 'Africa', 'un_member'),
 ('CF', 'Central African Republic', 'Africa', 'un_member'),
 ('TD', 'Chad', 'Africa', 'un_member'),
 ('KM', 'Comoros', 'Africa', 'un_member'),
-('CG', 'Congo', 'Africa', 'un_member'),
-('CD', 'Democratic Republic of the Congo', 'Africa', 'un_member'),
+('CG', 'Republic of Congo', 'Africa', 'un_member'),
+('CD', 'Democratic Republic of Congo', 'Africa', 'un_member'),
 ('DJ', 'Djibouti', 'Africa', 'un_member'),
 ('EG', 'Egypt', 'Africa', 'un_member'),
 ('GQ', 'Equatorial Guinea', 'Africa', 'un_member'),
 ('ER', 'Eritrea', 'Africa', 'un_member'),
-('SZ', 'Eswatini', 'Africa', 'un_member'),
+('SZ', 'Swaziland', 'Africa', 'un_member'),
 ('ET', 'Ethiopia', 'Africa', 'un_member'),
 ('GA', 'Gabon', 'Africa', 'un_member'),
 ('GM', 'Gambia', 'Africa', 'un_member'),
@@ -58,8 +66,10 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('UG', 'Uganda', 'Africa', 'un_member'),
 ('ZM', 'Zambia', 'Africa', 'un_member'),
 ('ZW', 'Zimbabwe', 'Africa', 'un_member'),
+-- Africa - Special regions
+('EH', 'Zanzibar', 'Africa', 'special_region'),
 
--- Americas (35 UN members)
+-- Americas (35 UN members + territories)
 ('AG', 'Antigua and Barbuda', 'Americas', 'un_member'),
 ('AR', 'Argentina', 'Americas', 'un_member'),
 ('BS', 'Bahamas', 'Americas', 'un_member'),
@@ -95,8 +105,23 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('US', 'United States', 'Americas', 'un_member'),
 ('UY', 'Uruguay', 'Americas', 'un_member'),
 ('VE', 'Venezuela', 'Americas', 'un_member'),
+-- Americas - Dependent territories
+('AI', 'Anguila', 'Americas', 'dependent_territory'),
+('AW', 'Aruba', 'Americas', 'dependent_territory'),
+('BM', 'Bermuda', 'Americas', 'dependent_territory'),
+('VG', 'BVI', 'Americas', 'dependent_territory'),
+('KY', 'Cayman Islands', 'Americas', 'dependent_territory'),
+('FK', 'Falkland Islands', 'Americas', 'dependent_territory'),
+('GF', 'French Guiana', 'Americas', 'dependent_territory'),
+('GP', 'Guadeloupe', 'Americas', 'dependent_territory'),
+('MQ', 'Martinique', 'Americas', 'dependent_territory'),
+('PR', 'Puerto Rico', 'Americas', 'dependent_territory'),
+('BL', 'St. Barts', 'Americas', 'dependent_territory'),
+('MF', 'Saint Martin', 'Americas', 'dependent_territory'),
+('TC', 'Turks and Caicos', 'Americas', 'dependent_territory'),
+('VI', 'USVI', 'Americas', 'dependent_territory'),
 
--- Asia (48 UN members + 1 disputed)
+-- Asia (48 UN members + observers + disputed + territories)
 ('AF', 'Afghanistan', 'Asia', 'un_member'),
 ('AM', 'Armenia', 'Asia', 'un_member'),
 ('AZ', 'Azerbaijan', 'Asia', 'un_member'),
@@ -137,19 +162,23 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('SY', 'Syria', 'Asia', 'un_member'),
 ('TJ', 'Tajikistan', 'Asia', 'un_member'),
 ('TH', 'Thailand', 'Asia', 'un_member'),
-('TL', 'Timor-Leste', 'Asia', 'un_member'),
+('TL', 'East Timor', 'Asia', 'un_member'),
 ('TR', 'Turkey', 'Asia', 'un_member'),
 ('TM', 'Turkmenistan', 'Asia', 'un_member'),
 ('AE', 'United Arab Emirates', 'Asia', 'un_member'),
 ('UZ', 'Uzbekistan', 'Asia', 'un_member'),
 ('VN', 'Vietnam', 'Asia', 'un_member'),
 ('YE', 'Yemen', 'Asia', 'un_member'),
--- Disputed - Taiwan
+-- Asia - Disputed
 ('TW', 'Taiwan', 'Asia', 'disputed'),
--- Observer - Palestine
+('NC', 'Northern Cyprus', 'Asia', 'disputed'),
+-- Asia - Observer
 ('PS', 'Palestine', 'Asia', 'observer'),
+-- Asia - Special Administrative Regions
+('HK', 'Hong Kong', 'Asia', 'special_region'),
+('MO', 'Macau', 'Asia', 'special_region'),
 
--- Europe (44 UN members + 1 observer + 1 disputed)
+-- Europe (44 UN members + observer + disputed + territories)
 ('AL', 'Albania', 'Europe', 'un_member'),
 ('AD', 'Andorra', 'Europe', 'un_member'),
 ('AT', 'Austria', 'Europe', 'un_member'),
@@ -193,18 +222,27 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('CH', 'Switzerland', 'Europe', 'un_member'),
 ('UA', 'Ukraine', 'Europe', 'un_member'),
 ('GB', 'United Kingdom', 'Europe', 'un_member'),
--- Observer - Vatican
+-- Europe - Observer
 ('VA', 'Vatican City', 'Europe', 'observer'),
--- Disputed - Kosovo
+-- Europe - Disputed
 ('XK', 'Kosovo', 'Europe', 'disputed'),
+-- Europe - Dependent territories
+('FO', 'Faroe Islands', 'Europe', 'dependent_territory'),
+('GI', 'Gibraltar', 'Europe', 'dependent_territory'),
+('GL', 'Greenland', 'Europe', 'dependent_territory'),
+('IM', 'Isle of Man', 'Europe', 'dependent_territory'),
+-- Europe - Constituent countries of UK
+('NIR', 'Northern Ireland', 'Europe', 'constituent_country'),
+('SCT', 'Scotland', 'Europe', 'constituent_country'),
+('WLS', 'Wales', 'Europe', 'constituent_country'),
 
--- Oceania (14 UN members)
+-- Oceania (14 UN members + territories)
 ('AU', 'Australia', 'Oceania', 'un_member'),
 ('FJ', 'Fiji', 'Oceania', 'un_member'),
 ('KI', 'Kiribati', 'Oceania', 'un_member'),
 ('MH', 'Marshall Islands', 'Oceania', 'un_member'),
 ('FM', 'Micronesia', 'Oceania', 'un_member'),
-('NR', 'Nauru', 'Oceania', 'un_member'),
+('NR', 'Nuaru', 'Oceania', 'un_member'),
 ('NZ', 'New Zealand', 'Oceania', 'un_member'),
 ('PW', 'Palau', 'Oceania', 'un_member'),
 ('PG', 'Papua New Guinea', 'Oceania', 'un_member'),
@@ -213,6 +251,11 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('TO', 'Tonga', 'Oceania', 'un_member'),
 ('TV', 'Tuvalu', 'Oceania', 'un_member'),
 ('VU', 'Vanuatu', 'Oceania', 'un_member'),
+-- Oceania - Dependent territories / Associated states
+('AS', 'American Samao', 'Oceania', 'dependent_territory'),
+('CK', 'Cook Islands', 'Oceania', 'dependent_territory'),
+('PF', 'French Polynesia', 'Oceania', 'dependent_territory'),
+('GU', 'Guam', 'Oceania', 'dependent_territory'),
 
 -- Antarctica (1 territory)
 ('AQ', 'Antarctica', 'Antarctica', 'territory');
