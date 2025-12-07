@@ -118,4 +118,44 @@ describe('OTPInput', () => {
       expect(screen.getByText('Invalid code')).toBeTruthy();
     });
   });
+
+  describe('value prop changes', () => {
+    it('uses fresh value for backspace after external value change', () => {
+      const onChangeText = jest.fn();
+      const { rerender } = render(
+        <OTPInput value="123" onChangeText={onChangeText} testID="otp" />
+      );
+
+      // External update changes value to "12345"
+      rerender(<OTPInput value="12345" onChangeText={onChangeText} testID="otp" />);
+
+      // Now backspace on 6th cell (index 5, which is empty)
+      // Should clear the 5th cell (digit "5") using fresh value, not stale "123"
+      const sixthCell = screen.getByTestId('otp-cell-5');
+      fireEvent(sixthCell, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+
+      // Should result in "1234" (cleared the 5 from position 4)
+      expect(onChangeText).toHaveBeenLastCalledWith('1234');
+    });
+
+    it('correctly handles consecutive backspaces with value updates', () => {
+      const onChangeText = jest.fn();
+      const { rerender } = render(
+        <OTPInput value="123456" onChangeText={onChangeText} testID="otp" />
+      );
+
+      // First backspace on last cell
+      const sixthCell = screen.getByTestId('otp-cell-5');
+      fireEvent(sixthCell, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+      expect(onChangeText).toHaveBeenLastCalledWith('12345');
+
+      // Simulate parent updating value after our callback
+      rerender(<OTPInput value="12345" onChangeText={onChangeText} testID="otp" />);
+
+      // Second backspace - should use updated value "12345"
+      const fifthCell = screen.getByTestId('otp-cell-4');
+      fireEvent(fifthCell, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+      expect(onChangeText).toHaveBeenLastCalledWith('1234');
+    });
+  });
 });

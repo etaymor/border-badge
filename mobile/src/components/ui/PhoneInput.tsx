@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -34,7 +34,7 @@ interface PhoneInputProps {
 }
 
 export function PhoneInput({
-  value: _value, // Kept for API compatibility, write-only component
+  value,
   onChangeText,
   defaultCountryCode,
   label,
@@ -51,16 +51,59 @@ export function PhoneInput({
   const [searchQuery, setSearchQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
-  // Update selected country when default changes
+  // Track the last value we emitted to avoid sync loops
+  const lastEmittedValue = useRef<string>('');
+
+  // Sync external value prop to internal state (controlled component behavior)
   useEffect(() => {
+    // Skip if this is the value we just emitted (prevents infinite loops)
+    if (value === lastEmittedValue.current) {
+      return;
+    }
+
+    // Update ref to track current external value
+    lastEmittedValue.current = value;
+
+    if (!value) {
+      setLocalNumber('');
+      return;
+    }
+
+    // Parse E.164 value to extract country and local number
+    // Sort by dial code length descending to match longest first (e.g., +1684 before +1)
+    const sortedCountries = [...COUNTRY_DIAL_CODES].sort(
+      (a, b) => b.dialCode.length - a.dialCode.length
+    );
+
+    // If defaultCountryCode is set, prioritize it for ambiguous dial codes
     if (defaultCountryCode) {
+      const defaultCountry = getCountryByCode(defaultCountryCode);
+      if (value.startsWith(defaultCountry.dialCode)) {
+        setSelectedCountry(defaultCountry);
+        setLocalNumber(value.slice(defaultCountry.dialCode.length));
+        return;
+      }
+    }
+
+    // Find matching country by dial code
+    for (const country of sortedCountries) {
+      if (value.startsWith(country.dialCode)) {
+        setSelectedCountry(country);
+        setLocalNumber(value.slice(country.dialCode.length));
+        return;
+      }
+    }
+
+    // No matching dial code found - just set the number as-is without dial code
+    setLocalNumber(value.replace(/^\+/, ''));
+  }, [value, defaultCountryCode]);
+
+  // Update selected country when default changes (and no value is set)
+  useEffect(() => {
+    if (defaultCountryCode && !value) {
       setSelectedCountry(getCountryByCode(defaultCountryCode));
     }
-  }, [defaultCountryCode]);
-
-  // Note: Auto-detection of country from phone number removed.
-  // It's ambiguous for shared dial codes (e.g., +1 is US/Canada).
-  // Users can manually select their country via the picker.
+  }, [defaultCountryCode, value]);
 
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
@@ -70,6 +113,7 @@ export function PhoneInput({
 
     // Construct E.164 format
     const e164 = digitsOnly ? `${selectedCountry.dialCode}${digitsOnly}` : '';
+    lastEmittedValue.current = e164;
     onChangeText(e164);
   };
 
@@ -80,18 +124,34 @@ export function PhoneInput({
 
     // Update E.164 with new country code
     const e164 = localNumber ? `${country.dialCode}${localNumber}` : '';
+    lastEmittedValue.current = e164;
     onChangeText(e164);
   };
 
-  // Filter countries based on search
-  const filteredCountries = searchQuery
-    ? COUNTRY_DIAL_CODES.filter(
-        (c) =>
-          c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.dialCode.includes(searchQuery) ||
-          c.code.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : COUNTRY_DIAL_CODES;
+  // Filter countries based on search (memoized to prevent recalculation on unrelated state changes)
+  const filteredCountries = useMemo(() => {
+    if (!searchQuery) return COUNTRY_DIAL_CODES;
+    const query = searchQuery.toLowerCase();
+    return COUNTRY_DIAL_CODES.filter(
+      (c) =>
+        c.name.toLowerCase().includes(query) ||
+        c.dialCode.includes(searchQuery) ||
+        c.code.toLowerCase().includes(query)
+    );
+  }, [searchQuery]);
+
+  // Row height for FlatList optimization (paddingVertical: 12 * 2 + content ~24 + separator 1)
+  const COUNTRY_ROW_HEIGHT = 49;
+
+  // getItemLayout for instant scroll calculations
+  const getItemLayout = useCallback(
+    (_: CountryDialCode[] | null, index: number) => ({
+      length: COUNTRY_ROW_HEIGHT,
+      offset: COUNTRY_ROW_HEIGHT * index,
+      index,
+    }),
+    []
+  );
 
   // Format phone number for display (basic US formatting as example)
   const formatForDisplay = (number: string): string => {
@@ -149,7 +209,13 @@ export function PhoneInput({
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Country</Text>
-            <TouchableOpacity onPress={() => setIsPickerVisible(false)} style={styles.closeButton}>
+            <TouchableOpacity
+              onPress={() => {
+                setIsPickerVisible(false);
+                setSearchQuery('');
+              }}
+              style={styles.closeButton}
+            >
               <Text style={styles.closeButtonText}>Done</Text>
             </TouchableOpacity>
           </View>
@@ -165,6 +231,7 @@ export function PhoneInput({
           <FlatList
             data={filteredCountries}
             keyExtractor={(item) => item.code}
+            getItemLayout={getItemLayout}
             renderItem={({ item }) => (
               <Pressable
                 style={({ pressed }) => [
