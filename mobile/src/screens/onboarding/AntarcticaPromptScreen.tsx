@@ -2,44 +2,40 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
-import { ALL_REGIONS, REGIONS } from '@constants/regions';
+import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
-type Props = OnboardingStackScreenProps<'ContinentIntro'>;
+type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
-export function ContinentIntroScreen({ navigation, route }: Props) {
-  const { region, regionIndex } = route.params;
-  const { addVisitedContinent } = useOnboardingStore();
+const ANTARCTICA_CODE = 'AQ';
+
+export function AntarcticaPromptScreen({ navigation }: Props) {
+  const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
 
   const handleYes = () => {
-    addVisitedContinent(region);
-    navigation.navigate('ContinentCountryGrid', { region });
+    // Add Antarctica as visited continent and select the country
+    addVisitedContinent('Antarctica');
+    toggleCountry(ANTARCTICA_CODE);
+    navigation.navigate('ProgressSummary');
   };
 
   const handleNo = () => {
-    // Move to next continent or Antarctica prompt
-    const nextIndex = regionIndex + 1;
-    if (nextIndex < REGIONS.length) {
-      navigation.navigate('ContinentIntro', {
-        region: REGIONS[nextIndex],
-        regionIndex: nextIndex,
-      });
-    } else {
-      // After Oceania, show Antarctica prompt
-      navigation.navigate('AntarcticaPrompt');
-    }
+    // Just proceed without selecting Antarctica
+    navigation.navigate('ProgressSummary');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {/* Grey placeholder for continent illustration */}
+        {/* Grey placeholder for Antarctica illustration */}
         <View style={styles.illustrationPlaceholder} />
 
         <View style={styles.card}>
-          <Text style={styles.title}>Visited {region}?</Text>
-          <Text style={styles.subtitle}>Tap &apos;Yes&apos; to select countries.</Text>
+          <Text style={styles.title}>Been to Antarctica?</Text>
+          <Text style={styles.subtitle}>
+            Only ~1% of travelers have visited the frozen continent.
+          </Text>
 
           <View style={styles.buttonContainer}>
             <Button title="Yes" onPress={handleYes} style={styles.yesButton} />
@@ -49,10 +45,16 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
         {/* Progress indicator - 6 dots for all regions including Antarctica */}
         <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((_, index) => (
+          {ALL_REGIONS.map((region, index) => (
             <View
-              key={index}
-              style={[styles.progressDot, index === regionIndex && styles.progressDotActive]}
+              key={region}
+              style={[
+                styles.progressDot,
+                // Antarctica (index 5) is always active on this screen
+                index === 5 && styles.progressDotActive,
+                // Previous regions are completed if visited
+                index < 5 && visitedContinents.includes(region) && styles.progressDotCompleted,
+              ]}
             />
           ))}
         </View>
@@ -125,5 +127,8 @@ const styles = StyleSheet.create({
   progressDotActive: {
     backgroundColor: '#007AFF',
     width: 24,
+  },
+  progressDotCompleted: {
+    backgroundColor: '#34C759',
   },
 });

@@ -12,26 +12,66 @@ import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
-interface SignInInput {
-  email: string;
-  password: string;
+// ============================================================================
+// Phone OTP Authentication Hooks
+// ============================================================================
+
+interface SendOTPInput {
+  phone: string; // E.164 format: +1234567890
 }
 
-interface SignUpInput {
-  email: string;
-  password: string;
+interface VerifyOTPInput {
+  phone: string; // E.164 format: +1234567890
+  token: string; // 6-digit OTP code
+  displayName?: string; // Optional display name for new users
 }
 
-export function useSignIn() {
+interface VerifyOTPOptions {
+  onMigrationComplete?: (result: MigrationResult) => void;
+}
+
+/**
+ * Hook to send OTP code to a phone number.
+ * Uses Supabase signInWithOtp which handles both signup and login.
+ */
+export function useSendOTP() {
+  return useMutation({
+    mutationFn: async ({ phone }: SendOTPInput) => {
+      const { error } = await supabase.auth.signInWithOtp({
+        phone,
+      });
+      if (error) throw error;
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to send verification code';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+/**
+ * Hook to verify OTP code and establish session.
+ * Handles both new users (runs migration) and returning users (skips migration).
+ */
+export function useVerifyOTP(options?: VerifyOTPOptions) {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async ({ email, password }: SignInInput) => {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+    mutationFn: async ({ phone, token, displayName }: VerifyOTPInput) => {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: 'sms',
       });
       if (error) throw error;
+
+      // Update user metadata with display name if provided
+      if (displayName && data.user) {
+        await supabase.auth.updateUser({
+          data: { display_name: displayName },
+        });
+      }
+
       return data;
     },
     onSuccess: async (data) => {
@@ -40,8 +80,7 @@ export function useSignIn() {
         await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
-        // Check if user has completed onboarding by checking if they have visited countries
-        // or other profile data that indicates they've been through onboarding before
+        // Check if this is a returning user (has existing data)
         try {
           const { data: userCountries } = await supabase
             .from('user_countries')
@@ -49,16 +88,21 @@ export function useSignIn() {
             .eq('user_id', data.session.user.id)
             .limit(1);
 
-          // If user has any countries saved, they've completed onboarding before
           const hasOnboarded = userCountries && userCountries.length > 0;
 
-          // Set onboarding status based on whether they have data
           if (hasOnboarded) {
+            // Returning user - skip migration, mark onboarding complete
             setHasCompletedOnboarding(true);
             await storeOnboardingComplete();
+          } else {
+            // New user - run migration if there's onboarding data
+            const migrationResult = await migrateGuestData(data.session);
+            options?.onMigrationComplete?.(migrationResult);
           }
         } catch {
-          // If check fails, let them continue with current onboarding state
+          // If check fails, try migration anyway (it handles empty data gracefully)
+          const migrationResult = await migrateGuestData(data.session);
+          options?.onMigrationComplete?.(migrationResult);
         }
 
         // Set session last to trigger navigation
@@ -66,53 +110,8 @@ export function useSignIn() {
       }
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to sign in';
-      Alert.alert('Sign In Failed', message);
-    },
-  });
-}
-
-interface SignUpOptions {
-  onMigrationComplete?: (result: MigrationResult) => void;
-}
-
-export function useSignUp(options?: SignUpOptions) {
-  const { setSession } = useAuthStore();
-
-  return useMutation({
-    mutationFn: async ({ email, password }: SignUpInput) => {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: async (data) => {
-      if (data.session) {
-        // Clear any stale tokens first, then store new ones
-        // This prevents race conditions where old tokens could be used
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
-
-        // Migrate onboarding data AFTER tokens are stored to avoid race condition
-        // Pass session so migration can populate the React Query cache with the correct key
-        const migrationResult = await migrateGuestData(data.session);
-        options?.onMigrationComplete?.(migrationResult);
-
-        // Set session last to trigger navigation
-        setSession(data.session);
-      } else if (data.user && !data.session) {
-        // Email confirmation required
-        Alert.alert(
-          'Check Your Email',
-          'We sent you a confirmation link. Please check your email to complete sign up.'
-        );
-      }
-    },
-    onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to create account';
-      Alert.alert('Sign Up Failed', message);
+      const message = error instanceof Error ? error.message : 'Invalid verification code';
+      Alert.alert('Verification Failed', message);
     },
   });
 }
@@ -139,21 +138,4 @@ export function useSignOut() {
   });
 }
 
-export function useResetPassword() {
-  return useMutation({
-    mutationFn: async (email: string) => {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      Alert.alert(
-        'Check Your Email',
-        'If an account exists with that email, we sent you a password reset link.'
-      );
-    },
-    onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to send reset email';
-      Alert.alert('Reset Failed', message);
-    },
-  });
-}
+// Note: useResetPassword removed - not needed with phone OTP authentication

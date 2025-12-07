@@ -3,7 +3,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, CountryGridItem } from '@components/ui';
-import { REGIONS, type Region } from '@constants/regions';
+import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -38,7 +38,8 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         regionIndex: nextIndex,
       });
     } else {
-      navigation.navigate('ProgressSummary');
+      // After Oceania, show Antarctica prompt
+      navigation.navigate('AntarcticaPrompt');
     }
   };
 
@@ -113,9 +114,9 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         />
       </View>
 
-      {/* Progress indicator */}
+      {/* Progress indicator - 6 dots for all regions including Antarctica */}
       <View style={styles.progressContainer}>
-        {REGIONS.map((r: (typeof REGIONS)[number], index: number) => (
+        {ALL_REGIONS.map((r, index) => (
           <View
             key={index}
             style={[
