@@ -66,11 +66,7 @@ export function TripsNavigator() {
         component={ListCreateScreen}
         options={{ title: 'Create List' }}
       />
-      <Stack.Screen
-        name="ListEdit"
-        component={ListEditScreen}
-        options={{ title: 'Edit List' }}
-      />
+      <Stack.Screen name="ListEdit" component={ListEditScreen} options={{ title: 'Edit List' }} />
     </Stack.Navigator>
   );
 }

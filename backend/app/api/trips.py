@@ -267,14 +267,12 @@ async def delete_trip(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Soft delete by setting deleted_at timestamp
-    rows = await db.patch(
-        "trip",
-        {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
-    )
+    # Atomic soft delete using SECURITY DEFINER function
+    # This verifies ownership and sets deleted_at in a single operation
+    result = await db.rpc("soft_delete_trip", {"p_trip_id": str(trip_id)})
 
-    if not rows:
+    # RPC returns boolean: True if deleted, False if not found/not authorized
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trip not found or not authorized",
@@ -449,18 +447,30 @@ async def generate_share_link(
             detail="Failed to generate share link",
         )
 
-    # Update the trip with the new share slug
+    # Atomic update - only succeeds if share_slug is still NULL (prevents race condition)
     rows = await db.patch(
         "trip",
         {"share_slug": share_slug},
-        {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}"},
+        {
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user.id}",
+            "share_slug": "is.null",
+        },
     )
 
     if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save share link",
+        # Race condition: another request already set the share_slug
+        # Re-fetch to get the existing slug
+        trips = await db.get(
+            "trip",
+            {"id": f"eq.{trip_id}", "user_id": f"eq.{user.id}", "select": "share_slug"},
         )
+        if not trips or not trips[0].get("share_slug"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save share link",
+            )
+        share_slug = trips[0]["share_slug"]
 
     return TripShareResponse(
         share_slug=share_slug,

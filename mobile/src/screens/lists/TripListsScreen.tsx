@@ -13,12 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 
 import type { TripsStackScreenProps } from '@navigation/types';
-import {
-  useTripLists,
-  useDeleteList,
-  getPublicListUrl,
-  ListSummary,
-} from '@hooks/useLists';
+import { useTripLists, useDeleteList, getPublicListUrl, ListSummary } from '@hooks/useLists';
 
 type Props = TripsStackScreenProps<'TripLists'>;
 
@@ -55,11 +50,7 @@ function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
   );
 
   return (
-    <Swipeable
-      ref={swipeableRef}
-      renderRightActions={renderRightActions}
-      overshootRight={false}
-    >
+    <Swipeable ref={swipeableRef} renderRightActions={renderRightActions} overshootRight={false}>
       <View style={styles.listItem}>
         <View style={styles.listItemContent}>
           <View style={styles.listItemHeader}>
@@ -178,9 +169,7 @@ export function TripListsScreen({ route, navigation }: Props) {
             </Pressable>
 
             {/* Section Header */}
-            {lists && lists.length > 0 && (
-              <Text style={styles.sectionTitle}>YOUR LISTS</Text>
-            )}
+            {lists && lists.length > 0 && <Text style={styles.sectionTitle}>YOUR LISTS</Text>}
           </View>
         }
         ListEmptyComponent={
