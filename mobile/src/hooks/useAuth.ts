@@ -70,44 +70,15 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       // If a display name is provided, persist it as a fallback.
       // The primary mechanism is via signInWithOtp options.data, but this handles
       // cases where that didn't work (e.g., returning users, edge cases).
-      const userId = data.session?.user.id ?? data.user?.id;
-      if (displayName && userId) {
-        try {
-          // Update auth metadata
-          const metadataPromise = supabase.auth.updateUser({
-            data: { display_name: displayName },
-          });
+      if (displayName) {
+        // Use database function to update display name (single API call)
+        const { error: rpcError } = await supabase.rpc('update_display_name', {
+          new_display_name: displayName,
+        });
 
-          // Update user_profile table
-          const profilePromise = supabase
-            .from('user_profile')
-            .update({ display_name: displayName })
-            .eq('user_id', userId);
-
-          const [metadataResult, profileResult] = await Promise.all([
-            metadataPromise,
-            profilePromise,
-          ]);
-
-          // Check for errors in either update
-          if (metadataResult.error || profileResult.error) {
-            console.warn('Display name update errors:', {
-              metadata: metadataResult.error?.message,
-              profile: profileResult.error?.message,
-            });
-            Alert.alert(
-              'Profile Update',
-              'Your account was created but your name may need updating. Please check your profile settings.',
-              [{ text: 'OK' }]
-            );
-          }
-        } catch (error) {
-          console.warn('Display name update failed:', error);
-          Alert.alert(
-            'Profile Update',
-            'Your account was created but your name may need updating. Please check your profile settings.',
-            [{ text: 'OK' }]
-          );
+        if (rpcError) {
+          console.error('Failed to update display name:', rpcError.message);
+          throw new Error('Failed to save your name. Please try again.');
         }
       }
 
