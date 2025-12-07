@@ -18,7 +18,6 @@ import type { TripsStackScreenProps } from '@navigation/types';
 import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
 import { useCountryByCode } from '@hooks/useCountries';
-import { useTripLists } from '@hooks/useLists';
 import { ConfirmDialog, Snackbar } from '@components/ui';
 import { EntryGridCard } from '@components/entries';
 
@@ -51,7 +50,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
-  const { data: lists } = useTripLists(tripId);
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
 
@@ -66,12 +64,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [navigation, tripId]);
 
   const handleSharePress = useCallback(() => {
-    if (lists && lists.length > 0) {
-      navigation.navigate('TripLists', { tripId, tripName: trip?.name });
-    } else {
-      navigation.navigate('ListCreate', { tripId, tripName: trip?.name });
-    }
-  }, [lists, tripId, trip?.name, navigation]);
+    // Always navigate to TripLists - it handles empty state internally
+    navigation.navigate('TripLists', { tripId, tripName: trip?.name });
+  }, [tripId, trip?.name, navigation]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
