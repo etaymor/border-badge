@@ -132,13 +132,23 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
             await storeOnboardingComplete();
           } else {
             // New user - run migration if there's onboarding data
-            const migrationResult = await migrateGuestData(data.session);
-            options?.onMigrationComplete?.(migrationResult);
+            try {
+              const migrationResult = await migrateGuestData(data.session);
+              options?.onMigrationComplete?.(migrationResult);
+            } catch (migrationError) {
+              console.warn('Migration failed for new user:', migrationError);
+              options?.onMigrationComplete?.(undefined as unknown as MigrationResult);
+            }
           }
         } catch {
           // If check fails, try migration anyway (it handles empty data gracefully)
-          const migrationResult = await migrateGuestData(data.session);
-          options?.onMigrationComplete?.(migrationResult);
+          try {
+            const migrationResult = await migrateGuestData(data.session);
+            options?.onMigrationComplete?.(migrationResult);
+          } catch (migrationError) {
+            console.warn('Migration failed after user check error:', migrationError);
+            options?.onMigrationComplete?.(undefined as unknown as MigrationResult);
+          }
         }
 
         // Set session last to trigger navigation
