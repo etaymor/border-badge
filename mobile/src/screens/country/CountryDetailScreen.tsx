@@ -111,8 +111,12 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         {region ? <Text style={styles.countryRegion}>{region}</Text> : null}
       </View>
 
-      {/* Add Trip Button */}
-      <Button title="Add Trip" onPress={handleAddTrip} style={styles.addTripButton} />
+      {/* Add Trip / Plan Trip Button */}
+      <Button
+        title={(trips?.length ?? 0) > 0 ? 'Add New Trip' : 'Plan a Trip'}
+        onPress={handleAddTrip}
+        style={styles.addTripButton}
+      />
 
       {/* Trips Section Header */}
       {(trips?.length ?? 0) > 0 && (
