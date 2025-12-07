@@ -259,11 +259,7 @@ export function PassportScreen({ navigation }: Props) {
     (stamps: CountryDisplayItem[]) => (
       <View style={styles.stampRow}>
         {stamps.map((item) => (
-          <StampCard
-            key={item.code}
-            code={item.code}
-            onPress={() => handleCountryPress(item)}
-          />
+          <StampCard key={item.code} code={item.code} onPress={() => handleCountryPress(item)} />
         ))}
       </View>
     ),
