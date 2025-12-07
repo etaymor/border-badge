@@ -5,12 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import (
     Entry,
     EntryCreate,
+    EntryMediaFile,
     EntryUpdate,
     EntryWithPlace,
     Place,
@@ -31,12 +33,12 @@ async def list_entries(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch entries with embedded places in single query (fixes N+1)
+    # Fetch entries with embedded places and media_files in single query
     entries = await db.get(
         "entry",
         {
             "trip_id": f"eq.{trip_id}",
-            "select": "*, place(*)",
+            "select": "*, place(*), media_files(*)",
             "order": "date.asc.nullslast,created_at.asc",
             "limit": limit,
             "offset": offset,
@@ -47,6 +49,9 @@ async def list_entries(
     for entry_row in entries:
         # Extract embedded place data
         place_data = entry_row.pop("place", None)
+        # Extract embedded media_files data
+        media_data = entry_row.pop("media_files", None)
+
         entry = Entry(**entry_row)
 
         # Parse place if it exists (place is an array from PostgREST)
@@ -54,7 +59,27 @@ async def list_entries(
         if place_data and isinstance(place_data, list) and len(place_data) > 0:
             place = Place(**place_data[0])
 
-        results.append(EntryWithPlace(**entry.model_dump(), place=place))
+        # Parse media_files and build URLs
+        media_files = []
+        if media_data and isinstance(media_data, list):
+            for media in media_data:
+                if media.get("status") == "uploaded":
+                    media_files.append(
+                        EntryMediaFile(
+                            id=media["id"],
+                            url=build_media_url(media["file_path"]),
+                            thumbnail_url=(
+                                build_media_url(media["thumbnail_path"])
+                                if media.get("thumbnail_path")
+                                else None
+                            ),
+                            status=media["status"],
+                        )
+                    )
+
+        results.append(
+            EntryWithPlace(**entry.model_dump(), place=place, media_files=media_files)
+        )
 
     return results
 
