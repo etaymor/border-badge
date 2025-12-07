@@ -14,6 +14,12 @@ import { Button, OTPInput, PhoneInput, ResendTimer } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
+import {
+  formatPhoneForDisplay,
+  RESEND_COOLDOWN_SECONDS,
+  validateOTP,
+  validatePhone,
+} from '@utils/phoneValidation';
 
 type Props = AuthStackScreenProps<'PhoneAuth'>;
 
@@ -31,25 +37,14 @@ export function PhoneAuthScreen({ navigation }: Props) {
 
   const canGoBack = navigation.canGoBack();
 
-  // Validate phone number (basic E.164 validation)
-  const validatePhone = (): boolean => {
-    if (!phone) {
-      setPhoneError('Please enter your phone number');
-      return false;
-    }
-    // E.164 format: + followed by 7-15 digits
-    const e164Regex = /^\+[1-9]\d{6,14}$/;
-    if (!e164Regex.test(phone)) {
-      setPhoneError('Please enter a valid phone number');
-      return false;
-    }
-    setPhoneError('');
-    return true;
-  };
-
   // Handle sending OTP
   const handleSendOTP = () => {
-    if (!validatePhone()) return;
+    const result = validatePhone(phone);
+    if (!result.isValid) {
+      setPhoneError(result.error!);
+      return;
+    }
+    setPhoneError('');
 
     sendOTP.mutate(
       { phone },
@@ -64,8 +59,9 @@ export function PhoneAuthScreen({ navigation }: Props) {
 
   // Handle OTP verification
   const handleVerifyOTP = () => {
-    if (otp.length !== 6) {
-      setOtpError('Please enter the 6-digit code');
+    const result = validateOTP(otp);
+    if (!result.isValid) {
+      setOtpError(result.error!);
       return;
     }
 
@@ -90,15 +86,6 @@ export function PhoneAuthScreen({ navigation }: Props) {
     setStep('phone');
     setOtp('');
     setOtpError('');
-  };
-
-  // Format phone for display
-  const formatPhoneForDisplay = (phoneNumber: string): string => {
-    // Just show the last part of the number for privacy
-    if (phoneNumber.length > 4) {
-      return `${phoneNumber.slice(0, -4).replace(/./g, '*')}${phoneNumber.slice(-4)}`;
-    }
-    return phoneNumber;
   };
 
   return (
@@ -148,7 +135,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 testID="phone-auth-send-button"
               />
 
-              <Text style={styles.helperText}>We'll send you a verification code</Text>
+              <Text style={styles.helperText}>We&apos;ll send you a verification code</Text>
             </View>
           ) : (
             // OTP Entry Step
@@ -180,7 +167,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
               <ResendTimer
                 onResend={handleResendOTP}
                 isResending={sendOTP.isPending}
-                cooldownSeconds={60}
+                cooldownSeconds={RESEND_COOLDOWN_SECONDS}
                 testID="phone-auth-resend"
               />
             </View>

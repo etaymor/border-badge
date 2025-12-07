@@ -39,6 +39,7 @@
     "expo-secure-store": "^15.0.7",
     "expo-sqlite": "~16.0.9",
     "expo-status-bar": "~3.0.8",
+    "libphonenumber-js": "^1.12.31",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",

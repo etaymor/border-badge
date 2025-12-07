@@ -30,13 +30,20 @@ export function ResendTimer({
 
   // Countdown timer
   useEffect(() => {
-    if (secondsLeft <= 0) {
-      setCanResend(true);
-      return;
-    }
+    // Enable resend immediately if starting at or below zero
+    setSecondsLeft((prev) => {
+      if (prev <= 0) {
+        setCanResend(true);
+        return 0;
+      }
+      return prev;
+    });
 
     const timer = setInterval(() => {
       setSecondsLeft((prev) => {
+        if (prev <= 0) {
+          return prev;
+        }
         if (prev <= 1) {
           setCanResend(true);
           return 0;
@@ -46,7 +53,7 @@ export function ResendTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [secondsLeft]);
+  }, []);
 
   // Handle resend press
   const handleResend = useCallback(() => {
@@ -68,7 +75,7 @@ export function ResendTimer({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <Text style={styles.text}>Didn't receive a code?</Text>
+      <Text style={styles.text}>Didn&apos;t receive a code?</Text>
 
       {canResend ? (
         <TouchableOpacity

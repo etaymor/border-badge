@@ -46,34 +46,38 @@ export function OTPInput({
 
   // Handle text change in a cell
   const handleChangeText = (text: string, index: number) => {
-    // If paste detected (multiple characters), handle full OTP paste
-    if (text.length > 1) {
-      const pastedDigits = text.replace(/\D/g, '').slice(0, length);
-      onChangeText(pastedDigits);
-      // Focus last filled cell or end
-      const targetIndex = Math.min(pastedDigits.length, length - 1);
-      inputRefs.current[targetIndex]?.focus();
-      return;
-    }
+    try {
+      // If paste detected (multiple characters), handle full OTP paste
+      if (text.length > 1) {
+        const pastedDigits = text.replace(/\D/g, '').slice(0, length);
+        onChangeText(pastedDigits);
+        // Focus last filled cell or end
+        const targetIndex = Math.min(pastedDigits.length, length - 1);
+        inputRefs.current[targetIndex]?.focus();
+        return;
+      }
 
-    // Single character input
-    const digit = text.replace(/\D/g, ''); // Only digits
+      // Single character input
+      const digit = text.replace(/\D/g, ''); // Only digits
 
-    // Build new value
-    const newDigits = [...digits];
-    // Pad array if needed
-    while (newDigits.length < index) {
-      newDigits.push('');
-    }
-    newDigits[index] = digit;
+      // Build new value
+      const newDigits = [...digits];
+      // Pad array if needed
+      while (newDigits.length < index) {
+        newDigits.push('');
+      }
+      newDigits[index] = digit;
 
-    // Create new OTP string (trim trailing empty strings)
-    const newOtp = newDigits.join('').slice(0, length);
-    onChangeText(newOtp);
+      // Create new OTP string (trim trailing empty strings)
+      const newOtp = newDigits.join('').slice(0, length);
+      onChangeText(newOtp);
 
-    // Move to next cell if digit was entered
-    if (digit && index < length - 1) {
-      inputRefs.current[index + 1]?.focus();
+      // Move to next cell if digit was entered
+      if (digit && index < length - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
+    } catch {
+      // Silently ignore malformed input (e.g., corrupted clipboard data)
     }
   };
 

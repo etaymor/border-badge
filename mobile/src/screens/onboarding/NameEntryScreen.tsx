@@ -50,7 +50,7 @@ export function NameEntryScreen({ navigation }: Props) {
       >
         <View style={styles.content}>
           <Text style={styles.title}>What should we call you?</Text>
-          <Text style={styles.subtitle}>This is how you'll appear in the app</Text>
+          <Text style={styles.subtitle}>This is how you&apos;ll appear in the app</Text>
 
           <Input
             label="Your name"
