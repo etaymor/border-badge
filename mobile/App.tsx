@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useCountriesSync } from '@hooks/useCountriesSync';
@@ -85,13 +86,15 @@ export default function App() {
   }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        <NavigationContainer>
-          <RootNavigator />
-          <StatusBar style="auto" />
-        </NavigationContainer>
-      </SafeAreaProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <SafeAreaProvider>
+          <NavigationContainer>
+            <RootNavigator />
+            <StatusBar style="auto" />
+          </NavigationContainer>
+        </SafeAreaProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

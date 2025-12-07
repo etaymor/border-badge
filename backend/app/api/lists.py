@@ -4,10 +4,9 @@ import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
-from app.core.media import extract_media_urls
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
@@ -18,8 +17,6 @@ from app.schemas.lists import (
     ListEntry,
     ListSummary,
     ListUpdate,
-    PublicListEntry,
-    PublicListView,
 )
 
 logger = logging.getLogger(__name__)
@@ -399,11 +396,30 @@ async def delete_list(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Verify ownership - fetch list and check owner_id matches current user
+    existing = await db.get("list", {"id": f"eq.{list_id}"})
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="List not found",
+        )
+
+    list_data = existing[0]
+    if list_data.get("owner_id") != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this list",
+        )
+
+    # Use service role to bypass RLS for the update since we've verified ownership
+    # This avoids RLS WITH CHECK issues with the user token
+    admin_db = get_supabase_client(user_token=None)
+
     # Soft delete by setting deleted_at timestamp
-    rows = await db.patch(
+    rows = await admin_db.patch(
         "list",
         {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{list_id}", "owner_id": f"eq.{user.id}"},
+        {"id": f"eq.{list_id}"},
     )
 
     if not rows:
@@ -455,71 +471,3 @@ async def restore_list(
     entries = [ListEntry(**row) for row in entry_rows]
 
     return _build_list_detail(lst, entries)
-
-
-# Public endpoint (no auth required)
-@router.get("/public/lists/{slug}", response_model=PublicListView)
-async def get_public_list(
-    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
-) -> PublicListView:
-    """Get a public list by slug (no authentication required)."""
-    db = get_supabase_client()  # No user token - uses service role or anon
-
-    # Fetch list by slug (all lists are public)
-    lists = await db.get(
-        "list",
-        {
-            "slug": f"eq.{slug}",
-            "deleted_at": "is.null",
-            "select": "*, trip:trip_id(name, country:country_id(name))",
-        },
-    )
-
-    if not lists:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="List not found",
-        )
-
-    lst = lists[0]
-
-    # Fetch entries with details including media
-    entry_rows = await db.get(
-        "list_entries",
-        {
-            "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status))",
-            "order": "position.asc",
-        },
-    )
-
-    entries: list[PublicListEntry] = []
-    for row in entry_rows:
-        entry = row.get("entry", {})
-        if entry:
-            place = entry.get("place", {}) if entry.get("place") else {}
-            entries.append(
-                PublicListEntry(
-                    id=entry.get("id"),
-                    title=entry.get("title"),
-                    type=entry.get("type"),
-                    notes=entry.get("notes"),
-                    place_name=place.get("place_name"),
-                    address=place.get("address"),
-                    media_urls=extract_media_urls(entry.get("media_files")),
-                )
-            )
-
-    trip = lst.get("trip", {}) or {}
-    country = trip.get("country", {}) or {}
-
-    return PublicListView(
-        id=lst["id"],
-        name=lst["name"],
-        slug=lst["slug"],
-        description=lst.get("description"),
-        trip_name=trip.get("name"),
-        country_name=country.get("name"),
-        created_at=lst["created_at"],
-        entries=entries,
-    )

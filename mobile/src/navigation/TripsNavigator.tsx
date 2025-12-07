@@ -4,7 +4,7 @@ import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
 import { EntryListScreen, EntryFormScreen } from '@screens/entries';
-import { ListCreateScreen } from '@screens/lists';
+import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
 
 import type { TripsStackParamList } from './types';
 
@@ -57,9 +57,19 @@ export function TripsNavigator() {
         })}
       />
       <Stack.Screen
+        name="TripLists"
+        component={TripListsScreen}
+        options={{ title: 'Shareable Lists' }}
+      />
+      <Stack.Screen
         name="ListCreate"
         component={ListCreateScreen}
         options={{ title: 'Create List' }}
+      />
+      <Stack.Screen
+        name="ListEdit"
+        component={ListEditScreen}
+        options={{ title: 'Edit List' }}
       />
     </Stack.Navigator>
   );
