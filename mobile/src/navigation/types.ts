@@ -12,9 +12,7 @@ export type RootStackParamList = {
 // Auth stack screens
 export type AuthStackParamList = {
   Welcome: undefined;
-  Login: undefined;
-  SignUp: undefined;
-  ForgotPassword: undefined;
+  PhoneAuth: undefined;
 };
 
 // Onboarding stack screens
@@ -25,13 +23,13 @@ export type OnboardingStackParamList = {
   DreamDestination: undefined;
   ContinentIntro: { region: string; regionIndex: number };
   ContinentCountryGrid: { region: string };
+  AntarcticaPrompt: undefined;
   ProgressSummary: undefined;
+  NameEntry: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
-  // Auth screens accessible from onboarding
-  Login: undefined;
-  SignUp: undefined;
-  ForgotPassword: undefined;
+  // Auth screen accessible from onboarding (for returning users)
+  PhoneAuth: undefined;
 };
 
 // Main bottom tab navigator

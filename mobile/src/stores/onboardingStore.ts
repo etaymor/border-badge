@@ -14,6 +14,7 @@ interface OnboardingState {
   dreamDestination: string | null; // Country code (bucket list seed)
   bucketListCountries: string[]; // Countries added to bucket list during onboarding
   visitedContinents: string[]; // Tracks which continents user said "Yes" to
+  displayName: string | null; // User's display name for account creation
 
   // Actions - existing
   setMotivationTags: (tags: string[]) => void;
@@ -31,6 +32,7 @@ interface OnboardingState {
   toggleBucketListCountry: (countryCode: string) => void;
   addVisitedContinent: (region: string) => void;
   removeVisitedContinent: (region: string) => void;
+  setDisplayName: (name: string | null) => void;
 }
 
 const initialState = {
@@ -42,6 +44,7 @@ const initialState = {
   dreamDestination: null as string | null,
   bucketListCountries: [] as string[],
   visitedContinents: [] as string[],
+  displayName: null as string | null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()(
@@ -105,6 +108,8 @@ export const useOnboardingStore = create<OnboardingState>()(
         const current = get().visitedContinents;
         set({ visitedContinents: current.filter((r) => r !== region) });
       },
+
+      setDisplayName: (name) => set({ displayName: name }),
 
       reset: () => set(initialState),
     }),

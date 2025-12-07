@@ -1,6 +1,6 @@
 import { render, screen } from './utils/testUtils';
 
-import { LoginScreen } from '@screens/auth/LoginScreen';
+import { PhoneAuthScreen } from '@screens/auth/PhoneAuthScreen';
 import type { AuthStackScreenProps } from '@navigation/types';
 
 // Mock navigation for individual screen tests
@@ -10,30 +10,30 @@ const mockNavigation = {
   goBack: jest.fn(),
   setOptions: jest.fn(),
   canGoBack: jest.fn().mockReturnValue(false),
-} as unknown as AuthStackScreenProps<'Login'>['navigation'];
+} as unknown as AuthStackScreenProps<'PhoneAuth'>['navigation'];
 
-const mockRoute = {} as AuthStackScreenProps<'Login'>['route'];
+const mockRoute = {} as AuthStackScreenProps<'PhoneAuth'>['route'];
 
-describe('LoginScreen', () => {
+describe('PhoneAuthScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders login title', () => {
-    render(<LoginScreen navigation={mockNavigation} route={mockRoute} />);
+  it('renders welcome back title', () => {
+    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Welcome Back')).toBeTruthy();
+    expect(screen.getByText('Welcome back')).toBeTruthy();
   });
 
-  it('displays sign up link', () => {
-    render(<LoginScreen navigation={mockNavigation} route={mockRoute} />);
+  it('displays phone number input', () => {
+    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText("Don't have an account? Sign up")).toBeTruthy();
+    expect(screen.getByText('Phone Number')).toBeTruthy();
   });
 
-  it('displays forgot password link', () => {
-    render(<LoginScreen navigation={mockNavigation} route={mockRoute} />);
+  it('displays continue button', () => {
+    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Forgot password?')).toBeTruthy();
+    expect(screen.getByText('Continue')).toBeTruthy();
   });
 });

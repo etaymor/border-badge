@@ -17,12 +17,12 @@ const PREMIUM_FEATURES = [
 
 export function PaywallScreen({ navigation }: Props) {
   const handleStartTrial = () => {
-    // Placeholder - just navigate to account creation
-    navigation.navigate('AccountCreation');
+    // Placeholder - just navigate to name entry
+    navigation.navigate('NameEntry');
   };
 
   const handleMaybeLater = () => {
-    navigation.navigate('AccountCreation');
+    navigation.navigate('NameEntry');
   };
 
   return (

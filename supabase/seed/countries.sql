@@ -1,5 +1,5 @@
 -- Seed file for country table
--- 197 countries: 193 UN member states + 2 observers (Vatican, Palestine) + 2 disputed (Kosovo, Taiwan)
+-- 198 countries: 193 UN member states + 2 observers (Vatican, Palestine) + 2 disputed (Kosovo, Taiwan) + 1 territory (Antarctica)
 -- Recognition types: un_member, observer, disputed, territory
 
 INSERT INTO country (code, name, region, recognition) VALUES
@@ -212,4 +212,7 @@ INSERT INTO country (code, name, region, recognition) VALUES
 ('SB', 'Solomon Islands', 'Oceania', 'un_member'),
 ('TO', 'Tonga', 'Oceania', 'un_member'),
 ('TV', 'Tuvalu', 'Oceania', 'un_member'),
-('VU', 'Vanuatu', 'Oceania', 'un_member');
+('VU', 'Vanuatu', 'Oceania', 'un_member'),
+
+-- Antarctica (1 territory)
+('AQ', 'Antarctica', 'Antarctica', 'territory');
