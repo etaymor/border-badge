@@ -18,6 +18,7 @@ import { useOnboardingStore } from '@stores/onboardingStore';
 
 interface SendOTPInput {
   phone: string; // E.164 format: +1234567890
+  displayName?: string; // Optional display name to set in user metadata
 }
 
 interface VerifyOTPInput {
@@ -36,9 +37,10 @@ interface VerifyOTPOptions {
  */
 export function useSendOTP() {
   return useMutation({
-    mutationFn: async ({ phone }: SendOTPInput) => {
+    mutationFn: async ({ phone, displayName }: SendOTPInput) => {
       const { error } = await supabase.auth.signInWithOtp({
         phone,
+        options: displayName ? { data: { display_name: displayName } } : undefined,
       });
       if (error) throw error;
     },
