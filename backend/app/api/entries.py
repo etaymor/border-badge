@@ -5,8 +5,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-logger = logging.getLogger(__name__)
-
 from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
@@ -20,6 +18,8 @@ from app.schemas.entries import (
     EntryWithPlace,
     Place,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
