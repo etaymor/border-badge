@@ -6,6 +6,7 @@ import { Button, Input } from '@components/ui';
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { validateDisplayName } from '@utils/displayNameValidation';
 
 type Props = OnboardingStackScreenProps<'NameEntry'>;
 
@@ -14,29 +15,17 @@ export function NameEntryScreen({ navigation }: Props) {
   const [name, setName] = useState(displayName ?? '');
   const [error, setError] = useState('');
 
-  const validateName = (): boolean => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError('Please enter your name');
-      return false;
-    }
-    if (trimmed.length < 2) {
-      setError('Name must be at least 2 characters');
-      return false;
-    }
-    if (trimmed.length > 50) {
-      setError('Name must be less than 50 characters');
-      return false;
-    }
-    setError('');
-    return true;
-  };
-
   const handleContinue = () => {
-    if (!validateName()) return;
+    const validation = validateDisplayName(name);
 
+    if (!validation.isValid) {
+      setError(validation.error ?? '');
+      return;
+    }
+
+    setError('');
     // Store the display name
-    setDisplayName(name.trim());
+    setDisplayName(validation.trimmedValue);
 
     // Navigate to account creation
     navigation.navigate('AccountCreation');

@@ -11,6 +11,11 @@ import { migrateGuestData, MigrationResult } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  DISPLAY_NAME_MIN_LENGTH,
+  validateDisplayName,
+} from '@utils/displayNameValidation';
 
 // ============================================================================
 // Phone OTP Authentication Hooks
@@ -28,7 +33,7 @@ interface VerifyOTPInput {
 }
 
 interface VerifyOTPOptions {
-  onMigrationComplete?: (result: MigrationResult) => void;
+  onMigrationComplete?: (result: MigrationResult | undefined) => void;
 }
 
 /**
@@ -72,18 +77,31 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       // cases where that didn't work (e.g., returning users, edge cases).
       if (displayName) {
         // Validate display name before sending to database
-        const trimmed = displayName.trim();
-        if (trimmed.length < 2 || trimmed.length > 50) {
-          throw new Error('Display name must be between 2 and 50 characters');
+        const validation = validateDisplayName(displayName);
+        if (!validation.isValid) {
+          throw new Error(validation.error);
         }
 
         // Use database function to update display name (single API call)
         const { error: rpcError } = await supabase.rpc('update_display_name', {
-          new_display_name: trimmed,
+          new_display_name: validation.trimmedValue,
         });
 
         if (rpcError) {
           console.error('Failed to update display name:', rpcError.message);
+
+          // Provide specific error messages based on known error patterns from DB
+          if (rpcError.message.includes('at least 2 characters')) {
+            throw new Error(
+              `Name is too short. Please enter at least ${DISPLAY_NAME_MIN_LENGTH} characters.`
+            );
+          }
+          if (rpcError.message.includes('50 characters')) {
+            throw new Error(
+              `Name is too long. Please use ${DISPLAY_NAME_MAX_LENGTH} characters or less.`
+            );
+          }
+
           throw new Error('Failed to save your name. Please try again.');
         }
       }
@@ -117,7 +135,7 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
               options?.onMigrationComplete?.(migrationResult);
             } catch (migrationError) {
               console.warn('Migration failed for new user:', migrationError);
-              options?.onMigrationComplete?.(undefined as unknown as MigrationResult);
+              options?.onMigrationComplete?.(undefined);
             }
           }
         } catch {
@@ -127,7 +145,7 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
             options?.onMigrationComplete?.(migrationResult);
           } catch (migrationError) {
             console.warn('Migration failed after user check error:', migrationError);
-            options?.onMigrationComplete?.(undefined as unknown as MigrationResult);
+            options?.onMigrationComplete?.(undefined);
           }
         }
 
