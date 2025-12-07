@@ -98,5 +98,6 @@ class PublicListView(BaseModel):
     description: str | None = None
     trip_name: str | None = None
     country_name: str | None = None
+    cover_image_url: str | None = None
     created_at: datetime
     entries: list[PublicListEntry] = []

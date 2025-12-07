@@ -107,7 +107,17 @@ class Entry(BaseModel):
     deleted_at: datetime | None = None
 
 
+class EntryMediaFile(BaseModel):
+    """Media file info for entry responses."""
+
+    id: UUID
+    url: str
+    thumbnail_url: str | None = None
+    status: str
+
+
 class EntryWithPlace(Entry):
-    """Entry with optional nested place data."""
+    """Entry with optional nested place and media data."""
 
     place: Place | None = None
+    media_files: list[EntryMediaFile] = []

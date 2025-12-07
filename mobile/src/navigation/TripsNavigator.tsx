@@ -26,7 +26,7 @@ export function TripsNavigator() {
       <Stack.Screen
         name="TripDetail"
         component={TripDetailScreen}
-        options={{ title: 'Trip Details' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="TripForm"
