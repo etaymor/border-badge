@@ -1,5 +1,6 @@
 """Public web page endpoints (HTML rendering)."""
 
+import html
 import logging
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
@@ -267,7 +268,8 @@ async def sitemap_xml() -> PlainTextResponse:
         },
     )
     for lst in lists:
-        urls.append(f"  <url><loc>{settings.base_url}/l/{lst['slug']}</loc></url>")
+        escaped_slug = html.escape(lst["slug"])
+        urls.append(f"  <url><loc>{settings.base_url}/l/{escaped_slug}</loc></url>")
 
     # Public trips
     trips = await db.get(
@@ -279,9 +281,8 @@ async def sitemap_xml() -> PlainTextResponse:
         },
     )
     for trip in trips:
-        urls.append(
-            f"  <url><loc>{settings.base_url}/t/{trip['share_slug']}</loc></url>"
-        )
+        escaped_slug = html.escape(trip["share_slug"])
+        urls.append(f"  <url><loc>{settings.base_url}/t/{escaped_slug}</loc></url>")
 
     content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

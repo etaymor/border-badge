@@ -73,12 +73,15 @@ async def process_media_thumbnail(media_id: str, file_path: str) -> None:
             content=thumbnail_data,
         )
 
-        if upload_response.status_code not in (200, 201):
+        if upload_response.status_code not in (200, 201, 409):
             logger.error(
                 f"Failed to upload thumbnail {thumbnail_path}: "
                 f"{upload_response.status_code} - {upload_response.text[:200]}"
             )
             return
+
+        if upload_response.status_code == 409:
+            logger.info(f"Thumbnail already exists: {thumbnail_path}")
 
         # 4. Update media_files record with thumbnail_path
         db = get_supabase_client()  # Use service role (no user token)

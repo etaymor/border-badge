@@ -49,10 +49,8 @@ def generate_thumbnail(image_data: bytes, original_extension: str) -> bytes | No
             if image.mode == "P":
                 image = image.convert("RGBA")
             if image.mode in ("RGBA", "LA"):
-                # Paste with alpha mask
-                background.paste(
-                    image, mask=image.split()[-1] if image.mode == "RGBA" else None
-                )
+                # Paste with alpha mask - works for both RGBA and LA
+                background.paste(image, mask=image.split()[-1])
             image = background
         elif image.mode != "RGB":
             image = image.convert("RGB")

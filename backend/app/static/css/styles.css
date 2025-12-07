@@ -152,6 +152,12 @@ img {
   text-decoration: none;
 }
 
+.cta-button:focus,
+.cta-button:focus-visible {
+  outline: 3px solid rgba(232, 121, 59, 0.5);
+  outline-offset: 2px;
+}
+
 .cta-button--header {
   padding: var(--spacing-xs) var(--spacing-md);
   font-size: var(--font-size-sm);
@@ -324,6 +330,25 @@ img {
 .entry-card--clickable:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.entry-card-link:focus,
+.entry-card-link:focus-visible {
+  outline: none;
+}
+
+.entry-card-link:focus .entry-card--clickable,
+.entry-card-link:focus-visible .entry-card--clickable {
+  outline: 3px solid rgba(232, 121, 59, 0.5);
+  outline-offset: 2px;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* General link focus */
+a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* Trip Cover */
