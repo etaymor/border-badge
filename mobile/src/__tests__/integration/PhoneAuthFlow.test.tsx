@@ -24,8 +24,8 @@ const mockedMigrateGuestData = migrateGuestData as jest.MockedFunction<typeof mi
 // Helper to mock supabase auth methods (avoids type issues with jest mocks)
 const mockSignInWithOtp = jest.fn();
 const mockVerifyOtp = jest.fn();
-const mockUpdateUser = jest.fn();
 const mockSupabaseFrom = supabase.from as jest.Mock;
+const mockSupabaseRpc = supabase.rpc as jest.Mock;
 
 // Mock guestMigration service
 jest.mock('@services/guestMigration', () => ({
@@ -80,7 +80,6 @@ describe('Phone Auth Flow Integration', () => {
     Object.assign(supabase.auth, {
       signInWithOtp: mockSignInWithOtp,
       verifyOtp: mockVerifyOtp,
-      updateUser: mockUpdateUser,
     });
   });
 
@@ -302,14 +301,15 @@ describe('Phone Auth Flow Integration', () => {
         data: { session: mockSession, user: mockSession.user },
         error: null,
       });
-      mockUpdateUser.mockResolvedValue({ error: null });
+
+      // Mock RPC call for update_display_name
+      mockSupabaseRpc.mockResolvedValue({ error: null });
 
       // Mock user_countries (new user)
       mockSupabaseFrom.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         limit: jest.fn().mockResolvedValue({ data: [], error: null }),
-        update: jest.fn().mockReturnThis(),
       });
 
       const { result } = renderHook(() => useVerifyOTP(), {
@@ -322,9 +322,9 @@ describe('Phone Auth Flow Integration', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      // Verify updateUser was called with display name
-      expect(mockUpdateUser).toHaveBeenCalledWith({
-        data: { display_name: displayName },
+      // Verify RPC was called with display name
+      expect(mockSupabaseRpc).toHaveBeenCalledWith('update_display_name', {
+        new_display_name: displayName,
       });
     });
   });

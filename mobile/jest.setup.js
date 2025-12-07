@@ -86,6 +86,7 @@ jest.mock('@services/supabase', () => ({
       eq: jest.fn().mockReturnThis(),
       order: jest.fn().mockResolvedValue({ data: [], error: null }),
     }),
+    rpc: jest.fn().mockResolvedValue({ error: null }),
   },
 }));
 
