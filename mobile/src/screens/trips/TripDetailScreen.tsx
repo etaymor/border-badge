@@ -46,6 +46,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
+  const [coverImageError, setCoverImageError] = useState(false);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
@@ -53,7 +54,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
 
-  const hasCoverPhoto = !!trip?.cover_image_url;
+  const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
 
   const handleAddEntry = useCallback(() => {
     navigation.navigate('EntryForm', { tripId });
@@ -144,7 +145,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
       {hasCoverPhoto ? (
         // WITH COVER PHOTO - Hero Section
         <View style={styles.heroContainer}>
-          <Image source={{ uri: trip.cover_image_url! }} style={styles.coverImage} />
+          <Image
+            source={{ uri: trip.cover_image_url! }}
+            style={styles.coverImage}
+            onError={() => setCoverImageError(true)}
+          />
 
           {/* Gradient overlay */}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.gradient} />

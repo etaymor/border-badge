@@ -1,8 +1,11 @@
 """Entry endpoints."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+
+logger = logging.getLogger(__name__)
 
 from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
@@ -64,10 +67,19 @@ async def list_entries(
         if media_data and isinstance(media_data, list):
             for media in media_data:
                 if media.get("status") != "uploaded":
+                    logger.debug(
+                        "Skipping media file %s: status=%s (expected 'uploaded')",
+                        media.get("id"),
+                        media.get("status"),
+                    )
                     continue
 
                 file_path = media.get("file_path")
                 if not file_path:
+                    logger.debug(
+                        "Skipping media file %s: missing file_path",
+                        media.get("id"),
+                    )
                     continue
 
                 thumbnail_path = media.get("thumbnail_path")
