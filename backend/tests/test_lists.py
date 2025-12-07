@@ -112,7 +112,7 @@ def test_create_list_success(
         app.dependency_overrides.clear()
 
 
-def test_create_list_always_public(
+def test_create_list_generates_slug(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
@@ -121,7 +121,7 @@ def test_create_list_always_public(
     sample_entry: dict[str, Any],
     sample_list_entry: dict[str, Any],
 ) -> None:
-    """Ensure new lists are forced to public visibility."""
+    """Ensure new lists get a slug for public access."""
     mock_supabase_client.get.side_effect = [
         [sample_trip],
         [sample_entry],
@@ -132,9 +132,8 @@ def test_create_list_always_public(
                 "id": str(TEST_LIST_ID),
                 "trip_id": str(TEST_TRIP_ID),
                 "owner_id": TEST_USER_ID,
-                "name": "Always Public List",
-                "slug": "always-public-list",
-                "is_public": False,  # Simulate DB default; API should override to true
+                "name": "My List",
+                "slug": "my-list-abc123",
                 "description": None,
                 "created_at": "2024-01-01T00:00:00+00:00",
                 "updated_at": "2024-01-01T00:00:00+00:00",
@@ -152,17 +151,14 @@ def test_create_list_always_public(
                 f"/trips/{TEST_TRIP_ID}/lists",
                 headers=auth_headers,
                 json={
-                    "name": "Always Public List",
+                    "name": "My List",
                     "entry_ids": [TEST_ENTRY_ID],
                 },
             )
 
         assert response.status_code == 201
-        # First call is to the list table, second is entries
-        list_payload = mock_supabase_client.post.call_args_list[0].args[1]
-        assert list_payload["is_public"] is True
-        # Response should reflect public visibility regardless of DB default
-        assert response.json()["is_public"] is True
+        # Response should have a slug for public access
+        assert response.json()["slug"] == "my-list-abc123"
     finally:
         app.dependency_overrides.clear()
 
@@ -243,7 +239,6 @@ def test_delete_list_success(
             "owner_id": TEST_USER_ID,
             "name": "Test List",
             "slug": "test-list",
-            "is_public": True,
             "created_at": "2024-01-01T00:00:00+00:00",
             "updated_at": "2024-01-01T00:00:00+00:00",
             "deleted_at": "2024-01-01T00:00:00+00:00",
@@ -336,12 +331,12 @@ def test_get_public_list_success(
     assert data["trip_name"] == "Summer Vacation"
 
 
-def test_get_public_list_not_found_when_private(
+def test_get_public_list_not_found(
     client: TestClient,
     mock_supabase_client: AsyncMock,
 ) -> None:
-    """Test that private lists return 404 on public endpoint."""
-    # Return empty list (simulating either not found or is_public=false filter)
+    """Test that non-existent lists return 404 on public endpoint."""
+    # Return empty list (simulating not found)
     mock_supabase_client.get.return_value = []
 
     with patch("app.api.lists.get_supabase_client", return_value=mock_supabase_client):
@@ -356,30 +351,32 @@ def test_get_public_list_not_found_when_private(
 # ============================================================================
 
 
-def test_get_list_unauthorized_returns_404(
+def test_get_list_accessible_by_any_user(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that non-owner cannot view private list."""
+    """Test that any authenticated user can view any list (all lists are public)."""
     # Create a mock user different from the list owner
     other_user = AuthUser(
         user_id=OTHER_USER_ID,
         email="other@example.com",
     )
-    # Private list owned by someone else
-    private_list = {
+    # List owned by someone else - still accessible since all lists are public
+    other_users_list = {
         "id": TEST_LIST_ID,
         "trip_id": TEST_TRIP_ID,
         "owner_id": TEST_USER_ID,  # Different from other_user
-        "name": "Private List",
-        "slug": "private-list-123",
+        "name": "Someone's List",
+        "slug": "someones-list-123",
         "description": None,
-        "is_public": False,  # Private
         "created_at": "2024-01-01T00:00:00Z",
         "updated_at": "2024-01-01T00:00:00Z",
     }
-    mock_supabase_client.get.return_value = [private_list]
+    mock_supabase_client.get.side_effect = [
+        [other_users_list],  # List fetch
+        [],  # Entries fetch (empty)
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(other_user)
     try:
@@ -390,8 +387,9 @@ def test_get_list_unauthorized_returns_404(
                 f"/lists/{TEST_LIST_ID}",
                 headers=auth_headers,
             )
-        assert response.status_code == 404
-        assert "not found" in response.json()["detail"].lower()
+        # All lists are public, so any authenticated user can view
+        assert response.status_code == 200
+        assert response.json()["name"] == "Someone's List"
     finally:
         app.dependency_overrides.clear()
 

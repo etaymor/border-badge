@@ -36,7 +36,6 @@ def _build_list_detail(lst: dict, entries: list[ListEntry]) -> ListDetail:
         name=lst["name"],
         slug=lst["slug"],
         description=lst.get("description"),
-        is_public=lst["is_public"],
         created_at=lst["created_at"],
         updated_at=lst["updated_at"],
         entries=entries,
@@ -87,7 +86,6 @@ async def list_trip_lists(
                 name=lst["name"],
                 slug=lst["slug"],
                 description=lst.get("description"),
-                is_public=lst["is_public"],
                 entry_count=entry_count,
                 created_at=lst["created_at"],
                 updated_at=lst["updated_at"],
@@ -149,8 +147,6 @@ async def create_list(
         "owner_id": user.id,
         "name": data.name,
         "description": data.description,
-        # Lists are always public going forward
-        "is_public": True,
     }
 
     rows = await db.post("list", list_data)
@@ -161,8 +157,6 @@ async def create_list(
         )
 
     lst = rows[0]
-    # Enforce public visibility in response even if DB default differs
-    lst["is_public"] = True
     entries: list[ListEntry] = []
 
     # Add entries to list using bulk insert for atomicity and performance
@@ -211,13 +205,7 @@ async def get_list(
 
     lst = lists[0]
 
-    # Authorization: only owner or public lists can be viewed
-    if lst["owner_id"] != user.id and not lst["is_public"]:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="List not found",
-        )
-
+    # All lists are public, so any authenticated user can view
     # Fetch entries
     entry_rows = await db.get(
         "list_entries",
@@ -245,8 +233,6 @@ async def update_list(
     db = get_supabase_client(user_token=token)
 
     update_data = data.model_dump(exclude_unset=True)
-    # Force lists to stay public even if callers try to pass the field
-    update_data.pop("is_public", None)
     if not update_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -479,12 +465,12 @@ async def get_public_list(
     """Get a public list by slug (no authentication required)."""
     db = get_supabase_client()  # No user token - uses service role or anon
 
-    # Fetch list by slug
+    # Fetch list by slug (all lists are public)
     lists = await db.get(
         "list",
         {
             "slug": f"eq.{slug}",
-            "is_public": "eq.true",
+            "deleted_at": "is.null",
             "select": "*, trip:trip_id(name, country:country_id(name))",
         },
     )

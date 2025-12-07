@@ -456,10 +456,9 @@ describe('ListCreateFlow Integration', () => {
   // ============ Public Visibility Tests ============
 
   describe('Public Visibility', () => {
-    it('creates lists that are always public without sending a visibility flag', async () => {
+    it('creates lists with a slug for public access', async () => {
       const mockResponse = createMockListDetail({
         id: 'new-list',
-        is_public: true,
         slug: 'my-public-list',
       });
       mockedApi.post.mockResolvedValueOnce({ data: mockResponse });
@@ -481,7 +480,7 @@ describe('ListCreateFlow Integration', () => {
       expect(mockedApi.post).toHaveBeenCalledWith('/trips/trip-123/lists', {
         name: 'Public List',
       });
-      expect(createdList?.is_public).toBe(true);
+      // All lists are public and have a slug for sharing
       expect(createdList?.slug).toBeDefined();
     });
   });

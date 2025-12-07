@@ -21,7 +21,6 @@ export interface ListSummary {
   name: string;
   slug: string;
   description: string | null;
-  is_public: boolean;
   entry_count: number;
   created_at: string;
   updated_at: string;
