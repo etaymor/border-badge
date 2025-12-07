@@ -1,6 +1,5 @@
 """Entry endpoints."""
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -222,14 +221,12 @@ async def delete_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Soft delete by setting deleted_at timestamp
-    rows = await db.patch(
-        "entry",
-        {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{entry_id}"},
-    )
+    # Atomic soft delete using SECURITY DEFINER function
+    # This verifies trip ownership and sets deleted_at in a single operation
+    result = await db.rpc("soft_delete_entry", {"p_entry_id": str(entry_id)})
 
-    if not rows:
+    # RPC returns boolean: True if deleted, False if not found/not authorized
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Entry not found or not authorized",

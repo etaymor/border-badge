@@ -213,6 +213,8 @@ export function PlacesAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<TextInput>(null);
+  // Track when a selection was just made to prevent dropdown from reopening on focus
+  const hasSelectedRef = useRef(false);
 
   // Clear selection
   const handleClear = useCallback(() => {
@@ -221,6 +223,7 @@ export function PlacesAutocomplete({
     setShowDropdown(false);
     setShowManualEntry(false);
     setError(null);
+    hasSelectedRef.current = false;
     onSelect(null);
   }, [onSelect]);
 
@@ -229,6 +232,8 @@ export function PlacesAutocomplete({
     (text: string) => {
       setQuery(text);
       setError(null);
+      // User is typing, so clear the selection state to allow dropdown to show
+      hasSelectedRef.current = false;
 
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
@@ -248,8 +253,8 @@ export function PlacesAutocomplete({
         setIsLoading(true);
         try {
           const results = await searchPlaces(text, countryCode, abortControllerRef.current.signal);
-          // Only update if this request wasn't aborted
-          if (!abortControllerRef.current.signal.aborted) {
+          // Only update if this request wasn't aborted and user hasn't selected a place
+          if (!abortControllerRef.current.signal.aborted && !hasSelectedRef.current) {
             setPredictions(results);
             setShowDropdown(true);
           }
@@ -277,6 +282,8 @@ export function PlacesAutocomplete({
   // Handle prediction selection
   const handleSelectPrediction = useCallback(
     async (prediction: Prediction) => {
+      // Mark that we've selected to prevent dropdown from reopening
+      hasSelectedRef.current = true;
       // Immediately hide dropdown and clear predictions BEFORE any async work
       setShowDropdown(false);
       setPredictions([]);
@@ -350,6 +357,7 @@ export function PlacesAutocomplete({
       longitude: null,
     };
 
+    hasSelectedRef.current = true;
     setQuery(manualName.trim());
     setShowManualEntry(false);
     onSelect(selectedPlace);
@@ -371,6 +379,8 @@ export function PlacesAutocomplete({
     if (value?.name !== query) {
       setQuery(value?.name ?? '');
     }
+    // Sync hasSelectedRef with value prop
+    hasSelectedRef.current = !!value;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value?.name]);
 
@@ -429,7 +439,8 @@ export function PlacesAutocomplete({
           onChangeText={handleTextChange}
           onFocus={() => {
             // Only show dropdown if we have predictions AND no place is currently selected
-            if (query.length > 0 && predictions.length > 0 && !value) {
+            // Also check hasSelectedRef to prevent reopening immediately after selection
+            if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
               setShowDropdown(true);
             }
           }}

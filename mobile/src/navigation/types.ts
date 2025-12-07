@@ -65,7 +65,9 @@ export type TripsStackParamList = {
   EntryList: { tripId: string; tripName?: string };
   EntryDetail: { entryId: string };
   EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };
+  TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
+  ListEdit: { listId: string; tripId: string; tripName?: string };
 };
 
 // Screen props helpers

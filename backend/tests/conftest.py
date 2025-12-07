@@ -137,7 +137,6 @@ def sample_list() -> dict[str, Any]:
         "name": "Best Places to Visit",
         "slug": "best-places-to-visit-abc123",
         "description": "My favorite spots",
-        "is_public": True,
         "created_at": "2024-01-01T00:00:00Z",
         "updated_at": "2024-01-01T00:00:00Z",
     }
