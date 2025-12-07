@@ -145,7 +145,7 @@ export function PhoneInput({
 
   // getItemLayout for instant scroll calculations
   const getItemLayout = useCallback(
-    (_: CountryDialCode[] | null, index: number) => ({
+    (_: ArrayLike<CountryDialCode> | null | undefined, index: number) => ({
       length: COUNTRY_ROW_HEIGHT,
       offset: COUNTRY_ROW_HEIGHT * index,
       index,
