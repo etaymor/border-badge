@@ -270,7 +270,6 @@ export function ListEditScreen({ route, navigation }: Props) {
     selectedEntryIds,
     updateList,
     updateListEntries,
-    navigation,
   ]);
 
   // Render entry item

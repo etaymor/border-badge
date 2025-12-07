@@ -1,9 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountryCard, VisitedCountryCard } from '@components/ui';
+import { CountryCard, PassportSkeleton, VisitedCountryCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
@@ -71,6 +79,24 @@ export function PassportScreen({ navigation }: Props) {
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
+
+  const isLoading = loadingUserCountries || loadingCountries;
+
+  // Fade-in animation for content
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isLoading) {
+      fadeAnim.setValue(0); // Reset so fade-in can replay on subsequent loads
+      return;
+    }
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [isLoading, fadeAnim]);
 
   // Compute visited and wishlist countries
   const { visitedCountries, wishlistCountries } = useMemo(() => {
@@ -353,34 +379,32 @@ export function PassportScreen({ navigation }: Props) {
     [stats, searchQuery]
   );
 
-  const isLoading = loadingUserCountries || loadingCountries;
-
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
+        <PassportSkeleton />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
-      <FlatList
-        data={flatListData}
-        renderItem={renderItem}
-        keyExtractor={getItemKey}
-        ListHeaderComponent={ListHeader}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        windowSize={5}
-        initialNumToRender={10}
-      />
+      <Animated.View style={[styles.animatedContainer, { opacity: fadeAnim }]}>
+        <FlatList
+          data={flatListData}
+          renderItem={renderItem}
+          keyExtractor={getItemKey}
+          ListHeaderComponent={ListHeader}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+        />
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -390,14 +414,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  loadingContainer: {
+  animatedContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: colors.textSecondary,
   },
   listContent: {
     paddingBottom: 24,

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,10 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, OTPInput, PhoneInput, ResendTimer } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
-import type { OnboardingStackScreenProps } from '@navigation/types';
-import { storeOnboardingComplete } from '@services/api';
-import { useAuthStore } from '@stores/authStore';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import type { AuthStackScreenProps } from '@navigation/types';
 import {
   formatPhoneForDisplay,
   RESEND_COOLDOWN_SECONDS,
@@ -25,11 +21,11 @@ import {
   validatePhone,
 } from '@utils/phoneValidation';
 
-type Props = OnboardingStackScreenProps<'AccountCreation'>;
+type Props = AuthStackScreenProps<'PhoneAuth'>;
 
 type AuthStep = 'phone' | 'otp';
 
-export function AccountCreationScreen({ navigation }: Props) {
+export function PhoneAuthScreen({ navigation }: Props) {
   const [step, setStep] = useState<AuthStep>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -37,31 +33,10 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [otpError, setOtpError] = useState('');
   const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
 
-  const { setHasCompletedOnboarding } = useAuthStore();
-  const { homeCountry, displayName } = useOnboardingStore();
-
   const sendOTP = useSendOTP();
-  const verifyOTP = useVerifyOTP({
-    onMigrationComplete: (result) => {
-      if (!result) {
-        // Migration failed entirely - keep onboarding state for retry
-        Alert.alert('Migration failed', 'Your data could not be migrated. Please try again.');
-        return;
-      }
+  const verifyOTP = useVerifyOTP();
 
-      if (result.success) {
-        setHasCompletedOnboarding(true);
-        storeOnboardingComplete();
-      } else {
-        // Keep onboarding state intact so user can retry migration
-        const message =
-          result.errors.length > 0
-            ? result.errors.join('\n')
-            : 'Some data could not be migrated. Please try again.';
-        Alert.alert('Migration incomplete', message);
-      }
-    },
-  });
+  const canGoBack = navigation.canGoBack();
 
   // Handle sending OTP
   const handleSendOTP = () => {
@@ -73,7 +48,7 @@ export function AccountCreationScreen({ navigation }: Props) {
     setPhoneError('');
 
     sendOTP.mutate(
-      { phone, displayName: displayName ?? undefined },
+      { phone },
       {
         onSuccess: () => {
           setOtpSentAt(Date.now());
@@ -92,9 +67,8 @@ export function AccountCreationScreen({ navigation }: Props) {
       return;
     }
 
-    // Pass display name from onboarding store
     verifyOTP.mutate(
-      { phone, token: otp, displayName: displayName ?? undefined },
+      { phone, token: otp },
       {
         onError: () => {
           setOtp('');
@@ -107,7 +81,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   // Handle resend OTP
   const handleResendOTP = () => {
     sendOTP.mutate(
-      { phone, displayName: displayName ?? undefined },
+      { phone },
       {
         onSuccess: () => {
           setOtpSentAt(Date.now());
@@ -126,17 +100,15 @@ export function AccountCreationScreen({ navigation }: Props) {
     setOtpSentAt(undefined);
   };
 
-  // Handle navigation to login for existing users
-  const handleAlreadyHaveAccount = () => {
-    navigation.navigate('PhoneAuth');
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* Back button for OTP step */}
-      {step === 'otp' && (
-        <TouchableOpacity onPress={handleBackToPhone} style={styles.backButton}>
-          <Text style={styles.backText}>Change number</Text>
+      {/* Back button */}
+      {(canGoBack || step === 'otp') && (
+        <TouchableOpacity
+          onPress={step === 'otp' ? handleBackToPhone : () => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Text style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
         </TouchableOpacity>
       )}
 
@@ -151,10 +123,8 @@ export function AccountCreationScreen({ navigation }: Props) {
           {step === 'phone' ? (
             // Phone Entry Step
             <View style={styles.content}>
-              <Text style={styles.title}>Save your passport.</Text>
-              <Text style={styles.subtitle}>
-                Create an account to sync your travel data across devices and unlock all features.
-              </Text>
+              <Text style={styles.title}>Welcome back</Text>
+              <Text style={styles.subtitle}>Enter your phone number to sign in</Text>
 
               <PhoneInput
                 value={phone}
@@ -162,12 +132,11 @@ export function AccountCreationScreen({ navigation }: Props) {
                   setPhone(value);
                   if (phoneError) setPhoneError('');
                 }}
-                defaultCountryCode={homeCountry}
                 label="Phone Number"
                 placeholder="Enter your number"
                 error={phoneError}
                 containerStyle={styles.input}
-                testID="account-creation-phone"
+                testID="phone-auth-input"
               />
 
               <Button
@@ -175,14 +144,10 @@ export function AccountCreationScreen({ navigation }: Props) {
                 onPress={handleSendOTP}
                 loading={sendOTP.isPending}
                 style={styles.button}
-                testID="account-creation-send-button"
+                testID="phone-auth-send-button"
               />
 
               <Text style={styles.helperText}>We&apos;ll send you a verification code</Text>
-
-              <TouchableOpacity onPress={handleAlreadyHaveAccount} style={styles.loginLink}>
-                <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
-              </TouchableOpacity>
             </View>
           ) : (
             // OTP Entry Step
@@ -199,16 +164,16 @@ export function AccountCreationScreen({ navigation }: Props) {
                   }}
                   error={otpError}
                   autoFocus
-                  testID="account-creation-otp"
+                  testID="phone-auth-otp"
                 />
               </View>
 
               <Button
-                title="Create Account"
+                title="Verify"
                 onPress={handleVerifyOTP}
                 loading={verifyOTP.isPending}
                 style={styles.button}
-                testID="account-creation-verify-button"
+                testID="phone-auth-verify-button"
               />
 
               <ResendTimer
@@ -216,7 +181,7 @@ export function AccountCreationScreen({ navigation }: Props) {
                 isResending={sendOTP.isPending}
                 cooldownSeconds={RESEND_COOLDOWN_SECONDS}
                 startTime={otpSentAt}
-                testID="account-creation-resend"
+                testID="phone-auth-resend"
               />
             </View>
           )}
@@ -250,8 +215,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 24,
+    paddingTop: 24,
   },
   title: {
     fontSize: 28,
@@ -263,7 +227,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     marginBottom: 32,
-    lineHeight: 22,
   },
   input: {
     marginBottom: 16,
@@ -279,15 +242,5 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     textAlign: 'center',
     marginTop: 16,
-  },
-  loginLink: {
-    marginTop: 24,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  loginLinkText: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '500',
   },
 });

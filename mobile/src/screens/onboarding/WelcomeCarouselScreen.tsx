@@ -61,7 +61,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Login');
+    navigation.navigate('PhoneAuth');
   };
 
   const onViewableItemsChanged = useCallback(
