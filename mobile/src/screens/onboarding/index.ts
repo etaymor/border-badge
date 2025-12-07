@@ -1,9 +1,11 @@
 export { AccountCreationScreen } from './AccountCreationScreen';
+export { AntarcticaPromptScreen } from './AntarcticaPromptScreen';
 export { ContinentCountryGridScreen } from './ContinentCountryGridScreen';
 export { ContinentIntroScreen } from './ContinentIntroScreen';
 export { DreamDestinationScreen } from './DreamDestinationScreen';
 export { HomeCountryScreen } from './HomeCountryScreen';
 export { MotivationScreen } from './MotivationScreen';
+export { NameEntryScreen } from './NameEntryScreen';
 export { PaywallScreen } from './PaywallScreen';
 export { ProgressSummaryScreen } from './ProgressSummaryScreen';
 export { WelcomeCarouselScreen } from './WelcomeCarouselScreen';

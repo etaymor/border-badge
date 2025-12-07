@@ -8,7 +8,7 @@ import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
-const TOTAL_COUNTRIES = 197;
+const TOTAL_COUNTRIES = 198; // 197 countries + Antarctica
 
 // Helper to get flag emoji from country code
 function getFlagEmoji(countryCode: string): string {

@@ -18,14 +18,14 @@ export function WelcomeScreen({ navigation }: Props) {
         <View style={styles.buttonContainer}>
           <Button
             title="Get Started"
-            onPress={() => navigation.navigate('SignUp')}
+            onPress={() => navigation.navigate('PhoneAuth')}
             style={styles.button}
             testID="welcome-get-started-button"
           />
 
           <Button
             title="I have an account"
-            onPress={() => navigation.navigate('Login')}
+            onPress={() => navigation.navigate('PhoneAuth')}
             variant="outline"
             style={styles.button}
             testID="welcome-login-button"
