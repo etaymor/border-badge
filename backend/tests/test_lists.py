@@ -299,58 +299,6 @@ def test_create_list_rejects_invalid_entry_ids(
         app.dependency_overrides.clear()
 
 
-# ============================================================================
-# Public Access
-# ============================================================================
-
-
-def test_get_public_list_success(
-    client: TestClient,
-    mock_supabase_client: AsyncMock,
-    sample_list: dict[str, Any],
-) -> None:
-    """Test public list is accessible by slug without auth."""
-    # Add trip data for the public view
-    list_with_trip = {
-        **sample_list,
-        "trip": {"name": "Summer Vacation", "country": {"name": "United States"}},
-    }
-    mock_supabase_client.get.side_effect = [
-        [list_with_trip],  # List by slug
-        [],  # Entries (empty for simplicity)
-    ]
-
-    # No auth override - this is a public endpoint
-    with patch("app.api.lists.get_supabase_client", return_value=mock_supabase_client):
-        response = client.get("/public/lists/best-places-to-visit-abc123")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Best Places to Visit"
-    assert data["slug"] == "best-places-to-visit-abc123"
-    assert data["trip_name"] == "Summer Vacation"
-
-
-def test_get_public_list_not_found(
-    client: TestClient,
-    mock_supabase_client: AsyncMock,
-) -> None:
-    """Test that non-existent lists return 404 on public endpoint."""
-    # Return empty list (simulating not found)
-    mock_supabase_client.get.return_value = []
-
-    with patch("app.api.lists.get_supabase_client", return_value=mock_supabase_client):
-        response = client.get("/public/lists/nonexistent-slug")
-
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
-
-
-# ============================================================================
-# Authorization & Validation
-# ============================================================================
-
-
 def test_get_list_accessible_by_any_user(
     client: TestClient,
     mock_supabase_client: AsyncMock,
@@ -392,22 +340,6 @@ def test_get_list_accessible_by_any_user(
         assert response.json()["name"] == "Someone's List"
     finally:
         app.dependency_overrides.clear()
-
-
-def test_get_public_list_invalid_slug_returns_422(
-    client: TestClient,
-) -> None:
-    """Test that invalid slug format returns 422."""
-    # Invalid slugs: uppercase, spaces, special characters
-    invalid_slugs = [
-        "UPPERCASE",
-        "has spaces",
-        "special@chars!",
-        "under_score",
-    ]
-    for slug in invalid_slugs:
-        response = client.get(f"/public/lists/{slug}")
-        assert response.status_code == 422, f"Expected 422 for slug: {slug}"
 
 
 # ============================================================================

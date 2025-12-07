@@ -15,6 +15,7 @@ import type { TripsStackScreenProps } from '@navigation/types';
 import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
 import { useEntries } from '@hooks/useEntries';
 import { useCountryByCode } from '@hooks/useCountries';
+import { useTripLists } from '@hooks/useLists';
 import { ConfirmDialog, Snackbar } from '@components/ui';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
@@ -75,6 +76,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
+  const { data: lists } = useTripLists(tripId);
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
 
@@ -120,6 +122,14 @@ export function TripDetailScreen({ route, navigation }: Props) {
     // Navigate back after snackbar dismisses (either by timeout or user action)
     navigation.goBack();
   }, [navigation]);
+
+  const handleSharePress = useCallback(() => {
+    if (lists && lists.length > 0) {
+      navigation.navigate('TripLists', { tripId, tripName: trip?.name });
+    } else {
+      navigation.navigate('ListCreate', { tripId, tripName: trip?.name });
+    }
+  }, [lists, tripId, trip?.name, navigation]);
 
   if (tripLoading) {
     return (
@@ -251,7 +261,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
         {/* Create Shareable List */}
         <Pressable
           style={styles.actionButton}
-          onPress={() => navigation.navigate('ListCreate', { tripId, tripName: trip.name })}
+          onPress={handleSharePress}
           testID="create-list-button"
         >
           <View style={styles.actionButtonContent}>

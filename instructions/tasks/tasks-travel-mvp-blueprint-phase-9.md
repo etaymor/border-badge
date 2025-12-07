@@ -15,6 +15,9 @@
 - `docs/travel-mvp-blueprint.md` - Phase 9 blueprint (`§12.5 Phase 9 – Shared Lists & Public Web Views`) driving requirements.
 - `backend/app/db/session.py` - Supabase client for REST/RPC operations used by API routes.
 - `backend/tests/test_db_session.py` - Tests covering Supabase client header setup and RPC helper behavior.
+- `backend/app/api/lists.py` - Authenticated list endpoints; legacy public JSON route removed.
+- `backend/app/api/__init__.py` - Router assembly and ordering to expose public routes before authenticated APIs.
+- `backend/tests/test_lists.py` - Tests for list CRUD and validation; cleaned up legacy public endpoint coverage.
 
 ### Notes
 
@@ -101,9 +104,11 @@
 - [x] 6.0 Fix Supabase RPC support for trip sharing
   - [x] 6.1 Add `SupabaseClient.rpc` helper and tests to support slug generation
   - [x] 6.2 Add entry RLS policy to allow viewing entries from shared trips
-- [ ] 7.0 Fix public trip entry fetch and display accuracy
+- [x] 7.0 Fix public trip entry fetch and display accuracy
   - [x] 7.1 Verify current public trip entry limit/count behavior
   - [x] 7.2 Update public trip entry query to return all needed entries (or detect overflow)
   - [x] 7.3 Update trip template to display all entries and accurate messaging
   - [x] 7.4 Add test coverage for trips exceeding the previous limit
   - [x] 7.5 Run formatting and test suite for regressions
+- [x] 8.0 Remove legacy public list JSON endpoint in favor of HTML public views
+  - [x] 8.1 Delete `/public/lists/{slug}` JSON route, update router comments, and drop redundant tests
