@@ -19,7 +19,11 @@ const mockNavigation = {
   }),
 } as unknown as PassportStackScreenProps<'CountryDetail'>['navigation'];
 
-const createMockRoute = (params: { countryId: string; countryName?: string; countryCode?: string }) =>
+const createMockRoute = (params: {
+  countryId: string;
+  countryName?: string;
+  countryCode?: string;
+}) =>
   ({
     key: 'test',
     name: 'CountryDetail',
