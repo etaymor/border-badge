@@ -67,45 +67,48 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       });
       if (error) throw error;
 
-      // If a display name is provided, persist it with a timeout.
-      // We wait for this to complete (up to 5s) but don't fail auth if it times out.
+      // If a display name is provided, persist it as a fallback.
+      // The primary mechanism is via signInWithOtp options.data, but this handles
+      // cases where that didn't work (e.g., returning users, edge cases).
       const userId = data.session?.user.id ?? data.user?.id;
       if (displayName && userId) {
-        const updateDisplayName = async () => {
+        try {
           // Update auth metadata
-          const metadataPromise = (async () => {
-            try {
-              const { error } = await supabase.auth.updateUser({
-                data: { display_name: displayName },
-              });
-              if (error) console.warn('Failed to update user metadata:', error.message);
-            } catch (err) {
-              console.warn('Display name metadata update rejected:', err);
-            }
-          })();
+          const metadataPromise = supabase.auth.updateUser({
+            data: { display_name: displayName },
+          });
 
           // Update user_profile table
-          const profilePromise = (async () => {
-            try {
-              const { error } = await supabase
-                .from('user_profile')
-                .update({ display_name: displayName })
-                .eq('user_id', userId);
-              if (error) console.warn('Failed to update user profile:', error.message);
-            } catch (err) {
-              console.warn('Display name profile update rejected:', err);
-            }
-          })();
+          const profilePromise = supabase
+            .from('user_profile')
+            .update({ display_name: displayName })
+            .eq('user_id', userId);
 
-          // Wait for both with a timeout
-          await Promise.race([
-            Promise.all([metadataPromise, profilePromise]),
-            new Promise((resolve) => setTimeout(resolve, 5000)), // 5s timeout
+          const [metadataResult, profileResult] = await Promise.all([
+            metadataPromise,
+            profilePromise,
           ]);
-        };
 
-        // Await but don't fail if it times out
-        await updateDisplayName();
+          // Check for errors in either update
+          if (metadataResult.error || profileResult.error) {
+            console.warn('Display name update errors:', {
+              metadata: metadataResult.error?.message,
+              profile: profileResult.error?.message,
+            });
+            Alert.alert(
+              'Profile Update',
+              'Your account was created but your name may need updating. Please check your profile settings.',
+              [{ text: 'OK' }]
+            );
+          }
+        } catch (error) {
+          console.warn('Display name update failed:', error);
+          Alert.alert(
+            'Profile Update',
+            'Your account was created but your name may need updating. Please check your profile settings.',
+            [{ text: 'OK' }]
+          );
+        }
       }
 
       return data;
