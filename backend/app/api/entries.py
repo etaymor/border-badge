@@ -63,19 +63,25 @@ async def list_entries(
         media_files = []
         if media_data and isinstance(media_data, list):
             for media in media_data:
-                if media.get("status") == "uploaded":
-                    media_files.append(
-                        EntryMediaFile(
-                            id=media["id"],
-                            url=build_media_url(media["file_path"]),
-                            thumbnail_url=(
-                                build_media_url(media["thumbnail_path"])
-                                if media.get("thumbnail_path")
-                                else None
-                            ),
-                            status=media["status"],
-                        )
+                if media.get("status") != "uploaded":
+                    continue
+
+                file_path = media.get("file_path")
+                if not file_path:
+                    continue
+
+                thumbnail_path = media.get("thumbnail_path")
+
+                media_files.append(
+                    EntryMediaFile(
+                        id=media["id"],
+                        url=build_media_url(file_path),
+                        thumbnail_url=(
+                            build_media_url(thumbnail_path) if thumbnail_path else None
+                        ),
+                        status=media["status"],
                     )
+                )
 
         results.append(
             EntryWithPlace(**entry.model_dump(), place=place, media_files=media_files)
