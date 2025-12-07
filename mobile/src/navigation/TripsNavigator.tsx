@@ -1,3 +1,5 @@
+import { Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
@@ -9,6 +11,15 @@ import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/list
 import type { TripsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<TripsStackParamList>();
+
+// Custom back button component for consistent behavior
+function BackButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8} style={{ marginLeft: -8 }}>
+      <Ionicons name="chevron-back" size={28} color="#007AFF" />
+    </Pressable>
+  );
+}
 
 // Placeholder for EntryDetail screen (deferred to later phase)
 function EntryDetailPlaceholder() {
@@ -26,17 +37,15 @@ export function TripsNavigator() {
       <Stack.Screen
         name="TripDetail"
         component={TripDetailScreen}
-        options={{ headerShown: false, headerBackTitle: ' ' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="TripForm"
         component={TripFormScreen}
-        options={() => ({
+        options={({ navigation }) => ({
           title: '',
-          presentation: 'card',
-          headerBackVisible: true,
-          headerBackTitle: ' ',
           headerShadowVisible: false,
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         })}
       />
       <Stack.Screen
@@ -54,37 +63,37 @@ export function TripsNavigator() {
       <Stack.Screen
         name="EntryForm"
         component={EntryFormScreen}
-        options={() => ({
+        options={({ navigation }) => ({
           title: '',
-          headerBackTitle: ' ',
           headerShadowVisible: false,
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         })}
       />
       <Stack.Screen
         name="TripLists"
         component={TripListsScreen}
-        options={() => ({
+        options={({ navigation }) => ({
           title: '',
-          headerBackTitle: ' ',
           headerShadowVisible: false,
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         })}
       />
       <Stack.Screen
         name="ListCreate"
         component={ListCreateScreen}
-        options={() => ({
+        options={({ navigation }) => ({
           title: '',
-          headerBackTitle: ' ',
           headerShadowVisible: false,
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         })}
       />
       <Stack.Screen
         name="ListEdit"
         component={ListEditScreen}
-        options={() => ({
+        options={({ navigation }) => ({
           title: '',
-          headerBackTitle: ' ',
           headerShadowVisible: false,
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         })}
       />
     </Stack.Navigator>
