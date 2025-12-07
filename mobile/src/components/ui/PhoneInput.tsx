@@ -94,7 +94,9 @@ export function PhoneInput({
       }
     }
 
-    // No matching dial code found - just set the number as-is without dial code
+    // No matching dial code found - reset to default (or US) to avoid flag mismatch
+    const fallbackCountry = getCountryByCode(defaultCountryCode ?? null);
+    setSelectedCountry(fallbackCountry);
     setLocalNumber(value.replace(/^\+/, ''));
   }, [value, defaultCountryCode]);
 

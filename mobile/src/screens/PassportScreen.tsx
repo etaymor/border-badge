@@ -86,13 +86,16 @@ export function PassportScreen({ navigation }: Props) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!isLoading) {
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+    if (isLoading) {
+      fadeAnim.setValue(0); // Reset so fade-in can replay on subsequent loads
+      return;
     }
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   }, [isLoading, fadeAnim]);
 
   // Compute visited and wishlist countries
