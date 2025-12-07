@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -42,7 +43,6 @@ function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
 export function TripDetailScreen({ route, navigation }: Props) {
   const { tripId } = route.params;
   const insets = useSafeAreaInsets();
-  const [_isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
@@ -77,7 +77,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const handleConfirmDelete = useCallback(async () => {
     setShowDeleteConfirm(false);
-    setIsDeleting(true);
     try {
       await deleteTrip.mutateAsync(tripId);
       setDeletedTripId(tripId);
@@ -86,7 +85,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
       const message =
         error instanceof Error ? error.message : 'Failed to delete trip. Please try again.';
       Alert.alert('Error', message);
-      setIsDeleting(false);
     }
   }, [deleteTrip, tripId]);
 
@@ -96,7 +94,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
       try {
         await restoreTrip.mutateAsync(deletedTripId);
         setDeletedTripId(null);
-        setIsDeleting(false);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to restore trip. Please try again.';
@@ -216,11 +213,21 @@ export function TripDetailScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.entriesListContent}
           ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={6}
         />
       )}
 
       {/* Floating Add Entry Button */}
-      <Pressable style={styles.fab} onPress={handleAddEntry} testID="fab-add-entry">
+      <Pressable
+        style={styles.fab}
+        onPress={handleAddEntry}
+        testID="fab-add-entry"
+        accessibilityLabel="Add new entry"
+        accessibilityRole="button"
+      >
         <Ionicons name="add" size={24} color="#fff" />
         <Text style={styles.fabText}>Add Entry</Text>
       </Pressable>

@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useMemo } from 'react';
+import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { EntryType } from '@navigation/types';
@@ -23,21 +23,29 @@ interface EntryGridCardProps {
 
 const CARD_GAP = 12;
 const HORIZONTAL_PADDING = 16;
-const screenWidth = Dimensions.get('window').width;
-const cardWidth = (screenWidth - HORIZONTAL_PADDING * 2 - CARD_GAP) / 2;
 
 function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
-  const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
-  const hasMedia = entry.media_files && entry.media_files.length > 0;
-  const firstMediaUrl =
-    hasMedia && entry.media_files?.[0]?.thumbnail_url
-      ? entry.media_files[0].thumbnail_url
-      : entry.media_files?.[0]?.url;
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = useMemo(
+    () => (screenWidth - HORIZONTAL_PADDING * 2 - CARD_GAP) / 2,
+    [screenWidth]
+  );
+
+  const typeConfig =
+    ENTRY_TYPE_CONFIG[entry.entry_type as keyof typeof ENTRY_TYPE_CONFIG] ??
+    ENTRY_TYPE_CONFIG.place;
+  const firstMedia = entry.media_files?.[0];
+  const firstMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
 
   return (
-    <Pressable style={styles.container} onPress={onPress}>
+    <Pressable
+      style={[styles.container, { width: cardWidth }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${entry.title}, ${typeConfig.label}`}
+    >
       {/* Image or Icon Placeholder */}
-      <View style={styles.imageContainer}>
+      <View style={[styles.imageContainer, { height: cardWidth }]}>
         {firstMediaUrl ? (
           <Image source={{ uri: firstMediaUrl }} style={styles.image} />
         ) : (
@@ -73,7 +81,6 @@ export const EntryGridCard = memo(EntryGridCardComponent);
 
 const styles = StyleSheet.create({
   container: {
-    width: cardWidth,
     backgroundColor: '#fff',
     borderRadius: 12,
     overflow: 'hidden',
@@ -85,7 +92,6 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: '100%',
-    height: cardWidth, // Square aspect ratio
     position: 'relative',
   },
   image: {
