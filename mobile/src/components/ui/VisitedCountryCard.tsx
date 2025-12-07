@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
+import { getStampImage } from '../../assets/stampImages';
 
 export interface VisitedCountryCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
@@ -28,6 +29,7 @@ export const VisitedCountryCard = React.memo(function VisitedCountryCard({
   testID,
 }: VisitedCountryCardProps) {
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
+  const stampImage = useMemo(() => getStampImage(code), [code]);
 
   return (
     <TouchableOpacity
@@ -38,8 +40,12 @@ export const VisitedCountryCard = React.memo(function VisitedCountryCard({
       accessibilityLabel={`${name}, tap to view details`}
       testID={testID || `visited-country-card-${code}`}
     >
-      <View style={styles.flagContainer}>
-        <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+      <View style={styles.stampContainer}>
+        {stampImage ? (
+          <Image source={stampImage} style={styles.stampImage} resizeMode="cover" />
+        ) : (
+          <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+        )}
       </View>
       <View style={styles.countryInfo}>
         <Text style={styles.countryName} numberOfLines={1}>
@@ -62,7 +68,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 8,
   },
-  flagContainer: {
+  stampContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -70,6 +76,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  stampImage: {
+    width: 48,
+    height: 48,
   },
   flagEmoji: {
     fontSize: 24,

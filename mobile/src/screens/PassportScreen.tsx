@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountryCard, PassportSkeleton, VisitedCountryCard } from '@components/ui';
+import { CountryCard, PassportSkeleton, StampCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
@@ -35,7 +35,7 @@ interface UnvisitedCountry {
 
 type ListItem =
   | { type: 'section-header'; title: string; key: string }
-  | { type: 'visited-country'; data: CountryDisplayItem; key: string }
+  | { type: 'stamp-row'; data: CountryDisplayItem[]; key: string }
   | { type: 'unvisited-country'; data: UnvisitedCountry; key: string }
   | { type: 'empty-state'; key: string };
 
@@ -195,10 +195,12 @@ export function PassportScreen({ navigation }: Props) {
       items.push({ type: 'empty-state', key: 'empty-state' });
     }
 
-    // Add visited countries
-    displayItems.forEach((item) => {
-      items.push({ type: 'visited-country', data: item, key: `visited-${item.code}` });
-    });
+    // Add visited countries as stamp rows (2 per row)
+    for (let i = 0; i < displayItems.length; i += 2) {
+      const rowItems = displayItems.slice(i, i + 2);
+      const rowKey = rowItems.map((item) => item.code).join('-');
+      items.push({ type: 'stamp-row', data: rowItems, key: `stamps-${rowKey}` });
+    }
 
     // Add explore section only when there are unvisited countries to show
     if (unvisitedCountries.length > 0) {
@@ -253,14 +255,17 @@ export function PassportScreen({ navigation }: Props) {
     [addUserCountry, removeUserCountry, wishlistCountries]
   );
 
-  const renderVisitedCountryItem = useCallback(
-    (item: CountryDisplayItem) => (
-      <VisitedCountryCard
-        code={item.code}
-        name={item.name}
-        region={item.region}
-        onPress={() => handleCountryPress(item)}
-      />
+  const renderStampRow = useCallback(
+    (stamps: CountryDisplayItem[]) => (
+      <View style={styles.stampRow}>
+        {stamps.map((item) => (
+          <StampCard
+            key={item.code}
+            code={item.code}
+            onPress={() => handleCountryPress(item)}
+          />
+        ))}
+      </View>
     ),
     [handleCountryPress]
   );
@@ -290,8 +295,8 @@ export function PassportScreen({ navigation }: Props) {
       switch (item.type) {
         case 'section-header':
           return <Text style={styles.sectionTitle}>{item.title}</Text>;
-        case 'visited-country':
-          return renderVisitedCountryItem(item.data);
+        case 'stamp-row':
+          return renderStampRow(item.data);
         case 'unvisited-country':
           return renderUnvisitedCountryItem(item.data);
         case 'empty-state':
@@ -308,7 +313,7 @@ export function PassportScreen({ navigation }: Props) {
           return null;
       }
     },
-    [renderVisitedCountryItem, renderUnvisitedCountryItem]
+    [renderStampRow, renderUnvisitedCountryItem]
   );
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);
@@ -555,6 +560,13 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 12,
     fontStyle: 'italic',
+  },
+  // Stamp Row (2-up grid)
+  stampRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+    marginBottom: 8,
   },
   // Country Card Wrapper
   countryCardWrapper: {

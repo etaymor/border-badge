@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   GestureResponderEvent,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
+import { getCountryImage } from '../../assets/countryImages';
 
 export interface CountryCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
@@ -51,6 +53,7 @@ export const CountryCard = React.memo(function CountryCard({
   testID,
 }: CountryCardProps) {
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
+  const countryImage = useMemo(() => getCountryImage(code), [code]);
   const heartScale = useRef(new Animated.Value(1)).current;
 
   // Cleanup: stop any running animation on unmount
@@ -106,10 +109,14 @@ export const CountryCard = React.memo(function CountryCard({
       accessibilityLabel={`${name}, tap to view details`}
       testID={testID || `country-card-${code}`}
     >
-      {/* Image Placeholder */}
-      <View style={styles.imagePlaceholder}>
-        <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
-      </View>
+      {/* Country Image or Placeholder */}
+      {countryImage ? (
+        <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
+      ) : (
+        <View style={styles.imagePlaceholder}>
+          <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
+        </View>
+      )}
 
       {/* Flag Badge - Top Left */}
       <View style={styles.flagContainer}>
@@ -176,6 +183,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSecondary,
     height: 200,
     position: 'relative',
+  },
+  countryImage: {
+    width: '100%',
+    height: '100%',
   },
   imagePlaceholder: {
     width: '100%',
