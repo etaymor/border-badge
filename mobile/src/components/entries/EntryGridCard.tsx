@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -26,6 +26,7 @@ const HORIZONTAL_PADDING = 16;
 
 function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
   const { width: screenWidth } = useWindowDimensions();
+  const [imageError, setImageError] = useState(false);
   const cardWidth = useMemo(
     () => (screenWidth - HORIZONTAL_PADDING * 2 - CARD_GAP) / 2,
     [screenWidth]
@@ -36,6 +37,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
     ENTRY_TYPE_CONFIG.place;
   const firstMedia = entry.media_files?.[0];
   const firstMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
+  const hasValidImage = firstMediaUrl && !imageError;
 
   return (
     <Pressable
@@ -46,8 +48,12 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
     >
       {/* Image or Icon Placeholder */}
       <View style={[styles.imageContainer, { height: cardWidth }]}>
-        {firstMediaUrl ? (
-          <Image source={{ uri: firstMediaUrl }} style={styles.image} />
+        {hasValidImage ? (
+          <Image
+            source={{ uri: firstMediaUrl }}
+            style={styles.image}
+            onError={() => setImageError(true)}
+          />
         ) : (
           <View style={[styles.iconPlaceholder, { backgroundColor: typeConfig.color + '20' }]}>
             <Ionicons name={typeConfig.icon} size={32} color={typeConfig.color} />
