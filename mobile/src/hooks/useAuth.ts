@@ -70,26 +70,34 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       // to block the entire auth flow.
       const userId = data.session?.user.id ?? data.user?.id;
       if (displayName && userId) {
-        try {
-          const { error: metadataError } = await supabase.auth.updateUser({
-            data: { display_name: displayName },
-          });
-          if (metadataError) {
-            console.warn('Failed to update user metadata:', metadataError.message);
+        const updateDisplayName = async () => {
+          try {
+            const { error: metadataError } = await supabase.auth.updateUser({
+              data: { display_name: displayName },
+            });
+            if (metadataError) {
+              console.warn('Failed to update user metadata:', metadataError.message);
+            }
+          } catch (error) {
+            console.warn('Display name metadata update rejected:', error);
           }
 
-          const { error: profileError } = await supabase
-            .from('user_profile')
-            .update({ display_name: displayName })
-            .eq('user_id', userId);
+          try {
+            const { error: profileError } = await supabase
+              .from('user_profile')
+              .update({ display_name: displayName })
+              .eq('user_id', userId);
 
-          if (profileError) {
-            console.warn('Failed to update user profile:', profileError.message);
+            if (profileError) {
+              console.warn('Failed to update user profile:', profileError.message);
+            }
+          } catch (error) {
+            console.warn('Display name profile update rejected:', error);
           }
-        } catch (error) {
-          console.warn('Display name update failed:', error);
-          // Non-blocking - session is still valid
-        }
+        };
+
+        // Run asynchronously so auth/session flow is non-blocking
+        void updateDisplayName();
       }
 
       return data;
