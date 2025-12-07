@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, Text, View, Pressable } from 'react-native';
 
 import { useSignOut } from '@hooks/useAuth';
+import { useProfile } from '@hooks/useProfile';
 import { useAuthStore } from '@stores/authStore';
 import type { MainTabScreenProps } from '@navigation/types';
 
@@ -8,18 +9,26 @@ type Props = MainTabScreenProps<'Profile'>;
 
 export function ProfileScreen(_props: Props) {
   const { session } = useAuthStore();
+  const { data: profile, isLoading: profileLoading } = useProfile();
   const signOut = useSignOut();
 
   const handleSignOut = () => {
     signOut.mutate();
   };
 
+  // Show display name, fall back to phone number, then "Not signed in"
+  const displayText = profile?.display_name || session?.user.phone || 'Not signed in';
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Profile</Text>
-      <Text style={styles.subtitle} testID="profile-email">
-        {session?.user.email || 'Not signed in'}
-      </Text>
+      {profileLoading ? (
+        <ActivityIndicator size="small" color="#666" />
+      ) : (
+        <Text style={styles.subtitle} testID="profile-display-name">
+          {displayText}
+        </Text>
+      )}
       <Pressable onPress={handleSignOut} disabled={signOut.isPending} testID="sign-out-button">
         {signOut.isPending ? (
           <ActivityIndicator size="small" color="#FF3B30" />

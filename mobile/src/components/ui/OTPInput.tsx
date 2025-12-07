@@ -84,18 +84,21 @@ export function OTPInput({
     }
   };
 
-  // Handle backspace
+  // Handle backspace - use value prop directly to avoid stale closure issues
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>, index: number) => {
     if (e.nativeEvent.key === 'Backspace') {
-      if (!digits[index] && index > 0) {
+      // Get fresh digits from current value prop to avoid stale state
+      const currentDigits = value.split('').slice(0, length);
+
+      if (!currentDigits[index] && index > 0) {
         // Current cell is empty, move to previous cell and clear it
-        const newDigits = [...digits];
+        const newDigits = [...currentDigits];
         newDigits[index - 1] = '';
         onChangeText(newDigits.join(''));
         inputRefs.current[index - 1]?.focus();
       } else {
         // Clear current cell
-        const newDigits = [...digits];
+        const newDigits = [...currentDigits];
         newDigits[index] = '';
         onChangeText(newDigits.join(''));
       }

@@ -93,8 +93,11 @@ export function PhoneAuthScreen({ navigation }: Props) {
   // Handle back to phone entry
   const handleBackToPhone = () => {
     setStep('phone');
+    setPhone('');
+    setPhoneError('');
     setOtp('');
     setOtpError('');
+    setOtpSentAt(undefined);
   };
 
   return (

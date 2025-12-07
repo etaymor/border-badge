@@ -19,7 +19,7 @@ import {
   storeOnboardingComplete,
   clearOnboardingComplete,
 } from '@services/api';
-import { migrateGuestData } from '@services/guestMigration';
+import { migrateGuestData, type MigrationResult } from '@services/guestMigration';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { createTestQueryClient } from '../utils/testUtils';
@@ -44,7 +44,12 @@ const mockSupabaseFrom = supabase.from as jest.Mock;
 
 // Mock guestMigration service
 jest.mock('@services/guestMigration', () => ({
-  migrateGuestData: jest.fn().mockResolvedValue({ success: true, countriesCount: 0 }),
+  migrateGuestData: jest.fn().mockResolvedValue({
+    success: true,
+    migratedCountries: 0,
+    migratedProfile: false,
+    errors: [],
+  }),
 }));
 
 // Mock API service functions that aren't in jest.setup.js
@@ -322,7 +327,12 @@ describe('useAuth', () => {
     });
 
     it('calls onMigrationComplete callback after migration', async () => {
-      const migrationResult = { success: true, countriesCount: 5 };
+      const migrationResult: MigrationResult = {
+        success: true,
+        migratedCountries: 5,
+        migratedProfile: true,
+        errors: [],
+      };
       mockedMigrateGuestData.mockResolvedValue(migrationResult);
 
       mockVerifyOtp.mockResolvedValue({

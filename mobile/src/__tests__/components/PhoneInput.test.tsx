@@ -152,4 +152,72 @@ describe('PhoneInput', () => {
       expect(screen.getByText('Invalid phone number')).toBeTruthy();
     });
   });
+
+  describe('controlled component behavior', () => {
+    it('syncs internal state when value prop changes externally', () => {
+      const onChangeText = jest.fn();
+      const { rerender } = render(
+        <PhoneInput value="" onChangeText={onChangeText} testID="phone" />
+      );
+
+      // Initially empty
+      const input = screen.getByTestId('phone');
+      expect(input.props.value).toBe('');
+
+      // Simulate external value change (e.g., from form state restoration)
+      rerender(<PhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />);
+
+      // The input should now display the formatted local number
+      // Note: formatForDisplay adds spaces, so "5551234567" becomes "555 123 4567"
+      expect(input.props.value).toBe('555 123 4567');
+      // Dial code should be US (+1)
+      expect(screen.getByText('+1')).toBeTruthy();
+    });
+
+    it('correctly parses UK number from value prop', () => {
+      const onChangeText = jest.fn();
+      render(<PhoneInput value="+447911123456" onChangeText={onChangeText} testID="phone" />);
+
+      // Should detect UK country code and display correctly
+      expect(screen.getByText('+44')).toBeTruthy();
+      const input = screen.getByTestId('phone');
+      // formatForDisplay uses US pattern: "791 112 3456"
+      expect(input.props.value).toBe('791 112 3456');
+    });
+
+    it('uses defaultCountryCode as tiebreaker for ambiguous dial codes', () => {
+      const onChangeText = jest.fn();
+      // +1 could be US or Canada - defaultCountryCode should be used
+      render(
+        <PhoneInput
+          value="+15551234567"
+          onChangeText={onChangeText}
+          defaultCountryCode="CA"
+          testID="phone"
+        />
+      );
+
+      // Should show Canada as selected (because defaultCountryCode is CA)
+      expect(screen.getByText('+1')).toBeTruthy();
+      // The flag mock shows [CA] for Canada
+      expect(screen.getByText('[CA]')).toBeTruthy();
+    });
+
+    it('clears internal state when value prop is cleared', () => {
+      const onChangeText = jest.fn();
+      const { rerender } = render(
+        <PhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />
+      );
+
+      // Input should have value
+      const input = screen.getByTestId('phone');
+      expect(input.props.value).toBe('555 123 4567');
+
+      // Clear the value prop
+      rerender(<PhoneInput value="" onChangeText={onChangeText} testID="phone" />);
+
+      // Input should be empty
+      expect(input.props.value).toBe('');
+    });
+  });
 });
