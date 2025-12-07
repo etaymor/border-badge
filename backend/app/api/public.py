@@ -60,7 +60,7 @@ async def view_public_list(
         {
             "slug": f"eq.{slug}",
             "deleted_at": "is.null",
-            "select": "*, trip:trip_id(name, country:country_id(name))",
+            "select": "*, trip:trip_id(name, cover_image_url, country:country_id(name))",
         },
     )
 
@@ -115,6 +115,7 @@ async def view_public_list(
         description=lst.get("description"),
         trip_name=trip.get("name"),
         country_name=country.get("name"),
+        cover_image_url=trip.get("cover_image_url"),
         created_at=lst["created_at"],
         entries=entries,
     )
@@ -125,6 +126,7 @@ async def view_public_list(
         description=list_view.description,
         country_name=list_view.country_name,
         base_url=settings.base_url,
+        cover_image_url=list_view.cover_image_url,
     )
 
     response = templates.TemplateResponse(
@@ -136,6 +138,7 @@ async def view_public_list(
             "og_title": seo.og_title,
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,
+            "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
         },
     )

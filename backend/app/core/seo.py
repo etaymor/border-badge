@@ -34,6 +34,7 @@ def build_list_seo(
     description: str | None,
     country_name: str | None,
     base_url: str,
+    cover_image_url: str | None = None,
 ) -> SEOContext:
     """Build SEO context for a public list page."""
     title = f"{list_name} - Border Badge"
@@ -47,6 +48,7 @@ def build_list_seo(
         canonical_url=f"{base_url}/l/{list_slug}",
         og_title=list_name,
         og_description=meta_description[:200],
+        og_image=cover_image_url,
         og_type="article",
     )
 

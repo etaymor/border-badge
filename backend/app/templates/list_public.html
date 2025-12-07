@@ -4,6 +4,10 @@
 {% block description %}{{ list.description or 'A public travel list on Border Badge' }}{% endblock %}
 
 {% block content %}
+{% if list.cover_image_url %}
+<img src="{{ list.cover_image_url }}" alt="{{ list.name }}" class="trip-cover">
+{% endif %}
+
 <section class="page-header">
     <h1 class="page-title">{{ list.name }}</h1>
     {% if list.description %}
