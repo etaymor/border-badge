@@ -1,7 +1,6 @@
 """Shareable list endpoints."""
 
 import logging
-from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -356,18 +355,23 @@ async def update_list_entries(
             },
         )
 
-    # Update positions for existing entries that remain
+    # Update positions for existing entries that remain (batch upsert for performance)
     if data.entry_ids:
-        for position, entry_id in enumerate(data.entry_ids):
-            if str(entry_id) not in entries_to_add:
-                await db.patch(
-                    "list_entries",
-                    {"position": position},
-                    {
-                        "list_id": f"eq.{list_id}",
-                        "entry_id": f"eq.{entry_id}",
-                    },
-                )
+        position_updates = [
+            {
+                "list_id": str(list_id),
+                "entry_id": str(entry_id),
+                "position": position,
+            }
+            for position, entry_id in enumerate(data.entry_ids)
+            if str(entry_id) not in entries_to_add
+        ]
+        if position_updates:
+            await db.upsert(
+                "list_entries",
+                position_updates,
+                on_conflict="list_id,entry_id",
+            )
 
     # Fetch final state
     final_entry_rows = await db.get(
@@ -396,33 +400,12 @@ async def delete_list(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Verify ownership - fetch list and check owner_id matches current user
-    existing = await db.get("list", {"id": f"eq.{list_id}"})
-    if not existing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="List not found",
-        )
+    # Atomic soft delete using SECURITY DEFINER function
+    # This verifies ownership and sets deleted_at in a single operation
+    result = await db.rpc("soft_delete_list", {"p_list_id": str(list_id)})
 
-    list_data = existing[0]
-    if list_data.get("owner_id") != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this list",
-        )
-
-    # Use service role to bypass RLS for the update since we've verified ownership
-    # This avoids RLS WITH CHECK issues with the user token
-    admin_db = get_supabase_client(user_token=None)
-
-    # Soft delete by setting deleted_at timestamp
-    rows = await admin_db.patch(
-        "list",
-        {"deleted_at": datetime.now(UTC).isoformat()},
-        {"id": f"eq.{list_id}"},
-    )
-
-    if not rows:
+    # RPC returns boolean: True if deleted, False if not found/not authorized
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="List not found or not authorized",

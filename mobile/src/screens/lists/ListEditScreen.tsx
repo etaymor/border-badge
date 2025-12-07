@@ -22,6 +22,7 @@ import {
   useUpdateList,
   useUpdateListEntries,
   getPublicListUrl,
+  ListDetail,
 } from '@hooks/useLists';
 
 type Props = TripsStackScreenProps<'ListEdit'>;
@@ -55,6 +56,70 @@ function EntrySelectionItem({ entry, selected, onToggle }: EntrySelectionItemPro
   );
 }
 
+interface SuccessViewProps {
+  list: ListDetail;
+  onDone: () => void;
+}
+
+function SuccessView({ list, onDone }: SuccessViewProps) {
+  const shareUrl = getPublicListUrl(list.slug);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    await Clipboard.setStringAsync(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [shareUrl]);
+
+  const handleShare = useCallback(async () => {
+    try {
+      await Share.share({
+        message: `Check out my list "${list.name}": ${shareUrl}`,
+        url: shareUrl,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  }, [list.name, shareUrl]);
+
+  return (
+    <View style={styles.successContainer}>
+      <View style={styles.successIcon}>
+        <Ionicons name="checkmark-circle" size={64} color="#34C759" />
+      </View>
+      <Text style={styles.successTitle}>List Updated!</Text>
+      <Text style={styles.successSubtitle}>
+        Anyone with the link can view &quot;{list.name}&quot;
+      </Text>
+
+      {/* Share URL */}
+      <View style={styles.successUrlContainer}>
+        <Text style={styles.successUrlLabel}>Public link</Text>
+        <View style={styles.successUrlBox}>
+          <Text style={styles.successUrlText} numberOfLines={1}>
+            {shareUrl}
+          </Text>
+          <Pressable style={styles.successCopyButton} onPress={handleCopy}>
+            <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={20} color="#007AFF" />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Actions */}
+      <View style={styles.successActions}>
+        <Pressable style={styles.successShareButton} onPress={handleShare}>
+          <Ionicons name="share-outline" size={20} color="#fff" />
+          <Text style={styles.successShareButtonText}>Share</Text>
+        </Pressable>
+
+        <Pressable style={styles.successDoneButton} onPress={onDone}>
+          <Text style={styles.successDoneButtonText}>Done</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export function ListEditScreen({ route, navigation }: Props) {
   const { listId, tripId } = route.params;
 
@@ -70,6 +135,7 @@ export function ListEditScreen({ route, navigation }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Initialize form with list data
   useEffect(() => {
@@ -188,8 +254,8 @@ export function ListEditScreen({ route, navigation }: Props) {
         });
       }
 
-      // Navigate back to trip detail (pop twice: ListEdit -> TripLists -> TripDetail)
-      navigation.pop(2);
+      // Show success view with share URL
+      setShowSuccess(true);
     } catch {
       Alert.alert('Error', 'Failed to update list. Please try again.');
     } finally {
@@ -218,6 +284,23 @@ export function ListEditScreen({ route, navigation }: Props) {
     ),
     [selectedEntryIds, toggleEntry]
   );
+
+  // Handle done from success view
+  const handleDone = useCallback(() => {
+    // Navigate back to trip detail (pop twice: ListEdit -> TripLists -> TripDetail)
+    navigation.pop(2);
+  }, [navigation]);
+
+  // Show success view after update
+  if (showSuccess && list) {
+    // Create an updated list object with the new name for display
+    const updatedList: ListDetail = {
+      ...list,
+      name: name.trim(),
+      description: description.trim() || null,
+    };
+    return <SuccessView list={updatedList} onDone={handleDone} />;
+  }
 
   if (listLoading) {
     return (
@@ -258,7 +341,11 @@ export function ListEditScreen({ route, navigation }: Props) {
                   {shareUrl}
                 </Text>
                 <Pressable style={styles.copyButton} onPress={handleCopy}>
-                  <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={18} color="#007AFF" />
+                  <Ionicons
+                    name={copied ? 'checkmark' : 'copy-outline'}
+                    size={18}
+                    color="#007AFF"
+                  />
                 </Pressable>
                 <Pressable style={styles.shareIconButton} onPress={handleShare}>
                   <Ionicons name="share-outline" size={18} color="#007AFF" />
@@ -598,5 +685,90 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Success view styles
+  successContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  successIcon: {
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  successSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  successUrlContainer: {
+    width: '100%',
+    marginBottom: 32,
+  },
+  successUrlLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  successUrlBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  successUrlText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#007AFF',
+    marginRight: 8,
+  },
+  successCopyButton: {
+    padding: 4,
+  },
+  successActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  successShareButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF',
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+  },
+  successShareButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  successDoneButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 14,
+    borderRadius: 10,
+  },
+  successDoneButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
 });

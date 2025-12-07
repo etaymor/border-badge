@@ -74,9 +74,7 @@ class SupabaseClient:
         try:
             error_body = e.response.json()
             error_detail = error_body.get("message", e.response.text[:200])
-            logger.error(
-                f"Supabase HTTP error {e.response.status_code}: {error_body}"
-            )
+            logger.error(f"Supabase HTTP error {e.response.status_code}: {error_body}")
         except Exception:
             error_detail = e.response.text[:200] if e.response.text else "Unknown error"
             logger.error(
