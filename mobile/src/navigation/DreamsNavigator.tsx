@@ -18,9 +18,12 @@ export function DreamsNavigator() {
       <Stack.Screen
         name="CountryDetail"
         component={CountryDetailScreen}
-        options={({ route }) => ({
-          title: route.params.countryName || 'Country',
-        })}
+        options={{
+          title: '',
+          headerBackButtonDisplayMode: 'minimal',
+          headerTransparent: true,
+          headerTintColor: '#fff',
+        }}
       />
     </Stack.Navigator>
   );

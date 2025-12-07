@@ -16,5 +16,6 @@ export { ResendTimer } from './ResendTimer';
 export { Screen } from './Screen';
 export { SearchInput } from './SearchInput';
 export { Snackbar } from './Snackbar';
+export { StampCard } from './StampCard';
 export { Text } from './Text';
 export { VisitedCountryCard } from './VisitedCountryCard';
