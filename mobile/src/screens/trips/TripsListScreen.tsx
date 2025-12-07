@@ -137,9 +137,7 @@ export function TripsListScreen({ navigation }: Props) {
     const plannedTrips: Trip[] = [];
 
     trips.forEach((trip) => {
-      // Use country_code if available, otherwise fall back to country_id
-      const countryCode = trip.country_code || trip.country_id;
-      if (visitedCountryCodes.has(countryCode)) {
+      if (visitedCountryCodes.has(trip.country_code)) {
         visitedTrips.push(trip);
       } else {
         plannedTrips.push(trip);
@@ -228,6 +226,10 @@ export function TripsListScreen({ navigation }: Props) {
         }
         ItemSeparatorComponent={ItemSeparator}
         stickySectionHeadersEnabled={false}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
         testID="trips-list"
       />
 
