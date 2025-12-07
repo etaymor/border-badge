@@ -437,7 +437,17 @@ async def generate_share_link(
             detail="Failed to generate share link",
         )
 
-    share_slug = result
+    # Validate result type - RPC may return string directly or wrapped in list
+    if isinstance(result, list) and len(result) > 0:
+        share_slug = result[0] if isinstance(result[0], str) else str(result[0])
+    elif isinstance(result, str):
+        share_slug = result
+    else:
+        logger.error(f"Unexpected RPC result type: {type(result)} - {result}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate share link",
+        )
 
     # Update the trip with the new share slug
     rows = await db.patch(
