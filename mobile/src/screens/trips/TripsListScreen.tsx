@@ -1,7 +1,7 @@
-import { useCallback, memo } from 'react';
+import { useCallback, memo, useMemo } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  SectionList,
   Image,
   Pressable,
   RefreshControl,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useTrips, Trip } from '@hooks/useTrips';
 import { useCountries } from '@hooks/useCountries';
+import { useUserCountries } from '@hooks/useUserCountries';
 
 type Props = TripsStackScreenProps<'TripsList'>;
 
@@ -80,18 +81,23 @@ const TripCard = memo(function TripCard({ trip, countryName, onPress }: TripCard
   );
 });
 
-// Memoized components and helpers for FlatList performance
+// Memoized components and helpers for SectionList performance
 const ItemSeparator = memo(function ItemSeparator() {
   return <View style={styles.separator} />;
 });
 const keyExtractor = (item: Trip) => item.id;
 
-// Item height = card padding (12*2) + content height (~60px) + separator (12) = ~96px
-const ITEM_HEIGHT = 96;
-const getItemLayout = (_: unknown, index: number) => ({
-  length: ITEM_HEIGHT,
-  offset: ITEM_HEIGHT * index,
-  index,
+interface TripSection {
+  title: string;
+  data: Trip[];
+}
+
+const SectionHeader = memo(function SectionHeader({ title }: { title: string }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{title}</Text>
+    </View>
+  );
 });
 
 function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
@@ -113,6 +119,40 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
 export function TripsListScreen({ navigation }: Props) {
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
+  const { data: userCountries } = useUserCountries();
+
+  // Create a set of visited country codes for quick lookup
+  const visitedCountryCodes = useMemo(() => {
+    if (!userCountries) return new Set<string>();
+    return new Set(
+      userCountries.filter((uc) => uc.status === 'visited').map((uc) => uc.country_code)
+    );
+  }, [userCountries]);
+
+  // Separate trips into sections based on whether the country has been visited
+  const sections = useMemo((): TripSection[] => {
+    if (!trips?.length) return [];
+
+    const visitedTrips: Trip[] = [];
+    const plannedTrips: Trip[] = [];
+
+    trips.forEach((trip) => {
+      if (visitedCountryCodes.has(trip.country_code)) {
+        visitedTrips.push(trip);
+      } else {
+        plannedTrips.push(trip);
+      }
+    });
+
+    const result: TripSection[] = [];
+    if (visitedTrips.length > 0) {
+      result.push({ title: 'My Trips', data: visitedTrips });
+    }
+    if (plannedTrips.length > 0) {
+      result.push({ title: 'Planned Trips', data: plannedTrips });
+    }
+    return result;
+  }, [trips, visitedCountryCodes]);
 
   const handleAddTrip = useCallback(() => {
     navigation.navigate('TripForm', {});
@@ -144,6 +184,11 @@ export function TripsListScreen({ navigation }: Props) {
     [getCountryInfo, handleTripPress]
   );
 
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: TripSection }) => <SectionHeader title={section.title} />,
+    []
+  );
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -170,20 +215,21 @@ export function TripsListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={trips}
+      <SectionList
+        sections={sections}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#007AFF" />
         }
         ItemSeparatorComponent={ItemSeparator}
-        removeClippedSubviews
+        stickySectionHeadersEnabled={false}
+        removeClippedSubviews={true}
         maxToRenderPerBatch={10}
         windowSize={5}
         initialNumToRender={10}
-        getItemLayout={getItemLayout}
         testID="trips-list"
       />
 
@@ -281,6 +327,15 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 12,
+  },
+  sectionHeader: {
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
   emptyContainer: {
     flex: 1,
