@@ -65,11 +65,31 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       });
       if (error) throw error;
 
-      // Update user metadata with display name if provided
-      if (displayName && data.user) {
-        await supabase.auth.updateUser({
-          data: { display_name: displayName },
-        });
+      // If a display name is provided, persist it (non-blocking).
+      // The session is already valid, so we don't want display name failures
+      // to block the entire auth flow.
+      const userId = data.session?.user.id ?? data.user?.id;
+      if (displayName && userId) {
+        try {
+          const { error: metadataError } = await supabase.auth.updateUser({
+            data: { display_name: displayName },
+          });
+          if (metadataError) {
+            console.warn('Failed to update user metadata:', metadataError.message);
+          }
+
+          const { error: profileError } = await supabase
+            .from('user_profile')
+            .update({ display_name: displayName })
+            .eq('user_id', userId);
+
+          if (profileError) {
+            console.warn('Failed to update user profile:', profileError.message);
+          }
+        } catch (error) {
+          console.warn('Display name update failed:', error);
+          // Non-blocking - session is still valid
+        }
       }
 
       return data;

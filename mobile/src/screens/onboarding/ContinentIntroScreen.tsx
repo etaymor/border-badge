@@ -1,7 +1,8 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
+import { colors } from '@constants/colors';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -11,6 +12,8 @@ type Props = OnboardingStackScreenProps<'ContinentIntro'>;
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
   const { addVisitedContinent } = useOnboardingStore();
+
+  const canGoBack = navigation.canGoBack();
 
   const handleYes = () => {
     addVisitedContinent(region);
@@ -33,6 +36,13 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Back button */}
+      {canGoBack && (
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backIcon}>‹</Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.content}>
         {/* Grey placeholder for continent illustration */}
         <View style={styles.illustrationPlaceholder} />
@@ -65,6 +75,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    zIndex: 10,
+    padding: 8,
+  },
+  backIcon: {
+    fontSize: 32,
+    color: colors.textPrimary,
+    fontWeight: '300',
   },
   content: {
     flex: 1,

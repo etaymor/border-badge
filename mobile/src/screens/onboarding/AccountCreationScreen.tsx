@@ -35,6 +35,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [otp, setOtp] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [otpError, setOtpError] = useState('');
+  const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
 
   const { setHasCompletedOnboarding } = useAuthStore();
   const { homeCountry, displayName } = useOnboardingStore();
@@ -69,6 +70,7 @@ export function AccountCreationScreen({ navigation }: Props) {
       { phone },
       {
         onSuccess: () => {
+          setOtpSentAt(Date.now());
           setStep('otp');
           setOtpError('');
         },
@@ -98,7 +100,14 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle resend OTP
   const handleResendOTP = () => {
-    sendOTP.mutate({ phone });
+    sendOTP.mutate(
+      { phone },
+      {
+        onSuccess: () => {
+          setOtpSentAt(Date.now());
+        },
+      }
+    );
   };
 
   // Handle back to phone entry
@@ -197,6 +206,7 @@ export function AccountCreationScreen({ navigation }: Props) {
                 onResend={handleResendOTP}
                 isResending={sendOTP.isPending}
                 cooldownSeconds={RESEND_COOLDOWN_SECONDS}
+                startTime={otpSentAt}
                 testID="account-creation-resend"
               />
             </View>
