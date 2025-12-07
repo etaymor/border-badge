@@ -65,39 +65,45 @@ export function useVerifyOTP(options?: VerifyOTPOptions) {
       });
       if (error) throw error;
 
-      // If a display name is provided, persist it (non-blocking).
-      // The session is already valid, so we don't want display name failures
-      // to block the entire auth flow.
+      // If a display name is provided, persist it with a timeout.
+      // We wait for this to complete (up to 5s) but don't fail auth if it times out.
       const userId = data.session?.user.id ?? data.user?.id;
       if (displayName && userId) {
         const updateDisplayName = async () => {
-          try {
-            const { error: metadataError } = await supabase.auth.updateUser({
-              data: { display_name: displayName },
-            });
-            if (metadataError) {
-              console.warn('Failed to update user metadata:', metadataError.message);
+          // Update auth metadata
+          const metadataPromise = (async () => {
+            try {
+              const { error } = await supabase.auth.updateUser({
+                data: { display_name: displayName },
+              });
+              if (error) console.warn('Failed to update user metadata:', error.message);
+            } catch (err) {
+              console.warn('Display name metadata update rejected:', err);
             }
-          } catch (error) {
-            console.warn('Display name metadata update rejected:', error);
-          }
+          })();
 
-          try {
-            const { error: profileError } = await supabase
-              .from('user_profile')
-              .update({ display_name: displayName })
-              .eq('user_id', userId);
-
-            if (profileError) {
-              console.warn('Failed to update user profile:', profileError.message);
+          // Update user_profile table
+          const profilePromise = (async () => {
+            try {
+              const { error } = await supabase
+                .from('user_profile')
+                .update({ display_name: displayName })
+                .eq('user_id', userId);
+              if (error) console.warn('Failed to update user profile:', error.message);
+            } catch (err) {
+              console.warn('Display name profile update rejected:', err);
             }
-          } catch (error) {
-            console.warn('Display name profile update rejected:', error);
-          }
+          })();
+
+          // Wait for both with a timeout
+          await Promise.race([
+            Promise.all([metadataPromise, profilePromise]),
+            new Promise((resolve) => setTimeout(resolve, 5000)), // 5s timeout
+          ]);
         };
 
-        // Run asynchronously so auth/session flow is non-blocking
-        void updateDisplayName();
+        // Await but don't fail if it times out
+        await updateDisplayName();
       }
 
       return data;
