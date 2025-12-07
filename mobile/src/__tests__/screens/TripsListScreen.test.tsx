@@ -17,7 +17,8 @@ import * as useCountriesModule from '@hooks/useCountries';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
 
 // Create mock navigation and route
-const mockNavigation = createMockNavigation() as unknown as TripsStackScreenProps<'TripsList'>['navigation'];
+const mockNavigation =
+  createMockNavigation() as unknown as TripsStackScreenProps<'TripsList'>['navigation'];
 const mockRoute = {
   key: 'test',
   name: 'TripsList',
@@ -108,7 +109,12 @@ describe('TripsListScreen', () => {
 
     it('renders trip cards with correct data', () => {
       const trips = [
-        createMockTrip({ id: 'trip-1', name: 'Tokyo Adventure', country_code: 'JP', country_id: 'JP' }),
+        createMockTrip({
+          id: 'trip-1',
+          name: 'Tokyo Adventure',
+          country_code: 'JP',
+          country_id: 'JP',
+        }),
       ];
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
       const userCountries = [createMockUserCountry({ country_code: 'JP', status: 'visited' })];
