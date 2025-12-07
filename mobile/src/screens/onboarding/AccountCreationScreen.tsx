@@ -43,6 +43,12 @@ export function AccountCreationScreen({ navigation }: Props) {
   const sendOTP = useSendOTP();
   const verifyOTP = useVerifyOTP({
     onMigrationComplete: (result) => {
+      if (!result) {
+        // Migration failed entirely - keep onboarding state for retry
+        Alert.alert('Migration failed', 'Your data could not be migrated. Please try again.');
+        return;
+      }
+
       if (result.success) {
         setHasCompletedOnboarding(true);
         storeOnboardingComplete();

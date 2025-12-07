@@ -51,7 +51,7 @@ describe('NameEntryScreen', () => {
       fireEvent.changeText(input, longName);
       fireEvent.press(screen.getByTestId('name-entry-continue'));
 
-      expect(screen.getByText('Name must be less than 50 characters')).toBeTruthy();
+      expect(screen.getByText('Name must be 50 characters or less')).toBeTruthy();
       expect(mockNavigation.navigate).not.toHaveBeenCalled();
     });
 
