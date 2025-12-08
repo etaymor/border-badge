@@ -18,12 +18,12 @@ export function PassportNavigator() {
       <Stack.Screen
         name="CountryDetail"
         component={CountryDetailScreen}
-        options={{
-          title: '',
+        options={({ route }) => ({
+          title: route.params?.countryName ?? '',
           headerBackButtonDisplayMode: 'minimal',
           headerTransparent: true,
           headerTintColor: '#fff',
-        }}
+        })}
       />
     </Stack.Navigator>
   );
