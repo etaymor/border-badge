@@ -1,3 +1,4 @@
+import { ResizeMode, Video } from 'expo-av';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -6,6 +7,7 @@ import { colors } from '@constants/colors';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getContinentVideo } from '../../assets/continentVideos';
 
 type Props = OnboardingStackScreenProps<'ContinentIntro'>;
 
@@ -14,6 +16,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const { addVisitedContinent } = useOnboardingStore();
 
   const canGoBack = navigation.canGoBack();
+  const continentVideo = getContinentVideo(region);
 
   const handleYes = () => {
     addVisitedContinent(region);
@@ -44,8 +47,19 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
       )}
 
       <View style={styles.content}>
-        {/* Grey placeholder for continent illustration */}
-        <View style={styles.illustrationPlaceholder} />
+        {/* Continent video */}
+        {continentVideo ? (
+          <Video
+            source={continentVideo}
+            style={styles.video}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay
+            isLooping
+            isMuted
+          />
+        ) : (
+          <View style={styles.illustrationPlaceholder} />
+        )}
 
         <View style={styles.card}>
           <Text style={styles.title}>Visited {region}?</Text>
@@ -93,6 +107,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  video: {
+    width: 200,
+    height: 150,
+    borderRadius: 16,
+    marginBottom: 40,
+    overflow: 'hidden',
   },
   illustrationPlaceholder: {
     width: 200,

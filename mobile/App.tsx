@@ -1,5 +1,16 @@
 import { useEffect } from 'react';
 
+import {
+  useFonts,
+  PlayfairDisplay_400Regular,
+  PlayfairDisplay_700Bold,
+} from '@expo-google-fonts/playfair-display';
+import { DawningofaNewDay_400Regular } from '@expo-google-fonts/dawning-of-a-new-day';
+import {
+  OpenSans_400Regular,
+  OpenSans_600SemiBold,
+  OpenSans_700Bold,
+} from '@expo-google-fonts/open-sans';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
@@ -15,6 +26,15 @@ import { useAuthStore } from '@stores/authStore';
 
 export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding } = useAuthStore();
+
+  const [fontsLoaded] = useFonts({
+    PlayfairDisplay_400Regular,
+    PlayfairDisplay_700Bold,
+    DawningofaNewDay_400Regular,
+    OpenSans_400Regular,
+    OpenSans_600SemiBold,
+    OpenSans_700Bold,
+  });
 
   // Sync countries to local SQLite database on app launch
   // The hook handles errors internally - sync failures don't block the app
@@ -84,6 +104,10 @@ export default function App() {
       subscription?.unsubscribe();
     };
   }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

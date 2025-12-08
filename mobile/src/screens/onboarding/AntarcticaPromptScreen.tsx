@@ -1,10 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native';
+/* eslint-disable @typescript-eslint/no-require-imports */
+import { Image, ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
 import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+
+const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
 
 type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
@@ -28,8 +31,8 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {/* Grey placeholder for Antarctica illustration */}
-        <View style={styles.illustrationPlaceholder} />
+        {/* Antarctica illustration */}
+        <Image source={antarcticaImage} style={styles.illustration} resizeMode="cover" />
 
         <View style={styles.card}>
           <Text style={styles.title}>Been to Antarctica?</Text>
@@ -74,10 +77,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  illustrationPlaceholder: {
+  illustration: {
     width: 200,
     height: 150,
-    backgroundColor: '#E5E5EA',
     borderRadius: 16,
     marginBottom: 40,
   },

@@ -1,12 +1,21 @@
-import { useCallback } from 'react';
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useMemo } from 'react';
+import {
+  Dimensions,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import type { PassportStackScreenProps } from '@navigation/types';
 import { getFlagEmoji } from '@utils/flags';
+import { getCountryImage } from '../../assets/countryImages';
 
 type Props = PassportStackScreenProps<'CountryDetail'>;
 
@@ -38,8 +47,16 @@ function formatDateRange(dateRange?: string): string {
   return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
+const { width: screenWidth } = Dimensions.get('window');
+// Image aspect ratio is 1856:2464 (width:height) = 0.753
+const IMAGE_ASPECT_RATIO = 1856 / 2464;
+const heroImageHeight = screenWidth / IMAGE_ASPECT_RATIO;
+
+const ItemSeparator = () => <View style={styles.separator} />;
+
 export function CountryDetailScreen({ navigation, route }: Props) {
   const { countryId, countryName, countryCode } = route.params;
+  const insets = useSafeAreaInsets();
 
   // Use countryCode if available, otherwise use countryId (they should be the same)
   const code = countryCode || countryId;
@@ -47,10 +64,11 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const { data: trips, isLoading: loadingTrips, refetch } = useTripsByCountry(countryId);
 
   const flagEmoji = getFlagEmoji(code);
+  const countryImage = getCountryImage(code);
   const displayName = country?.name || countryName || code;
   const region = country?.region || '';
 
-  const handleAddTrip = () => {
+  const handleAddTrip = useCallback(() => {
     // Navigate to trips stack and then to TripForm
     navigation.getParent()?.navigate('Trips', {
       screen: 'TripForm',
@@ -59,7 +77,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         countryName: displayName,
       },
     });
-  };
+  }, [countryId, displayName, navigation]);
 
   const handleTripPress = useCallback(
     (trip: Trip) => {
@@ -102,44 +120,61 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     [flagEmoji, handleTripPress]
   );
 
-  const ListHeader = () => (
-    <View style={styles.header}>
-      {/* Country Info */}
-      <View style={styles.countryHeader}>
-        <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-        <Text style={styles.countryName}>{displayName}</Text>
-        {region ? <Text style={styles.countryRegion}>{region}</Text> : null}
+  const ListHeader = useMemo(
+    () => (
+      <View style={styles.header}>
+        {/* Hero Image */}
+        {countryImage ? (
+          <View style={[styles.heroContainer, { height: heroImageHeight }]}>
+            <Image source={countryImage} style={styles.heroImage} resizeMode="cover" />
+            <View style={[styles.heroContent, { top: insets.top + 44 }]}>
+              <Text style={styles.heroFlag}>{flagEmoji}</Text>
+              <Text style={styles.heroName}>{displayName}</Text>
+              {region ? <Text style={styles.heroRegion}>{region}</Text> : null}
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.countryHeader, { paddingTop: insets.top + 60 }]}>
+            <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+            <Text style={styles.countryName}>{displayName}</Text>
+            {region ? <Text style={styles.countryRegion}>{region}</Text> : null}
+          </View>
+        )}
+
+        {/* Add Trip / Plan Trip Button */}
+        <Button
+          title={(trips?.length ?? 0) > 0 ? 'Add New Trip' : 'Plan a Trip'}
+          onPress={handleAddTrip}
+          style={styles.addTripButton}
+        />
+
+        {/* Trips Section Header */}
+        {(trips?.length ?? 0) > 0 && (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {trips?.length} {trips?.length === 1 ? 'Trip' : 'Trips'}
+            </Text>
+          </View>
+        )}
       </View>
-
-      {/* Add Trip / Plan Trip Button */}
-      <Button
-        title={(trips?.length ?? 0) > 0 ? 'Add New Trip' : 'Plan a Trip'}
-        onPress={handleAddTrip}
-        style={styles.addTripButton}
-      />
-
-      {/* Trips Section Header */}
-      {(trips?.length ?? 0) > 0 && (
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {trips?.length} {trips?.length === 1 ? 'Trip' : 'Trips'}
-          </Text>
-        </View>
-      )}
-    </View>
+    ),
+    [countryImage, insets.top, flagEmoji, displayName, region, trips?.length, handleAddTrip]
   );
 
-  const ListEmpty = () =>
-    !loadingTrips ? (
-      <View style={styles.emptyState}>
-        <Text style={styles.emptyIcon}>✈️</Text>
-        <Text style={styles.emptyTitle}>No trips yet</Text>
-        <Text style={styles.emptySubtitle}>Add your first trip to {displayName}</Text>
-      </View>
-    ) : null;
+  const ListEmpty = useMemo(
+    () =>
+      !loadingTrips ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>✈️</Text>
+          <Text style={styles.emptyTitle}>No trips yet</Text>
+          <Text style={styles.emptySubtitle}>Add your first trip to {displayName}</Text>
+        </View>
+      ) : null,
+    [loadingTrips, displayName]
+  );
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <View style={styles.container}>
       <FlatList
         data={trips || []}
         renderItem={renderTripItem}
@@ -148,11 +183,11 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={ItemSeparator}
         refreshing={loadingTrips}
         onRefresh={refetch}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -165,12 +200,40 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 0,
+  },
+  heroContainer: {
+    position: 'relative',
+    marginBottom: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroContent: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+  },
+  heroFlag: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  heroName: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+  },
+  heroRegion: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 4,
   },
   countryHeader: {
     alignItems: 'center',
     marginBottom: 24,
+    paddingHorizontal: 20,
   },
   flagEmoji: {
     fontSize: 64,
@@ -189,9 +252,11 @@ const styles = StyleSheet.create({
   },
   addTripButton: {
     marginBottom: 24,
+    marginHorizontal: 20,
   },
   sectionHeader: {
     marginBottom: 12,
+    marginHorizontal: 20,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#F2F2F7',
