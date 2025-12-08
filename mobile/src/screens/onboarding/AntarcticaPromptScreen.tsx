@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+/* eslint-disable @typescript-eslint/no-require-imports */
+import { Image, ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@components/ui';
@@ -6,7 +7,7 @@ import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
-const antarcticaImage = require('../../../assets/country-images/continents/Antarctica.png');
+const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
 
 type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
