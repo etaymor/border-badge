@@ -79,6 +79,9 @@ function MediaItem({ item }: MediaItemProps) {
           },
         ]}
         {...panResponder.panHandlers}
+        accessible={true}
+        accessibilityRole="image"
+        accessibilityLabel="Photo. Swipe up or down to dismiss, pinch to zoom"
       >
         <Image source={{ uri: item.url }} style={styles.fullImage} resizeMode="contain" />
       </Animated.View>
@@ -167,6 +170,7 @@ export function MediaViewer({
       animationType="fade"
       statusBarTranslucent
       onRequestClose={onClose}
+      accessibilityViewIsModal={true}
     >
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
@@ -174,16 +178,30 @@ export function MediaViewer({
         <Animated.View style={[styles.content, { transform: [{ translateY: dismissY }] }]}>
           {/* Header */}
           <SafeAreaView style={styles.header}>
-            <Pressable style={styles.closeButton} onPress={onClose}>
+            <Pressable
+              style={styles.closeButton}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close image viewer"
+            >
               <Ionicons name="close" size={28} color="#fff" />
             </Pressable>
 
-            <Text style={styles.counter}>
+            <Text
+              style={styles.counter}
+              accessibilityRole="text"
+              accessibilityLabel={`Image ${currentIndex + 1} of ${media.length}`}
+            >
               {currentIndex + 1} / {media.length}
             </Text>
 
             {onDelete && (
-              <Pressable style={styles.deleteButton} onPress={handleDelete}>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={handleDelete}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this image"
+              >
                 <Ionicons name="trash-outline" size={24} color="#fff" />
               </Pressable>
             )}

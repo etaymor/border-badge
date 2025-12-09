@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuthStore } from '@stores/authStore';
 
+import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
 import type { RootStackParamList } from './types';
@@ -24,14 +25,19 @@ export function RootNavigator() {
     return <LoadingScreen />;
   }
 
-  // Show onboarding if user has no session AND hasn't completed onboarding
-  // After completing onboarding (which creates an account), they'll have a session
-  const showOnboarding = !session && !hasCompletedOnboarding;
+  // When unauthenticated, show onboarding (if incomplete) and keep auth stack available
+  const isUnauthenticated = !session;
+  const shouldShowOnboarding = isUnauthenticated && !hasCompletedOnboarding;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {showOnboarding ? (
-        <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+      {isUnauthenticated ? (
+        <>
+          {shouldShowOnboarding && (
+            <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+          )}
+          <Stack.Screen name="Auth" component={AuthNavigator} />
+        </>
       ) : (
         <Stack.Screen name="Main" component={MainTabNavigator} />
       )}

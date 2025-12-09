@@ -18,6 +18,7 @@ export type AuthStackParamList = {
 // Onboarding stack screens
 export type OnboardingStackParamList = {
   WelcomeCarousel: undefined;
+  OnboardingSlider: undefined;
   Motivation: undefined;
   HomeCountry: undefined;
   DreamDestination: undefined;
@@ -28,8 +29,6 @@ export type OnboardingStackParamList = {
   NameEntry: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
-  // Auth screen accessible from onboarding (for returning users)
-  PhoneAuth: undefined;
 };
 
 // Main bottom tab navigator

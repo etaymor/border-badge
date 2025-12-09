@@ -36,7 +36,7 @@ interface UnvisitedCountry {
 type ListItem =
   | { type: 'section-header'; title: string; key: string }
   | { type: 'stamp-row'; data: CountryDisplayItem[]; key: string }
-  | { type: 'unvisited-country'; data: UnvisitedCountry; key: string }
+  | { type: 'unvisited-row'; data: UnvisitedCountry[]; key: string }
   | { type: 'empty-state'; key: string };
 
 /** Travel status tiers based on number of countries visited */
@@ -205,9 +205,12 @@ export function PassportScreen({ navigation }: Props) {
     // Add explore section only when there are unvisited countries to show
     if (unvisitedCountries.length > 0) {
       items.push({ type: 'section-header', title: 'Explore the World', key: 'header-explore' });
-      unvisitedCountries.forEach((country) => {
-        items.push({ type: 'unvisited-country', data: country, key: `unvisited-${country.code}` });
-      });
+      // Group unvisited countries into rows of 2
+      for (let i = 0; i < unvisitedCountries.length; i += 2) {
+        const rowItems = unvisitedCountries.slice(i, i + 2);
+        const rowKey = rowItems.map((item) => item.code).join('-');
+        items.push({ type: 'unvisited-row', data: rowItems, key: `unvisited-${rowKey}` });
+      }
     }
 
     return items;
@@ -266,23 +269,24 @@ export function PassportScreen({ navigation }: Props) {
     [handleCountryPress]
   );
 
-  const renderUnvisitedCountryItem = useCallback(
-    (country: UnvisitedCountry) => {
-      return (
-        <View style={styles.countryCardWrapper}>
-          <CountryCard
-            code={country.code}
-            name={country.name}
-            region={country.region}
-            isVisited={false}
-            isWishlisted={country.isWishlisted}
-            onPress={() => handleUnvisitedCountryPress(country)}
-            onAddVisited={() => handleAddVisited(country.code)}
-            onToggleWishlist={() => handleToggleWishlist(country.code)}
-          />
-        </View>
-      );
-    },
+  const renderUnvisitedRow = useCallback(
+    (countries: UnvisitedCountry[]) => (
+      <View style={styles.unvisitedRow}>
+        {countries.map((country) => (
+          <View key={country.code} style={styles.countryCardWrapper}>
+            <CountryCard
+              code={country.code}
+              name={country.name}
+              isVisited={false}
+              isWishlisted={country.isWishlisted}
+              onPress={() => handleUnvisitedCountryPress(country)}
+              onAddVisited={() => handleAddVisited(country.code)}
+              onToggleWishlist={() => handleToggleWishlist(country.code)}
+            />
+          </View>
+        ))}
+      </View>
+    ),
     [handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
   );
 
@@ -293,8 +297,8 @@ export function PassportScreen({ navigation }: Props) {
           return <Text style={styles.sectionTitle}>{item.title}</Text>;
         case 'stamp-row':
           return renderStampRow(item.data);
-        case 'unvisited-country':
-          return renderUnvisitedCountryItem(item.data);
+        case 'unvisited-row':
+          return renderUnvisitedRow(item.data);
         case 'empty-state':
           return (
             <View style={styles.emptyState}>
@@ -309,7 +313,7 @@ export function PassportScreen({ navigation }: Props) {
           return null;
       }
     },
-    [renderStampRow, renderUnvisitedCountryItem]
+    [renderStampRow, renderUnvisitedRow]
   );
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);
@@ -564,9 +568,16 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  // Unvisited Row (2-up grid)
+  unvisitedRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 12,
+  },
   // Country Card Wrapper
   countryCardWrapper: {
-    marginBottom: 12,
+    flex: 1,
   },
   // Empty State
   emptyState: {

@@ -10,6 +10,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
@@ -43,7 +44,7 @@ export interface CountryCardProps {
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
-  region,
+  region: _region,
   isVisited = false,
   isWishlisted = false,
   onPress,
@@ -82,6 +83,7 @@ export const CountryCard = React.memo(function CountryCard({
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onAddVisited();
     },
     [onAddVisited]
@@ -90,6 +92,7 @@ export const CountryCard = React.memo(function CountryCard({
   const handleWishlistPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       // Animate heart pulse when adding to wishlist (not when removing)
       if (!isWishlisted) {
         animateHeartPulse();
@@ -160,16 +163,11 @@ export const CountryCard = React.memo(function CountryCard({
         </Animated.View>
       </View>
 
-      {/* Country Name Label - Bottom Left */}
+      {/* Country Name Label - Bottom */}
       <View style={styles.nameContainer}>
-        <Text style={styles.countryName} numberOfLines={1}>
+        <Text style={styles.countryName} numberOfLines={2}>
           {name}
         </Text>
-        {region && (
-          <Text style={styles.regionName} numberOfLines={1}>
-            {region}
-          </Text>
-        )}
       </View>
     </TouchableOpacity>
   );
@@ -177,11 +175,11 @@ export const CountryCard = React.memo(function CountryCard({
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
+    flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: colors.backgroundSecondary,
-    height: 200,
+    aspectRatio: 3 / 4,
     position: 'relative',
   },
   countryImage: {
@@ -216,28 +214,19 @@ const styles = StyleSheet.create({
   },
   nameContainer: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 60,
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: colors.overlayLight,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   countryName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  regionName: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
   },
   actionsContainer: {
     position: 'absolute',

@@ -7,6 +7,9 @@ import {
   TextStyle,
 } from 'react-native';
 
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost';
 
 interface ButtonProps {
@@ -41,7 +44,10 @@ export function Button({
       testID={testID}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? '#fff' : '#007AFF'} size="small" />
+        <ActivityIndicator
+          color={variant === 'primary' ? colors.cloudWhite : colors.primary}
+          size="small"
+        />
       ) : (
         <Text
           style={[
@@ -51,7 +57,7 @@ export function Button({
             textStyle,
           ]}
         >
-          {title}
+          {variant === 'primary' ? title.toUpperCase() : title}
         </Text>
       )}
     </TouchableOpacity>
@@ -60,23 +66,28 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 44,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    minHeight: 44, // 14px vertical padding + line height makes it taller, but keeping minHeight for touch target
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primary: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   secondary: {
-    backgroundColor: '#E5E5EA',
+    backgroundColor: colors.backgroundSecondary,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: colors.primary,
   },
   ghost: {
     backgroundColor: 'transparent',
@@ -86,21 +97,23 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
   primaryText: {
-    color: '#fff',
+    color: colors.midnightNavy,
+    fontFamily: fonts.playfair.bold,
+    letterSpacing: 0.5,
   },
   secondaryText: {
-    color: '#1a1a1a',
+    color: colors.textPrimary,
   },
   outlineText: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   ghostText: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   disabledText: {
-    color: '#999',
+    color: colors.textTertiary,
   },
 });

@@ -37,6 +37,8 @@ export function SearchInput({
           onPress={() => onChangeText('')}
           style={styles.clearButton}
           testID={testID ? `${testID}-clear` : undefined}
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
         >
           <Text style={styles.clearIcon}>✕</Text>
         </TouchableOpacity>

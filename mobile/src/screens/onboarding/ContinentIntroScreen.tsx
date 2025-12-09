@@ -1,29 +1,114 @@
-import { ResizeMode, Video } from 'expo-av';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
-import { getContinentVideo } from '../../assets/continentVideos';
+import { DEFAULT_CONTINENT_VIDEO, getContinentVideo } from '../../assets/continentVideos';
 
 type Props = OnboardingStackScreenProps<'ContinentIntro'>;
 
+// Background colors extracted from each continent's video/illustration (pixel sampled)
+const CONTINENT_BACKGROUNDS: Record<string, string> = {
+  Africa: '#FCF7EC',
+  Americas: '#FBF7E6',
+  Asia: '#F6F0E0',
+  Europe: '#FCF9E9',
+  Oceania: '#FBFCF5',
+};
+
+const DEFAULT_BACKGROUND = colors.warmCream;
+
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
-  const { addVisitedContinent } = useOnboardingStore();
+  const { addVisitedContinent, visitedContinents } = useOnboardingStore();
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
+  const playerSource = continentVideo ?? DEFAULT_CONTINENT_VIDEO;
+  const hasVideoSource = Boolean(playerSource);
+  const backgroundColor = CONTINENT_BACKGROUNDS[region] || DEFAULT_BACKGROUND;
+
+  // Animation values
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const titleTranslate = useRef(new Animated.Value(-20)).current;
+  const videoScale = useRef(new Animated.Value(0.95)).current;
+  const buttonsTranslate = useRef(new Animated.Value(30)).current;
+  const dotsOpacity = useRef(new Animated.Value(0)).current;
+
+  const player = useVideoPlayer(playerSource, (playerInstance) => {
+    playerInstance.loop = true;
+    playerInstance.muted = true;
+  });
+
+  useEffect(() => {
+    if (hasVideoSource) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [hasVideoSource, player]);
+
+  // Staggered entrance animations
+  useEffect(() => {
+    // Reset animations when region changes
+    contentOpacity.setValue(0);
+    titleTranslate.setValue(-20);
+    videoScale.setValue(0.95);
+    buttonsTranslate.setValue(30);
+    dotsOpacity.setValue(0);
+
+    Animated.sequence([
+      // Everything fades in together
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.spring(videoScale, {
+          toValue: 1,
+          friction: 8,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+        Animated.spring(titleTranslate, {
+          toValue: 0,
+          friction: 8,
+          tension: 60,
+          useNativeDriver: true,
+        }),
+      ]),
+      // Buttons slide up
+      Animated.spring(buttonsTranslate, {
+        toValue: 0,
+        friction: 7,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+      // Progress dots pop in
+      Animated.timing(dotsOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [region, contentOpacity, titleTranslate, videoScale, buttonsTranslate, dotsOpacity]);
 
   const handleYes = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     addVisitedContinent(region);
     navigation.navigate('ContinentCountryGrid', { region });
   };
 
   const handleNo = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
@@ -37,136 +122,208 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleLogin = () => {
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Back button */}
-      {canGoBack && (
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backIcon}>‹</Text>
-        </TouchableOpacity>
-      )}
-
-      <View style={styles.content}>
-        {/* Continent video */}
-        {continentVideo ? (
-          <Video
-            source={continentVideo}
-            style={styles.video}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay
-            isLooping
-            isMuted
-          />
-        ) : (
-          <View style={styles.illustrationPlaceholder} />
-        )}
-
-        <View style={styles.card}>
-          <Text style={styles.title}>Visited {region}?</Text>
-          <Text style={styles.subtitle}>Tap &apos;Yes&apos; to select countries.</Text>
-
-          <View style={styles.buttonContainer}>
-            <Button title="Yes" onPress={handleYes} style={styles.yesButton} />
-            <Button title="No" onPress={handleNo} variant="outline" style={styles.noButton} />
+    <View style={[styles.container, { backgroundColor }]}>
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header with title */}
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: contentOpacity,
+              transform: [{ translateY: titleTranslate }],
+            },
+          ]}
+        >
+          <View style={styles.navBar}>
+            {canGoBack ? (
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.backButton} />
+            )}
+            <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+              <Text style={styles.loginText}>Login</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+          <Text style={styles.title}>Visited {region}?</Text>
+        </Animated.View>
 
-        {/* Progress indicator - 6 dots for all regions including Antarctica */}
-        <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((_, index) => (
+        {/* Video container with overlaid buttons */}
+        <Animated.View
+          style={[
+            styles.videoContainer,
+            {
+              opacity: contentOpacity,
+              transform: [{ scale: videoScale }],
+            },
+          ]}
+        >
+          {hasVideoSource ? (
+            <VideoView
+              player={player}
+              style={styles.video}
+              contentFit="contain"
+              nativeControls={false}
+            />
+          ) : (
+            <View style={[styles.illustrationPlaceholder, { backgroundColor }]} />
+          )}
+
+          {/* Buttons overlaid on video */}
+          <Animated.View
+            style={[
+              styles.buttonContainer,
+              {
+                opacity: contentOpacity,
+                transform: [{ translateY: buttonsTranslate }],
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
+              <Text style={styles.yesButtonText}>Yes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noButton} onPress={handleNo} activeOpacity={0.9}>
+              <Text style={styles.noButtonText}>No</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+
+        {/* Progress indicator at bottom */}
+        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
+          {ALL_REGIONS.map((r, index) => (
             <View
               key={index}
-              style={[styles.progressDot, index === regionIndex && styles.progressDotActive]}
+              style={[
+                styles.progressDot,
+                visitedContinents.includes(r) && styles.progressDotCompleted,
+                index === regionIndex && styles.progressDotActive,
+              ]}
             />
           ))}
-        </View>
-      </View>
-    </SafeAreaView>
+        </Animated.View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 16,
+  },
+  navBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   backButton: {
-    position: 'absolute',
-    top: 60,
-    left: 16,
-    zIndex: 10,
     padding: 8,
-  },
-  backIcon: {
-    fontSize: 32,
-    color: colors.textPrimary,
-    fontWeight: '300',
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
+    width: 44,
+    height: 44,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  video: {
-    width: 200,
-    height: 150,
-    borderRadius: 16,
-    marginBottom: 40,
-    overflow: 'hidden',
-  },
-  illustrationPlaceholder: {
-    width: 200,
-    height: 150,
-    backgroundColor: '#E5E5EA',
-    borderRadius: 16,
-    marginBottom: 40,
-  },
-  card: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 20,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-    width: '100%',
     alignItems: 'center',
+  },
+  loginButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  loginText: {
+    fontSize: 16,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-    marginBottom: 8,
+    fontSize: 32,
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
     textAlign: 'center',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 24,
-    textAlign: 'center',
+  videoContainer: {
+    flex: 1,
+    position: 'relative',
+    marginTop: -60,
+  },
+  video: {
+    width: '100%',
+    height: '100%',
+  },
+  illustrationPlaceholder: {
+    width: '100%',
+    height: '100%',
   },
   buttonContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     gap: 12,
-    width: '100%',
+    paddingHorizontal: 24,
   },
   yesButton: {
     flex: 1,
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  yesButtonText: {
+    fontSize: 18,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   noButton: {
     flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  noButtonText: {
+    fontSize: 18,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   progressContainer: {
     flexDirection: 'row',
-    marginTop: 40,
+    justifyContent: 'center',
     gap: 8,
+    paddingBottom: 16,
   },
   progressDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: `${colors.midnightNavy}30`,
   },
   progressDotActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.midnightNavy,
     width: 24,
+  },
+  progressDotCompleted: {
+    backgroundColor: colors.mossGreen,
   },
 });

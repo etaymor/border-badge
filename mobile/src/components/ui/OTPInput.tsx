@@ -3,7 +3,6 @@ import {
   NativeSyntheticEvent,
   Platform,
   StyleSheet,
-  Text,
   TextInput,
   TextInputKeyPressEventData,
   View,
@@ -11,6 +10,8 @@ import {
 } from 'react-native';
 
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { Text } from './Text';
 
 interface OTPInputProps {
   value: string;
@@ -116,7 +117,12 @@ export function OTPInput({
   };
 
   return (
-    <View style={[styles.container, containerStyle]}>
+    <View
+      style={[styles.container, containerStyle]}
+      accessible={true}
+      accessibilityRole="none"
+      accessibilityLabel={`Verification code input, ${value.length} of ${length} digits entered`}
+    >
       <View style={styles.inputsContainer}>
         {Array.from({ length }).map((_, index) => (
           <TextInput
@@ -142,10 +148,18 @@ export function OTPInput({
             textContentType={index === 0 ? 'oneTimeCode' : 'none'}
             autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
             testID={testID ? `${testID}-cell-${index}` : undefined}
+            accessibilityLabel={`Digit ${index + 1} of ${length}`}
+            accessibilityHint={
+              index === 0 ? 'Enter verification code or paste from clipboard' : undefined
+            }
           />
         ))}
       </View>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error && (
+        <Text variant="caption" style={styles.error} accessibilityRole="alert">
+          {error}
+        </Text>
+      )}
     </View>
   );
 }
@@ -164,16 +178,21 @@ const styles = StyleSheet.create({
     height: 56,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 12, // 12px
     backgroundColor: colors.white,
     fontSize: 24,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
     textAlign: 'center',
     color: colors.textPrimary,
   },
   cellFocused: {
     borderColor: colors.primary,
     borderWidth: 2,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   cellError: {
     borderColor: colors.error,
@@ -182,7 +201,6 @@ const styles = StyleSheet.create({
     borderColor: colors.textSecondary,
   },
   error: {
-    fontSize: 14,
     color: colors.error,
     marginTop: 12,
     textAlign: 'center',

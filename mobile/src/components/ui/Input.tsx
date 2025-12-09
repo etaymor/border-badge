@@ -3,12 +3,15 @@ import {
   NativeSyntheticEvent,
   StyleSheet,
   TargetedEvent,
-  Text,
   TextInput,
   TextInputProps,
   View,
   ViewStyle,
 } from 'react-native';
+
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { Text } from './Text';
 
 type FocusEvent = NativeSyntheticEvent<TargetedEvent>;
 
@@ -16,7 +19,6 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   containerStyle?: ViewStyle;
-  /** testID is inherited from TextInputProps but documented here for E2E testing */
 }
 
 export function Input({
@@ -42,15 +44,23 @@ export function Input({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && (
+        <Text variant="label" style={styles.label}>
+          {label}
+        </Text>
+      )}
       <TextInput
         style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError, style]}
-        placeholderTextColor="#999"
+        placeholderTextColor={colors.textTertiary}
         onFocus={handleFocus}
         onBlur={handleBlur}
         {...props}
       />
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error && (
+        <Text variant="caption" style={styles.error}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 }
@@ -60,31 +70,35 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
     marginBottom: 6,
+    color: colors.textPrimary,
   },
   input: {
-    minHeight: 44,
+    minHeight: 48, // Slightly taller
     borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: colors.border,
+    borderRadius: 12, // Match button radius
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
-    color: '#1a1a1a',
-    backgroundColor: '#fff',
+    fontFamily: fonts.openSans.regular,
+    color: colors.textPrimary,
+    backgroundColor: colors.white,
   },
   inputFocused: {
-    borderColor: '#007AFF',
+    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   inputError: {
-    borderColor: '#FF3B30',
+    borderColor: colors.error,
   },
   error: {
-    fontSize: 12,
-    color: '#FF3B30',
+    color: colors.error,
     marginTop: 4,
   },
 });

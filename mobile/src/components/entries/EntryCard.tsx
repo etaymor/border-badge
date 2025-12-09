@@ -40,8 +40,23 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
       ? entry.media_files[0].thumbnail_url
       : entry.media_files?.[0]?.url;
 
+  // Build accessibility label
+  const accessibilityParts = [
+    typeConfig.label,
+    entry.title,
+    entry.place?.name && `at ${entry.place.name}`,
+    entry.entry_date && formatDate(entry.entry_date),
+    hasMedia && `${mediaCount} photo${mediaCount > 1 ? 's' : ''}`,
+  ].filter(Boolean);
+
   return (
-    <Pressable style={styles.container} onPress={onPress}>
+    <Pressable
+      style={styles.container}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityParts.join(', ')}
+      accessibilityHint="Double tap to view entry details"
+    >
       {/* Entry Type Badge */}
       <View style={[styles.typeBadge, { backgroundColor: typeConfig.color + '15' }]}>
         <Ionicons name={typeConfig.icon} size={16} color={typeConfig.color} />

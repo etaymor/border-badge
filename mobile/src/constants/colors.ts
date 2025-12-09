@@ -5,53 +5,67 @@
 
 export const colors = {
   // Primary brand colors
-  primary: '#007AFF', // iOS Blue - primary actions, links, active states
-  primaryDark: '#0056B3', // Darker shade for hover/press states
+  primary: '#007AFF', // iOS Blue - keeping for system consistency where needed
+  primaryDark: '#0056B3',
 
-  // Semantic colors
-  success: '#34C759', // Green - positive actions, success states
-  successDark: '#2E7D32', // Dark green - visited button background
-  warning: '#FF9500', // Orange - warnings, food entry type
-  error: '#FF3B30', // Red - errors, delete actions
+  // Brand Palette
+  midnightNavy: '#172A3A', // Backgrounds, headers, dark containers
+  warmCream: '#FDF6ED', // Background paper feel, base layer
+  sunsetGold: '#F4C24E', // Highlight buttons, call to actions
+  adobeBrick: '#C1543E', // Accent, icons, "visited" mark
+  lakeBlue: '#A0CDEB', // Sky/illustration tie-in, neutral tint
+  mossGreen: '#547A5F', // Secondary accents, tags
+
+  // Secondary Brand Colors
+  paperBeige: '#F5ECE0', // Card backgrounds
+  dustyCoral: '#F39B8B', // Badge variants, hover states
+  stormGray: '#666D7A', // Secondary text
+  cloudWhite: '#FFFFFF', // Text on dark backgrounds
+
+  // Semantic colors - Mapped to Brand Palette where appropriate
+  success: '#547A5F', // Moss Green
+  successDark: '#2E7D32',
+  warning: '#F4C24E', // Sunset Gold
+  error: '#C1543E', // Adobe Brick
 
   // Wishlist colors
-  wishlistGold: '#FFD700', // Gold - wishlisted background
-  wishlistBrown: '#B8860B', // Dark gold brown - wishlisted heart icon
+  wishlistGold: '#F4C24E', // Sunset Gold
+  wishlistBrown: '#B8860B',
 
   // Text colors
-  textPrimary: '#1a1a1a', // Main text
-  textSecondary: '#666', // Secondary/muted text
-  textTertiary: '#999', // Placeholder text, disabled states
-  textLight: '#ccc', // Very light text, icons
+  textPrimary: '#172A3A', // Midnight Navy
+  textSecondary: '#666D7A', // Storm Gray
+  textTertiary: '#999',
+  textLight: '#FDF6ED', // Warm Cream
 
   // Background colors
-  background: '#F8F9FA', // App background
-  backgroundCard: '#fff', // Card/surface background
-  backgroundSecondary: '#E5E5EA', // Secondary backgrounds, chips, inputs
-  backgroundTertiary: '#F2F2F7', // Subtle backgrounds, flag containers
-  backgroundPlaceholder: '#D1D1D6', // Image placeholders
-  backgroundMuted: '#f5f5f5', // Very subtle backgrounds
+  background: '#FDF6ED', // Warm Cream
+  backgroundCard: '#F5ECE0', // Paper Beige
+  backgroundSecondary: '#E5E5EA', // Keep for standard iOS feel elements
+  backgroundTertiary: '#F2F2F7',
+  backgroundPlaceholder: '#D1D1D6',
+  backgroundMuted: '#f5f5f5',
 
   // Border/separator colors
-  border: '#E5E5EA', // Default borders
-  separator: '#C7C7CC', // Separators, chevrons
+  border: '#E5E5EA',
+  separator: '#C7C7CC',
 
-  // Entry type colors (specific to EntryCard)
-  entryPlace: '#007AFF', // Blue
-  entryFood: '#FF9500', // Orange
-  entryStay: '#5856D6', // Purple
-  entryExperience: '#34C759', // Green
+  // Entry type colors
+  entryPlace: '#007AFF',
+  entryFood: '#F4C24E', // Sunset Gold
+  entryStay: '#5856D6',
+  entryExperience: '#547A5F', // Moss Green
 
   // Shadow colors
-  shadow: '#000', // Used with opacity
+  shadow: '#172A3A', // Midnight Navy based shadow
 
-  // Overlay colors (use with rgba)
-  overlayDark: 'rgba(0, 0, 0, 0.95)',
-  overlayMedium: 'rgba(0, 0, 0, 0.6)',
-  overlayLight: 'rgba(255, 255, 255, 0.85)',
+  // Overlay colors
+  overlayDark: 'rgba(23, 42, 58, 0.95)', // Midnight Navy
+  overlayMedium: 'rgba(23, 42, 58, 0.6)',
+  overlayLight: 'rgba(253, 246, 237, 0.85)', // Warm Cream
   overlaySubtle: 'rgba(255, 255, 255, 0.2)',
 
-  // Transparent
+  // Basic
   transparent: 'transparent',
   white: '#fff',
   black: '#000',

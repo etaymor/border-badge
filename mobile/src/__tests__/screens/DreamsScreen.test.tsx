@@ -50,6 +50,7 @@ function mockHooksWithData({
     data: countries,
     isLoading: false,
     error: null,
+    refetch: jest.fn(),
   });
 
   jest.spyOn(useUserCountriesModule, 'useUserCountries').mockReturnValue({
@@ -83,6 +84,7 @@ describe('DreamsScreen', () => {
         data: [],
         isLoading: true,
         error: null,
+        refetch: jest.fn(),
       });
       jest.spyOn(useUserCountriesModule, 'useAddUserCountry').mockReturnValue({
         mutate: jest.fn(),

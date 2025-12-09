@@ -19,12 +19,22 @@ function getFlagEmoji(countryCode: string): string {
 
 export function CountryListItem({ country, selected, onPress }: CountryListItemProps) {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="checkbox"
+      accessibilityLabel={country.name}
+      accessibilityState={{ checked: selected }}
+    >
       <Text style={styles.flag}>{getFlagEmoji(country.code)}</Text>
       <Text style={styles.name} numberOfLines={1}>
         {country.name}
       </Text>
-      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+      <View
+        style={[styles.checkbox, selected && styles.checkboxSelected]}
+        importantForAccessibility="no-hide-descendants"
+      >
         {selected && <Text style={styles.checkmark}>✓</Text>}
       </View>
     </TouchableOpacity>

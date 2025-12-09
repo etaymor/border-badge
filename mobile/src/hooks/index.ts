@@ -67,3 +67,11 @@ export type {
   CreateListInput,
   UpdateListInput,
 } from './useLists';
+
+export { useCountrySelectionAnimations } from './useCountrySelectionAnimations';
+export type {
+  CelebrationAnimationRefs,
+  CountrySelectionAnimationRefs,
+  UseCountrySelectionAnimationsOptions,
+  UseCountrySelectionAnimationsReturn,
+} from './useCountrySelectionAnimations';
