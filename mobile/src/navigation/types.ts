@@ -18,6 +18,7 @@ export type AuthStackParamList = {
 // Onboarding stack screens
 export type OnboardingStackParamList = {
   WelcomeCarousel: undefined;
+  OnboardingSlider: undefined;
   Motivation: undefined;
   HomeCountry: undefined;
   DreamDestination: undefined;

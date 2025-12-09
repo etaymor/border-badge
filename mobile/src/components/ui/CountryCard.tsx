@@ -10,6 +10,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
@@ -82,6 +83,7 @@ export const CountryCard = React.memo(function CountryCard({
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onAddVisited();
     },
     [onAddVisited]
@@ -90,6 +92,7 @@ export const CountryCard = React.memo(function CountryCard({
   const handleWishlistPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       // Animate heart pulse when adding to wishlist (not when removing)
       if (!isWishlisted) {
         animateHeartPulse();

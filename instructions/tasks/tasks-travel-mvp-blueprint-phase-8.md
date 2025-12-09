@@ -14,6 +14,8 @@
 - `mobile/src/components/animation/Confetti.tsx` - Simple confetti/celebration animation component used for key milestones (PRD animation notes `docs/travel-prd.md` L229–230).
 - `mobile/src/screens/Tabs/PassportScreen.tsx` - Main passport grid screen where upgraded visuals, stamps, and confetti will be applied.
 - `mobile/src/screens/Onboarding/**` - Welcome slides, motivation tags, country selection, and progress summary screens receiving final art, typography, and micro-animations (`docs/travel-prd.md` L209–231).
+- `mobile/src/screens/onboarding/ContinentIntroScreen.tsx` - Onboarding prompt that plays a region video before country selection.
+- `mobile/src/assets/continentVideos.ts` - Central mapping of continent names to intro video assets plus fallback handling.
 - `mobile/src/screens/Paywall/PaywallScreen.tsx` - Paywall screen to receive visual polish, layout refinements, and CRO-ready structure (`docs/travel-prd.md` L217–231, L349–359; `docs/travel-mvp-blueprint.md` L605–610). **[DEFERRED: requires paywall implementation]**
 - `web/` components (if present) - Shared visual hooks for public list/trip views (colors, typography) to match the mobile brand where appropriate (`docs/travel-mvp-blueprint.md` L620–639).
 - `mobile/src/__tests__/**` - Snapshot and component tests that may need updates once visuals and structure are refined.
@@ -100,6 +102,7 @@
     - Font sizes and touch targets.
     - VoiceOver/readability of critical labels and CTAs.
     - **[DEFERRED: paywall accessibility - requires paywall implementation]**
+  - [x] 4.6 Guard continent intro videos against null sources by using a fallback clip and pausing playback when no region video is mapped.
 
 - [ ] 5.0 Run a visual QA & design-debt sweep
   - [ ] 5.1 Audit all major screens and flows (onboarding, passport, country detail, trip detail, entry flows, and public web views if present) for: **[DEFERRED: friends, notifications, paywall screens - requires Phase 5 social layer and paywall]**

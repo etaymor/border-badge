@@ -1,15 +1,24 @@
-import { useCallback, useMemo } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Animated, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, CountryGridItem } from '@components/ui';
+import { CountryCard } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
+
+// Type for country pairs (for 2-column rows)
+interface CountryPair {
+  left: { code: string; name: string };
+  right?: { code: string; name: string };
+}
 
 export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
@@ -23,12 +32,76 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     visitedContinents,
   } = useOnboardingStore();
 
-  // Count selected countries in this region
+  // Animation values
+  const headerOpacity = useRef(new Animated.Value(0)).current;
+  const gridOpacity = useRef(new Animated.Value(0)).current;
+  const footerOpacity = useRef(new Animated.Value(0)).current;
+  const badgeScale = useRef(new Animated.Value(1)).current;
+
+  // Staggered entrance animations
+  useEffect(() => {
+    headerOpacity.setValue(0);
+    gridOpacity.setValue(0);
+    footerOpacity.setValue(0);
+
+    Animated.sequence([
+      Animated.timing(headerOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(gridOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(footerOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [region, headerOpacity, gridOpacity, footerOpacity]);
+
+  // Bounce badge when selection count changes
+  const prevSelectedCount = useRef(0);
   const selectedInRegion = useMemo(() => {
     return regionCountries.filter((c) => selectedCountries.includes(c.code)).length;
   }, [regionCountries, selectedCountries]);
 
+  useEffect(() => {
+    if (selectedInRegion !== prevSelectedCount.current && selectedInRegion > 0) {
+      Animated.sequence([
+        Animated.spring(badgeScale, {
+          toValue: 1.2,
+          friction: 3,
+          tension: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(badgeScale, {
+          toValue: 1,
+          friction: 3,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    prevSelectedCount.current = selectedInRegion;
+  }, [selectedInRegion, badgeScale]);
+
+  // Pair countries for 2-column layout
+  const countryPairs: CountryPair[] = useMemo(() => {
+    const pairs: CountryPair[] = [];
+    for (let i = 0; i < regionCountries.length; i += 2) {
+      pairs.push({
+        left: regionCountries[i],
+        right: regionCountries[i + 1],
+      });
+    }
+    return pairs;
+  }, [regionCountries]);
+
   const handleSaveAndContinue = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Find current region index and move to next
     const currentIndex = REGIONS.indexOf(region as Region);
     const nextIndex = currentIndex + 1;
@@ -44,19 +117,53 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     }
   };
 
-  // Wrap in useCallback to prevent FlatList re-renders
-  const renderCountryItem = useCallback(
-    ({ item }: { item: (typeof regionCountries)[0] }) => (
-      <CountryGridItem
-        code={item.code}
-        name={item.name}
-        isSelected={selectedCountries.includes(item.code)}
-        isWishlisted={bucketListCountries.includes(item.code)}
-        onToggleVisited={() => toggleCountry(item.code)}
-        onToggleWishlist={() => toggleBucketListCountry(item.code)}
-      />
+  const handleToggleVisited = useCallback(
+    (code: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      toggleCountry(code);
+    },
+    [toggleCountry]
+  );
+
+  const handleToggleWishlist = useCallback(
+    (code: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      toggleBucketListCountry(code);
+    },
+    [toggleBucketListCountry]
+  );
+
+  const renderCountryRow = useCallback(
+    ({ item }: { item: CountryPair }) => (
+      <View style={styles.countryRow}>
+        <View style={styles.countryCardWrapper}>
+          <CountryCard
+            code={item.left.code}
+            name={item.left.name}
+            isVisited={selectedCountries.includes(item.left.code)}
+            isWishlisted={bucketListCountries.includes(item.left.code)}
+            onPress={() => handleToggleVisited(item.left.code)}
+            onAddVisited={() => handleToggleVisited(item.left.code)}
+            onToggleWishlist={() => handleToggleWishlist(item.left.code)}
+          />
+        </View>
+        {item.right && (
+          <View style={styles.countryCardWrapper}>
+            <CountryCard
+              code={item.right.code}
+              name={item.right.name}
+              isVisited={selectedCountries.includes(item.right.code)}
+              isWishlisted={bucketListCountries.includes(item.right.code)}
+              onPress={() => handleToggleVisited(item.right!.code)}
+              onAddVisited={() => handleToggleVisited(item.right!.code)}
+              onToggleWishlist={() => handleToggleWishlist(item.right!.code)}
+            />
+          </View>
+        )}
+        {!item.right && <View style={styles.countryCardWrapper} />}
+      </View>
     ),
-    [selectedCountries, bucketListCountries, toggleCountry, toggleBucketListCountry]
+    [selectedCountries, bucketListCountries, handleToggleVisited, handleToggleWishlist]
   );
 
   if (isLoading) {
@@ -72,65 +179,63 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>‹</Text>
+            <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.regionTitle}>{region}</Text>
-          <Button
-            title="Save & Continue"
-            onPress={handleSaveAndContinue}
-            variant="ghost"
-            style={styles.headerButton}
-          />
+          <View style={styles.headerCenter}>
+            <Text style={styles.regionTitle}>{region}</Text>
+            <Text style={styles.progressText}>
+              {selectedInRegion}/{regionCountries.length} countries selected
+            </Text>
+          </View>
+          {/* Floating selected badge */}
+          {selectedInRegion > 0 && (
+            <Animated.View style={[styles.floatingBadge, { transform: [{ scale: badgeScale }] }]}>
+              <Text style={styles.floatingBadgeText}>{selectedInRegion}</Text>
+            </Animated.View>
+          )}
         </View>
-        <Text style={styles.progressText}>
-          {selectedInRegion}/{regionCountries.length} logged
-        </Text>
-      </View>
-
-      {/* Floating selected badge */}
-      {selectedInRegion > 0 && (
-        <View style={styles.floatingBadge}>
-          <Text style={styles.floatingBadgeText}>{selectedInRegion} selected</Text>
-        </View>
-      )}
+      </Animated.View>
 
       {/* Country grid */}
-      <FlatList
-        data={regionCountries}
-        renderItem={renderCountryItem}
-        keyExtractor={(item) => item.code}
-        numColumns={3}
-        contentContainerStyle={styles.gridContent}
-        showsVerticalScrollIndicator={false}
-        testID="country-grid"
-      />
+      <Animated.View style={[styles.gridContainer, { opacity: gridOpacity }]}>
+        <FlatList
+          data={countryPairs}
+          renderItem={renderCountryRow}
+          keyExtractor={(item) => item.left.code}
+          contentContainerStyle={styles.gridContent}
+          showsVerticalScrollIndicator={false}
+          testID="country-grid"
+        />
+      </Animated.View>
 
       {/* Footer */}
-      <View style={styles.footer}>
-        <Button
-          title="Save & Continue"
+      <Animated.View style={[styles.footer, { opacity: footerOpacity }]}>
+        <TouchableOpacity
+          style={styles.continueButton}
           onPress={handleSaveAndContinue}
-          style={styles.footerButton}
-          testID="save-continue-button"
-        />
-      </View>
+          activeOpacity={0.8}
+        >
+          <Text style={styles.continueButtonText}>Save & Continue</Text>
+          <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+        </TouchableOpacity>
 
-      {/* Progress indicator - 6 dots for all regions including Antarctica */}
-      <View style={styles.progressContainer}>
-        {ALL_REGIONS.map((r, index) => (
-          <View
-            key={index}
-            style={[
-              styles.progressDot,
-              visitedContinents.includes(r) && styles.progressDotCompleted,
-              r === region && styles.progressDotActive,
-            ]}
-          />
-        ))}
-      </View>
+        {/* Progress indicator - 6 dots for all regions including Antarctica */}
+        <View style={styles.progressContainer}>
+          {ALL_REGIONS.map((r, index) => (
+            <View
+              key={index}
+              style={[
+                styles.progressDot,
+                visitedContinents.includes(r) && styles.progressDotCompleted,
+                r === region && styles.progressDotActive,
+              ]}
+            />
+          ))}
+        </View>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -138,7 +243,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   loadingContainer: {
     flex: 1,
@@ -147,103 +252,118 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: '#666',
+    fontFamily: fonts.openSans.regular,
+    color: colors.stormGray,
   },
   header: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    borderBottomColor: colors.paperBeige,
   },
   headerTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
   backButton: {
-    paddingRight: 8,
-    paddingVertical: 4,
+    padding: 8,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  backIcon: {
-    fontSize: 28,
-    color: colors.textPrimary,
-    fontWeight: '300',
+  headerCenter: {
+    flex: 1,
+    marginLeft: 8,
   },
   regionTitle: {
-    flex: 1,
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-  },
-  headerButton: {
-    paddingHorizontal: 0,
+    fontSize: 28,
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
   },
   progressText: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    fontFamily: fonts.openSans.regular,
+    color: colors.stormGray,
+    marginTop: 2,
   },
   floatingBadge: {
-    position: 'absolute',
-    top: 100,
-    right: 16,
-    backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    backgroundColor: colors.mossGreen,
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 4,
   },
   floatingBadgeText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+    color: colors.white,
+    fontSize: 16,
+    fontFamily: fonts.openSans.bold,
+  },
+  gridContainer: {
+    flex: 1,
   },
   gridContent: {
-    padding: 8,
-    paddingBottom: 100,
+    padding: 16,
+    paddingBottom: 180,
+  },
+  countryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  countryCardWrapper: {
+    flex: 1,
   },
   footer: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 40,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: colors.paperBeige,
   },
-  footerButton: {
-    width: '100%',
+  continueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  continueButtonText: {
+    fontSize: 18,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   progressContainer: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    marginTop: 16,
   },
   progressDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: `${colors.midnightNavy}30`,
   },
   progressDotActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.midnightNavy,
     width: 24,
   },
   progressDotCompleted: {
-    backgroundColor: '#34C759',
+    backgroundColor: colors.mossGreen,
   },
 });

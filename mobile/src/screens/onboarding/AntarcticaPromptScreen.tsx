@@ -1,8 +1,20 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { Image, ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useRef } from 'react';
+import {
+  Animated,
+  Image,
+  ImageSourcePropType,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@components/ui';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -13,10 +25,60 @@ type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
 const ANTARCTICA_CODE = 'AQ';
 
+// Antarctica background - pixel sampled from illustration
+const ANTARCTICA_BACKGROUND = '#FDFBF1';
+
 export function AntarcticaPromptScreen({ navigation }: Props) {
   const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
 
+  // Animation values
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const titleTranslate = useRef(new Animated.Value(-20)).current;
+  const imageScale = useRef(new Animated.Value(0.95)).current;
+  const buttonsTranslate = useRef(new Animated.Value(30)).current;
+  const dotsOpacity = useRef(new Animated.Value(0)).current;
+
+  // Staggered entrance animations
+  useEffect(() => {
+    Animated.sequence([
+      // Everything fades in together
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.spring(imageScale, {
+          toValue: 1,
+          friction: 8,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+        Animated.spring(titleTranslate, {
+          toValue: 0,
+          friction: 8,
+          tension: 60,
+          useNativeDriver: true,
+        }),
+      ]),
+      // Buttons slide up
+      Animated.spring(buttonsTranslate, {
+        toValue: 0,
+        friction: 7,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+      // Progress dots pop in
+      Animated.timing(dotsOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [contentOpacity, titleTranslate, imageScale, buttonsTranslate, dotsOpacity]);
+
   const handleYes = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Add Antarctica as visited continent and select the country
     addVisitedContinent('Antarctica');
     toggleCountry(ANTARCTICA_CODE);
@@ -24,113 +86,199 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
   };
 
   const handleNo = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Just proceed without selecting Antarctica
     navigation.navigate('ProgressSummary');
   };
 
+  const handleLogin = () => {
+    navigation.navigate('PhoneAuth');
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        {/* Antarctica illustration */}
-        <Image source={antarcticaImage} style={styles.illustration} resizeMode="cover" />
-
-        <View style={styles.card}>
-          <Text style={styles.title}>Been to Antarctica?</Text>
-          <Text style={styles.subtitle}>
-            Only ~1% of travelers have visited the frozen continent.
-          </Text>
-
-          <View style={styles.buttonContainer}>
-            <Button title="Yes" onPress={handleYes} style={styles.yesButton} />
-            <Button title="No" onPress={handleNo} variant="outline" style={styles.noButton} />
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header with title */}
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: contentOpacity,
+              transform: [{ translateY: titleTranslate }],
+            },
+          ]}
+        >
+          <View style={styles.navBar}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+              <Text style={styles.loginText}>Login</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+          <Text style={styles.title}>Been to Antarctica?</Text>
+        </Animated.View>
 
-        {/* Progress indicator - 6 dots for all regions including Antarctica */}
-        <View style={styles.progressContainer}>
+        {/* Image container with overlaid buttons */}
+        <Animated.View
+          style={[
+            styles.imageContainer,
+            {
+              opacity: contentOpacity,
+              transform: [{ scale: imageScale }],
+            },
+          ]}
+        >
+          <Image source={antarcticaImage} style={styles.image} resizeMode="contain" />
+
+          {/* Buttons overlaid on image */}
+          <Animated.View
+            style={[
+              styles.buttonContainer,
+              {
+                opacity: contentOpacity,
+                transform: [{ translateY: buttonsTranslate }],
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
+              <Text style={styles.yesButtonText}>Yes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noButton} onPress={handleNo} activeOpacity={0.9}>
+              <Text style={styles.noButtonText}>No</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+
+        {/* Progress indicator at bottom */}
+        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
           {ALL_REGIONS.map((region, index) => (
             <View
               key={region}
               style={[
                 styles.progressDot,
-                // Antarctica (index 5) is always active on this screen
-                index === 5 && styles.progressDotActive,
                 // Previous regions are completed if visited
                 index < 5 && visitedContinents.includes(region) && styles.progressDotCompleted,
+                // Antarctica (index 5) is always active on this screen
+                index === 5 && styles.progressDotActive,
               ]}
             />
           ))}
-        </View>
-      </View>
-    </SafeAreaView>
+        </Animated.View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: ANTARCTICA_BACKGROUND,
   },
-  content: {
+  safeArea: {
     flex: 1,
+  },
+  header: {
+    paddingHorizontal: 16,
+  },
+  navBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  backButton: {
+    padding: 8,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  illustration: {
-    width: 200,
-    height: 150,
-    borderRadius: 16,
-    marginBottom: 40,
-  },
-  card: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 20,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-    width: '100%',
     alignItems: 'center',
+  },
+  loginButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  loginText: {
+    fontSize: 16,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-    marginBottom: 8,
+    fontSize: 32,
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
     textAlign: 'center',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 24,
-    textAlign: 'center',
+  imageContainer: {
+    flex: 1,
+    position: 'relative',
+    marginTop: -60,
+  },
+  image: {
+    width: '100%',
+    height: '100%',
   },
   buttonContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     gap: 12,
-    width: '100%',
+    paddingHorizontal: 24,
   },
   yesButton: {
     flex: 1,
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  yesButtonText: {
+    fontSize: 18,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   noButton: {
     flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  noButtonText: {
+    fontSize: 18,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   progressContainer: {
     flexDirection: 'row',
-    marginTop: 40,
+    justifyContent: 'center',
     gap: 8,
+    paddingBottom: 16,
   },
   progressDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E5E5EA',
+    backgroundColor: `${colors.midnightNavy}30`,
   },
   progressDotActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.midnightNavy,
     width: 24,
   },
   progressDotCompleted: {
-    backgroundColor: '#34C759',
+    backgroundColor: colors.mossGreen,
   },
 });

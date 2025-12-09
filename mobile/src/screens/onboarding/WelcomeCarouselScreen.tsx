@@ -18,8 +18,8 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     player.play();
   });
 
-  const handleStartJourney = () => {
-    navigation.navigate('Motivation');
+  const handleNext = () => {
+    navigation.navigate('OnboardingSlider');
   };
 
   const handleLogin = () => {
@@ -36,32 +36,37 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
         nativeControls={false}
       />
 
-      {/* Overlay for better text readability if needed, though design asks for clean */}
-      {/* <View style={StyleSheet.absoluteFillObject} backgroundColor="rgba(253, 246, 237, 0.3)" /> */}
-
       {/* Login button - top right */}
       <TouchableOpacity
         onPress={handleLogin}
         style={styles.loginButton}
         testID="carousel-login-button"
       >
-        <Text variant="label" style={styles.loginText}>Login</Text>
+        <Text variant="label" style={styles.loginText}>
+          Login
+        </Text>
       </TouchableOpacity>
 
       {/* Text overlay - upper area */}
       <View style={styles.textOverlay}>
-        <Text variant="title" style={styles.title}>Welcome Explorer</Text>
-        <Text variant="body" style={styles.body}>Your journey around the world starts here.</Text>
+        <Text variant="title" style={styles.title}>
+          Welcome Explorer
+        </Text>
+        <Text variant="body" style={styles.body}>
+          Your journey around the world starts here.
+        </Text>
       </View>
 
       {/* Next button - bottom third */}
       <View style={styles.bottomContainer}>
         <TouchableOpacity
           style={styles.nextButton}
-          onPress={handleStartJourney}
+          onPress={handleNext}
           testID="start-journey-button"
         >
-          <Text variant="label" style={styles.nextButtonText}>Next</Text>
+          <Text variant="label" style={styles.nextButtonText}>
+            Next
+          </Text>
           <Ionicons name="arrow-forward" size={24} color={colors.midnightNavy} />
         </TouchableOpacity>
       </View>
@@ -72,7 +77,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.warmCream, // Fallback background
+    backgroundColor: colors.warmCream,
   },
   loginButton: {
     position: 'absolute',
@@ -87,7 +92,7 @@ const styles = StyleSheet.create({
   },
   textOverlay: {
     position: 'absolute',
-    top: 140, // More breathing room
+    top: 140,
     left: 24,
     right: 24,
     alignItems: 'center',
@@ -106,19 +111,21 @@ const styles = StyleSheet.create({
   },
   bottomContainer: {
     position: 'absolute',
-    bottom: 100, // More breathing room
+    bottom: 100,
     left: 24,
     right: 24,
+    alignItems: 'center',
   },
   nextButton: {
     backgroundColor: colors.sunsetGold,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 40,
+    paddingVertical: 16,
+    paddingHorizontal: 56,
     borderRadius: 12,
-    gap: 12,
+    gap: 8,
+    minWidth: 260,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -126,9 +133,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   nextButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: colors.midnightNavy,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontWeight: '600',
   },
 });
