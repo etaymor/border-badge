@@ -116,36 +116,38 @@ mobile/src/
 
 ## Key Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `expo` | React Native framework |
-| `@supabase/supabase-js` | Supabase client |
-| `zustand` | State management |
-| `@tanstack/react-query` | Server state management |
-| `axios` | HTTP client |
-| `@react-navigation/native` | Navigation |
-| `expo-secure-store` | Secure token storage |
-| `expo-sqlite` | Local database |
+| Package                    | Purpose                 |
+| -------------------------- | ----------------------- |
+| `expo`                     | React Native framework  |
+| `@supabase/supabase-js`    | Supabase client         |
+| `zustand`                  | State management        |
+| `@tanstack/react-query`    | Server state management |
+| `axios`                    | HTTP client             |
+| `@react-navigation/native` | Navigation              |
+| `expo-secure-store`        | Secure token storage    |
+| `expo-sqlite`              | Local database          |
 
 ## Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npx expo start` | Start Expo development server |
-| `npm test` | Run Jest tests |
-| `npm run lint` | Run ESLint |
-| `npx prettier --check .` | Check code formatting |
-| `npx prettier --write .` | Format code |
+| Command                  | Description                   |
+| ------------------------ | ----------------------------- |
+| `npx expo start`         | Start Expo development server |
+| `npm test`               | Run Jest tests                |
+| `npm run lint`           | Run ESLint                    |
+| `npx prettier --check .` | Check code formatting         |
+| `npx prettier --write .` | Format code                   |
 
 ## Architecture Patterns
 
 ### State Management
 
 **Zustand Stores:**
+
 - `authStore` - Session, onboarding status, loading states
 - `onboardingStore` - Persisted onboarding progress (AsyncStorage)
 
 **React Query:**
+
 - All server state (trips, entries, countries, media)
 - Automatic caching and invalidation
 - Optimistic updates where appropriate
@@ -163,6 +165,7 @@ const { mutate: createTrip } = useCreateTrip();
 ### Navigation
 
 React Navigation with:
+
 - Native stack navigator for performance
 - Bottom tab navigator for main screens
 - Conditional rendering based on auth state
@@ -224,6 +227,7 @@ eas build --platform android
 ### Configuration
 
 See `eas.json` for build profiles:
+
 - `development` - Internal testing builds
 - `preview` - TestFlight/Internal testing
 - `production` - App Store/Play Store releases

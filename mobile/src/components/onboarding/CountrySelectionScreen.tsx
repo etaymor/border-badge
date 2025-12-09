@@ -75,7 +75,7 @@ export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) 
   const [selectedCountryData, setSelectedCountryData] = useState<Country | null>(null);
   const [showSelection, setShowSelection] = useState(false);
 
-  const { data: countries, isLoading } = useCountries();
+  const { data: countries, isLoading, error, refetch } = useCountries();
   const currentSelection = getCurrentSelection();
 
   const { refs, animateDropdown, playCelebration } = useCountrySelectionAnimations({
@@ -295,6 +295,26 @@ export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) 
           </View>
         )}
 
+        {/* Error state */}
+        {error && !isLoading && (
+          <View style={styles.errorContainer}>
+            <Ionicons name="cloud-offline-outline" size={48} color={colors.dustyCoral} />
+            <Text variant="body" style={styles.errorText}>
+              Unable to load countries
+            </Text>
+            <TouchableOpacity
+              onPress={refetch}
+              style={styles.retryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading countries"
+            >
+              <Text variant="label" style={styles.retryText}>
+                Tap to retry
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Footer with Next button */}
         <Animated.View style={[styles.footer, { opacity: refs.buttonOpacity }]}>
           <TouchableOpacity
@@ -445,6 +465,27 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.midnightNavy,
     opacity: 0.7,
+  },
+  errorContainer: {
+    position: 'absolute',
+    top: '40%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  errorText: {
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  retryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  retryText: {
+    color: colors.primary,
   },
   footer: {
     paddingVertical: 24,

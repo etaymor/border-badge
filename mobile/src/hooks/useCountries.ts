@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   getAllCountries,
@@ -20,33 +20,37 @@ export function useCountries() {
   const [data, setData] = useState<Country[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadCountries() {
-      try {
-        const countries = await getAllCountries();
-        if (isMounted) {
-          setData(countries);
-          setIsLoading(false);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(err instanceof Error ? err : new Error('Failed to load countries'));
-          setIsLoading(false);
-        }
+  const loadCountries = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const countries = await getAllCountries();
+      if (isMountedRef.current) {
+        setData(countries);
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err : new Error('Failed to load countries'));
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
       }
     }
+  }, []);
 
+  useEffect(() => {
+    isMountedRef.current = true;
     loadCountries();
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
     };
-  }, []);
+  }, [loadCountries]);
 
-  return { data, isLoading, error };
+  return { data, isLoading, error, refetch: loadCountries };
 }
 
 /**

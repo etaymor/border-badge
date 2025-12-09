@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FlatListProps } from 'react-native';
 import {
   Dimensions,
   FlatList,
@@ -111,6 +112,19 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     }
   };
 
+  const handleScrollToIndexFailed = useCallback(
+    (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
+      // Wait for items to render, then retry
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index: info.index,
+          animated: true,
+        });
+      }, 100);
+    },
+    []
+  );
+
   const renderSlide: ListRenderItem<Slide> = ({ item, index }) => (
     <View style={styles.slide} testID={`carousel-slide-${item.id}`}>
       {/* Postcard frame container */}
@@ -161,6 +175,9 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         viewabilityConfig={viewabilityConfig}
         bounces={false}
         contentContainerStyle={styles.carouselContent}
+        onScrollToIndexFailed={
+          handleScrollToIndexFailed as FlatListProps<Slide>['onScrollToIndexFailed']
+        }
       />
 
       {/* Bottom section: pagination dots and button */}

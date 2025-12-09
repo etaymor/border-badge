@@ -50,6 +50,16 @@ export function useCountrySelectionAnimations(
     celebrationHoldDuration = 600,
   } = options;
 
+  // Track mounted state to prevent callbacks after unmount
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Entrance animation refs
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslate = useRef(new Animated.Value(20)).current;
@@ -297,7 +307,12 @@ export function useCountrySelectionAnimations(
           duration: 300,
           useNativeDriver: true,
         }),
-      ]).start(onComplete);
+      ]).start(() => {
+        // Only call onComplete if component is still mounted
+        if (isMountedRef.current) {
+          onComplete();
+        }
+      });
     },
     [
       hasStars,
