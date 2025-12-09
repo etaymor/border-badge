@@ -1,7 +1,8 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, Chip } from '@components/ui';
+import { Button, Chip, Text } from '@components/ui';
+import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
@@ -31,14 +32,14 @@ export function MotivationScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.step}>Step 1 of 4</Text>
-          <Text style={styles.title}>What moves you to explore?</Text>
+          <Text variant="caption" style={styles.step}>Step 1 of 4</Text>
+          <Text variant="title" style={styles.title}>What moves you to explore?</Text>
         </View>
 
         <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
           {/* Why I Travel Section */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Why I Travel</Text>
+            <Text variant="heading" style={styles.sectionTitle}>Why I Travel</Text>
             <View style={styles.chipContainer}>
               {MOTIVATION_TAGS.map((tag) => (
                 <Chip
@@ -53,7 +54,7 @@ export function MotivationScreen({ navigation }: Props) {
 
           {/* I Am A... Section */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>I Am A...</Text>
+            <Text variant="heading" style={styles.sectionTitle}>I Am A...</Text>
             <View style={styles.chipContainer}>
               {PERSONA_TAGS.map((tag) => (
                 <Chip
@@ -84,7 +85,7 @@ export function MotivationScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   content: {
     flex: 1,
@@ -92,30 +93,26 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   step: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '600',
+    color: colors.primary, // Or Adobe Brick for accent
     marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+    marginBottom: 8,
   },
   scrollContainer: {
     flex: 1,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
     marginBottom: 16,
+    color: colors.midnightNavy,
   },
   chipContainer: {
     flexDirection: 'row',

@@ -4,13 +4,12 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, OTPInput, PhoneInput, ResendTimer } from '@components/ui';
+import { Button, OTPInput, PhoneInput, ResendTimer, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
@@ -108,7 +107,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
           onPress={step === 'otp' ? handleBackToPhone : () => navigation.goBack()}
           style={styles.backButton}
         >
-          <Text style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
+          <Text variant="label" style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
         </TouchableOpacity>
       )}
 
@@ -123,8 +122,8 @@ export function PhoneAuthScreen({ navigation }: Props) {
           {step === 'phone' ? (
             // Phone Entry Step
             <View style={styles.content}>
-              <Text style={styles.title}>Welcome back</Text>
-              <Text style={styles.subtitle}>Enter your phone number to sign in</Text>
+              <Text variant="title" style={styles.title}>Welcome back</Text>
+              <Text variant="body" style={styles.subtitle}>Enter your phone number to sign in</Text>
 
               <PhoneInput
                 value={phone}
@@ -147,13 +146,13 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 testID="phone-auth-send-button"
               />
 
-              <Text style={styles.helperText}>We&apos;ll send you a verification code</Text>
+              <Text variant="caption" style={styles.helperText}>We&apos;ll send you a verification code</Text>
             </View>
           ) : (
             // OTP Entry Step
             <View style={styles.content}>
-              <Text style={styles.title}>Enter verification code</Text>
-              <Text style={styles.subtitle}>Sent to {formatPhoneForDisplay(phone)}</Text>
+              <Text variant="title" style={styles.title}>Enter verification code</Text>
+              <Text variant="body" style={styles.subtitle}>Sent to {formatPhoneForDisplay(phone)}</Text>
 
               <View style={styles.otpContainer}>
                 <OTPInput
@@ -194,7 +193,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: colors.warmCream,
   },
   backButton: {
     paddingVertical: 8,
@@ -202,9 +201,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   backText: {
-    fontSize: 16,
     color: colors.primary,
-    fontWeight: '600',
   },
   keyboardView: {
     flex: 1,
@@ -215,32 +212,27 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 48, // More top padding
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   subtitle: {
-    fontSize: 16,
     color: colors.textSecondary,
-    marginBottom: 32,
+    marginBottom: 48, // More breathing room
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 24,
   },
   otpContainer: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   button: {
     marginTop: 8,
   },
   helperText: {
-    fontSize: 14,
-    color: colors.textTertiary,
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: 24,
+    color: colors.textTertiary,
   },
 });

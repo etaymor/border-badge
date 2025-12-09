@@ -4,7 +4,6 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -13,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import {
   COUNTRY_DIAL_CODES,
   getCountryByCode,
@@ -21,6 +21,7 @@ import {
 import { getFlagEmoji } from '@utils/flags';
 
 import { SearchInput } from './SearchInput';
+import { Text } from './Text';
 
 interface PhoneInputProps {
   value: string; // E.164 format: +1234567890
@@ -165,7 +166,7 @@ export function PhoneInput({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && <Text variant="label" style={styles.label}>{label}</Text>}
 
       <View
         style={[
@@ -181,8 +182,8 @@ export function PhoneInput({
           testID={testID ? `${testID}-country-picker` : undefined}
         >
           <Text style={styles.flag}>{getFlagEmoji(selectedCountry.code)}</Text>
-          <Text style={styles.dialCode}>{selectedCountry.dialCode}</Text>
-          <Text style={styles.chevron}>{'  \u25BC'}</Text>
+          <Text variant="body" style={styles.dialCode}>{selectedCountry.dialCode}</Text>
+          <Text variant="caption" style={styles.chevron}>{'  \u25BC'}</Text>
         </TouchableOpacity>
 
         {/* Divider */}
@@ -204,13 +205,13 @@ export function PhoneInput({
         />
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error && <Text variant="caption" style={styles.error}>{error}</Text>}
 
       {/* Country Picker Modal */}
       <Modal visible={isPickerVisible} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Country</Text>
+            <Text variant="heading" style={styles.modalTitle}>Select Country</Text>
             <TouchableOpacity
               onPress={() => {
                 setIsPickerVisible(false);
@@ -218,7 +219,7 @@ export function PhoneInput({
               }}
               style={styles.closeButton}
             >
-              <Text style={styles.closeButtonText}>Done</Text>
+              <Text variant="body" style={styles.closeButtonText}>Done</Text>
             </TouchableOpacity>
           </View>
 
@@ -244,8 +245,8 @@ export function PhoneInput({
                 onPress={() => handleCountrySelect(item)}
               >
                 <Text style={styles.countryFlag}>{getFlagEmoji(item.code)}</Text>
-                <Text style={styles.countryName}>{item.name}</Text>
-                <Text style={styles.countryDialCode}>{item.dialCode}</Text>
+                <Text variant="body" style={styles.countryName}>{item.name}</Text>
+                <Text variant="caption" style={styles.countryDialCode}>{item.dialCode}</Text>
               </Pressable>
             )}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -262,22 +263,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textPrimary,
     marginBottom: 6,
+    color: colors.textPrimary,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    minHeight: 48, // Taller
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 12, // 12px
     backgroundColor: colors.white,
   },
   inputRowFocused: {
     borderColor: colors.primary,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   inputRowError: {
     borderColor: colors.error,
@@ -290,17 +294,14 @@ const styles = StyleSheet.create({
   },
   flag: {
     fontSize: 20,
-    marginRight: 4,
+    marginRight: 8,
   },
   dialCode: {
-    fontSize: 16,
     color: colors.textPrimary,
-    fontWeight: '500',
   },
   chevron: {
-    fontSize: 10,
     color: colors.textTertiary,
-    marginLeft: 2,
+    marginLeft: 4,
   },
   divider: {
     width: 1,
@@ -309,13 +310,13 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
+    fontFamily: fonts.openSans.regular,
     color: colors.textPrimary,
   },
   error: {
-    fontSize: 12,
     color: colors.error,
     marginTop: 4,
   },
@@ -329,14 +330,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.white,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
     color: colors.textPrimary,
   },
   closeButton: {
@@ -344,7 +343,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   closeButtonText: {
-    fontSize: 16,
     color: colors.primary,
     fontWeight: '600',
   },
@@ -355,7 +353,7 @@ const styles = StyleSheet.create({
   countryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     backgroundColor: colors.white,
   },
@@ -367,20 +365,18 @@ const styles = StyleSheet.create({
   },
   countryFlag: {
     fontSize: 24,
-    marginRight: 12,
+    marginRight: 16,
   },
   countryName: {
     flex: 1,
-    fontSize: 16,
     color: colors.textPrimary,
   },
   countryDialCode: {
-    fontSize: 14,
     color: colors.textSecondary,
   },
   separator: {
     height: 1,
     backgroundColor: colors.border,
-    marginLeft: 52, // Align with text after flag
+    marginLeft: 56, // Align with text
   },
 });

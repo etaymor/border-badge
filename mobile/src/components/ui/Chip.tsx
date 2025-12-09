@@ -1,4 +1,7 @@
-import { StyleSheet, Text, TouchableOpacity, ViewStyle } from 'react-native';
+import { StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
+
+import { colors } from '@constants/colors';
+import { Text } from './Text';
 
 interface ChipProps {
   label: string;
@@ -14,32 +17,37 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+      <Text variant="label" style={[styles.chipText, selected && styles.chipTextSelected]}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24, // Rounded
     borderWidth: 1,
-    borderColor: '#E5E5EA',
-    backgroundColor: '#fff',
-    marginRight: 8,
-    marginBottom: 8,
+    borderColor: colors.border,
+    backgroundColor: colors.white, // Or paperBeige
+    marginRight: 10,
+    marginBottom: 10,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   chipSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.mossGreen,
+    borderColor: colors.mossGreen,
   },
   chipText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    color: colors.textPrimary,
   },
   chipTextSelected: {
-    color: '#fff',
+    color: colors.white,
   },
 });

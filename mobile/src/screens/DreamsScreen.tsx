@@ -267,7 +267,6 @@ export function DreamsScreen({ navigation }: Props) {
           <CountryCard
             code={item.code}
             name={item.name}
-            region={item.region}
             isVisited={false}
             isWishlisted={item.isWishlisted}
             onPress={() => handleCountryPress(item)}
@@ -358,6 +357,8 @@ export function DreamsScreen({ navigation }: Props) {
         data={sortedCountries}
         renderItem={renderItem}
         keyExtractor={getItemKey}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
@@ -397,12 +398,16 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+    paddingHorizontal: 16,
     flexGrow: 1,
+  },
+  columnWrapper: {
+    gap: 12,
+    marginBottom: 12,
   },
   // Search Row
   searchRow: {
     flexDirection: 'row',
-    marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 16,
     gap: 12,
@@ -438,7 +443,7 @@ const styles = StyleSheet.create({
   },
   // Country Card Wrapper
   countryCardWrapper: {
-    marginBottom: 12,
+    flex: 1,
   },
   // Empty State
   emptyState: {

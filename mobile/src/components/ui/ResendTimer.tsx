@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   ViewStyle,
 } from 'react-native';
 
 import { colors } from '@constants/colors';
+import { Text } from './Text';
 
 interface ResendTimerProps {
   onResend: () => void;
@@ -79,7 +79,7 @@ export function ResendTimer({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <Text style={styles.text}>Didn&apos;t receive a code?</Text>
+      <Text variant="caption" style={styles.text}>Didn&apos;t receive a code?</Text>
 
       {canResend ? (
         <TouchableOpacity
@@ -91,11 +91,11 @@ export function ResendTimer({
           {isResending ? (
             <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <Text style={styles.resendText}>Resend Code</Text>
+            <Text variant="label" style={styles.resendText}>Resend Code</Text>
           )}
         </TouchableOpacity>
       ) : (
-        <Text style={styles.timerText}>Resend in {formatTime(secondsLeft)}</Text>
+        <Text variant="caption" style={styles.timerText}>Resend in {formatTime(secondsLeft)}</Text>
       )}
     </View>
   );
@@ -107,14 +107,11 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   text: {
-    fontSize: 14,
-    color: colors.textSecondary,
     marginBottom: 8,
+    color: colors.textSecondary,
   },
   timerText: {
-    fontSize: 14,
     color: colors.textTertiary,
-    fontWeight: '500',
   },
   resendButton: {
     paddingVertical: 8,
@@ -123,8 +120,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resendText: {
-    fontSize: 16,
     color: colors.primary,
-    fontWeight: '600',
   },
 });

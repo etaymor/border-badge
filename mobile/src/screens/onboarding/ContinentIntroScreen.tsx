@@ -1,4 +1,4 @@
-import { ResizeMode, Video } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,6 +17,12 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
+
+  const player = useVideoPlayer(continentVideo, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
 
   const handleYes = () => {
     addVisitedContinent(region);
@@ -49,13 +55,11 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
       <View style={styles.content}>
         {/* Continent video */}
         {continentVideo ? (
-          <Video
-            source={continentVideo}
+          <VideoView
+            player={player}
             style={styles.video}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay
-            isLooping
-            isMuted
+            contentFit="cover"
+            nativeControls={false}
           />
         ) : (
           <View style={styles.illustrationPlaceholder} />
