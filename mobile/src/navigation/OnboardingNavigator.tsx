@@ -1,6 +1,5 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { PhoneAuthScreen } from '@screens/auth/PhoneAuthScreen';
 import { AccountCreationScreen } from '@screens/onboarding/AccountCreationScreen';
 import { AntarcticaPromptScreen } from '@screens/onboarding/AntarcticaPromptScreen';
 import { ContinentCountryGridScreen } from '@screens/onboarding/ContinentCountryGridScreen';
@@ -37,8 +36,6 @@ export function OnboardingNavigator() {
       <Stack.Screen name="Paywall" component={PaywallScreen} />
       <Stack.Screen name="NameEntry" component={NameEntryScreen} />
       <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
-      {/* Auth screen for returning users */}
-      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
     </Stack.Navigator>
   );
 }

@@ -44,7 +44,10 @@ export function Button({
       testID={testID}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? colors.midnightNavy : colors.primary} size="small" />
+        <ActivityIndicator
+          color={variant === 'primary' ? colors.cloudWhite : colors.primary}
+          size="small"
+        />
       ) : (
         <Text
           style={[

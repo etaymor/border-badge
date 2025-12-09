@@ -244,7 +244,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('PhoneAuth');
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
   };
 
   const renderDropdownItem = ({ item, index }: { item: Country; index: number }) => {
@@ -283,7 +283,10 @@ export function DreamDestinationScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Back button - top left */}
       <Animated.View style={[styles.backButton, { opacity: backButtonOpacity }]}>
-        <TouchableOpacity onPress={handleBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={handleBack}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
         </TouchableOpacity>
       </Animated.View>

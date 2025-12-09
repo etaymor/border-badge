@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { Text } from './Text';
@@ -79,7 +73,9 @@ export function ResendTimer({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <Text variant="caption" style={styles.text}>Didn&apos;t receive a code?</Text>
+      <Text variant="caption" style={styles.text}>
+        Didn&apos;t receive a code?
+      </Text>
 
       {canResend ? (
         <TouchableOpacity
@@ -91,11 +87,15 @@ export function ResendTimer({
           {isResending ? (
             <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <Text variant="label" style={styles.resendText}>Resend Code</Text>
+            <Text variant="label" style={styles.resendText}>
+              Resend Code
+            </Text>
           )}
         </TouchableOpacity>
       ) : (
-        <Text variant="caption" style={styles.timerText}>Resend in {formatTime(secondsLeft)}</Text>
+        <Text variant="caption" style={styles.timerText}>
+          Resend in {formatTime(secondsLeft)}
+        </Text>
       )}
     </View>
   );

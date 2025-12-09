@@ -166,7 +166,11 @@ export function PhoneInput({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text variant="label" style={styles.label}>{label}</Text>}
+      {label && (
+        <Text variant="label" style={styles.label}>
+          {label}
+        </Text>
+      )}
 
       <View
         style={[
@@ -182,8 +186,12 @@ export function PhoneInput({
           testID={testID ? `${testID}-country-picker` : undefined}
         >
           <Text style={styles.flag}>{getFlagEmoji(selectedCountry.code)}</Text>
-          <Text variant="body" style={styles.dialCode}>{selectedCountry.dialCode}</Text>
-          <Text variant="caption" style={styles.chevron}>{'  \u25BC'}</Text>
+          <Text variant="body" style={styles.dialCode}>
+            {selectedCountry.dialCode}
+          </Text>
+          <Text variant="caption" style={styles.chevron}>
+            {'  \u25BC'}
+          </Text>
         </TouchableOpacity>
 
         {/* Divider */}
@@ -205,13 +213,19 @@ export function PhoneInput({
         />
       </View>
 
-      {error && <Text variant="caption" style={styles.error}>{error}</Text>}
+      {error && (
+        <Text variant="caption" style={styles.error}>
+          {error}
+        </Text>
+      )}
 
       {/* Country Picker Modal */}
       <Modal visible={isPickerVisible} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text variant="heading" style={styles.modalTitle}>Select Country</Text>
+            <Text variant="heading" style={styles.modalTitle}>
+              Select Country
+            </Text>
             <TouchableOpacity
               onPress={() => {
                 setIsPickerVisible(false);
@@ -219,7 +233,9 @@ export function PhoneInput({
               }}
               style={styles.closeButton}
             >
-              <Text variant="body" style={styles.closeButtonText}>Done</Text>
+              <Text variant="body" style={styles.closeButtonText}>
+                Done
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -245,8 +261,12 @@ export function PhoneInput({
                 onPress={() => handleCountrySelect(item)}
               >
                 <Text style={styles.countryFlag}>{getFlagEmoji(item.code)}</Text>
-                <Text variant="body" style={styles.countryName}>{item.name}</Text>
-                <Text variant="caption" style={styles.countryDialCode}>{item.dialCode}</Text>
+                <Text variant="body" style={styles.countryName}>
+                  {item.name}
+                </Text>
+                <Text variant="caption" style={styles.countryDialCode}>
+                  {item.dialCode}
+                </Text>
               </Pressable>
             )}
             ItemSeparatorComponent={() => <View style={styles.separator} />}

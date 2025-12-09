@@ -260,7 +260,7 @@ export function HomeCountryScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('PhoneAuth');
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
   };
 
   const renderDropdownItem = ({ item, index }: { item: Country; index: number }) => {

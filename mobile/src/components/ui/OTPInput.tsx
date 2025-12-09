@@ -146,7 +146,11 @@ export function OTPInput({
           />
         ))}
       </View>
-      {error && <Text variant="caption" style={styles.error}>{error}</Text>}
+      {error && (
+        <Text variant="caption" style={styles.error}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 }

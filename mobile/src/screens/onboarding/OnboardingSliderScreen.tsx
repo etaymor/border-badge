@@ -68,10 +68,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     p.muted = true;
   });
 
-  const players = useMemo(
-    () => [player0, player1, player2],
-    [player0, player1, player2]
-  );
+  const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
 
   // Play only active slide's video
   useEffect(() => {
@@ -102,7 +99,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('PhoneAuth');
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
   };
 
   const goToNext = () => {
@@ -171,10 +168,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         {/* Pagination dots */}
         <View style={styles.pagination}>
           {SLIDES.map((_, index) => (
-            <View
-              key={index}
-              style={[styles.dot, index === activeIndex && styles.dotActive]}
-            />
+            <View key={index} style={[styles.dot, index === activeIndex && styles.dotActive]} />
           ))}
         </View>
 

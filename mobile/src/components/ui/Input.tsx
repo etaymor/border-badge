@@ -44,7 +44,11 @@ export function Input({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text variant="label" style={styles.label}>{label}</Text>}
+      {label && (
+        <Text variant="label" style={styles.label}>
+          {label}
+        </Text>
+      )}
       <TextInput
         style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError, style]}
         placeholderTextColor={colors.textTertiary}
@@ -52,7 +56,11 @@ export function Input({
         onBlur={handleBlur}
         {...props}
       />
-      {error && <Text variant="caption" style={styles.error}>{error}</Text>}
+      {error && (
+        <Text variant="caption" style={styles.error}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 }

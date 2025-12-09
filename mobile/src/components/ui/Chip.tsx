@@ -58,10 +58,7 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
       <Pressable
-        style={[
-          styles.chip,
-          selected && { backgroundColor: chipColor, borderColor: chipColor },
-        ]}
+        style={[styles.chip, selected && { backgroundColor: chipColor, borderColor: chipColor }]}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}

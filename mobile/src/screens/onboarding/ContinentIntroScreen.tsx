@@ -32,6 +32,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
   const playerSource = continentVideo ?? DEFAULT_CONTINENT_VIDEO;
+  const hasVideoSource = Boolean(playerSource);
   const backgroundColor = CONTINENT_BACKGROUNDS[region] || DEFAULT_BACKGROUND;
 
   // Animation values
@@ -47,12 +48,12 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   });
 
   useEffect(() => {
-    if (continentVideo) {
+    if (hasVideoSource) {
       player.play();
     } else {
       player.pause();
     }
-  }, [continentVideo, player]);
+  }, [hasVideoSource, player]);
 
   // Staggered entrance animations
   useEffect(() => {
@@ -122,7 +123,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('PhoneAuth');
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
   };
 
   return (
@@ -163,7 +164,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
             },
           ]}
         >
-          {continentVideo ? (
+          {hasVideoSource ? (
             <VideoView
               player={player}
               style={styles.video}

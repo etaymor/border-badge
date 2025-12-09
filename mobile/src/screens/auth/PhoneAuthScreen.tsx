@@ -107,7 +107,9 @@ export function PhoneAuthScreen({ navigation }: Props) {
           onPress={step === 'otp' ? handleBackToPhone : () => navigation.goBack()}
           style={styles.backButton}
         >
-          <Text variant="label" style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
+          <Text variant="label" style={styles.backText}>
+            {step === 'otp' ? 'Change number' : 'Back'}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -122,8 +124,12 @@ export function PhoneAuthScreen({ navigation }: Props) {
           {step === 'phone' ? (
             // Phone Entry Step
             <View style={styles.content}>
-              <Text variant="title" style={styles.title}>Welcome back</Text>
-              <Text variant="body" style={styles.subtitle}>Enter your phone number to sign in</Text>
+              <Text variant="title" style={styles.title}>
+                Welcome back
+              </Text>
+              <Text variant="body" style={styles.subtitle}>
+                Enter your phone number to sign in
+              </Text>
 
               <PhoneInput
                 value={phone}
@@ -146,13 +152,19 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 testID="phone-auth-send-button"
               />
 
-              <Text variant="caption" style={styles.helperText}>We&apos;ll send you a verification code</Text>
+              <Text variant="caption" style={styles.helperText}>
+                We&apos;ll send you a verification code
+              </Text>
             </View>
           ) : (
             // OTP Entry Step
             <View style={styles.content}>
-              <Text variant="title" style={styles.title}>Enter verification code</Text>
-              <Text variant="body" style={styles.subtitle}>Sent to {formatPhoneForDisplay(phone)}</Text>
+              <Text variant="title" style={styles.title}>
+                Enter verification code
+              </Text>
+              <Text variant="body" style={styles.subtitle}>
+                Sent to {formatPhoneForDisplay(phone)}
+              </Text>
 
               <View style={styles.otpContainer}>
                 <OTPInput

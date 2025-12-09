@@ -92,7 +92,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('PhoneAuth');
+    navigation.navigate('Auth', { screen: 'PhoneAuth' });
   };
 
   return (

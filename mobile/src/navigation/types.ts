@@ -29,8 +29,6 @@ export type OnboardingStackParamList = {
   NameEntry: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
-  // Auth screen accessible from onboarding (for returning users)
-  PhoneAuth: undefined;
 };
 
 // Main bottom tab navigator
