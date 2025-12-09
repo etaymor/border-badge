@@ -28,19 +28,27 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Full-screen video background */}
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        nativeControls={false}
-      />
+      {/* Full-screen video background - decorative, muted autoplay */}
+      <View
+        accessible={true}
+        accessibilityLabel="Decorative video showing world travel destinations"
+        accessibilityRole="image"
+      >
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+        />
+      </View>
 
       {/* Login button - top right */}
       <TouchableOpacity
         onPress={handleLogin}
         style={styles.loginButton}
         testID="carousel-login-button"
+        accessibilityRole="button"
+        accessibilityLabel="Login to your account"
       >
         <Text variant="label" style={styles.loginText}>
           Login
@@ -63,6 +71,8 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
           style={styles.nextButton}
           onPress={handleNext}
           testID="start-journey-button"
+          accessibilityRole="button"
+          accessibilityLabel="Next, continue to onboarding"
         >
           <Text variant="label" style={styles.nextButtonText}>
             Next

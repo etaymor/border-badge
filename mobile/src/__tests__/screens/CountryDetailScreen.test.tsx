@@ -69,7 +69,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('Plan a Trip')).toBeTruthy();
+      // Primary variant button uppercases the label
+      expect(screen.getByText('PLAN A TRIP')).toBeTruthy();
     });
 
     it('shows "Add New Trip" button when trips exist for country', () => {
@@ -80,7 +81,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('Add New Trip')).toBeTruthy();
+      // Primary variant button uppercases the label
+      expect(screen.getByText('ADD NEW TRIP')).toBeTruthy();
     });
   });
 
@@ -152,7 +154,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      fireEvent.press(screen.getByText('Plan a Trip'));
+      // Primary variant button uppercases the label
+      fireEvent.press(screen.getByText('PLAN A TRIP'));
 
       expect(mockParentNavigate).toHaveBeenCalledWith('Trips', {
         screen: 'TripForm',

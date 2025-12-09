@@ -38,9 +38,25 @@ export function ConfirmDialog({
   testID,
 }: ConfirmDialogProps) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={styles.overlay} onPress={onCancel}>
-        <Pressable style={styles.dialog} onPress={(e) => e.stopPropagation()}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onCancel}
+      accessibilityViewIsModal={true}
+    >
+      <Pressable
+        style={styles.overlay}
+        onPress={onCancel}
+        accessibilityRole="button"
+        accessibilityLabel="Close dialog"
+      >
+        <Pressable
+          style={styles.dialog}
+          onPress={(e) => e.stopPropagation()}
+          accessibilityRole="alert"
+          accessibilityLabel={`${title}. ${message}`}
+        >
           <Text variant="subtitle" style={styles.title}>
             {title}
           </Text>

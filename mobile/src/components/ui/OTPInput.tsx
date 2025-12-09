@@ -117,7 +117,12 @@ export function OTPInput({
   };
 
   return (
-    <View style={[styles.container, containerStyle]}>
+    <View
+      style={[styles.container, containerStyle]}
+      accessible={true}
+      accessibilityRole="none"
+      accessibilityLabel={`Verification code input, ${value.length} of ${length} digits entered`}
+    >
       <View style={styles.inputsContainer}>
         {Array.from({ length }).map((_, index) => (
           <TextInput
@@ -143,11 +148,15 @@ export function OTPInput({
             textContentType={index === 0 ? 'oneTimeCode' : 'none'}
             autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
             testID={testID ? `${testID}-cell-${index}` : undefined}
+            accessibilityLabel={`Digit ${index + 1} of ${length}`}
+            accessibilityHint={
+              index === 0 ? 'Enter verification code or paste from clipboard' : undefined
+            }
           />
         ))}
       </View>
       {error && (
-        <Text variant="caption" style={styles.error}>
+        <Text variant="caption" style={styles.error} accessibilityRole="alert">
           {error}
         </Text>
       )}

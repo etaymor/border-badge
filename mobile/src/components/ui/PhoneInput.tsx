@@ -184,6 +184,9 @@ export function PhoneInput({
           style={styles.countrySelector}
           onPress={() => setIsPickerVisible(true)}
           testID={testID ? `${testID}-country-picker` : undefined}
+          accessibilityRole="button"
+          accessibilityLabel={`Select country, currently ${selectedCountry.name} ${selectedCountry.dialCode}`}
+          accessibilityHint="Opens country picker"
         >
           <Text style={styles.flag}>{getFlagEmoji(selectedCountry.code)}</Text>
           <Text variant="body" style={styles.dialCode}>
@@ -232,6 +235,8 @@ export function PhoneInput({
                 setSearchQuery('');
               }}
               style={styles.closeButton}
+              accessibilityRole="button"
+              accessibilityLabel="Done, close country picker"
             >
               <Text variant="body" style={styles.closeButtonText}>
                 Done
@@ -259,6 +264,9 @@ export function PhoneInput({
                   item.code === selectedCountry.code && styles.countryRowSelected,
                 ]}
                 onPress={() => handleCountrySelect(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.name} ${item.dialCode}`}
+                accessibilityState={{ selected: item.code === selectedCountry.code }}
               >
                 <Text style={styles.countryFlag}>{getFlagEmoji(item.code)}</Text>
                 <Text variant="body" style={styles.countryName}>

@@ -83,6 +83,9 @@ export function ResendTimer({
           disabled={isResending}
           style={styles.resendButton}
           testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={isResending ? 'Sending code' : 'Resend verification code'}
+          accessibilityState={{ disabled: isResending }}
         >
           {isResending ? (
             <ActivityIndicator size="small" color={colors.primary} />

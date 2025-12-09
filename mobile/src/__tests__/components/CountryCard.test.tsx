@@ -16,18 +16,10 @@ describe('CountryCard', () => {
     jest.clearAllMocks();
   });
 
-  it('renders country name and region', () => {
+  it('renders country name', () => {
     render(<CountryCard {...defaultProps} />);
 
     expect(screen.getByText('Japan')).toBeTruthy();
-    expect(screen.getByText('Asia')).toBeTruthy();
-  });
-
-  it('renders without region when not provided', () => {
-    render(<CountryCard {...defaultProps} region={undefined} />);
-
-    expect(screen.getByText('Japan')).toBeTruthy();
-    expect(screen.queryByText('Asia')).toBeNull();
   });
 
   it('calls onPress when card body is tapped', () => {

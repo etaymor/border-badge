@@ -62,6 +62,9 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected }}
       >
         <Text variant="label" style={[styles.chipText, selected && styles.chipTextSelected]}>
           {label}

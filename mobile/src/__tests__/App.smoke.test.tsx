@@ -34,6 +34,7 @@ describe('PhoneAuthScreen', () => {
   it('displays continue button', () => {
     render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Continue')).toBeTruthy();
+    // Primary variant button uppercases the label
+    expect(screen.getByText('CONTINUE')).toBeTruthy();
   });
 });

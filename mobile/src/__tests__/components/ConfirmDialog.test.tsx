@@ -31,22 +31,26 @@ describe('ConfirmDialog', () => {
   it('renders default button labels', () => {
     render(<ConfirmDialog {...defaultProps} />);
 
+    // Cancel uses ghost variant (keeps original case)
     expect(screen.getByText('Cancel')).toBeTruthy();
-    expect(screen.getByText('Confirm')).toBeTruthy();
+    // Confirm uses primary variant (uppercases)
+    expect(screen.getByText('CONFIRM')).toBeTruthy();
   });
 
   it('renders custom button labels', () => {
     render(<ConfirmDialog {...defaultProps} confirmLabel="Delete" cancelLabel="Keep" />);
 
+    // Cancel uses ghost variant (keeps original case)
     expect(screen.getByText('Keep')).toBeTruthy();
-    expect(screen.getByText('Delete')).toBeTruthy();
+    // Confirm uses primary variant (uppercases)
+    expect(screen.getByText('DELETE')).toBeTruthy();
   });
 
   it('calls onConfirm when confirm button is pressed', () => {
     const onConfirm = jest.fn();
     render(<ConfirmDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    fireEvent.press(screen.getByText('Confirm'));
+    fireEvent.press(screen.getByText('CONFIRM'));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
@@ -74,7 +78,8 @@ describe('ConfirmDialog', () => {
     render(<ConfirmDialog {...defaultProps} destructive confirmLabel="Delete" />);
 
     // Component should render without errors with destructive prop
-    expect(screen.getByText('Delete')).toBeTruthy();
+    // Primary variant uppercases the label
+    expect(screen.getByText('DELETE')).toBeTruthy();
   });
 
   it('displays all props correctly together', () => {
@@ -93,7 +98,9 @@ describe('ConfirmDialog', () => {
 
     expect(screen.getByText('Custom Title')).toBeTruthy();
     expect(screen.getByText('Custom message here')).toBeTruthy();
-    expect(screen.getByText('Yes, do it')).toBeTruthy();
+    // Primary variant uppercases
+    expect(screen.getByText('YES, DO IT')).toBeTruthy();
+    // Ghost variant keeps original case
     expect(screen.getByText('No, cancel')).toBeTruthy();
   });
 });

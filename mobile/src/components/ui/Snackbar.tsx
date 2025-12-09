@@ -89,6 +89,10 @@ export function Snackbar({
         },
       ]}
       testID={testID}
+      accessible={true}
+      accessibilityRole="alert"
+      accessibilityLabel={message}
+      accessibilityLiveRegion="polite"
     >
       <View style={styles.content}>
         <Text variant="body" style={styles.message} numberOfLines={2}>
@@ -99,6 +103,8 @@ export function Snackbar({
             onPress={onAction}
             hitSlop={8}
             testID={testID ? `${testID}-action` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={actionLabel}
           >
             <Text variant="label" style={styles.action}>
               {actionLabel}

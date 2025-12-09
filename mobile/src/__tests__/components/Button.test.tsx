@@ -3,17 +3,18 @@ import { fireEvent, render, screen } from '../utils/testUtils';
 import { Button } from '@components/ui/Button';
 
 describe('Button', () => {
-  it('renders with title', () => {
+  it('renders with title (primary variant uppercases)', () => {
     render(<Button title="Press me" onPress={jest.fn()} />);
 
-    expect(screen.getByText('Press me')).toBeTruthy();
+    // Primary variant (default) uppercases the title
+    expect(screen.getByText('PRESS ME')).toBeTruthy();
   });
 
   it('calls onPress when pressed', () => {
     const onPress = jest.fn();
     render(<Button title="Press me" onPress={onPress} />);
 
-    fireEvent.press(screen.getByText('Press me'));
+    fireEvent.press(screen.getByText('PRESS ME'));
 
     expect(onPress).toHaveBeenCalledTimes(1);
   });
@@ -22,7 +23,7 @@ describe('Button', () => {
     const onPress = jest.fn();
     render(<Button title="Press me" onPress={onPress} disabled />);
 
-    fireEvent.press(screen.getByText('Press me'));
+    fireEvent.press(screen.getByText('PRESS ME'));
 
     expect(onPress).not.toHaveBeenCalled();
   });
@@ -31,13 +32,16 @@ describe('Button', () => {
     render(<Button title="Press me" onPress={jest.fn()} loading />);
 
     // Button text should not be visible when loading
+    expect(screen.queryByText('PRESS ME')).toBeNull();
     expect(screen.queryByText('Press me')).toBeNull();
   });
 
   it('renders different variants', () => {
+    // Primary variant uppercases
     const { rerender } = render(<Button title="Primary" onPress={jest.fn()} variant="primary" />);
-    expect(screen.getByText('Primary')).toBeTruthy();
+    expect(screen.getByText('PRIMARY')).toBeTruthy();
 
+    // Non-primary variants keep original case
     rerender(<Button title="Secondary" onPress={jest.fn()} variant="secondary" />);
     expect(screen.getByText('Secondary')).toBeTruthy();
 
