@@ -44,7 +44,7 @@ export interface CountryCardProps {
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
-  region,
+  region: _region,
   isVisited = false,
   isWishlisted = false,
   onPress,
