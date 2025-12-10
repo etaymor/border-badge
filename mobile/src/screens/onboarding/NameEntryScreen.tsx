@@ -1,9 +1,18 @@
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, Input } from '@components/ui';
+import { OnboardingInput } from '@components/onboarding';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
@@ -14,6 +23,39 @@ export function NameEntryScreen({ navigation }: Props) {
   const { displayName, setDisplayName } = useOnboardingStore();
   const [name, setName] = useState(displayName ?? '');
   const [error, setError] = useState('');
+
+  // Animation values
+  const titleAnim = useRef(new Animated.Value(0)).current;
+  const accentAnim = useRef(new Animated.Value(0)).current;
+  const contentAnim = useRef(new Animated.Value(0)).current;
+  const buttonAnim = useRef(new Animated.Value(0)).current;
+
+  // Run entrance animations
+  useEffect(() => {
+    Animated.stagger(100, [
+      Animated.timing(titleAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(accentAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.spring(buttonAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
 
   const handleContinue = () => {
     const validation = validateDisplayName(name);
@@ -31,6 +73,26 @@ export function NameEntryScreen({ navigation }: Props) {
     navigation.navigate('AccountCreation');
   };
 
+  const titleTranslateY = titleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, 0],
+  });
+
+  const accentTranslateY = accentAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 0],
+  });
+
+  const contentTranslateY = contentAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 0],
+  });
+
+  const buttonScale = buttonAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.95, 1],
+  });
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -38,33 +100,78 @@ export function NameEntryScreen({ navigation }: Props) {
         style={styles.keyboardView}
       >
         <View style={styles.content}>
-          <Text style={styles.title}>What should we call you?</Text>
-          <Text style={styles.subtitle}>This is how you&apos;ll appear in the app</Text>
-
-          <Input
-            label="Your name"
-            value={name}
-            onChangeText={(text) => {
-              setName(text);
-              if (error) setError('');
+          {/* Title */}
+          <Animated.View
+            style={{
+              opacity: titleAnim,
+              transform: [{ translateY: titleTranslateY }],
             }}
-            placeholder="Enter your name"
-            autoCapitalize="words"
-            autoComplete="name"
-            autoFocus
-            error={error}
-            containerStyle={styles.input}
-            testID="name-entry-input"
-          />
+          >
+            <Text variant="title" style={styles.title}>
+              What should we call you?
+            </Text>
+          </Animated.View>
+
+          {/* Accent subtitle */}
+          <Animated.Text
+            style={[
+              styles.accentSubtitle,
+              {
+                opacity: accentAnim,
+                transform: [{ translateY: accentTranslateY }],
+              },
+            ]}
+          >
+            ~ your adventure awaits ~
+          </Animated.Text>
+
+          {/* Input section */}
+          <Animated.View
+            style={{
+              opacity: contentAnim,
+              transform: [{ translateY: contentTranslateY }],
+            }}
+          >
+            <OnboardingInput
+              value={name}
+              onChangeText={(text) => {
+                setName(text);
+                if (error) setError('');
+              }}
+              placeholder="Your Name"
+              autoCapitalize="words"
+              autoComplete="name"
+              autoFocus
+              error={error}
+              containerStyle={styles.input}
+              testID="name-entry-input"
+            />
+            <Text variant="caption" style={styles.helperText}>
+              This is how you&apos;ll appear to friends
+            </Text>
+          </Animated.View>
         </View>
 
+        {/* Footer */}
         <View style={styles.footer}>
-          <Button
-            title="Continue"
-            onPress={handleContinue}
-            style={styles.continueButton}
-            testID="name-entry-continue"
-          />
+          <Animated.View
+            style={{
+              opacity: buttonAnim,
+              transform: [{ scale: buttonScale }],
+              width: '100%',
+            }}
+          >
+            <TouchableOpacity
+              style={styles.continueButton}
+              onPress={handleContinue}
+              activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Continue to next step"
+              testID="name-entry-continue"
+            >
+              <Text style={styles.continueButtonText}>Continue</Text>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -74,7 +181,7 @@ export function NameEntryScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: colors.warmCream,
   },
   keyboardView: {
     flex: 1,
@@ -85,26 +192,43 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
     marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
+  accentSubtitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 18,
+    color: colors.adobeBrick,
     marginBottom: 32,
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  helperText: {
+    color: colors.textSecondary,
+    marginLeft: 4,
   },
   footer: {
     paddingHorizontal: 24,
     paddingVertical: 24,
-    borderTopWidth: 1,
-    borderTopColor: colors.backgroundTertiary,
+    alignItems: 'center',
   },
   continueButton: {
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     width: '100%',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  continueButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
   },
 });

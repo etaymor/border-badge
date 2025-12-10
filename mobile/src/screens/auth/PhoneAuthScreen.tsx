@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,8 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, OTPInput, PhoneInput, ResendTimer, Text } from '@components/ui';
+import { OnboardingPhoneInput } from '@components/onboarding';
+import { OTPInput, ResendTimer, Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
 import {
@@ -36,6 +40,58 @@ export function PhoneAuthScreen({ navigation }: Props) {
   const verifyOTP = useVerifyOTP();
 
   const canGoBack = navigation.canGoBack();
+
+  // Animation values for phone step
+  const titleAnim = useRef(new Animated.Value(0)).current;
+  const accentAnim = useRef(new Animated.Value(0)).current;
+  const contentAnim = useRef(new Animated.Value(0)).current;
+  const buttonAnim = useRef(new Animated.Value(0)).current;
+
+  // Animation values for OTP step
+  const otpContainerAnim = useRef(new Animated.Value(0)).current;
+
+  // Run entrance animations
+  useEffect(() => {
+    if (step === 'phone') {
+      // Reset animations
+      titleAnim.setValue(0);
+      accentAnim.setValue(0);
+      contentAnim.setValue(0);
+      buttonAnim.setValue(0);
+
+      Animated.stagger(100, [
+        Animated.timing(titleAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(accentAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentAnim, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(buttonAnim, {
+          toValue: 1,
+          friction: 8,
+          tension: 60,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      // OTP step - minimal fade in
+      otpContainerAnim.setValue(0);
+      Animated.timing(otpContainerAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, otpContainerAnim]);
 
   // Handle sending OTP
   const handleSendOTP = () => {
@@ -99,6 +155,27 @@ export function PhoneAuthScreen({ navigation }: Props) {
     setOtpSentAt(undefined);
   };
 
+  // Animation interpolations
+  const titleTranslateY = titleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, 0],
+  });
+
+  const accentTranslateY = accentAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 0],
+  });
+
+  const contentTranslateY = contentAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 0],
+  });
+
+  const buttonScale = buttonAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.95, 1],
+  });
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Back button */}
@@ -106,10 +183,11 @@ export function PhoneAuthScreen({ navigation }: Props) {
         <TouchableOpacity
           onPress={step === 'otp' ? handleBackToPhone : () => navigation.goBack()}
           style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel={step === 'otp' ? 'Change phone number' : 'Go back'}
         >
-          <Text variant="label" style={styles.backText}>
-            {step === 'otp' ? 'Change number' : 'Back'}
-          </Text>
+          <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
+          <Text style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
         </TouchableOpacity>
       )}
 
@@ -124,43 +202,78 @@ export function PhoneAuthScreen({ navigation }: Props) {
           {step === 'phone' ? (
             // Phone Entry Step
             <View style={styles.content}>
-              <Text variant="title" style={styles.title}>
-                Welcome back
-              </Text>
-              <Text variant="body" style={styles.subtitle}>
-                Enter your phone number to sign in
-              </Text>
-
-              <PhoneInput
-                value={phone}
-                onChangeText={(value) => {
-                  setPhone(value);
-                  if (phoneError) setPhoneError('');
+              {/* Title */}
+              <Animated.View
+                style={{
+                  opacity: titleAnim,
+                  transform: [{ translateY: titleTranslateY }],
                 }}
-                label="Phone Number"
-                placeholder="Enter your number"
-                error={phoneError}
-                containerStyle={styles.input}
-                testID="phone-auth-input"
-              />
+              >
+                <Text variant="title" style={styles.title}>
+                  Welcome back
+                </Text>
+              </Animated.View>
 
-              <Button
-                title="Continue"
-                onPress={handleSendOTP}
-                loading={sendOTP.isPending}
-                style={styles.button}
-                testID="phone-auth-send-button"
-              />
+              {/* Accent subtitle */}
+              <Animated.Text
+                style={[
+                  styles.accentSubtitle,
+                  {
+                    opacity: accentAnim,
+                    transform: [{ translateY: accentTranslateY }],
+                  },
+                ]}
+              >
+                ~ let&apos;s pick up where you left off ~
+              </Animated.Text>
 
-              <Text variant="caption" style={styles.helperText}>
-                We&apos;ll send you a verification code
-              </Text>
+              {/* Phone input */}
+              <Animated.View
+                style={{
+                  opacity: contentAnim,
+                  transform: [{ translateY: contentTranslateY }],
+                }}
+              >
+                <OnboardingPhoneInput
+                  value={phone}
+                  onChangeText={(value) => {
+                    setPhone(value);
+                    if (phoneError) setPhoneError('');
+                  }}
+                  placeholder="Phone Number"
+                  error={phoneError}
+                  containerStyle={styles.input}
+                  testID="phone-auth-input"
+                />
+              </Animated.View>
+
+              {/* Continue button */}
+              <Animated.View
+                style={{
+                  opacity: buttonAnim,
+                  transform: [{ scale: buttonScale }],
+                }}
+              >
+                <TouchableOpacity
+                  style={[styles.button, sendOTP.isPending && styles.buttonDisabled]}
+                  onPress={handleSendOTP}
+                  activeOpacity={0.9}
+                  disabled={sendOTP.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue to verification"
+                  testID="phone-auth-send-button"
+                >
+                  <Text style={styles.buttonText}>
+                    {sendOTP.isPending ? 'Sending...' : 'Continue'}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
             </View>
           ) : (
             // OTP Entry Step
-            <View style={styles.content}>
+            <Animated.View style={[styles.content, { opacity: otpContainerAnim }]}>
               <Text variant="title" style={styles.title}>
-                Enter verification code
+                Enter your code
               </Text>
               <Text variant="body" style={styles.subtitle}>
                 Sent to {formatPhoneForDisplay(phone)}
@@ -173,19 +286,26 @@ export function PhoneAuthScreen({ navigation }: Props) {
                     setOtp(value);
                     if (otpError) setOtpError('');
                   }}
+                  onComplete={handleVerifyOTP}
                   error={otpError}
                   autoFocus
                   testID="phone-auth-otp"
                 />
               </View>
 
-              <Button
-                title="Verify"
+              <TouchableOpacity
+                style={[styles.button, verifyOTP.isPending && styles.buttonDisabled]}
                 onPress={handleVerifyOTP}
-                loading={verifyOTP.isPending}
-                style={styles.button}
+                activeOpacity={0.9}
+                disabled={verifyOTP.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Verify code and sign in"
                 testID="phone-auth-verify-button"
-              />
+              >
+                <Text style={styles.buttonText}>
+                  {verifyOTP.isPending ? 'Verifying...' : 'Verify'}
+                </Text>
+              </TouchableOpacity>
 
               <ResendTimer
                 onResend={handleResendOTP}
@@ -194,7 +314,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 startTime={otpSentAt}
                 testID="phone-auth-resend"
               />
-            </View>
+            </Animated.View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -208,12 +328,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     alignSelf: 'flex-start',
+    gap: 4,
   },
   backText: {
-    color: colors.primary,
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
   },
   keyboardView: {
     flex: 1,
@@ -224,14 +349,21 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 48, // More top padding
+    paddingTop: 48,
+    paddingBottom: 24,
   },
   title: {
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  accentSubtitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 18,
+    color: colors.adobeBrick,
+    marginBottom: 32,
   },
   subtitle: {
     color: colors.textSecondary,
-    marginBottom: 48, // More breathing room
+    marginBottom: 32,
   },
   input: {
     marginBottom: 24,
@@ -240,11 +372,24 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   button: {
-    marginTop: 8,
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  helperText: {
-    textAlign: 'center',
-    marginTop: 24,
-    color: colors.textTertiary,
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  buttonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
   },
 });

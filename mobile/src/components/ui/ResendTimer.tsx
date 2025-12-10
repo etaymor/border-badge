@@ -88,7 +88,7 @@ export function ResendTimer({
           accessibilityState={{ disabled: isResending }}
         >
           {isResending ? (
-            <ActivityIndicator size="small" color={colors.primary} />
+            <ActivityIndicator size="small" color={colors.adobeBrick} />
           ) : (
             <Text variant="label" style={styles.resendText}>
               Resend Code
@@ -123,6 +123,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resendText: {
-    color: colors.primary,
+    color: colors.adobeBrick,
   },
 });

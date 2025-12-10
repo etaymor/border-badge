@@ -28,13 +28,12 @@ describe('PhoneAuthScreen', () => {
   it('displays phone number input', () => {
     render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Phone Number')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Phone Number')).toBeTruthy();
   });
 
   it('displays continue button', () => {
     render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    // Primary variant button uppercases the label
-    expect(screen.getByText('CONTINUE')).toBeTruthy();
+    expect(screen.getByText('Continue')).toBeTruthy();
   });
 });

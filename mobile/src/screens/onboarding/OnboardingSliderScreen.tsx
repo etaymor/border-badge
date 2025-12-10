@@ -180,7 +180,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         }
       />
 
-      {/* Bottom section: pagination dots and button */}
+      {/* Bottom section: pagination dots and button - fixed position */}
       <View style={styles.bottomSection}>
         {/* Pagination dots */}
         <View style={styles.pagination}>
@@ -232,8 +232,8 @@ const styles = StyleSheet.create({
   slide: {
     width: SCREEN_WIDTH,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 80,
+    justifyContent: 'flex-start',
+    paddingTop: 40,
   },
   postcardContainer: {
     position: 'relative',
@@ -279,8 +279,13 @@ const styles = StyleSheet.create({
     lineHeight: 36,
   },
   bottomSection: {
-    paddingBottom: 40,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 24,
+    paddingVertical: 24,
+    paddingBottom: 40,
     alignItems: 'center',
   },
   pagination: {

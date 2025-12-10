@@ -7,6 +7,7 @@ import {
   storeOnboardingComplete,
   storeTokens,
 } from '@services/api';
+import { queryClient } from '../queryClient';
 import { migrateGuestData, MigrationResult } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -172,6 +173,7 @@ export function useSignOut() {
     onSuccess: async () => {
       signOut();
       resetOnboarding();
+      queryClient.clear(); // Clear all cached data
       await clearTokens();
       await clearOnboardingComplete();
     },

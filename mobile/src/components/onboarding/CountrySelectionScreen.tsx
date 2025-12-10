@@ -19,7 +19,7 @@ import { useCountries, type Country } from '@hooks/useCountries';
 import { useCountrySelectionAnimations } from '@hooks/useCountrySelectionAnimations';
 import { getFlagEmoji } from '@utils/flags';
 
-import { CelebrationOverlay, type CelebrationBadgeConfig } from './CelebrationOverlay';
+import CelebrationOverlay, { type CelebrationBadgeConfig } from './CelebrationOverlay';
 
 export interface CountrySelectionConfig {
   // Appearance
@@ -54,7 +54,7 @@ interface CountrySelectionScreenProps {
   config: CountrySelectionConfig;
 }
 
-export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) {
+export default function CountrySelectionScreen({ config }: CountrySelectionScreenProps) {
   const {
     backgroundColor,
     title,
@@ -213,7 +213,7 @@ export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) 
             <Ionicons
               name="search"
               size={28}
-              color="rgba(23, 42, 58, 0.5)"
+              color={colors.midnightNavyMuted}
               style={styles.searchIcon}
             />
             <TextInput
@@ -224,7 +224,7 @@ export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) 
                 setShowDropdown(text.length > 0);
               }}
               placeholder="Type Country"
-              placeholderTextColor="rgba(23, 42, 58, 0.5)"
+              placeholderTextColor={colors.midnightNavyMuted}
               autoCapitalize="words"
               autoCorrect={false}
               onFocus={() => setShowDropdown(searchQuery.length > 0)}
@@ -238,7 +238,7 @@ export function CountrySelectionScreen({ config }: CountrySelectionScreenProps) 
                 }}
                 style={styles.clearButton}
               >
-                <Ionicons name="close-circle" size={26} color="rgba(23, 42, 58, 0.5)" />
+                <Ionicons name="close-circle" size={26} color={colors.midnightNavyMuted} />
               </TouchableOpacity>
             )}
           </View>
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(23, 42, 58, 0.08)',
+    backgroundColor: colors.midnightNavyLight,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,

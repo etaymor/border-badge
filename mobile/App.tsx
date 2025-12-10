@@ -91,7 +91,9 @@ export default function App() {
         if (session) {
           await storeTokens(session.access_token, session.refresh_token ?? '');
         } else {
+          // User signed out - clear tokens first, then reset onboarding state
           await clearTokens();
+          setHasCompletedOnboarding(false);
         }
       });
       subscription = sub;

@@ -1,9 +1,45 @@
 import type { Session } from '@supabase/supabase-js';
+import type { AxiosError } from 'axios';
 
 import { queryClient } from '../queryClient';
 import { api, getStoredToken, setSuppressAutoSignOut } from './api';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
+
+// Helper to delay execution (useful for rate limiting)
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Helper to retry a function with exponential backoff on 429 errors
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError?.response?.status;
+
+      // Only retry on 429 (rate limit) errors
+      if (status !== 429 || attempt === maxRetries) {
+        throw error;
+      }
+
+      lastError = error as Error;
+      const waitTime = baseDelay * Math.pow(2, attempt); // Exponential backoff
+      console.log(
+        `Rate limited (429), retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`
+      );
+      await delay(waitTime);
+    }
+  }
+
+  throw lastError;
+}
 
 // Type for user country data returned by API
 interface UserCountry {
@@ -31,7 +67,6 @@ async function migrateCountries(
       countriesCount: countries.size,
       apiBaseURL: api.defaults.baseURL,
       hasToken: !!token,
-      tokenPrefix: token ? token.substring(0, 20) + '...' : 'none',
     });
 
     // Batch all countries in a single request for performance
@@ -125,13 +160,19 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   queryClient.setQueryData(['user-countries', session.user.id], allMigratedCountries);
 
   // Migrate profile preferences (home country, travel motives, persona tags)
+  // Add a small delay to avoid rate limiting after country migrations
   const hasProfileData = homeCountry || motivationTags.length > 0 || personaTags.length > 0;
   if (hasProfileData) {
     try {
-      await api.patch('/profile', {
-        home_country_code: homeCountry,
-        travel_motives: motivationTags,
-        persona_tags: personaTags,
+      // Small delay to avoid hitting rate limits after batch country requests
+      await delay(500);
+
+      await retryWithBackoff(async () => {
+        await api.patch('/profile', {
+          home_country_code: homeCountry,
+          travel_motives: motivationTags,
+          persona_tags: personaTags,
+        });
       });
       migratedProfile = true;
     } catch (err) {
