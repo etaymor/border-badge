@@ -266,3 +266,31 @@ user_profile     - Extended user data
 4. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status)
 5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
+
+## Pre-Commit Checklist (REQUIRED)
+
+**Before committing any changes, ALWAYS run these checks:**
+
+### Mobile
+
+```bash
+cd mobile
+npm run lint                   # Must pass with 0 errors
+npm run format:check           # Must pass (or run `npx prettier --write .` to fix)
+npm test                       # Must pass all tests
+```
+
+### Backend
+
+```bash
+cd backend
+poetry run ruff check .        # Must pass with 0 errors
+poetry run ruff format --check . # Must pass
+poetry run pytest              # Must pass all tests
+```
+
+**Common lint issues to avoid:**
+- Unused imports (remove them)
+- `require()` style imports in TypeScript (use ES6 `import` instead)
+- Missing type annotations
+- Unused variables (prefix with `_` if intentionally unused)

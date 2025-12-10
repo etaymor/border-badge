@@ -1,4 +1,5 @@
-import { act, render, screen, waitFor } from '../utils/testUtils';
+import * as Haptics from 'expo-haptics';
+import { act, render, screen } from '../utils/testUtils';
 
 import PassportStampCollage from '@components/onboarding/PassportStampCollage';
 
@@ -11,6 +12,8 @@ jest.mock('expo-haptics', () => ({
     Heavy: 'heavy',
   },
 }));
+
+const mockedHaptics = jest.mocked(Haptics);
 
 // Mock stamp images
 jest.mock('../../assets/stampImages', () => ({
@@ -152,8 +155,6 @@ describe('PassportStampCollage', () => {
     });
 
     it('triggers haptic feedback during animation', async () => {
-      const Haptics = require('expo-haptics');
-
       render(
         <PassportStampCollage
           countryCodes={['US', 'FR', 'JP']}
@@ -169,12 +170,10 @@ describe('PassportStampCollage', () => {
       });
 
       // Haptics should have been called for each stamp
-      expect(Haptics.impactAsync).toHaveBeenCalled();
+      expect(mockedHaptics.impactAsync).toHaveBeenCalled();
     });
 
     it('respects animationDelay prop', () => {
-      const Haptics = require('expo-haptics');
-
       render(
         <PassportStampCollage
           countryCodes={['US']}
@@ -188,13 +187,13 @@ describe('PassportStampCollage', () => {
       act(() => {
         jest.advanceTimersByTime(400);
       });
-      expect(Haptics.impactAsync).not.toHaveBeenCalled();
+      expect(mockedHaptics.impactAsync).not.toHaveBeenCalled();
 
       // After delay, haptics should fire
       act(() => {
         jest.advanceTimersByTime(200);
       });
-      expect(Haptics.impactAsync).toHaveBeenCalled();
+      expect(mockedHaptics.impactAsync).toHaveBeenCalled();
     });
 
     it('cleans up animations on unmount', () => {

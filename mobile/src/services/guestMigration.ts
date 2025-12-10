@@ -67,7 +67,6 @@ async function migrateCountries(
       countriesCount: countries.size,
       apiBaseURL: api.defaults.baseURL,
       hasToken: !!token,
-      tokenPrefix: token ? token.substring(0, 20) + '...' : 'none',
     });
 
     // Batch all countries in a single request for performance

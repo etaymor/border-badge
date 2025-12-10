@@ -1,4 +1,4 @@
-import { act, render, screen } from '../utils/testUtils';
+import { act, render } from '../utils/testUtils';
 
 import RotatingStampHero from '@components/onboarding/RotatingStampHero';
 
