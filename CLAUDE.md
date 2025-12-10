@@ -6,14 +6,14 @@ Border Badge is a travel tracking mobile application that lets users mark countr
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Mobile | React Native 0.81.5, Expo 54, TypeScript |
-| State | Zustand (auth), React Query (server state) |
-| Backend | FastAPI (Python 3.12+), Uvicorn |
+| Layer    | Technology                                    |
+| -------- | --------------------------------------------- |
+| Mobile   | React Native 0.81.5, Expo 54, TypeScript      |
+| State    | Zustand (auth), React Query (server state)    |
+| Backend  | FastAPI (Python 3.12+), Uvicorn               |
 | Database | Supabase (PostgreSQL with Row-Level Security) |
-| Storage | Supabase Storage (media files) |
-| Auth | Supabase Phone OTP Authentication |
+| Storage  | Supabase Storage (media files)                |
+| Auth     | Supabase Phone OTP Authentication             |
 
 ## Repository Structure
 
@@ -62,6 +62,7 @@ border-badge/
 ## Quick Commands
 
 ### Mobile Development
+
 ```bash
 cd mobile
 npm install                    # Install dependencies
@@ -72,6 +73,7 @@ npx prettier --check .         # Check formatting
 ```
 
 ### Backend Development
+
 ```bash
 cd backend
 poetry install                 # Install dependencies
@@ -82,6 +84,7 @@ poetry run ruff format .       # Format code
 ```
 
 ### Database
+
 ```bash
 cd supabase
 # Migrations are managed via Supabase dashboard or CLI
@@ -91,6 +94,7 @@ cd supabase
 ## Environment Setup
 
 ### Mobile (`mobile/.env.local`)
+
 ```
 EXPO_PUBLIC_API_URL=http://<your-ip>:8000  # iOS simulator needs IP, not localhost
 EXPO_PUBLIC_SUPABASE_URL=<supabase-url>
@@ -101,6 +105,7 @@ EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000
 ```
 
 ### Backend (`backend/.env`)
+
 ```
 ENV=development
 DEBUG=true
@@ -115,22 +120,26 @@ SUPABASE_JWT_SECRET=<jwt-secret>
 ### Mobile
 
 **State Management:**
+
 - `authStore` (Zustand) - Session, onboarding status, loading states
 - `onboardingStore` (Zustand + AsyncStorage) - Persisted onboarding progress
 - React Query - Server state for trips, entries, countries, media
 
 **Data Fetching Hooks:**
+
 - `useTrips()`, `useTripsByCountry()`, `useTrip()` - Trip queries
 - `useEntries()`, `useEntry()` - Entry queries
 - `useCountries()`, `useUserCountries()` - Country data
 - `useUploadMedia()` - Media upload with progress
 
 **API Client (`mobile/src/services/api.ts`):**
+
 - Axios instance with JWT token injection
 - Auto sign-out on 401 responses
 - 10 second timeout
 
 **Navigation:**
+
 - React Navigation with native-stack and bottom-tabs
 - Conditional rendering: OnboardingNavigator vs MainTabNavigator
 - Type-safe navigation params
@@ -150,11 +159,13 @@ SUPABASE_JWT_SECRET=<jwt-secret>
 | `/public` | Public trip/list views |
 
 **Authentication:**
+
 - JWT tokens from Supabase Auth
 - `CurrentUser` dependency extracts user from token
 - RLS policies enforce data access at database level
 
 **Database Client:**
+
 - Custom `SupabaseClient` wrapper using httpx REST API
 - User-scoped queries via JWT for RLS
 - Service role key for admin operations
@@ -175,6 +186,7 @@ user_profile     - Extended user data
 ```
 
 **RLS Policies:**
+
 - Users see only their own data
 - Trip viewers: owner OR approved trip_tags
 - Public lists: `is_public = true`
@@ -182,12 +194,14 @@ user_profile     - Extended user data
 ## Code Style
 
 ### Mobile (TypeScript)
+
 - ESLint + Prettier (100 char line width, 2 space indent)
 - Prefer `useMemo`/`useCallback` for performance
 - Type-safe navigation params
 - Component files export single default component
 
 ### Backend (Python)
+
 - Ruff for linting and formatting (88 char line width)
 - Pydantic v2 for validation
 - Async/await throughout
@@ -196,17 +210,20 @@ user_profile     - Extended user data
 ## Common Tasks
 
 ### Adding a New API Endpoint
+
 1. Create/update schema in `backend/app/schemas/`
 2. Add route in `backend/app/api/<resource>.py`
 3. Register router in `backend/app/api/__init__.py` if new file
 4. Add corresponding hook in `mobile/src/hooks/`
 
 ### Adding a New Screen
+
 1. Create screen in `mobile/src/screens/<feature>/`
 2. Add to navigation in `mobile/src/navigation/RootNavigator.tsx`
 3. Update navigation types if needed
 
 ### Database Changes
+
 1. Create migration in `supabase/migrations/`
 2. Apply via Supabase dashboard
 3. Update relevant Pydantic schemas
@@ -215,38 +232,31 @@ user_profile     - Extended user data
 ## Testing
 
 ### Mobile
+
 - Jest for unit tests
 - Detox for E2E tests (configured but limited coverage)
 - Test files in `mobile/src/__tests__/`
 
 ### Backend
+
 - pytest with async support
 - Test files alongside modules or in `tests/`
 
 ## Important Files
 
-| File | Purpose |
-|------|---------|
-| `mobile/src/services/api.ts` | Axios API client setup |
-| `mobile/src/services/supabase.ts` | Supabase client init |
-| `mobile/src/stores/authStore.ts` | Auth state management |
-| `mobile/src/navigation/RootNavigator.tsx` | App navigation |
-| `backend/app/main.py` | FastAPI app setup |
-| `backend/app/core/config.py` | Environment config |
-| `backend/app/core/security.py` | JWT validation |
-| `backend/app/db/session.py` | Supabase client |
-| `STYLEGUIDE.md` | Design system reference |
-| `docs/travel-prd.md` | Product requirements |
-| `docs/travel-technical-design.md` | Technical design |
-
-## Current Development
-
-**Active Branch:** `onboard-design`
-
-Recent work focuses on:
-- Onboarding flow improvements
-- UI component refinements (Button, Chip, Input, OTPInput)
-- Phone authentication screens
+| File                                      | Purpose                 |
+| ----------------------------------------- | ----------------------- |
+| `mobile/src/services/api.ts`              | Axios API client setup  |
+| `mobile/src/services/supabase.ts`         | Supabase client init    |
+| `mobile/src/stores/authStore.ts`          | Auth state management   |
+| `mobile/src/navigation/RootNavigator.tsx` | App navigation          |
+| `backend/app/main.py`                     | FastAPI app setup       |
+| `backend/app/core/config.py`              | Environment config      |
+| `backend/app/core/security.py`            | JWT validation          |
+| `backend/app/db/session.py`               | Supabase client         |
+| `STYLEGUIDE.md`                           | Design system reference |
+| `docs/travel-prd.md`                      | Product requirements    |
+| `docs/travel-technical-design.md`         | Technical design        |
 
 ## Notes for AI Assistants
 
