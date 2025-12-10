@@ -19,15 +19,24 @@ export function AnimatedProgressBar({
   const widthAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+
     const timeout = setTimeout(() => {
-      Animated.timing(widthAnim, {
+      animation = Animated.timing(widthAnim, {
         toValue: percentage,
         duration,
         useNativeDriver: false, // width animation requires non-native driver
-      }).start();
+      });
+      animation.start();
     }, delay);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      clearTimeout(timeout);
+      // Stop animation on cleanup to prevent memory leaks
+      if (animation) {
+        animation.stop();
+      }
+    };
   }, [percentage, delay, duration, widthAnim]);
 
   const animatedWidth = widthAnim.interpolate({

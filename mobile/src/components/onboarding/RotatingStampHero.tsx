@@ -46,8 +46,11 @@ export default function RotatingStampHero({
   }, [stampCodes, actualVisibleCount]);
 
   // Track which stamps are currently visible
+  // Guard against actualVisibleCount === 0 to prevent empty array operations
   const [visibleIndices, setVisibleIndices] = useState<number[]>(() =>
-    Array.from({ length: Math.min(actualVisibleCount, allStamps.length) }, (_, i) => i)
+    actualVisibleCount === 0
+      ? []
+      : Array.from({ length: Math.min(actualVisibleCount, allStamps.length) }, (_, i) => i)
   );
 
   // Animation values for each slot
@@ -83,6 +86,9 @@ export default function RotatingStampHero({
 
   // Staggered stamp entrance with cleanup
   useEffect(() => {
+    // Early return if no visible slots
+    if (actualVisibleCount === 0) return;
+
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
     slotAnimations.forEach((anim, index) => {
@@ -103,10 +109,13 @@ export default function RotatingStampHero({
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [slotAnimations]);
+  }, [slotAnimations, actualVisibleCount]);
 
   // Floating animation for each stamp
   useEffect(() => {
+    // Early return if no visible slots
+    if (actualVisibleCount === 0) return;
+
     const startTimeouts: ReturnType<typeof setTimeout>[] = [];
     const floatLoops: Animated.CompositeAnimation[] = [];
 
@@ -141,11 +150,12 @@ export default function RotatingStampHero({
         if (loop) loop.stop();
       });
     };
-  }, [floatAnimations]);
+  }, [floatAnimations, actualVisibleCount]);
 
   // Rotation logic - rotate one stamp at a time
   useEffect(() => {
-    if (allStamps.length <= actualVisibleCount) return;
+    // Guard: no rotation if no visible slots or not enough stamps to rotate
+    if (actualVisibleCount === 0 || allStamps.length <= actualVisibleCount) return;
 
     const interval = setInterval(() => {
       // Pick a random slot to rotate
@@ -161,10 +171,18 @@ export default function RotatingStampHero({
         setVisibleIndices((prev) => {
           const newIndices = [...prev];
           // Find next stamp that isn't currently visible
+          // Add max iteration guard to prevent infinite loop
           let nextIndex = prev[slotToRotate];
+          let iterations = 0;
+          const maxIterations = allStamps.length;
           do {
             nextIndex = (nextIndex + 1) % allStamps.length;
-          } while (prev.includes(nextIndex) && nextIndex !== prev[slotToRotate]);
+            iterations++;
+          } while (
+            prev.includes(nextIndex) &&
+            nextIndex !== prev[slotToRotate] &&
+            iterations < maxIterations
+          );
           newIndices[slotToRotate] = nextIndex;
           return newIndices;
         });

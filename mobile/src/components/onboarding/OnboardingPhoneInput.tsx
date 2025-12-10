@@ -58,6 +58,12 @@ export default function OnboardingPhoneInput({
   // Track if user has explicitly selected a country (to prevent defaultCountryCode from overriding)
   const userHasSelectedCountry = useRef(false);
 
+  // Pre-sorted countries by dial code length (descending) - memoized to avoid sorting on every value change
+  const sortedCountriesByDialCode = useMemo(
+    () => [...COUNTRY_DIAL_CODES].sort((a, b) => b.dialCode.length - a.dialCode.length),
+    []
+  );
+
   // Sync external value prop to internal state (controlled component behavior)
   // Note: defaultCountryCode removed from deps to prevent re-parsing when it changes (Issue #1)
   useEffect(() => {
@@ -75,11 +81,6 @@ export default function OnboardingPhoneInput({
     }
 
     // Parse E.164 value to extract country and local number
-    // Sort by dial code length descending to match longest first (e.g., +1684 before +1)
-    const sortedCountries = [...COUNTRY_DIAL_CODES].sort(
-      (a, b) => b.dialCode.length - a.dialCode.length
-    );
-
     // Only prioritize defaultCountryCode if user hasn't explicitly selected a country (Issue #3)
     // This prevents the flag from unexpectedly switching when the parent has a different default
     if (defaultCountryCode && !userHasSelectedCountry.current) {
@@ -91,8 +92,8 @@ export default function OnboardingPhoneInput({
       }
     }
 
-    // Find matching country by dial code
-    for (const country of sortedCountries) {
+    // Find matching country by dial code (uses pre-sorted array to match longest first)
+    for (const country of sortedCountriesByDialCode) {
       if (value.startsWith(country.dialCode)) {
         setSelectedCountry(country);
         setLocalNumber(value.slice(country.dialCode.length));
@@ -105,7 +106,7 @@ export default function OnboardingPhoneInput({
     setSelectedCountry(fallbackCountry);
     setLocalNumber(value.replace(/^\+/, ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultCountryCode intentionally excluded to prevent infinite loop (Issue #1)
-  }, [value]);
+  }, [value, sortedCountriesByDialCode]);
 
   // Update selected country when default changes (and no value is set, and user hasn't selected)
   useEffect(() => {
@@ -121,10 +122,14 @@ export default function OnboardingPhoneInput({
     return isValidPhoneNumber(e164);
   }, [localNumber, selectedCountry.dialCode]);
 
-  // Notify parent of validation state changes
+  // Use ref to store callback to avoid re-triggering effect when callback identity changes
+  const onValidationChangeRef = useRef(onValidationChange);
+  onValidationChangeRef.current = onValidationChange;
+
+  // Notify parent of validation state changes (uses ref to prevent infinite loop if callback not memoized)
   useEffect(() => {
-    onValidationChange?.(isCurrentNumberValid);
-  }, [isCurrentNumberValid, onValidationChange]);
+    onValidationChangeRef.current?.(isCurrentNumberValid);
+  }, [isCurrentNumberValid]);
 
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
