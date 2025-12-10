@@ -31,30 +31,33 @@ export default function RotatingStampHero({
 }: RotatingStampHeroProps) {
   const { width: screenWidth } = useWindowDimensions();
 
+  // Clamp visibleCount to available positions to prevent undefined indexing
+  const actualVisibleCount = Math.max(0, Math.min(visibleCount, STAMP_POSITIONS.length));
+
   // Combine user stamps with samples if needed
   const allStamps = useMemo(() => {
-    if (stampCodes.length >= visibleCount) {
+    if (stampCodes.length >= actualVisibleCount) {
       return stampCodes;
     }
     // Fill with sample stamps that aren't already in user's collection
-    const needed = visibleCount - stampCodes.length;
+    const needed = actualVisibleCount - stampCodes.length;
     const available = SAMPLE_STAMPS.filter((s) => !stampCodes.includes(s));
     return [...stampCodes, ...available.slice(0, needed)];
-  }, [stampCodes, visibleCount]);
+  }, [stampCodes, actualVisibleCount]);
 
   // Track which stamps are currently visible
   const [visibleIndices, setVisibleIndices] = useState<number[]>(() =>
-    Array.from({ length: Math.min(visibleCount, allStamps.length) }, (_, i) => i)
+    Array.from({ length: Math.min(actualVisibleCount, allStamps.length) }, (_, i) => i)
   );
 
   // Animation values for each slot
   const slotAnimations = useRef<Animated.Value[]>(
-    Array.from({ length: visibleCount }, () => new Animated.Value(1))
+    Array.from({ length: actualVisibleCount }, () => new Animated.Value(1))
   ).current;
 
   // Floating animation for each slot
   const floatAnimations = useRef<Animated.Value[]>(
-    Array.from({ length: visibleCount }, () => new Animated.Value(0))
+    Array.from({ length: actualVisibleCount }, () => new Animated.Value(0))
   ).current;
 
   // Entrance animation
@@ -83,14 +86,17 @@ export default function RotatingStampHero({
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
     slotAnimations.forEach((anim, index) => {
-      const timeoutId = setTimeout(() => {
-        Animated.spring(anim, {
-          toValue: 1,
-          friction: 8,
-          tension: 100,
-          useNativeDriver: true,
-        }).start();
-      }, 400 + index * 80);
+      const timeoutId = setTimeout(
+        () => {
+          Animated.spring(anim, {
+            toValue: 1,
+            friction: 8,
+            tension: 100,
+            useNativeDriver: true,
+          }).start();
+        },
+        400 + index * 80
+      );
       timeoutIds.push(timeoutId);
     });
 
@@ -131,17 +137,19 @@ export default function RotatingStampHero({
     });
     return () => {
       startTimeouts.forEach(clearTimeout);
-      floatLoops.forEach((loop) => loop?.stop?.());
+      floatLoops.forEach((loop) => {
+        if (loop) loop.stop();
+      });
     };
   }, [floatAnimations]);
 
   // Rotation logic - rotate one stamp at a time
   useEffect(() => {
-    if (allStamps.length <= visibleCount) return;
+    if (allStamps.length <= actualVisibleCount) return;
 
     const interval = setInterval(() => {
       // Pick a random slot to rotate
-      const slotToRotate = Math.floor(Math.random() * visibleCount);
+      const slotToRotate = Math.floor(Math.random() * actualVisibleCount);
 
       // Fade out
       Animated.timing(slotAnimations[slotToRotate], {
@@ -171,7 +179,7 @@ export default function RotatingStampHero({
     }, rotationInterval);
 
     return () => clearInterval(interval);
-  }, [allStamps.length, visibleCount, rotationInterval, slotAnimations]);
+  }, [allStamps.length, actualVisibleCount, rotationInterval, slotAnimations]);
 
   const containerWidth = screenWidth - 48; // 24px padding each side
   const containerHeight = containerWidth * 0.7; // Aspect ratio for stamp display
@@ -266,7 +274,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.paperBeige,
+    backgroundColor: 'transparent',
     borderRadius: 20,
   },
   stampWrapper: {

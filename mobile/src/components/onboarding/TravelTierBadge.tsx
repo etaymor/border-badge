@@ -32,7 +32,11 @@ export interface TravelTierBadgeProps {
   delay?: number;
 }
 
-export default function TravelTierBadge({ visitedCount, animated = false, delay = 0 }: TravelTierBadgeProps) {
+export default function TravelTierBadge({
+  visitedCount,
+  animated = false,
+  delay = 0,
+}: TravelTierBadgeProps) {
   const tier = getTravelStatus(visitedCount);
   const scaleAnim = useRef(new Animated.Value(animated ? 0.8 : 1)).current;
   const opacityAnim = useRef(new Animated.Value(animated ? 0 : 1)).current;

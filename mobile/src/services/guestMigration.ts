@@ -31,7 +31,9 @@ async function retryWithBackoff<T>(
 
       lastError = error as Error;
       const waitTime = baseDelay * Math.pow(2, attempt); // Exponential backoff
-      console.log(`Rate limited (429), retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+      console.log(
+        `Rate limited (429), retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`
+      );
       await delay(waitTime);
     }
   }

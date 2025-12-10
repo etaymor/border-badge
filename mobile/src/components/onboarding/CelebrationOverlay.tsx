@@ -104,10 +104,7 @@ export default function CelebrationOverlay({
           style={[
             styles.celebrationFlag,
             {
-              transform: [
-                { scale: flagScale },
-                { rotate: flagRotateInterpolation },
-              ],
+              transform: [{ scale: flagScale }, { rotate: flagRotateInterpolation }],
             },
           ]}
         >

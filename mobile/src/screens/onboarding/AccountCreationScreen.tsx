@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -139,8 +139,8 @@ export function AccountCreationScreen({ navigation }: Props) {
     );
   };
 
-  // Handle OTP verification
-  const handleVerifyOTP = () => {
+  // Handle OTP verification - wrapped in useCallback to provide stable reference for OTPInput
+  const handleVerifyOTP = useCallback(() => {
     const result = validateOTP(otp);
     if (!result.isValid) {
       setOtpError(result.error!);
@@ -157,7 +157,7 @@ export function AccountCreationScreen({ navigation }: Props) {
         },
       }
     );
-  };
+  }, [otp, phone, displayName, verifyOTP]);
 
   // Handle resend OTP
   const handleResendOTP = () => {

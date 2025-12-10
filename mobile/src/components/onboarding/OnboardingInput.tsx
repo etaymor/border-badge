@@ -60,12 +60,7 @@ const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
           ]}
         >
           {icon && (
-            <Ionicons
-              name={icon}
-              size={28}
-              color={colors.midnightNavyMuted}
-              style={styles.icon}
-            />
+            <Ionicons name={icon} size={28} color={colors.midnightNavyMuted} style={styles.icon} />
           )}
           <TextInput
             ref={ref}

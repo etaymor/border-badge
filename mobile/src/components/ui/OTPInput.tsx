@@ -37,6 +37,14 @@ export function OTPInput({
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(autoFocus ? 0 : null);
 
+  // Store onComplete in a ref to avoid triggering useEffect when callback reference changes
+  // This prevents infinite loops when parent components don't memoize their callbacks
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  // Track if we've already called onComplete for this value to prevent duplicate calls
+  const lastCompletedValue = useRef<string | null>(null);
+
   // Split the value into individual digits
   const digits = value.split('').slice(0, length);
 
@@ -49,10 +57,11 @@ export function OTPInput({
 
   // Auto-complete when all digits are entered
   useEffect(() => {
-    if (value.length === length && onComplete) {
-      onComplete(value);
+    if (value.length === length && onCompleteRef.current && lastCompletedValue.current !== value) {
+      lastCompletedValue.current = value;
+      onCompleteRef.current(value);
     }
-  }, [value, length, onComplete]);
+  }, [value, length]);
 
   // Handle text change in a cell
   const handleChangeText = (text: string, index: number) => {

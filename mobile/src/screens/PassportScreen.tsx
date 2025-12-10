@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CountryCard, PassportSkeleton, StampCard } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -41,7 +43,7 @@ type ListItem =
 
 /** Travel status tiers based on number of countries visited */
 const TRAVEL_STATUS_TIERS = [
-  { threshold: 5, status: 'Local Wanderer' },
+  { threshold: 5, status: 'Tourist' },
   { threshold: 15, status: 'Pathfinder' },
   { threshold: 30, status: 'Border Breaker' },
   { threshold: 50, status: 'Roving Explorer' },
@@ -62,14 +64,93 @@ function getTravelStatus(visitedCount: number): string {
 interface StatBoxProps {
   value: string | number;
   label: string;
+  backgroundColor: string;
+  textColor?: string;
+  labelColor?: string;
+  index: number;
+  show: boolean;
 }
 
-function StatBox({ value, label }: StatBoxProps) {
+function StatBox({
+  value,
+  label,
+  backgroundColor,
+  textColor = colors.midnightNavy,
+  labelColor,
+  index,
+  show,
+}: StatBoxProps) {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (show) {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 6,
+        tension: 50,
+        delay: index * 100, // Staggered delay
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [show, index, scaleAnim]);
+
   return (
-    <View style={styles.statBox}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <Animated.View
+      style={[
+        styles.statBox,
+        {
+          backgroundColor,
+          transform: [{ scale: scaleAnim }],
+          opacity: scaleAnim,
+        },
+      ]}
+    >
+      <Text style={[styles.statValue, { color: textColor }]}>{value}</Text>
+      <Text
+        style={[
+          styles.statLabel,
+          labelColor ? { color: labelColor } : { color: textColor, opacity: 0.7 },
+        ]}
+      >
+        {label}
+      </Text>
+    </Animated.View>
+  );
+}
+
+function AnimatedListItem({
+  children,
+  index,
+  baseDelay = 400,
+}: {
+  children: React.ReactNode;
+  index: number;
+  baseDelay?: number;
+}) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        delay: baseDelay + index * 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 500,
+        delay: baseDelay + index * 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, translateY, index, baseDelay]);
+
+  return (
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
+      {children}
+    </Animated.View>
   );
 }
 
@@ -139,7 +220,7 @@ export function PassportScreen({ navigation }: Props) {
   const stats = useMemo(() => {
     const stampedCount = visitedCountries.length;
     const dreamsCount = wishlistCountries.length;
-    const totalCountries = countries?.length || 197;
+    const totalCountries = countries?.length || 193; // 193 UN member states usually
     const worldPercentage =
       totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
@@ -218,6 +299,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const handleCountryPress = useCallback(
     (item: CountryDisplayItem) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       navigation.navigate('CountryDetail', {
         countryId: item.code,
         countryName: item.name,
@@ -229,6 +311,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const handleUnvisitedCountryPress = useCallback(
     (country: { code: string; name: string }) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       navigation.navigate('CountryDetail', {
         countryId: country.code,
         countryName: country.name,
@@ -240,6 +323,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const handleAddVisited = useCallback(
     (countryCode: string) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       addUserCountry.mutate({ country_code: countryCode, status: 'visited' });
     },
     [addUserCountry]
@@ -247,6 +331,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const handleToggleWishlist = useCallback(
     (countryCode: string) => {
+      Haptics.selectionAsync();
       const isCurrentlyWishlisted = wishlistCountries.some((uc) => uc.country_code === countryCode);
 
       if (isCurrentlyWishlisted) {
@@ -291,16 +376,30 @@ export function PassportScreen({ navigation }: Props) {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: ListItem }) => {
+    ({ item, index }: { item: ListItem; index: number }) => {
+      let content;
       switch (item.type) {
         case 'section-header':
-          return <Text style={styles.sectionTitle}>{item.title}</Text>;
+          content = (
+            <Text
+              style={[
+                styles.sectionTitle,
+                (item.key === 'header-visited' || item.key === 'header-explore') &&
+                  styles.scriptTitle,
+              ]}
+            >
+              {item.title}
+            </Text>
+          );
+          break;
         case 'stamp-row':
-          return renderStampRow(item.data);
+          content = renderStampRow(item.data);
+          break;
         case 'unvisited-row':
-          return renderUnvisitedRow(item.data);
+          content = renderUnvisitedRow(item.data);
+          break;
         case 'empty-state':
-          return (
+          content = (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>🌍</Text>
               <Text style={styles.emptyTitle}>No countries yet</Text>
@@ -309,9 +408,12 @@ export function PassportScreen({ navigation }: Props) {
               </Text>
             </View>
           );
+          break;
         default:
           return null;
       }
+
+      return <AnimatedListItem index={index}>{content}</AnimatedListItem>;
     },
     [renderStampRow, renderUnvisitedRow]
   );
@@ -322,31 +424,77 @@ export function PassportScreen({ navigation }: Props) {
   const ListHeader = useMemo(
     () => (
       <View>
+        {/* App Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>BorderBadge</Text>
+        </View>
+
         {/* Travel Status Card */}
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            <View style={styles.statusLeft}>
-              <Text style={styles.statusTitle}>{stats.travelStatus}</Text>
-              <Text style={styles.statusLabel}>TRAVEL STATUS</Text>
+            {/* Square Icon Placeholder */}
+            <View style={styles.statusIcon} />
+
+            <View style={styles.statusContent}>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusTitle}>{stats.travelStatus.toUpperCase()}</Text>
+                <View style={styles.countContainer}>
+                  <Text style={styles.countText}>
+                    <Text style={styles.countCurrent}>{stats.stampedCount}</Text>
+                    <Text style={styles.countTotal}>/{stats.totalCountries}</Text>
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.statusLabelsRow}>
+                <Text style={styles.statusLabel}>TRAVEL STATUS</Text>
+                <Text style={styles.countriesLabel}>COUNTRIES</Text>
+              </View>
+
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${stats.worldPercentage}%` }]} />
+              </View>
             </View>
-            <View style={styles.statusRight}>
-              <Text style={styles.countryCount}>
-                {stats.stampedCount}/{stats.totalCountries}
-              </Text>
-              <Text style={styles.countryLabel}>COUNTRIES</Text>
-            </View>
-          </View>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${stats.worldPercentage}%` }]} />
           </View>
         </View>
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
-          <StatBox value={stats.stampedCount} label="STAMPED" />
-          <StatBox value={stats.dreamsCount} label="DREAMS" />
-          <StatBox value={stats.regionsCount} label="REGIONS" />
-          <StatBox value={`${stats.worldPercentage}%`} label="WORLD" />
+          <StatBox
+            value={stats.stampedCount}
+            label="STAMPED"
+            backgroundColor={colors.adobeBrick}
+            textColor={colors.cloudWhite}
+            labelColor="rgba(255,255,255,0.8)"
+            index={0}
+            show={!isLoading}
+          />
+          <StatBox
+            value={stats.dreamsCount}
+            label="DREAMS"
+            backgroundColor={colors.lakeBlue} // Using Lake Blue for Dreams
+            textColor={colors.midnightNavy}
+            labelColor={colors.midnightNavy}
+            index={1}
+            show={!isLoading}
+          />
+          <StatBox
+            value={stats.regionsCount}
+            label="REGIONS"
+            backgroundColor={colors.sunsetGold}
+            textColor={colors.midnightNavy}
+            labelColor={colors.midnightNavy}
+            index={2}
+            show={!isLoading}
+          />
+          <StatBox
+            value={`${stats.worldPercentage}%`}
+            label="WORLD"
+            backgroundColor={colors.dustyCoral}
+            textColor={colors.midnightNavy}
+            labelColor={colors.midnightNavy}
+            index={3}
+            show={!isLoading}
+          />
         </View>
 
         {/* Search & Filter Row */}
@@ -354,46 +502,44 @@ export function PassportScreen({ navigation }: Props) {
           <View style={styles.searchInputContainer}>
             <Ionicons
               name="search"
-              size={18}
-              color={colors.textTertiary}
+              size={20}
+              color={colors.textSecondary}
               style={styles.searchIcon}
             />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search countries..."
+              placeholder="Type Country"
               placeholderTextColor={colors.textTertiary}
               value={searchQuery}
               onChangeText={setSearchQuery}
-              autoCapitalize="none"
+              autoCapitalize="words"
               autoCorrect={false}
               returnKeyType="search"
             />
           </View>
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              style={styles.clearButton}
-              onPress={() => setSearchQuery('')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.clearButtonText}>Clear</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.exploreButton}
+            onPress={() => setSearchQuery('')} // In a real app this might navigate or filter differently
+            activeOpacity={0.7}
+          >
+            <Text style={styles.exploreButtonText}>EXPLORE</Text>
+          </TouchableOpacity>
         </View>
       </View>
     ),
-    [stats, searchQuery]
+    [stats, searchQuery, isLoading]
   );
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <PassportSkeleton />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Animated.View style={[styles.animatedContainer, { opacity: fadeAnim }]}>
         <FlatList
           data={flatListData}
@@ -417,7 +563,7 @@ export function PassportScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.warmCream, // Matching background to screenshot
   },
   animatedContainer: {
     flex: 1,
@@ -425,64 +571,101 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 24,
   },
+  // Header
+  header: {
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+  headerTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    color: colors.midnightNavy,
+    textAlign: 'center',
+  },
   // Travel Status Card
   statusCard: {
-    marginTop: 16,
+    marginTop: 0,
     marginHorizontal: 16,
-    backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 16,
     padding: 16,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
   statusHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
   },
-  statusLeft: {
+  statusIcon: {
+    width: 48,
+    height: 48,
+    backgroundColor: '#D9D9D9', // Placeholder grey from screenshot
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  statusContent: {
     flex: 1,
   },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 2,
+  },
+  statusLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   statusTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.successDark,
+    fontFamily: fonts.openSans.bold,
+    fontSize: 18,
+    color: colors.adobeBrick,
+    letterSpacing: 0.5,
+  },
+  countContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  countText: {
+    fontFamily: fonts.openSans.bold,
+  },
+  countCurrent: {
+    fontSize: 16,
+    color: colors.adobeBrick,
+  },
+  countTotal: {
+    fontSize: 14,
+    color: colors.adobeBrick,
+    opacity: 0.7,
   },
   statusLabel: {
-    fontSize: 12,
-    color: colors.successDark,
-    marginTop: 2,
-    fontWeight: '500',
+    fontFamily: fonts.openSans.bold,
+    fontSize: 11,
+    color: colors.adobeBrick,
+    opacity: 0.8,
   },
-  statusRight: {
-    alignItems: 'flex-end',
-  },
-  countryCount: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-  },
-  countryLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
-    fontWeight: '500',
+  countriesLabel: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 11,
+    color: colors.adobeBrick,
+    opacity: 0.8,
   },
   progressBar: {
     width: '100%',
-    height: 6,
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 3,
+    height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#4DB6AC', // Teal - keeping unique accent color
-    borderRadius: 3,
+    backgroundColor: '#64B5F6', // Blue from screenshot
+    borderRadius: 4,
   },
   // Stats Grid
   statsGrid: {
@@ -493,11 +676,11 @@ const styles = StyleSheet.create({
   },
   statBox: {
     flex: 1,
-    backgroundColor: colors.backgroundCard,
     borderRadius: 12,
     paddingVertical: 16,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -505,22 +688,21 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
+    fontFamily: fonts.openSans.bold,
+    fontSize: 22,
+    marginBottom: 4,
   },
   statLabel: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 10,
-    color: colors.textSecondary,
-    marginTop: 4,
-    fontWeight: '600',
     letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   // Search Row
   searchRow: {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 20,
     gap: 12,
     alignItems: 'center',
   },
@@ -528,45 +710,54 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 20,
+    backgroundColor: colors.midnightNavyLight,
+    borderRadius: 24,
     paddingHorizontal: 16,
-    height: 44,
+    height: 48,
   },
   searchIcon: {
     marginRight: 8,
+    opacity: 0.5,
   },
   searchInput: {
     flex: 1,
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
   },
-  clearButton: {
-    paddingHorizontal: 12,
-    height: 44,
+  exploreButton: {
+    paddingHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  clearButtonText: {
+  exploreButtonText: {
+    fontFamily: fonts.openSans.bold,
     fontSize: 14,
-    fontWeight: '500',
-    color: colors.primary,
+    color: colors.mossGreen,
+    letterSpacing: 0.5,
   },
   // Section Title
   sectionTitle: {
-    fontSize: 18,
-    color: colors.textSecondary,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
     marginHorizontal: 16,
     marginTop: 24,
     marginBottom: 12,
-    fontStyle: 'italic',
+  },
+  scriptTitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 32,
+    color: colors.adobeBrick,
+    marginTop: 24,
+    marginBottom: 8,
   },
   // Stamp Row (2-up grid)
   stampRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    gap: 8,
-    marginBottom: 8,
+    gap: 12,
+    marginBottom: 12,
   },
   // Unvisited Row (2-up grid)
   unvisitedRow: {

@@ -67,13 +67,7 @@ export default function PricingToggle({ selectedPlan, onPlanChange }: PricingTog
         accessibilityState={{ selected: selectedPlan === 'yearly' }}
         accessibilityLabel={`Yearly plan, $${YEARLY_PRICE} per year, save ${SAVINGS_PERCENT}%, 7-day free trial`}
       >
-        <Animated.View
-          style={[
-            styles.card,
-            styles.yearlyCard,
-            { borderColor: yearlyBorderColor },
-          ]}
-        >
+        <Animated.View style={[styles.card, styles.yearlyCard, { borderColor: yearlyBorderColor }]}>
           {/* Save Badge */}
           <View style={styles.saveBadge}>
             <Text style={styles.saveBadgeText}>SAVE {SAVINGS_PERCENT}%</Text>
@@ -97,12 +91,7 @@ export default function PricingToggle({ selectedPlan, onPlanChange }: PricingTog
         accessibilityState={{ selected: selectedPlan === 'monthly' }}
         accessibilityLabel={`Monthly plan, $${MONTHLY_PRICE} per month, 7-day free trial`}
       >
-        <Animated.View
-          style={[
-            styles.card,
-            { borderColor: monthlyBorderColor },
-          ]}
-        >
+        <Animated.View style={[styles.card, { borderColor: monthlyBorderColor }]}>
           <Text style={styles.planLabel}>Monthly</Text>
           <View style={styles.priceRow}>
             <Text style={styles.priceAmount}>${MONTHLY_PRICE}</Text>

@@ -103,9 +103,13 @@ export default function PassportStampCollage({
   const { width: screenWidth } = useWindowDimensions();
   const containerWidth = screenWidth - CONTAINER_PADDING * 2;
 
-  const visibleCodes = countryCodes.slice(0, MAX_VISIBLE_STAMPS);
+  // Memoize visibleCodes to prevent recreation on every render
+  const visibleCodes = useMemo(() => countryCodes.slice(0, MAX_VISIBLE_STAMPS), [countryCodes]);
   const extraCount = countryCodes.length - MAX_VISIBLE_STAMPS;
-  const homeCountryIndex = homeCountry ? visibleCodes.indexOf(homeCountry) : -1;
+  const homeCountryIndex = useMemo(
+    () => (homeCountry ? visibleCodes.indexOf(homeCountry) : -1),
+    [homeCountry, visibleCodes]
+  );
 
   // Sort to put home country first in animation order
   const sortedCodes = useMemo(() => {
@@ -190,9 +194,12 @@ export default function PassportStampCollage({
 
     // Trigger haptic on each stamp with cleanup
     sortedCodes.forEach((_, index) => {
-      const timeoutId = setTimeout(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }, animationDelay + index * staggerDelay);
+      const timeoutId = setTimeout(
+        () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        },
+        animationDelay + index * staggerDelay
+      );
       timeoutIds.push(timeoutId);
     });
 

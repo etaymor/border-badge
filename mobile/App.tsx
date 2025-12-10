@@ -91,6 +91,8 @@ export default function App() {
         if (session) {
           await storeTokens(session.access_token, session.refresh_token ?? '');
         } else {
+          // User signed out - reset onboarding state so they see WelcomeCarousel
+          setHasCompletedOnboarding(false);
           await clearTokens();
         }
       });

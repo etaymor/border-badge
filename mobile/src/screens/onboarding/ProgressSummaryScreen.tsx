@@ -58,7 +58,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   // Animation refs
   const contentOpacity = useRef(new Animated.Value(0)).current;
-  const stampAnimations = useRef<Animated.Value[]>([]).current;
+  const stampAnimations = useRef<Animated.Value[]>([]);
 
   // Include home country in visited count if set
   const allVisitedCountries = useMemo(() => {
@@ -83,13 +83,13 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     return lastPos.y + lastPos.size + 16;
   }, [stampPositions]);
 
-  // Initialize stamp animations
+  // Initialize stamp animations when stamp count changes
   useEffect(() => {
-    stampAnimations.length = 0;
+    stampAnimations.current = [];
     for (let i = 0; i < visibleStamps.length; i++) {
-      stampAnimations.push(new Animated.Value(0));
+      stampAnimations.current.push(new Animated.Value(0));
     }
-  }, [visibleStamps.length, stampAnimations]);
+  }, [visibleStamps.length]);
 
   // Run animations with cleanup
   useEffect(() => {
@@ -107,25 +107,28 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     const staggerDelay = 80;
 
     visibleStamps.forEach((_, index) => {
-      const timeoutId = setTimeout(() => {
-        if (stampAnimations[index]) {
-          Animated.spring(stampAnimations[index], {
-            toValue: 1,
-            friction: 8,
-            tension: 100,
-            useNativeDriver: true,
-          }).start();
+      const timeoutId = setTimeout(
+        () => {
+          if (stampAnimations.current[index]) {
+            Animated.spring(stampAnimations.current[index], {
+              toValue: 1,
+              friction: 8,
+              tension: 100,
+              useNativeDriver: true,
+            }).start();
 
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-      }, stampDelay + index * staggerDelay);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        },
+        stampDelay + index * staggerDelay
+      );
       timeoutIds.push(timeoutId);
     });
 
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [contentOpacity, visibleStamps, stampAnimations]);
+  }, [visibleStamps, contentOpacity]);
 
   const handleContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -155,7 +158,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                   {visibleStamps.map((code, index) => {
                     const stampImage = getStampImage(code);
                     const pos = stampPositions[index];
-                    const animValue = stampAnimations[index] || new Animated.Value(1);
+                    const animValue = stampAnimations.current[index] || new Animated.Value(1);
 
                     if (!stampImage || !pos) return null;
 
@@ -192,10 +195,8 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                   <Text style={styles.emptyText}>Your passport awaits its first stamp</Text>
                 </View>
               )}
-
             </View>
           </ScrollView>
-
         </Animated.View>
 
         {/* Footer Button - fixed position matching other onboarding screens */}
