@@ -330,6 +330,7 @@ export function AccountCreationScreen({ navigation }: Props) {
                     setOtp(value);
                     if (otpError) setOtpError('');
                   }}
+                  onComplete={handleVerifyOTP}
                   error={otpError}
                   autoFocus
                   testID="account-creation-otp"

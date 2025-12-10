@@ -286,6 +286,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                     setOtp(value);
                     if (otpError) setOtpError('');
                   }}
+                  onComplete={handleVerifyOTP}
                   error={otpError}
                   autoFocus
                   testID="phone-auth-otp"

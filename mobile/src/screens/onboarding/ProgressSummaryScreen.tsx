@@ -22,12 +22,10 @@ import { getStampImage } from '../../assets/stampImages';
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
 const TOTAL_COUNTRIES = 198;
-const MAX_VISIBLE_STAMPS = 12;
 
 // Stamp layout calculation - clean grid with slight rotation
 function calculateStampPositions(count: number, containerWidth: number) {
-  const effectiveCount = Math.min(count, MAX_VISIBLE_STAMPS);
-  const cols = effectiveCount <= 4 ? 2 : effectiveCount <= 9 ? 3 : 4;
+  const cols = count <= 4 ? 2 : count <= 9 ? 3 : 4;
   const gap = 12;
   const stampSize = (containerWidth - (cols - 1) * gap) / cols;
   const positions: { x: number; y: number; rotation: number; size: number }[] = [];
@@ -38,7 +36,7 @@ function calculateStampPositions(count: number, containerWidth: number) {
     return x - Math.floor(x);
   };
 
-  for (let i = 0; i < effectiveCount; i++) {
+  for (let i = 0; i < count; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const rotation = (seededRandom(i * 17) - 0.5) * 8; // -4 to +4 degrees
@@ -70,8 +68,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   }, [selectedCountries, homeCountry]);
 
   const visitedCount = allVisitedCountries.length;
-  const visibleStamps = allVisitedCountries.slice(0, MAX_VISIBLE_STAMPS);
-  const extraCount = allVisitedCountries.length - MAX_VISIBLE_STAMPS;
+  const visibleStamps = allVisitedCountries;
 
   const containerWidth = screenWidth - 32; // 16px padding on each side
   const stampPositions = useMemo(
@@ -196,7 +193,6 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                 </View>
               )}
 
-              {extraCount > 0 && <Text style={styles.moreText}>+{extraCount} more</Text>}
             </View>
           </ScrollView>
 
@@ -230,12 +226,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 16,
+    paddingBottom: 120,
   },
   // Header
   header: {
     paddingHorizontal: 16,
-    paddingTop: 24,
+    paddingTop: 16,
     paddingBottom: 24,
     alignItems: 'center',
   },
@@ -276,13 +272,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.dawning.regular,
     fontSize: 24,
     color: colors.stormGray,
-    textAlign: 'center',
-  },
-  moreText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.stormGray,
-    marginTop: 16,
     textAlign: 'center',
   },
   // Footer - matching CountrySelectionScreen

@@ -177,6 +177,29 @@ export default function RotatingStampHero({
   const containerHeight = containerWidth * 0.7; // Aspect ratio for stamp display
   const stampSize = containerWidth * 0.28;
 
+  // Memoize interpolations to prevent recreation on every render (Issue #7)
+  const floatYInterpolations = useMemo(
+    () =>
+      floatAnimations.map((anim) =>
+        anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -3],
+        })
+      ),
+    [floatAnimations]
+  );
+
+  const slotScaleInterpolations = useMemo(
+    () =>
+      slotAnimations.map((anim) =>
+        anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.8, 1],
+        })
+      ),
+    [slotAnimations]
+  );
+
   return (
     <Animated.View
       style={[
@@ -200,10 +223,9 @@ export default function RotatingStampHero({
 
         if (!stampImage || !pos) return null;
 
-        const floatY = floatAnimations[slotIndex].interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -3],
-        });
+        // Use memoized interpolations (Issue #7)
+        const floatY = floatYInterpolations[slotIndex];
+        const slotScale = slotScaleInterpolations[slotIndex];
 
         return (
           <Animated.View
@@ -220,12 +242,7 @@ export default function RotatingStampHero({
                   { rotate: `${pos.rotation}deg` },
                   { scale: pos.scale },
                   { translateY: floatY },
-                  {
-                    scale: slotAnimations[slotIndex].interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.8, 1],
-                    }),
-                  },
+                  { scale: slotScale },
                 ],
               },
             ]}

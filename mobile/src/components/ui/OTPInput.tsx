@@ -16,6 +16,7 @@ import { Text } from './Text';
 interface OTPInputProps {
   value: string;
   onChangeText: (otp: string) => void;
+  onComplete?: (otp: string) => void;
   length?: number;
   error?: string;
   autoFocus?: boolean;
@@ -26,6 +27,7 @@ interface OTPInputProps {
 export function OTPInput({
   value,
   onChangeText,
+  onComplete,
   length = 6,
   error,
   autoFocus = true,
@@ -44,6 +46,13 @@ export function OTPInput({
       inputRefs.current[0]?.focus();
     }
   }, [autoFocus]);
+
+  // Auto-complete when all digits are entered
+  useEffect(() => {
+    if (value.length === length && onComplete) {
+      onComplete(value);
+    }
+  }, [value, length, onComplete]);
 
   // Handle text change in a cell
   const handleChangeText = (text: string, index: number) => {
@@ -171,34 +180,27 @@ const styles = StyleSheet.create({
   inputsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
   },
   cell: {
-    width: 48,
-    height: 56,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12, // 12px
-    backgroundColor: colors.white,
-    fontSize: 24,
+    width: 52,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: colors.midnightNavyLight,
+    fontSize: 28,
     fontFamily: fonts.openSans.semiBold,
     textAlign: 'center',
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
   },
   cellFocused: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: colors.midnightNavyFocused,
   },
   cellError: {
+    borderWidth: 1,
     borderColor: colors.error,
   },
   cellFilled: {
-    borderColor: colors.textSecondary,
+    // No border for filled cells - clean look
   },
   error: {
     color: colors.error,

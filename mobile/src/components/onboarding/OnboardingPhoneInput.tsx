@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { isValidPhoneNumber } from 'libphonenumber-js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -30,6 +31,7 @@ export interface OnboardingPhoneInputProps {
   placeholder?: string;
   containerStyle?: ViewStyle;
   testID?: string;
+  onValidationChange?: (isValid: boolean) => void; // Optional callback for real-time validation
 }
 
 export default function OnboardingPhoneInput({
@@ -40,6 +42,7 @@ export default function OnboardingPhoneInput({
   placeholder = 'Phone Number',
   containerStyle,
   testID,
+  onValidationChange,
 }: OnboardingPhoneInputProps) {
   const [selectedCountry, setSelectedCountry] = useState<CountryDialCode>(() =>
     getCountryByCode(defaultCountryCode ?? null)
@@ -52,7 +55,11 @@ export default function OnboardingPhoneInput({
   // Track the last value we emitted to avoid sync loops
   const lastEmittedValue = useRef<string>('');
 
+  // Track if user has explicitly selected a country (to prevent defaultCountryCode from overriding)
+  const userHasSelectedCountry = useRef(false);
+
   // Sync external value prop to internal state (controlled component behavior)
+  // Note: defaultCountryCode removed from deps to prevent re-parsing when it changes (Issue #1)
   useEffect(() => {
     // Skip if this is the value we just emitted (prevents infinite loops)
     if (value === lastEmittedValue.current) {
@@ -73,8 +80,9 @@ export default function OnboardingPhoneInput({
       (a, b) => b.dialCode.length - a.dialCode.length
     );
 
-    // If defaultCountryCode is set, prioritize it for ambiguous dial codes
-    if (defaultCountryCode) {
+    // Only prioritize defaultCountryCode if user hasn't explicitly selected a country (Issue #3)
+    // This prevents the flag from unexpectedly switching when the parent has a different default
+    if (defaultCountryCode && !userHasSelectedCountry.current) {
       const defaultCountry = getCountryByCode(defaultCountryCode);
       if (value.startsWith(defaultCountry.dialCode)) {
         setSelectedCountry(defaultCountry);
@@ -96,28 +104,46 @@ export default function OnboardingPhoneInput({
     const fallbackCountry = getCountryByCode(defaultCountryCode ?? null);
     setSelectedCountry(fallbackCountry);
     setLocalNumber(value.replace(/^\+/, ''));
-  }, [value, defaultCountryCode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultCountryCode intentionally excluded to prevent infinite loop (Issue #1)
+  }, [value]);
 
-  // Update selected country when default changes (and no value is set)
+  // Update selected country when default changes (and no value is set, and user hasn't selected)
   useEffect(() => {
-    if (defaultCountryCode && !value) {
+    if (defaultCountryCode && !value && !userHasSelectedCountry.current) {
       setSelectedCountry(getCountryByCode(defaultCountryCode));
     }
   }, [defaultCountryCode, value]);
+
+  // Real-time validation using libphonenumber-js (Issue #4)
+  const isCurrentNumberValid = useMemo(() => {
+    if (!localNumber) return false;
+    const e164 = `${selectedCountry.dialCode}${localNumber}`;
+    return isValidPhoneNumber(e164);
+  }, [localNumber, selectedCountry.dialCode]);
+
+  // Notify parent of validation state changes
+  useEffect(() => {
+    onValidationChange?.(isCurrentNumberValid);
+  }, [isCurrentNumberValid, onValidationChange]);
 
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
     // Only allow digits
     const digitsOnly = text.replace(/\D/g, '');
-    setLocalNumber(digitsOnly);
+    // E.164 max is 15 digits total; enforce reasonable max for local number
+    const truncated = digitsOnly.slice(0, 15);
+    setLocalNumber(truncated);
 
     // Construct E.164 format
-    const e164 = digitsOnly ? `${selectedCountry.dialCode}${digitsOnly}` : '';
+    const e164 = truncated ? `${selectedCountry.dialCode}${truncated}` : '';
     lastEmittedValue.current = e164;
     onChangeText(e164);
   };
 
   const handleCountrySelect = (country: CountryDialCode) => {
+    // Mark that user has explicitly selected a country (Issue #3)
+    userHasSelectedCountry.current = true;
+
     setSelectedCountry(country);
     setIsPickerVisible(false);
     setSearchQuery('');

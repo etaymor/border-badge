@@ -51,10 +51,27 @@ export function validateOTP(otp: string): ValidationResult {
 }
 
 /**
- * Formats a phone number for display by masking all but the last 4 digits.
- * Example: +14155552671 → ********2671
+ * Formats a phone number for display.
+ * Shows the full number so users can verify they entered correctly.
+ * Example: +14155552671 → +1 415 555 2671
  */
 export function formatPhoneForDisplay(phone: string): string {
-  if (phone.length <= 4) return phone;
-  return `${phone.slice(0, -4).replace(/./g, '*')}${phone.slice(-4)}`;
+  if (!phone || phone.length < 4) return phone;
+
+  // Remove + prefix for processing
+  const digits = phone.replace(/^\+/, '');
+
+  // Format based on length (assuming E.164 format)
+  if (digits.length === 11 && digits.startsWith('1')) {
+    // US/Canada: +1 XXX XXX XXXX
+    return `+1 ${digits.slice(1, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+  } else if (digits.length >= 10) {
+    // International: +XX XXX XXX XXXX (rough grouping)
+    const countryCode = digits.slice(0, digits.length - 10);
+    const rest = digits.slice(-10);
+    return `+${countryCode} ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+  }
+
+  // Fallback: just add spaces every 3-4 digits
+  return `+${digits.replace(/(\d{3})(?=\d)/g, '$1 ')}`;
 }

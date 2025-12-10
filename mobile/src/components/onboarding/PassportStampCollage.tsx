@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { Text } from '@components/ui';
@@ -120,21 +120,45 @@ export default function PassportStampCollage({
     [visibleCodes.length, homeCountryIndex, containerWidth]
   );
 
-  // Create animation values - recreate when sortedCodes length changes
+  // Create animation values - recreate only when count changes (Issue #5)
+  // Remove 'animated' from deps to avoid recreating Animated.Value instances
   const stampAnimsCount = sortedCodes.length;
   const stampAnims = useMemo(() => {
     return Array.from({ length: stampAnimsCount }, () => ({
-      scale: new Animated.Value(animated ? 0.5 : 1),
-      opacity: new Animated.Value(animated ? 0 : 1),
-      translateY: new Animated.Value(animated ? -20 : 0),
+      scale: new Animated.Value(1),
+      opacity: new Animated.Value(1),
+      translateY: new Animated.Value(0),
     }));
-  }, [stampAnimsCount, animated]);
+  }, [stampAnimsCount]);
+
+  // Reset animation values when animated changes (Issue #5)
+  useEffect(() => {
+    if (animated) {
+      stampAnims.forEach((anim) => {
+        anim.scale.setValue(0.5);
+        anim.opacity.setValue(0);
+        anim.translateY.setValue(-20);
+      });
+    } else {
+      stampAnims.forEach((anim) => {
+        anim.scale.setValue(1);
+        anim.opacity.setValue(1);
+        anim.translateY.setValue(0);
+      });
+    }
+  }, [animated, stampAnims]);
+
+  // Track current animation for proper cleanup (Issue #2)
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     if (!animated || visibleCodes.length === 0) {
       onAnimationComplete?.();
       return;
     }
+
+    // Stop any previous animation before starting new ones (Issue #2)
+    animationRef.current?.stop();
 
     const staggerDelay = 100;
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
@@ -172,12 +196,16 @@ export default function PassportStampCollage({
       timeoutIds.push(timeoutId);
     });
 
-    Animated.parallel(animations).start(() => {
+    // Store animation reference for cleanup (Issue #2)
+    animationRef.current = Animated.parallel(animations);
+    animationRef.current.start(() => {
       onAnimationComplete?.();
     });
 
     return () => {
       timeoutIds.forEach(clearTimeout);
+      // Stop animations on cleanup to prevent memory leaks (Issue #2)
+      animationRef.current?.stop();
     };
   }, [animated, animationDelay, sortedCodes, stampAnims, onAnimationComplete, visibleCodes.length]);
 

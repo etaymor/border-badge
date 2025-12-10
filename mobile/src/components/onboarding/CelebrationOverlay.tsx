@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
 import { Text } from '@components/ui';
@@ -30,8 +31,6 @@ export default function CelebrationOverlay({
   showStars = false,
   animationRefs,
 }: CelebrationOverlayProps) {
-  if (!visible) return null;
-
   const {
     selectionScale,
     selectionOpacity,
@@ -42,6 +41,19 @@ export default function CelebrationOverlay({
     confettiOpacity,
     starScale,
   } = animationRefs;
+
+  // Memoize interpolation to prevent recreation on every render (Issue #8)
+  // Must be called before early return to satisfy rules of hooks
+  const flagRotateInterpolation = useMemo(
+    () =>
+      flagRotate.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['-10deg', '0deg'],
+      }),
+    [flagRotate]
+  );
+
+  if (!visible) return null;
 
   return (
     <Animated.View
@@ -94,12 +106,7 @@ export default function CelebrationOverlay({
             {
               transform: [
                 { scale: flagScale },
-                {
-                  rotate: flagRotate.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['-10deg', '0deg'],
-                  }),
-                },
+                { rotate: flagRotateInterpolation },
               ],
             },
           ]}

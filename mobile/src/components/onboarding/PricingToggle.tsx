@@ -1,5 +1,5 @@
 import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
@@ -37,15 +37,24 @@ export default function PricingToggle({ selectedPlan, onPlanChange }: PricingTog
     ]).start();
   }, [selectedPlan, yearlyBorderAnim, monthlyBorderAnim]);
 
-  const yearlyBorderColor = yearlyBorderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.paperBeige, colors.sunsetGold],
-  });
+  // Memoize interpolations to prevent recreation on every render (Issue #6)
+  const yearlyBorderColor = useMemo(
+    () =>
+      yearlyBorderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [colors.paperBeige, colors.sunsetGold],
+      }),
+    [yearlyBorderAnim]
+  );
 
-  const monthlyBorderColor = monthlyBorderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.paperBeige, colors.sunsetGold],
-  });
+  const monthlyBorderColor = useMemo(
+    () =>
+      monthlyBorderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [colors.paperBeige, colors.sunsetGold],
+      }),
+    [monthlyBorderAnim]
+  );
 
   return (
     <View style={styles.container}>
