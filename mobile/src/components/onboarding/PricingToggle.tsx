@@ -16,7 +16,7 @@ const YEARLY_PRICE = 39.99;
 const MONTHLY_PRICE = 4.99;
 const SAVINGS_PERCENT = 33;
 
-export function PricingToggle({ selectedPlan, onPlanChange }: PricingToggleProps) {
+export default function PricingToggle({ selectedPlan, onPlanChange }: PricingToggleProps) {
   const yearlyBorderAnim = useRef(new Animated.Value(selectedPlan === 'yearly' ? 1 : 0)).current;
   const monthlyBorderAnim = useRef(new Animated.Value(selectedPlan === 'monthly' ? 1 : 0)).current;
 

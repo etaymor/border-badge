@@ -2,11 +2,11 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
-  Dimensions,
   Image,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +21,6 @@ import { getStampImage } from '../../assets/stampImages';
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TOTAL_COUNTRIES = 198;
 const MAX_VISIBLE_STAMPS = 12;
 
@@ -56,6 +55,7 @@ function calculateStampPositions(count: number, containerWidth: number) {
 }
 
 export function ProgressSummaryScreen({ navigation }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
   const { selectedCountries, homeCountry } = useOnboardingStore();
 
   // Animation refs
@@ -73,7 +73,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   const visibleStamps = allVisitedCountries.slice(0, MAX_VISIBLE_STAMPS);
   const extraCount = allVisitedCountries.length - MAX_VISIBLE_STAMPS;
 
-  const containerWidth = SCREEN_WIDTH - 32; // 16px padding on each side
+  const containerWidth = screenWidth - 32; // 16px padding on each side
   const stampPositions = useMemo(
     () => calculateStampPositions(visibleStamps.length, containerWidth),
     [visibleStamps.length, containerWidth]
@@ -94,8 +94,10 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     }
   }, [visibleStamps.length, stampAnimations]);
 
-  // Run animations
+  // Run animations with cleanup
   useEffect(() => {
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
     // Fade in content
     Animated.timing(contentOpacity, {
       toValue: 1,
@@ -108,7 +110,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     const staggerDelay = 80;
 
     visibleStamps.forEach((_, index) => {
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         if (stampAnimations[index]) {
           Animated.spring(stampAnimations[index], {
             toValue: 1,
@@ -120,7 +122,12 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       }, stampDelay + index * staggerDelay);
+      timeoutIds.push(timeoutId);
     });
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
   }, [contentOpacity, visibleStamps, stampAnimations]);
 
   const handleContinue = () => {

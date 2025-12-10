@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, Dimensions, Image, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { Animated, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
@@ -8,9 +8,7 @@ import { fonts } from '@constants/typography';
 
 import { getStampImage } from '../../assets/stampImages';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CONTAINER_PADDING = 24;
-const CONTAINER_WIDTH = SCREEN_WIDTH - CONTAINER_PADDING * 2;
 const MAX_VISIBLE_STAMPS = 12;
 
 interface StampPosition {
@@ -95,13 +93,16 @@ export interface PassportStampCollageProps {
   animationDelay?: number;
 }
 
-export function PassportStampCollage({
+export default function PassportStampCollage({
   countryCodes,
   homeCountry,
   onAnimationComplete,
   animated = true,
   animationDelay = 0,
 }: PassportStampCollageProps) {
+  const { width: screenWidth } = useWindowDimensions();
+  const containerWidth = screenWidth - CONTAINER_PADDING * 2;
+
   const visibleCodes = countryCodes.slice(0, MAX_VISIBLE_STAMPS);
   const extraCount = countryCodes.length - MAX_VISIBLE_STAMPS;
   const homeCountryIndex = homeCountry ? visibleCodes.indexOf(homeCountry) : -1;
@@ -115,18 +116,19 @@ export function PassportStampCollage({
   }, [visibleCodes, homeCountryIndex]);
 
   const positions = useMemo(
-    () => generateOrganicPositions(visibleCodes.length, homeCountryIndex, CONTAINER_WIDTH - 32),
-    [visibleCodes.length, homeCountryIndex]
+    () => generateOrganicPositions(visibleCodes.length, homeCountryIndex, containerWidth - 32),
+    [visibleCodes.length, homeCountryIndex, containerWidth]
   );
 
-  // Create animation refs for each stamp
-  const stampAnims = useRef(
-    sortedCodes.map(() => ({
+  // Create animation values - recreate when sortedCodes length changes
+  const stampAnimsCount = sortedCodes.length;
+  const stampAnims = useMemo(() => {
+    return Array.from({ length: stampAnimsCount }, () => ({
       scale: new Animated.Value(animated ? 0.5 : 1),
       opacity: new Animated.Value(animated ? 0 : 1),
       translateY: new Animated.Value(animated ? -20 : 0),
-    }))
-  ).current;
+    }));
+  }, [stampAnimsCount, animated]);
 
   useEffect(() => {
     if (!animated || visibleCodes.length === 0) {
@@ -135,6 +137,8 @@ export function PassportStampCollage({
     }
 
     const staggerDelay = 100;
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
     const animations = sortedCodes.map((_, index) => {
       return Animated.sequence([
         Animated.delay(animationDelay + index * staggerDelay),
@@ -160,19 +164,24 @@ export function PassportStampCollage({
       ]);
     });
 
-    // Trigger haptic on each stamp
+    // Trigger haptic on each stamp with cleanup
     sortedCodes.forEach((_, index) => {
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }, animationDelay + index * staggerDelay);
+      timeoutIds.push(timeoutId);
     });
 
     Animated.parallel(animations).start(() => {
       onAnimationComplete?.();
     });
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
   }, [animated, animationDelay, sortedCodes, stampAnims, onAnimationComplete, visibleCodes.length]);
 
-  const stampSize = (CONTAINER_WIDTH - 32) / 3.5;
+  const stampSize = (containerWidth - 32) / 3.5;
 
   // Calculate container height based on positions
   const containerHeight = useMemo(() => {
@@ -196,7 +205,7 @@ export function PassportStampCollage({
         const position = positions[originalIndex];
         const stampImage = getStampImage(code);
 
-        if (!stampImage || !position) return null;
+        if (!stampImage || !position || !stampAnims[index]) return null;
 
         return (
           <Animated.View

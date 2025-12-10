@@ -26,7 +26,7 @@ export interface OnboardingInputProps extends TextInputProps {
   backgroundColor?: string;
 }
 
-export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
+const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
   (
     {
       icon,
@@ -47,7 +47,7 @@ export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
       onChangeText?.('');
     };
 
-    const bgColor = backgroundColor ?? 'rgba(23, 42, 58, 0.08)';
+    const bgColor = backgroundColor ?? colors.midnightNavyLight;
 
     return (
       <View style={containerStyle}>
@@ -63,7 +63,7 @@ export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
             <Ionicons
               name={icon}
               size={28}
-              color="rgba(23, 42, 58, 0.5)"
+              color={colors.midnightNavyMuted}
               style={styles.icon}
             />
           )}
@@ -72,7 +72,7 @@ export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
             style={[styles.input, !icon && styles.inputNoIcon, style]}
             value={value}
             onChangeText={onChangeText}
-            placeholderTextColor="rgba(23, 42, 58, 0.5)"
+            placeholderTextColor={colors.midnightNavyMuted}
             onFocus={(e) => {
               setIsFocused(true);
               props.onFocus?.(e);
@@ -85,7 +85,7 @@ export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
           />
           {showClearButton && value && value.length > 0 && (
             <TouchableOpacity onPress={handleClear} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={26} color="rgba(23, 42, 58, 0.5)" />
+              <Ionicons name="close-circle" size={26} color={colors.midnightNavyMuted} />
             </TouchableOpacity>
           )}
         </View>
@@ -101,6 +101,8 @@ export const OnboardingInput = forwardRef<TextInput, OnboardingInputProps>(
 
 OnboardingInput.displayName = 'OnboardingInput';
 
+export default OnboardingInput;
+
 const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
@@ -111,7 +113,7 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   inputWrapperFocused: {
-    backgroundColor: 'rgba(23, 42, 58, 0.12)',
+    backgroundColor: colors.midnightNavyFocused,
   },
   inputWrapperError: {
     borderWidth: 1,

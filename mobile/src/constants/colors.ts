@@ -10,6 +10,10 @@ export const colors = {
 
   // Brand Palette
   midnightNavy: '#172A3A', // Backgrounds, headers, dark containers
+  midnightNavyLight: 'rgba(23, 42, 58, 0.08)', // Input backgrounds
+  midnightNavyMuted: 'rgba(23, 42, 58, 0.5)', // Placeholder text, icons
+  midnightNavyFocused: 'rgba(23, 42, 58, 0.12)', // Focused input backgrounds
+  midnightNavyBorder: 'rgba(23, 42, 58, 0.2)', // Dividers
   warmCream: '#FDF6ED', // Background paper feel, base layer
   sunsetGold: '#F4C24E', // Highlight buttons, call to actions
   adobeBrick: '#C1543E', // Accent, icons, "visited" mark

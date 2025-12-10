@@ -22,7 +22,7 @@ export interface CelebrationOverlayProps {
   animationRefs: CelebrationAnimationRefs;
 }
 
-export function CelebrationOverlay({
+export default function CelebrationOverlay({
   visible,
   flagEmoji,
   countryName,

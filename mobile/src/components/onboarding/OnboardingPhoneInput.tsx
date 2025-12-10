@@ -32,7 +32,7 @@ export interface OnboardingPhoneInputProps {
   testID?: string;
 }
 
-export function OnboardingPhoneInput({
+export default function OnboardingPhoneInput({
   value,
   onChangeText,
   defaultCountryCode,
@@ -153,14 +153,6 @@ export function OnboardingPhoneInput({
     []
   );
 
-  // Format phone number for display (basic formatting)
-  const formatForDisplay = (number: string): string => {
-    // Simple formatting - just add spaces for readability
-    if (number.length <= 3) return number;
-    if (number.length <= 6) return `${number.slice(0, 3)} ${number.slice(3)}`;
-    return `${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
-  };
-
   return (
     <View style={containerStyle}>
       <View
@@ -181,7 +173,7 @@ export function OnboardingPhoneInput({
         >
           <Text style={styles.flag}>{getFlagEmoji(selectedCountry.code)}</Text>
           <Text style={styles.dialCode}>{selectedCountry.dialCode}</Text>
-          <Ionicons name="chevron-down" size={16} color="rgba(23, 42, 58, 0.5)" />
+          <Ionicons name="chevron-down" size={16} color={colors.midnightNavyMuted} />
         </TouchableOpacity>
 
         {/* Divider */}
@@ -190,10 +182,10 @@ export function OnboardingPhoneInput({
         {/* Phone Number Input */}
         <TextInput
           style={styles.phoneInput}
-          value={formatForDisplay(localNumber)}
+          value={localNumber}
           onChangeText={handleLocalNumberChange}
           placeholder={placeholder}
-          placeholderTextColor="rgba(23, 42, 58, 0.5)"
+          placeholderTextColor={colors.midnightNavyMuted}
           keyboardType="phone-pad"
           autoComplete="tel"
           textContentType="telephoneNumber"
@@ -204,11 +196,8 @@ export function OnboardingPhoneInput({
 
         {/* Clear button */}
         {localNumber.length > 0 && (
-          <TouchableOpacity
-            onPress={() => handleLocalNumberChange('')}
-            style={styles.clearButton}
-          >
-            <Ionicons name="close-circle" size={26} color="rgba(23, 42, 58, 0.5)" />
+          <TouchableOpacity onPress={() => handleLocalNumberChange('')} style={styles.clearButton}>
+            <Ionicons name="close-circle" size={26} color={colors.midnightNavyMuted} />
           </TouchableOpacity>
         )}
       </View>
@@ -287,13 +276,13 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(23, 42, 58, 0.08)',
+    backgroundColor: colors.midnightNavyLight,
     borderRadius: 16,
     paddingRight: 12,
     minHeight: 60,
   },
   inputWrapperFocused: {
-    backgroundColor: 'rgba(23, 42, 58, 0.12)',
+    backgroundColor: colors.midnightNavyFocused,
   },
   inputWrapperError: {
     borderWidth: 1,
@@ -317,7 +306,7 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     height: 28,
-    backgroundColor: 'rgba(23, 42, 58, 0.2)',
+    backgroundColor: colors.midnightNavyBorder,
   },
   phoneInput: {
     flex: 1,

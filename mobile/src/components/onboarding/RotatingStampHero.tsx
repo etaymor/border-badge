@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, Image, StyleSheet, View } from 'react-native';
+import { Animated, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { colors } from '@constants/colors';
 
 import { getStampImage } from '../../assets/stampImages';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Sample stamps to use as fallback when user has few stamps
 const SAMPLE_STAMPS = ['US', 'FR', 'JP', 'IT', 'AU', 'BR', 'GB', 'DE', 'ES', 'TH'];
@@ -26,11 +24,13 @@ export interface RotatingStampHeroProps {
   rotationInterval?: number;
 }
 
-export function RotatingStampHero({
+export default function RotatingStampHero({
   stampCodes,
   visibleCount = 6,
   rotationInterval = 3000,
 }: RotatingStampHeroProps) {
+  const { width: screenWidth } = useWindowDimensions();
+
   // Combine user stamps with samples if needed
   const allStamps = useMemo(() => {
     if (stampCodes.length >= visibleCount) {
@@ -78,10 +78,12 @@ export function RotatingStampHero({
     ]).start();
   }, [containerScale, containerOpacity]);
 
-  // Staggered stamp entrance
+  // Staggered stamp entrance with cleanup
   useEffect(() => {
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
     slotAnimations.forEach((anim, index) => {
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         Animated.spring(anim, {
           toValue: 1,
           friction: 8,
@@ -89,17 +91,25 @@ export function RotatingStampHero({
           useNativeDriver: true,
         }).start();
       }, 400 + index * 80);
+      timeoutIds.push(timeoutId);
     });
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
   }, [slotAnimations]);
 
   // Floating animation for each stamp
   useEffect(() => {
+    const startTimeouts: ReturnType<typeof setTimeout>[] = [];
+    const floatLoops: Animated.CompositeAnimation[] = [];
+
     floatAnimations.forEach((anim, index) => {
       // Offset each stamp's float cycle
       const delay = index * 500;
 
       const startFloat = () => {
-        Animated.loop(
+        const loop = Animated.loop(
           Animated.sequence([
             Animated.timing(anim, {
               toValue: 1,
@@ -112,11 +122,17 @@ export function RotatingStampHero({
               useNativeDriver: true,
             }),
           ])
-        ).start();
+        );
+        floatLoops[index] = loop;
+        loop.start();
       };
 
-      setTimeout(startFloat, delay);
+      startTimeouts.push(setTimeout(startFloat, delay));
     });
+    return () => {
+      startTimeouts.forEach(clearTimeout);
+      floatLoops.forEach((loop) => loop?.stop?.());
+    };
   }, [floatAnimations]);
 
   // Rotation logic - rotate one stamp at a time
@@ -157,7 +173,7 @@ export function RotatingStampHero({
     return () => clearInterval(interval);
   }, [allStamps.length, visibleCount, rotationInterval, slotAnimations]);
 
-  const containerWidth = SCREEN_WIDTH - 48; // 24px padding each side
+  const containerWidth = screenWidth - 48; // 24px padding each side
   const containerHeight = containerWidth * 0.7; // Aspect ratio for stamp display
   const stampSize = containerWidth * 0.28;
 

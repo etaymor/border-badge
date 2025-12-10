@@ -1,14 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Animated,
-  Easing,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Animated, Easing, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PricingToggle, RotatingStampHero } from '@components/onboarding';
@@ -53,12 +46,13 @@ export function PaywallScreen({ navigation }: Props) {
   const ctaGlow = useRef(new Animated.Value(0)).current;
 
   // Feature item animations
-  const featureAnimations = useRef(
-    PREMIUM_FEATURES.map(() => new Animated.Value(0))
-  ).current;
+  const featureAnimations = useRef(PREMIUM_FEATURES.map(() => new Animated.Value(0))).current;
 
   // Run entrance animations
   useEffect(() => {
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    let glowLoop: Animated.CompositeAnimation | null = null;
+
     // Phase 1: Title (0-400ms)
     Animated.parallel([
       Animated.timing(titleOpacity, {
@@ -75,83 +69,99 @@ export function PaywallScreen({ navigation }: Props) {
     ]).start();
 
     // Phase 1b: Subtitle (100ms after title)
-    setTimeout(() => {
-      Animated.timing(subtitleOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }, 100);
-
-    // Phase 3: Features (1200-1600ms)
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(featuresOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(featuresTranslate, {
-          toValue: 0,
-          duration: 400,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Stagger feature items
-      featureAnimations.forEach((anim, index) => {
-        setTimeout(() => {
-          Animated.timing(anim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
-        }, index * 50);
-      });
-    }, 1200);
-
-    // Phase 4: Pricing (1600-2000ms)
-    setTimeout(() => {
-      Animated.timing(pricingOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
-    }, 1600);
-
-    // Phase 4b: CTA button
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.spring(ctaScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(ctaOpacity, {
+    timeouts.push(
+      setTimeout(() => {
+        Animated.timing(subtitleOpacity, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
-        }),
-      ]).start();
+        }).start();
+      }, 100)
+    );
 
-      // Start continuous glow pulse
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(ctaGlow, {
+    // Phase 3: Features (1200-1600ms)
+    timeouts.push(
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(featuresOpacity, {
             toValue: 1,
-            duration: 1000,
+            duration: 400,
             useNativeDriver: true,
           }),
-          Animated.timing(ctaGlow, {
+          Animated.timing(featuresTranslate, {
             toValue: 0,
-            duration: 1000,
+            duration: 400,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
-        ])
-      ).start();
-    }, 1800);
+        ]).start();
+
+        // Stagger feature items
+        featureAnimations.forEach((anim, index) => {
+          timeouts.push(
+            setTimeout(() => {
+              Animated.timing(anim, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+              }).start();
+            }, index * 50)
+          );
+        });
+      }, 1200)
+    );
+
+    // Phase 4: Pricing (1600-2000ms)
+    timeouts.push(
+      setTimeout(() => {
+        Animated.timing(pricingOpacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }).start();
+      }, 1600)
+    );
+
+    // Phase 4b: CTA button
+    timeouts.push(
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.spring(ctaScale, {
+            toValue: 1,
+            friction: 6,
+            tension: 80,
+            useNativeDriver: true,
+          }),
+          Animated.timing(ctaOpacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+
+        // Start continuous glow pulse
+        glowLoop = Animated.loop(
+          Animated.sequence([
+            Animated.timing(ctaGlow, {
+              toValue: 1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(ctaGlow, {
+              toValue: 0,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+          ])
+        );
+        glowLoop.start();
+      }, 1800)
+    );
+
+    return () => {
+      timeouts.forEach(clearTimeout);
+      glowLoop?.stop();
+    };
   }, [
     titleOpacity,
     titleTranslate,
@@ -278,12 +288,7 @@ export function PaywallScreen({ navigation }: Props) {
             },
           ]}
         >
-          <Animated.View
-            style={[
-              styles.ctaShadow,
-              { shadowOpacity: ctaShadowOpacity },
-            ]}
-          >
+          <Animated.View style={[styles.ctaShadow, { shadowOpacity: ctaShadowOpacity }]}>
             <TouchableOpacity
               style={styles.ctaButton}
               onPress={handleStartTrial}
