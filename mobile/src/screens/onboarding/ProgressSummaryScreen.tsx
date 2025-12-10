@@ -1,47 +1,66 @@
-import { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@components/ui';
+import { Text } from '@components/ui';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
+import { getStampImage } from '../../assets/stampImages';
+
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
-const TOTAL_COUNTRIES = 198; // 197 countries + Antarctica
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const TOTAL_COUNTRIES = 198;
+const MAX_VISIBLE_STAMPS = 12;
 
-// Helper to get flag emoji from country code
-function getFlagEmoji(countryCode: string): string {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
+// Stamp layout calculation - clean grid with slight rotation
+function calculateStampPositions(count: number, containerWidth: number) {
+  const effectiveCount = Math.min(count, MAX_VISIBLE_STAMPS);
+  const cols = effectiveCount <= 4 ? 2 : effectiveCount <= 9 ? 3 : 4;
+  const gap = 12;
+  const stampSize = (containerWidth - (cols - 1) * gap) / cols;
+  const positions: { x: number; y: number; rotation: number; size: number }[] = [];
 
-// Get celebratory copy based on count
-function getCelebratoryText(count: number): string {
-  if (count === 0) return 'Ready to start your journey?';
-  if (count <= 3) return "You're just getting started!";
-  if (count <= 10) return "You're an emerging explorer!";
-  if (count <= 25) return "You're a seasoned traveler!";
-  if (count <= 50) return "Impressive! You're a world wanderer!";
-  if (count <= 100) return "Amazing! You're a global explorer!";
-  return "Legendary! You've seen the world!";
-}
+  // Seeded random for consistent rotations
+  const seededRandom = (seed: number) => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  };
 
-// Get percentage rank (placeholder - would be real data in production)
-function getPercentileRank(count: number): number {
-  if (count === 0) return 100;
-  if (count <= 3) return 60;
-  if (count <= 10) return 35;
-  if (count <= 25) return 20;
-  if (count <= 50) return 10;
-  return 5;
+  for (let i = 0; i < effectiveCount; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const rotation = (seededRandom(i * 17) - 0.5) * 8; // -4 to +4 degrees
+
+    positions.push({
+      x: col * (stampSize + gap),
+      y: row * (stampSize + gap),
+      rotation,
+      size: stampSize,
+    });
+  }
+
+  return positions;
 }
 
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { selectedCountries, homeCountry } = useOnboardingStore();
+
+  // Animation refs
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const stampAnimations = useRef<Animated.Value[]>([]).current;
 
   // Include home country in visited count if set
   const allVisitedCountries = useMemo(() => {
@@ -51,164 +70,244 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   }, [selectedCountries, homeCountry]);
 
   const visitedCount = allVisitedCountries.length;
-  const visitedPercentage = Math.round((visitedCount / TOTAL_COUNTRIES) * 100);
-  const percentileRank = getPercentileRank(visitedCount);
+  const visibleStamps = allVisitedCountries.slice(0, MAX_VISIBLE_STAMPS);
+  const extraCount = allVisitedCountries.length - MAX_VISIBLE_STAMPS;
+
+  const containerWidth = SCREEN_WIDTH - 32; // 16px padding on each side
+  const stampPositions = useMemo(
+    () => calculateStampPositions(visibleStamps.length, containerWidth),
+    [visibleStamps.length, containerWidth]
+  );
+
+  // Calculate stamp grid height
+  const gridHeight = useMemo(() => {
+    if (stampPositions.length === 0) return 200;
+    const lastPos = stampPositions[stampPositions.length - 1];
+    return lastPos.y + lastPos.size + 16;
+  }, [stampPositions]);
+
+  // Initialize stamp animations
+  useEffect(() => {
+    stampAnimations.length = 0;
+    for (let i = 0; i < visibleStamps.length; i++) {
+      stampAnimations.push(new Animated.Value(0));
+    }
+  }, [visibleStamps.length, stampAnimations]);
+
+  // Run animations
+  useEffect(() => {
+    // Fade in content
+    Animated.timing(contentOpacity, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+
+    // Stagger stamp animations
+    const stampDelay = 500;
+    const staggerDelay = 80;
+
+    visibleStamps.forEach((_, index) => {
+      setTimeout(() => {
+        if (stampAnimations[index]) {
+          Animated.spring(stampAnimations[index], {
+            toValue: 1,
+            friction: 8,
+            tension: 100,
+            useNativeDriver: true,
+          }).start();
+
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+      }, stampDelay + index * staggerDelay);
+    });
+  }, [contentOpacity, visibleStamps, stampAnimations]);
 
   const handleContinue = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     navigation.navigate('Paywall');
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
-          {/* Header */}
-          <Text style={styles.title}>Look at those stamps!</Text>
-          <Text style={styles.celebratoryText}>{getCelebratoryText(visitedCount)}</Text>
-
-          {/* Flag grid */}
-          {allVisitedCountries.length > 0 && (
-            <View style={styles.flagGrid}>
-              {allVisitedCountries.map((code) => (
-                <Text key={code} style={styles.flagEmoji}>
-                  {getFlagEmoji(code)}
-                </Text>
-              ))}
-            </View>
-          )}
-
-          {/* Stats card */}
-          <View style={styles.statsCard}>
-            <Text style={styles.mainStat}>
-              You&apos;ve explored{' '}
-              <Text style={styles.statHighlight}>
-                {visitedCount} / {TOTAL_COUNTRIES}
-              </Text>{' '}
-              places!
-            </Text>
-
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${visitedPercentage}%` }]} />
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Look at those stamps!</Text>
+              <Text style={styles.headerSubtitle}>
+                You&apos;ve explored {visitedCount} of {TOTAL_COUNTRIES} countries!
+              </Text>
             </View>
 
-            <Text style={styles.percentileText}>Top {percentileRank}% of explorers</Text>
-          </View>
+            {/* Stamp Grid */}
+            <View style={styles.stampSection}>
+              {visibleStamps.length > 0 ? (
+                <View style={[styles.stampGrid, { height: gridHeight }]}>
+                  {visibleStamps.map((code, index) => {
+                    const stampImage = getStampImage(code);
+                    const pos = stampPositions[index];
+                    const animValue = stampAnimations[index] || new Animated.Value(1);
 
-          {/* Empty state */}
-          {visitedCount === 0 && (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyPlaceholder} />
-              <Text style={styles.emptyText}>No countries logged yet. Your adventure awaits!</Text>
+                    if (!stampImage || !pos) return null;
+
+                    return (
+                      <Animated.View
+                        key={code}
+                        style={[
+                          styles.stampWrapper,
+                          {
+                            left: pos.x,
+                            top: pos.y,
+                            width: pos.size,
+                            height: pos.size,
+                            transform: [
+                              { rotate: `${pos.rotation}deg` },
+                              {
+                                scale: animValue.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0.5, 1],
+                                }),
+                              },
+                            ],
+                            opacity: animValue,
+                          },
+                        ]}
+                      >
+                        <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>Your passport awaits its first stamp</Text>
+                </View>
+              )}
+
+              {extraCount > 0 && <Text style={styles.moreText}>+{extraCount} more</Text>}
             </View>
-          )}
+          </ScrollView>
+
+        </Animated.View>
+
+        {/* Footer Button - fixed position matching other onboarding screens */}
+        <View style={styles.bottomContainer}>
+          <TouchableOpacity
+            style={styles.continueButton}
+            onPress={handleContinue}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.continueButtonText}>Save Progress</Text>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Button title="Continue" onPress={handleContinue} style={styles.continueButton} />
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
-  scrollContent: {
-    flexGrow: 1,
+  safeArea: {
+    flex: 1,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 40,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+  },
+  // Header
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    paddingBottom: 24,
     alignItems: 'center',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+  headerTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    color: colors.midnightNavy,
     textAlign: 'center',
     marginBottom: 8,
   },
-  celebratoryText: {
-    fontSize: 18,
-    color: '#666',
+  headerSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.stormGray,
     textAlign: 'center',
-    marginBottom: 32,
   },
-  flagGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 32,
-    maxWidth: 320,
+  // Stamp Section
+  stampSection: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
-  flagEmoji: {
-    fontSize: 32,
-  },
-  statsCard: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 20,
-    padding: 24,
+  stampGrid: {
     width: '100%',
-    alignItems: 'center',
+    position: 'relative',
   },
-  mainStat: {
-    fontSize: 20,
-    color: '#1a1a1a',
-    textAlign: 'center',
-    marginBottom: 16,
+  stampWrapper: {
+    position: 'absolute',
   },
-  statHighlight: {
-    fontWeight: 'bold',
-    color: '#007AFF',
-  },
-  progressBar: {
-    height: 12,
-    backgroundColor: '#E5E5EA',
-    borderRadius: 6,
-    overflow: 'hidden',
+  stampImage: {
     width: '100%',
-    marginBottom: 12,
-  },
-  progressFill: {
     height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 6,
-    minWidth: 12,
-  },
-  percentileText: {
-    fontSize: 14,
-    color: '#34C759',
-    fontWeight: '600',
   },
   emptyState: {
+    paddingVertical: 60,
     alignItems: 'center',
-    marginTop: 32,
-  },
-  emptyPlaceholder: {
-    width: 120,
-    height: 120,
-    backgroundColor: '#E5E5EA',
-    borderRadius: 60,
-    marginBottom: 16,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#666',
+    fontFamily: fonts.dawning.regular,
+    fontSize: 24,
+    color: colors.stormGray,
     textAlign: 'center',
   },
-  footer: {
+  moreText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.stormGray,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  // Footer - matching CountrySelectionScreen
+  bottomContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 24,
     paddingVertical: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    paddingBottom: 40,
+    alignItems: 'center',
   },
   continueButton: {
-    width: '100%',
+    backgroundColor: colors.sunsetGold,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 56,
+    borderRadius: 12,
+    gap: 8,
+    minWidth: 260,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.midnightNavy,
   },
 });

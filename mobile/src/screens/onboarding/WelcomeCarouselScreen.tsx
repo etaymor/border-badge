@@ -29,18 +29,14 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       {/* Full-screen video background - decorative, muted autoplay */}
-      <View
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
         accessible={true}
         accessibilityLabel="Decorative video showing world travel destinations"
-        accessibilityRole="image"
-      >
-        <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          nativeControls={false}
-        />
-      </View>
+      />
 
       {/* Login button - top right */}
       <TouchableOpacity
@@ -65,8 +61,8 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
         </Text>
       </View>
 
-      {/* Next button - bottom third */}
-      <View style={styles.bottomContainer}>
+      {/* Next button - footer */}
+      <View style={styles.footer}>
         <TouchableOpacity
           style={styles.nextButton}
           onPress={handleNext}
@@ -77,7 +73,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
           <Text variant="label" style={styles.nextButtonText}>
             Next
           </Text>
-          <Ionicons name="arrow-forward" size={24} color={colors.midnightNavy} />
+          <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
         </TouchableOpacity>
       </View>
     </View>
@@ -119,11 +115,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: '80%',
   },
-  bottomContainer: {
+  footer: {
     position: 'absolute',
-    bottom: 100,
-    left: 24,
-    right: 24,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    paddingBottom: 40,
     alignItems: 'center',
   },
   nextButton: {

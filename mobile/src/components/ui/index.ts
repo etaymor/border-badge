@@ -1,3 +1,4 @@
+export { AnimatedProgressBar } from './AnimatedProgressBar';
 export { Button } from './Button';
 export { Chip } from './Chip';
 export { ConfirmDialog } from './ConfirmDialog';
