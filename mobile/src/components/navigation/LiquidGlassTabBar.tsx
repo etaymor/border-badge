@@ -1,6 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import {
   Animated,
+  Dimensions,
   Image,
   ImageSourcePropType,
   StyleSheet,
@@ -83,12 +84,7 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
       style={styles.tabItem}
       activeOpacity={1}
     >
-      <Animated.View
-        style={[
-          styles.tabContent,
-          { transform: [{ scale: scaleAnim }] },
-        ]}
-      >
+      <Animated.View style={[styles.tabContent, { transform: [{ scale: scaleAnim }] }]}>
         {/* Icon only - no labels */}
         <Image
           source={icon}
@@ -100,11 +96,25 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
   );
 }
 
+// Responsive horizontal padding based on screen width
+const getHorizontalPadding = () => {
+  const { width } = Dimensions.get('window');
+  if (width < 375) return 24; // iPhone SE and smaller
+  if (width < 414) return 36; // iPhone 12/13 mini, iPhone X/XS
+  return 48; // iPhone Plus/Max sizes and larger
+};
+
 export function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const horizontalPadding = getHorizontalPadding();
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom || 8 }]}>
+    <View
+      style={[
+        styles.container,
+        { paddingBottom: insets.bottom || 8, paddingHorizontal: horizontalPadding },
+      ]}
+    >
       {/* Outer shadow layer */}
       <View style={styles.shadowLayer}>
         {/* Main glass container */}
@@ -165,7 +175,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 48,
+    // paddingHorizontal is set dynamically based on screen width
   },
   shadowLayer: {
     borderRadius: 24,

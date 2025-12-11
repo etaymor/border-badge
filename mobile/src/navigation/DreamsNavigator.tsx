@@ -10,11 +10,7 @@ const Stack = createNativeStackNavigator<DreamsStackParamList>();
 export function DreamsNavigator() {
   return (
     <Stack.Navigator>
-      <Stack.Screen
-        name="DreamsHome"
-        component={DreamsScreen}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="DreamsHome" component={DreamsScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="CountryDetail"
         component={CountryDetailScreen}

@@ -56,7 +56,7 @@ This styleguide defines the visual identity for the Border Badge application. Th
 - **Shape**: Fully rounded
 - **Padding**: 14px vertical, 28px horizontal
 - **Corner Radius**: 12px
-- **Font**: Serif headline, all caps
+- **Font**: Open Sans SemiBold (600), Title Case
 - **Background Color**: Sunset Gold
 - **Text Color**: Midnight Navy
 - **Hover/Pressed**: Slight darkening (`#e0aa2e`)

@@ -121,60 +121,8 @@ export const CountryCard = React.memo(function CountryCard({
         </View>
       )}
 
-      {/* Flag Badge - Top Left */}
-      <BlurView intensity={30} tint="light" style={styles.glassBadge}>
-        <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-      </BlurView>
-
-      {/* Action Buttons - Top Right */}
-      <View style={styles.actionsContainer}>
-        {/* Visited Button */}
-        <TouchableOpacity
-          onPress={handleAddVisitedPress}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
-          testID={`country-card-visited-${code}`}
-        >
-          <BlurView
-            intensity={30}
-            tint="light"
-            style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
-          >
-            <Ionicons
-              name={isVisited ? 'checkmark' : 'add'}
-              size={22}
-              color={isVisited ? colors.white : colors.successDark}
-            />
-          </BlurView>
-        </TouchableOpacity>
-
-        {/* Wishlist Button */}
-        <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-          <TouchableOpacity
-            onPress={handleWishlistPress}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-            testID={`country-card-wishlist-${code}`}
-          >
-            <BlurView
-              intensity={30}
-              tint="light"
-              style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
-            >
-              <Ionicons
-                name={isWishlisted ? 'heart' : 'heart-outline'}
-                size={20}
-                color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-              />
-            </BlurView>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-
-      {/* Bottom Liquid Glass Pane */}
-      <BlurView intensity={45} tint="light" style={styles.bottomGlassPane}>
+      {/* Top Liquid Glass Pane - Country Name */}
+      <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
         <View style={styles.textContainer}>
           <Text
             style={styles.countryName}
@@ -191,6 +139,61 @@ export const CountryCard = React.memo(function CountryCard({
           )}
         </View>
       </BlurView>
+
+      {/* Bottom Row - Flag Badge Left, Action Buttons Right */}
+      <View style={styles.bottomRow}>
+        {/* Flag Badge - Bottom Left */}
+        <BlurView intensity={30} tint="light" style={styles.glassBadge}>
+          <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+        </BlurView>
+
+        {/* Action Buttons - Bottom Right */}
+        <View style={styles.actionsContainer}>
+          {/* Visited Button */}
+          <TouchableOpacity
+            onPress={handleAddVisitedPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
+            testID={`country-card-visited-${code}`}
+          >
+            <BlurView
+              intensity={30}
+              tint="light"
+              style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
+            >
+              <Ionicons
+                name={isVisited ? 'checkmark' : 'add'}
+                size={22}
+                color={isVisited ? colors.white : colors.successDark}
+              />
+            </BlurView>
+          </TouchableOpacity>
+
+          {/* Wishlist Button */}
+          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+            <TouchableOpacity
+              onPress={handleWishlistPress}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+              testID={`country-card-wishlist-${code}`}
+            >
+              <BlurView
+                intensity={30}
+                tint="light"
+                style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
+              >
+                <Ionicons
+                  name={isWishlisted ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+                />
+              </BlurView>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </View>
     </TouchableOpacity>
   );
 });
@@ -222,11 +225,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Top Elements
-  glassBadge: {
+  // Top Glass Pane - Country Name
+  topGlassPane: {
     position: 'absolute',
-    top: 12,
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm tint + Blur
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  // Bottom Row - Flag and Actions
+  bottomRow: {
+    position: 'absolute',
+    bottom: 12,
     left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  glassBadge: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -241,9 +262,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   actionsContainer: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
+    flexDirection: 'column',
     gap: 8,
   },
   actionButton: {
@@ -264,18 +283,6 @@ const styles = StyleSheet.create({
   actionButtonWishlisted: {
     backgroundColor: colors.wishlistGold, // Override for active state
     borderColor: colors.wishlistGold,
-  },
-  // Bottom Glass Pane
-  bottomGlassPane: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm tint + Blur
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.6)',
   },
   textContainer: {
     gap: 0,

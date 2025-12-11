@@ -1,12 +1,5 @@
 import { useRef } from 'react';
-import {
-  Animated,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -44,6 +37,11 @@ function formatDateRange(dateRange?: string): string {
 
   const start = new Date(startStr);
   const end = new Date(endStr);
+
+  // Validate parsed dates
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return '';
+  }
 
   const formatDate = (date: Date) =>
     date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
