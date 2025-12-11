@@ -111,7 +111,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByPlaceholderText('Search countries...')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Type Country')).toBeTruthy();
     });
 
     it('renders country cards for available countries', () => {
@@ -191,7 +191,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const searchInput = screen.getByPlaceholderText('Search countries...');
+      const searchInput = screen.getByPlaceholderText('Type Country');
       fireEvent.changeText(searchInput, 'jap');
 
       expect(screen.getByText('Japan')).toBeTruthy();
@@ -205,21 +205,21 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search countries...'), 'xyz');
+      fireEvent.changeText(screen.getByPlaceholderText('Type Country'), 'xyz');
 
       expect(screen.getByText('No countries found')).toBeTruthy();
     });
 
-    it('clears search when clear button is pressed', () => {
+    it('clears search when EXPLORE button is pressed', () => {
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
       mockHooksWithData({ countries, userCountries: [] });
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const searchInput = screen.getByPlaceholderText('Search countries...');
+      const searchInput = screen.getByPlaceholderText('Type Country');
       fireEvent.changeText(searchInput, 'jap');
 
-      fireEvent.press(screen.getByText('Clear'));
+      fireEvent.press(screen.getByText('EXPLORE'));
 
       expect(searchInput.props.value).toBe('');
     });
@@ -230,7 +230,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search countries...'), 'JAPAN');
+      fireEvent.changeText(screen.getByPlaceholderText('Type Country'), 'JAPAN');
 
       expect(screen.getByText('Japan')).toBeTruthy();
     });
