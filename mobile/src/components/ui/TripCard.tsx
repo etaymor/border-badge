@@ -22,35 +22,39 @@ interface TripCardProps {
 
 // Helper to format date range from PostgreSQL format
 function formatDateRange(dateRange?: string): string {
-  if (!dateRange) return '';
+  try {
+    if (!dateRange) return '';
 
-  // Parse PostgreSQL daterange format: "[2024-01-01,2024-01-15]"
-  const match = dateRange.match(/\[([^,]+),([^\]]+)\]/);
-  if (!match) return '';
+    // Parse PostgreSQL daterange format: "[2024-01-01,2024-01-15]"
+    const match = dateRange.match(/\[([^,]+),([^\]]+)\]/);
+    if (!match) return '';
 
-  const [, startStr, endStr] = match;
+    const [, startStr, endStr] = match;
 
-  // Handle infinity bounds
-  if (startStr === '-infinity' || endStr === 'infinity') {
+    // Handle infinity bounds
+    if (startStr === '-infinity' || endStr === 'infinity') {
+      return '';
+    }
+
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+
+    // Validate parsed dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return '';
+    }
+
+    const formatDate = (date: Date) =>
+      date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+      return formatDate(start);
+    }
+
+    return `${formatDate(start)} - ${formatDate(end)}`;
+  } catch {
     return '';
   }
-
-  const start = new Date(startStr);
-  const end = new Date(endStr);
-
-  // Validate parsed dates
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-    return '';
-  }
-
-  const formatDate = (date: Date) =>
-    date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-
-  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-    return formatDate(start);
-  }
-
-  return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
 export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
@@ -85,6 +89,7 @@ export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
         testID={testID}
         accessibilityRole="button"
         accessibilityLabel={`View trip: ${trip.name}`}
+        accessibilityHint="Opens trip details"
       >
         {/* Thumbnail */}
         {trip.cover_image_url ? (

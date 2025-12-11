@@ -110,6 +110,7 @@ export const CountryCard = React.memo(function CountryCard({
       activeOpacity={0.9}
       accessibilityRole="button"
       accessibilityLabel={`${name}, tap to view details`}
+      accessibilityHint="Opens country details"
       testID={testID || `country-card-${code}`}
     >
       {/* Background Image */}
@@ -155,6 +156,11 @@ export const CountryCard = React.memo(function CountryCard({
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
+            accessibilityHint={
+              isVisited
+                ? 'Country is already in your visited list'
+                : 'Adds country to your visited list'
+            }
             testID={`country-card-visited-${code}`}
           >
             <BlurView
@@ -177,6 +183,11 @@ export const CountryCard = React.memo(function CountryCard({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+              accessibilityHint={
+                isWishlisted
+                  ? 'Removes country from your dreams list'
+                  : 'Adds country to your dreams list'
+              }
               testID={`country-card-wishlist-${code}`}
             >
               <BlurView

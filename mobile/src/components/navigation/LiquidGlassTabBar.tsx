@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
   Dimensions,
@@ -47,6 +47,13 @@ interface TabItemProps {
 
 function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabItemProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  // Cleanup: stop any running animation on unmount
+  useEffect(() => {
+    return () => {
+      scaleAnim.stopAnimation();
+    };
+  }, [scaleAnim]);
 
   const handlePressIn = useCallback(() => {
     Animated.spring(scaleAnim, {
