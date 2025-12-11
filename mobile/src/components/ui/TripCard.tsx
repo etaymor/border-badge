@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -60,6 +60,13 @@ function formatDateRange(dateRange?: string): string {
 export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const dateStr = formatDateRange(trip.date_range);
+
+  // Cleanup: stop any running animation on unmount
+  useEffect(() => {
+    return () => {
+      scaleAnim.stopAnimation();
+    };
+  }, [scaleAnim]);
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {

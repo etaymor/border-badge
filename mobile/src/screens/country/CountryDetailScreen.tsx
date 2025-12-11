@@ -1,12 +1,12 @@
 import { useCallback, useMemo } from 'react';
 import {
-  Dimensions,
   FlatList,
   Image,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,16 +26,18 @@ import { getCountryImage } from '../../assets/countryImages';
 
 type Props = PassportStackScreenProps<'CountryDetail'>;
 
-const { width: screenWidth } = Dimensions.get('window');
 // Image aspect ratio is 1856:2464 (width:height) = 0.753
 const IMAGE_ASPECT_RATIO = 1856 / 2464;
-const heroImageHeight = screenWidth / IMAGE_ASPECT_RATIO;
 
 const ItemSeparator = () => <View style={styles.separator} />;
 
 export function CountryDetailScreen({ navigation, route }: Props) {
   const { countryId, countryName, countryCode } = route.params;
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+
+  // Calculate hero image height based on screen width (responsive to rotation)
+  const heroImageHeight = useMemo(() => screenWidth / IMAGE_ASPECT_RATIO, [screenWidth]);
 
   // Use countryCode if available, otherwise use countryId (they should be the same)
   const code = countryCode || countryId;
@@ -265,6 +267,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     ),
     [
       countryImage,
+      heroImageHeight,
       insets.top,
       displayName,
       flagEmoji,

@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
-  Dimensions,
   Image,
   ImageSourcePropType,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -103,17 +103,16 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
   );
 }
 
-// Responsive horizontal padding based on screen width
-const getHorizontalPadding = () => {
-  const { width } = Dimensions.get('window');
-  if (width < 375) return 24; // iPhone SE and smaller
-  if (width < 414) return 36; // iPhone 12/13 mini, iPhone X/XS
-  return 48; // iPhone Plus/Max sizes and larger
-};
-
 export function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const horizontalPadding = getHorizontalPadding();
+  const { width } = useWindowDimensions();
+
+  // Responsive horizontal padding based on screen width
+  const horizontalPadding = useMemo(() => {
+    if (width < 375) return 24; // iPhone SE and smaller
+    if (width < 414) return 36; // iPhone 12/13 mini, iPhone X/XS
+    return 48; // iPhone Plus/Max sizes and larger
+  }, [width]);
 
   return (
     <View
