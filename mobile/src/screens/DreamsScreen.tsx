@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -9,10 +10,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CountryCard, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
@@ -39,6 +41,7 @@ interface SnackbarState {
 }
 
 export function DreamsScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const addUserCountry = useAddUserCountry();
@@ -283,32 +286,49 @@ export function DreamsScreen({ navigation }: Props) {
 
   const ListHeader = useMemo(
     () => (
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputContainer}>
-          <Ionicons name="search" size={18} color={colors.textTertiary} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search countries..."
-            placeholderTextColor={colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
+      <>
+        {/* Lake Blue Header */}
+        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.headerTitle}>Your Dreams</Text>
         </View>
-        {searchQuery.length > 0 && (
+        {/* Search Row with Liquid Glass */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchGlassWrapper}>
+            <BlurView intensity={60} tint="light" style={styles.searchGlassContainer}>
+              <View style={styles.searchInputContainer}>
+                <Ionicons
+                  name="search"
+                  size={18}
+                  color={colors.stormGray}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Type Country"
+                  placeholderTextColor={colors.stormGray}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            </BlurView>
+          </View>
           <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => setSearchQuery('')}
+            style={styles.exploreButton}
+            onPress={() => {
+              // Clear search to show all countries
+              setSearchQuery('');
+            }}
             activeOpacity={0.7}
           >
-            <Text style={styles.clearButtonText}>Clear</Text>
+            <Text style={styles.exploreButtonText}>EXPLORE</Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      </>
     ),
-    [searchQuery]
+    [searchQuery, insets.top]
   );
 
   const ListEmpty = useMemo(
@@ -343,16 +363,19 @@ export function DreamsScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <View style={styles.container}>
+        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.headerTitle}>Your Dreams</Text>
+        </View>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <View style={styles.container}>
       <FlatList
         data={sortedCountries}
         renderItem={renderItem}
@@ -378,68 +401,103 @@ export function DreamsScreen({ navigation }: Props) {
         onDismiss={handleSnackbarDismiss}
         duration={3000}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.warmCream,
+  },
+  // Header
+  headerContainer: {
+    backgroundColor: colors.lakeBlue,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    color: colors.midnightNavy,
+    fontStyle: 'italic',
+    letterSpacing: -0.5,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.warmCream,
   },
   loadingText: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textSecondary,
+    color: colors.stormGray,
   },
   listContent: {
-    paddingBottom: 24,
-    paddingHorizontal: 16,
+    paddingBottom: 100,
     flexGrow: 1,
   },
   columnWrapper: {
     gap: 12,
     marginBottom: 12,
+    paddingHorizontal: 16,
   },
-  // Search Row
+  // Search Row with Liquid Glass
   searchRow: {
     flexDirection: 'row',
-    marginTop: 16,
-    marginBottom: 16,
-    gap: 12,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    gap: 16,
     alignItems: 'center',
+    backgroundColor: colors.warmCream,
+  },
+  searchGlassWrapper: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   searchInputContainer: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 20,
     paddingHorizontal: 16,
-    height: 44,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(253, 246, 237, 0.5)',
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
   },
-  clearButton: {
-    paddingHorizontal: 12,
-    height: 44,
+  exploreButton: {
+    paddingHorizontal: 4,
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  clearButtonText: {
+  exploreButtonText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    fontWeight: '500',
-    color: colors.primary,
+    color: colors.mossGreen,
+    letterSpacing: 0.5,
   },
   // Country Card Wrapper
   countryCardWrapper: {
@@ -457,14 +515,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
+    fontFamily: fonts.playfair.bold,
     fontSize: 20,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
     marginBottom: 8,
   },
   emptySubtitle: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textSecondary,
+    color: colors.stormGray,
     textAlign: 'center',
+    lineHeight: 24,
   },
 });

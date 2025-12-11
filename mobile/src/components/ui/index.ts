@@ -19,4 +19,6 @@ export { SearchInput } from './SearchInput';
 export { Snackbar } from './Snackbar';
 export { StampCard } from './StampCard';
 export { Text } from './Text';
+export { TripCard } from './TripCard';
+export type { TripCardTrip } from './TripCard';
 export { VisitedCountryCard } from './VisitedCountryCard';

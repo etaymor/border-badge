@@ -5,7 +5,7 @@ import { useProfile } from '@hooks/useProfile';
 import { useAuthStore } from '@stores/authStore';
 import type { MainTabScreenProps } from '@navigation/types';
 
-type Props = MainTabScreenProps<'Profile'>;
+type Props = MainTabScreenProps<'Friends'>;
 
 export function ProfileScreen(_props: Props) {
   const { session } = useAuthStore();

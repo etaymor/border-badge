@@ -3,49 +3,28 @@ import {
   Dimensions,
   FlatList,
   Image,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 
-import { Button } from '@components/ui';
+import { Button, TripCard } from '@components/ui';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
+import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
 
 type Props = PassportStackScreenProps<'CountryDetail'>;
-
-// Helper to format date range from PostgreSQL format
-function formatDateRange(dateRange?: string): string {
-  if (!dateRange) return '';
-
-  // Parse PostgreSQL daterange format: "[2024-01-01,2024-01-15]"
-  const match = dateRange.match(/\[([^,]+),([^\]]+)\]/);
-  if (!match) return '';
-
-  const [, startStr, endStr] = match;
-
-  // Handle infinity bounds
-  if (startStr === '-infinity' || endStr === 'infinity') {
-    return '';
-  }
-
-  const start = new Date(startStr);
-  const end = new Date(endStr);
-
-  const formatDate = (date: Date) =>
-    date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-
-  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-    return formatDate(start);
-  }
-
-  return `${formatDate(start)} - ${formatDate(end)}`;
-}
 
 const { width: screenWidth } = Dimensions.get('window');
 // Image aspect ratio is 1856:2464 (width:height) = 0.753
@@ -62,11 +41,40 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const code = countryCode || countryId;
   const { data: country } = useCountryByCode(code);
   const { data: trips, isLoading: loadingTrips, refetch } = useTripsByCountry(countryId);
+  const { data: userCountries } = useUserCountries();
+  const addUserCountry = useAddUserCountry();
+  const removeUserCountry = useRemoveUserCountry();
 
   const flagEmoji = getFlagEmoji(code);
   const countryImage = getCountryImage(code);
   const displayName = country?.name || countryName || code;
   const region = country?.region || '';
+
+  // Get visited countries and calculate this country's number
+  const visitedCountries = useMemo(
+    () =>
+      userCountries
+        ?.filter((uc) => uc.status === 'visited')
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) ?? [],
+    [userCountries]
+  );
+
+  const isVisited = useMemo(
+    () => visitedCountries.some((uc) => uc.country_code === code),
+    [visitedCountries, code]
+  );
+
+  // Country number (1-indexed position in visited list)
+  const countryNumber = useMemo(() => {
+    const index = visitedCountries.findIndex((uc) => uc.country_code === code);
+    return index >= 0 ? index + 1 : null;
+  }, [visitedCountries, code]);
+
+  const isWishlisted = useMemo(
+    () =>
+      userCountries?.some((uc) => uc.country_code === code && uc.status === 'wishlist') ?? false,
+    [userCountries, code]
+  );
 
   const handleAddTrip = useCallback(() => {
     // Navigate to trips stack and then to TripForm
@@ -90,35 +98,43 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     [navigation]
   );
 
-  const renderTripItem = useCallback(
-    ({ item }: { item: Trip }) => {
-      const dateStr = formatDateRange(item.date_range);
+  const handleMarkVisited = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (isVisited) {
+      removeUserCountry.mutate(code);
+    } else {
+      addUserCountry.mutate({ country_code: code, status: 'visited' });
+    }
+  }, [isVisited, code, addUserCountry, removeUserCountry]);
 
-      return (
-        <TouchableOpacity
-          style={styles.tripCard}
-          onPress={() => handleTripPress(item)}
-          activeOpacity={0.7}
-        >
-          {item.cover_image_url ? (
-            <Image source={{ uri: item.cover_image_url }} style={styles.tripImage} />
-          ) : (
-            <View style={styles.tripImagePlaceholder}>
-              <Text style={styles.tripImagePlaceholderText}>{flagEmoji}</Text>
-            </View>
-          )}
-          <View style={styles.tripInfo}>
-            <Text style={styles.tripName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {dateStr ? <Text style={styles.tripDate}>{dateStr}</Text> : null}
-          </View>
-          <Text style={styles.chevron}>{'>'}</Text>
-        </TouchableOpacity>
-      );
-    },
+  const handleToggleWishlist = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (isWishlisted) {
+      removeUserCountry.mutate(code);
+    } else {
+      addUserCountry.mutate({ country_code: code, status: 'wishlist' });
+    }
+  }, [isWishlisted, code, addUserCountry, removeUserCountry]);
+
+  const renderTripItem = useCallback(
+    ({ item }: { item: Trip }) => (
+      <TripCard
+        trip={item}
+        flagEmoji={flagEmoji}
+        onPress={() => handleTripPress(item)}
+        testID={`trip-card-${item.id}`}
+      />
+    ),
     [flagEmoji, handleTripPress]
   );
+
+  // Determine button text based on visited status
+  const ctaButtonText = useMemo(() => {
+    if ((trips?.length ?? 0) > 0) {
+      return 'Add Another Trip';
+    }
+    return isVisited ? 'Log Your Trip' : 'Plan a Trip';
+  }, [trips?.length, isVisited]);
 
   const ListHeader = useMemo(
     () => (
@@ -127,54 +143,168 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         {countryImage ? (
           <View style={[styles.heroContainer, { height: heroImageHeight }]}>
             <Image source={countryImage} style={styles.heroImage} resizeMode="cover" />
-            <View style={[styles.heroContent, { top: insets.top + 44 }]}>
-              <Text style={styles.heroFlag}>{flagEmoji}</Text>
-              <Text style={styles.heroName}>{displayName}</Text>
-              {region ? <Text style={styles.heroRegion}>{region}</Text> : null}
+
+            {/* Back button */}
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={[styles.backButtonContainer, { top: insets.top + 8 }]}
+            >
+              <BlurView intensity={30} tint="light" style={styles.backButtonGlass}>
+                <Ionicons name="chevron-back" size={28} color={colors.midnightNavy} />
+              </BlurView>
+            </TouchableOpacity>
+
+            {/* Top overlay for stamp title */}
+            <View style={[styles.heroTopOverlay, { paddingTop: insets.top }]}>
+              {/* Stamp-style country name - Oswald font, midnight navy */}
+              <Text
+                style={styles.stampTitle}
+                accessibilityRole="header"
+                accessibilityLabel={`Country: ${displayName}`}
+              >
+                {displayName}
+              </Text>
+            </View>
+
+            {/* Bottom overlay for flag/region and action icons */}
+            <View style={styles.heroBottomOverlay}>
+              {/* Bottom left: Flag and Region */}
+              <View style={styles.bottomLeftInfo}>
+                <Text style={styles.heroFlag}>{flagEmoji}</Text>
+                {region ? (
+                  <BlurView intensity={30} tint="light" style={styles.heroRegionBadgeGlass}>
+                    <Text style={styles.heroRegionText}>{region}</Text>
+                  </BlurView>
+                ) : null}
+              </View>
+
+              {/* Bottom right: Country Number OR Action Icons */}
+              <View style={styles.bottomRightActions}>
+                {isVisited ? (
+                  // Show country number badge when visited
+                  <View style={styles.countryNumberBadge}>
+                    <Text style={styles.countryNumberLabel}>Country</Text>
+                    <Text style={styles.countryNumberValue}>#{countryNumber}</Text>
+                  </View>
+                ) : (
+                  // Show action icons when not visited
+                  <>
+                    <TouchableOpacity
+                      onPress={handleMarkVisited}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Mark as visited"
+                      style={styles.actionIconButtonContainer}
+                    >
+                      <BlurView
+                        intensity={30}
+                        tint="light"
+                        style={[styles.actionIconButtonGlass, styles.visitedIconButton]}
+                      >
+                        <Ionicons name="add" size={24} color={colors.mossGreen} />
+                      </BlurView>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={handleToggleWishlist}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                      style={styles.actionIconButtonContainer}
+                    >
+                      <BlurView
+                        intensity={30}
+                        tint="light"
+                        style={[
+                          styles.actionIconButtonGlass,
+                          styles.wishlistIconButton,
+                          isWishlisted && styles.wishlistIconButtonActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name={isWishlisted ? 'heart' : 'heart-outline'}
+                          size={22}
+                          color={isWishlisted ? colors.white : colors.adobeBrick}
+                        />
+                      </BlurView>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
             </View>
           </View>
         ) : (
-          <View style={[styles.countryHeader, { paddingTop: insets.top + 60 }]}>
-            <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-            <Text style={styles.countryName}>{displayName}</Text>
-            {region ? <Text style={styles.countryRegion}>{region}</Text> : null}
+          /* Fallback when no country image */
+          <View style={[styles.fallbackHeader, { paddingTop: insets.top + 60 }]}>
+            <Text style={styles.fallbackName}>{displayName}</Text>
+            <View style={styles.fallbackInfoRow}>
+              <Text style={styles.fallbackFlag}>{flagEmoji}</Text>
+              {region ? <Text style={styles.fallbackRegion}>{region}</Text> : null}
+            </View>
           </View>
         )}
 
-        {/* Add Trip / Plan Trip Button */}
-        <Button
-          title={(trips?.length ?? 0) > 0 ? 'Add New Trip' : 'Plan a Trip'}
-          onPress={handleAddTrip}
-          style={styles.addTripButton}
-        />
+        {/* CTA Button Section */}
+        <View style={styles.ctaSection}>
+          <Button title={ctaButtonText} onPress={handleAddTrip} testID="add-trip-button" />
+        </View>
 
         {/* Trips Section Header */}
         {(trips?.length ?? 0) > 0 && (
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {trips?.length} {trips?.length === 1 ? 'Trip' : 'Trips'}
-            </Text>
+            <Text style={styles.sectionTitle}>Your Trips</Text>
+            <View style={styles.tripCountBadge}>
+              <Text style={styles.tripCountText}>{trips?.length}</Text>
+            </View>
           </View>
         )}
       </View>
     ),
-    [countryImage, insets.top, flagEmoji, displayName, region, trips?.length, handleAddTrip]
+    [
+      countryImage,
+      insets.top,
+      displayName,
+      flagEmoji,
+      region,
+      countryNumber,
+      isVisited,
+      isWishlisted,
+      handleMarkVisited,
+      handleToggleWishlist,
+      ctaButtonText,
+      handleAddTrip,
+      trips?.length,
+      navigation,
+    ]
   );
 
   const ListEmpty = useMemo(
     () =>
       !loadingTrips ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>✈️</Text>
-          <Text style={styles.emptyTitle}>No trips yet</Text>
-          <Text style={styles.emptySubtitle}>Add your first trip to {displayName}</Text>
+          {/* Placeholder for illustration - user will add custom asset */}
+          <View style={styles.emptyIllustration}>
+            <Ionicons name="book-outline" size={64} color={colors.lakeBlue} />
+          </View>
+
+          <Text style={styles.emptyTitle}>No adventures yet</Text>
+          <Text style={styles.emptySubtitle}>
+            {isVisited
+              ? `Log your memories from ${displayName}`
+              : `Start planning your trip to ${displayName}`}
+          </Text>
         </View>
       ) : null,
-    [loadingTrips, displayName]
+    [loadingTrips, displayName, isVisited]
   );
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+
       <FlatList
         data={trips || []}
         renderItem={renderTripItem}
@@ -194,125 +324,237 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   listContent: {
     flexGrow: 1,
+    paddingBottom: 40,
   },
   header: {
     paddingTop: 0,
   },
+
+  // Hero Section
   heroContainer: {
     position: 'relative',
-    marginBottom: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.warmCream,
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 10,
+  },
+  backButtonGlass: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   heroImage: {
     width: '100%',
     height: '100%',
   },
-  heroContent: {
+  heroTopOverlay: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-  },
-  heroFlag: {
-    fontSize: 40,
-    marginBottom: 8,
-  },
-  heroName: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-  },
-  heroRegion: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
-  },
-  countryHeader: {
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 20,
     alignItems: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 20,
   },
-  flagEmoji: {
-    fontSize: 64,
-    marginBottom: 12,
+  heroBottomOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
-  countryName: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+  stampTitle: {
+    fontFamily: fonts.oswald.bold,
+    fontSize: 32,
+    lineHeight: 34,
+    color: colors.midnightNavy,
     textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: 12,
+    marginHorizontal: 24,
+    textShadowColor: 'rgba(255, 255, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  countryRegion: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
-  },
-  addTripButton: {
-    marginBottom: 24,
-    marginHorizontal: 20,
-  },
-  sectionHeader: {
-    marginBottom: 12,
-    marginHorizontal: 20,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
-  },
-  tripCard: {
+
+  // Bottom left info (flag + region)
+  bottomLeftInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    gap: 10,
   },
-  tripImage: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    marginRight: 12,
+  heroFlag: {
+    fontSize: 32,
+    textShadowColor: 'rgba(255, 255, 255, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  tripImagePlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
+  heroRegionBadgeGlass: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  heroRegionText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // Bottom right actions
+  bottomRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  // Action icon buttons (when not visited)
+  actionIconButtonContainer: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  actionIconButtonGlass: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
-  tripImagePlaceholderText: {
-    fontSize: 24,
+  visitedIconButton: {
+    // Default glass style works
   },
-  tripInfo: {
-    flex: 1,
+  wishlistIconButton: {
+    // Default glass style works
   },
-  tripName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+  wishlistIconButtonActive: {
+    backgroundColor: colors.adobeBrick, // Keep active state opaque or change if desired
+    borderColor: colors.adobeBrick,
   },
-  tripDate: {
+
+  // Country number badge (bottom right, when visited)
+  countryNumberBadge: {
+    backgroundColor: colors.sunsetGold,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  countryNumberLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 10,
+    color: colors.midnightNavy,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    opacity: 0.8,
+  },
+  countryNumberValue: {
+    fontFamily: fonts.oswald.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+  },
+
+  // Fallback (no image)
+  fallbackHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 20,
+    backgroundColor: colors.warmCream,
+  },
+  fallbackName: {
+    fontFamily: fonts.oswald.bold,
+    fontSize: 32,
+    lineHeight: 34,
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 16,
+  },
+  fallbackInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fallbackFlag: {
+    fontSize: 32,
+  },
+  fallbackRegion: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+    color: colors.stormGray,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  chevron: {
-    fontSize: 18,
-    color: '#C7C7CC',
-    fontWeight: '600',
+
+  // CTA Section
+  ctaSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 8,
   },
+
+  // Section Header
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 12,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.midnightNavyBorder,
+  },
+  sectionTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+  },
+  tripCountBadge: {
+    backgroundColor: colors.mossGreen,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  tripCountText: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 14,
+    color: colors.cloudWhite,
+  },
+
+  // Trip Card Separator
   separator: {
-    height: 1,
-    backgroundColor: '#F2F2F7',
-    marginLeft: 88,
+    height: 0,
   },
+
+  // Empty State
   emptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -320,19 +562,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 60,
   },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+  emptyIllustration: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: '#666',
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.stormGray,
     textAlign: 'center',
+    lineHeight: 24,
   },
 });

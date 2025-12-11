@@ -11,6 +11,7 @@ import {
   OpenSans_600SemiBold,
   OpenSans_700Bold,
 } from '@expo-google-fonts/open-sans';
+import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
@@ -34,6 +35,8 @@ export default function App() {
     OpenSans_400Regular,
     OpenSans_600SemiBold,
     OpenSans_700Bold,
+    Oswald_500Medium,
+    Oswald_700Bold,
   });
 
   // Sync countries to local SQLite database on app launch

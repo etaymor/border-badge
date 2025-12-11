@@ -13,17 +13,14 @@ export function DreamsNavigator() {
       <Stack.Screen
         name="DreamsHome"
         component={DreamsScreen}
-        options={{ title: 'Where do you want to go' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="CountryDetail"
         component={CountryDetailScreen}
-        options={({ route }) => ({
-          title: route.params?.countryName ?? '',
-          headerBackButtonDisplayMode: 'minimal',
-          headerTransparent: true,
-          headerTintColor: '#fff',
-        })}
+        options={{
+          headerShown: false,
+        }}
       />
     </Stack.Navigator>
   );

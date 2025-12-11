@@ -36,7 +36,7 @@ export type MainTabParamList = {
   Passport: NavigatorScreenParams<PassportStackParamList>;
   Dreams: NavigatorScreenParams<DreamsStackParamList>;
   Trips: NavigatorScreenParams<TripsStackParamList>;
-  Profile: undefined;
+  Friends: undefined;
 };
 
 // Dreams stack (nested in tab)

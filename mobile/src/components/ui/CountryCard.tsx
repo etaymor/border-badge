@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
 
@@ -44,7 +46,7 @@ export interface CountryCardProps {
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
-  region: _region,
+  region,
   isVisited = false,
   isWishlisted = false,
   onPress,
@@ -93,14 +95,12 @@ export const CountryCard = React.memo(function CountryCard({
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      // Animate heart pulse when adding to wishlist (not when removing)
       if (!isWishlisted) {
         animateHeartPulse();
       }
       onToggleWishlist();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- animateHeartPulse is stable (only depends on heartScale ref)
-    [onToggleWishlist, isWishlisted]
+    [onToggleWishlist, isWishlisted, animateHeartPulse]
   );
 
   return (
@@ -112,7 +112,7 @@ export const CountryCard = React.memo(function CountryCard({
       accessibilityLabel={`${name}, tap to view details`}
       testID={testID || `country-card-${code}`}
     >
-      {/* Country Image or Placeholder */}
+      {/* Background Image */}
       {countryImage ? (
         <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
       ) : (
@@ -122,53 +122,75 @@ export const CountryCard = React.memo(function CountryCard({
       )}
 
       {/* Flag Badge - Top Left */}
-      <View style={styles.flagContainer}>
+      <BlurView intensity={30} tint="light" style={styles.glassBadge}>
         <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-      </View>
+      </BlurView>
 
       {/* Action Buttons - Top Right */}
       <View style={styles.actionsContainer}>
-        {/* Plus Button - Add to Visited */}
+        {/* Visited Button */}
         <TouchableOpacity
-          style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
           onPress={handleAddVisitedPress}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
           accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
           testID={`country-card-visited-${code}`}
         >
-          <Ionicons
-            name={isVisited ? 'checkmark' : 'add'}
-            size={24}
-            color={isVisited ? colors.white : colors.successDark}
-          />
+          <BlurView
+            intensity={30}
+            tint="light"
+            style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
+          >
+            <Ionicons
+              name={isVisited ? 'checkmark' : 'add'}
+              size={22}
+              color={isVisited ? colors.white : colors.successDark}
+            />
+          </BlurView>
         </TouchableOpacity>
 
-        {/* Heart Button - Add to Wishlist */}
+        {/* Wishlist Button */}
         <Animated.View style={{ transform: [{ scale: heartScale }] }}>
           <TouchableOpacity
-            style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
             onPress={handleWishlistPress}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
             testID={`country-card-wishlist-${code}`}
           >
-            <Ionicons
-              name={isWishlisted ? 'heart' : 'heart-outline'}
-              size={22}
-              color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-            />
+            <BlurView
+              intensity={30}
+              tint="light"
+              style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
+            >
+              <Ionicons
+                name={isWishlisted ? 'heart' : 'heart-outline'}
+                size={20}
+                color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+              />
+            </BlurView>
           </TouchableOpacity>
         </Animated.View>
       </View>
 
-      {/* Country Name Label - Bottom */}
-      <View style={styles.nameContainer}>
-        <Text style={styles.countryName} numberOfLines={2}>
-          {name}
-        </Text>
-      </View>
+      {/* Bottom Liquid Glass Pane */}
+      <BlurView intensity={45} tint="light" style={styles.bottomGlassPane}>
+        <View style={styles.textContainer}>
+          <Text
+            style={styles.countryName}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+          >
+            {name}
+          </Text>
+          {region && (
+            <Text style={styles.regionName} numberOfLines={1}>
+              {region}
+            </Text>
+          )}
+        </View>
+      </BlurView>
     </TouchableOpacity>
   );
 });
@@ -176,11 +198,18 @@ export const CountryCard = React.memo(function CountryCard({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 24, // Smoother corners for liquid feel
     overflow: 'hidden',
     backgroundColor: colors.backgroundSecondary,
     aspectRatio: 3 / 4,
     position: 'relative',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)', // Subtle highlight border
   },
   countryImage: {
     width: '100%',
@@ -193,40 +222,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  flagContainer: {
+  // Top Elements
+  glassBadge: {
     position: 'absolute',
     top: 12,
     left: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.overlayLight,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)', // Fallback / Boost
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   flagEmoji: {
-    fontSize: 22,
-  },
-  nameContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.overlayLight,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  countryName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    fontSize: 24,
   },
   actionsContainer: {
     position: 'absolute',
@@ -238,19 +250,53 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.overlayLight,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   actionButtonVisited: {
-    backgroundColor: colors.successDark,
+    backgroundColor: colors.successDark, // Override for active state
+    borderColor: colors.successDark,
   },
   actionButtonWishlisted: {
-    backgroundColor: colors.wishlistGold,
+    backgroundColor: colors.wishlistGold, // Override for active state
+    borderColor: colors.wishlistGold,
+  },
+  // Bottom Glass Pane
+  bottomGlassPane: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm tint + Blur
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  textContainer: {
+    gap: 0,
+  },
+  countryName: {
+    fontFamily: fonts.oswald.bold,
+    fontSize: 18,
+    color: colors.textPrimary,
+    lineHeight: 22,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(255, 255, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  regionName: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
 });
