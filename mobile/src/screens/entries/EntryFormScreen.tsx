@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { TripsStackScreenProps } from '@navigation/types';
 import type { EntryType } from '@navigation/types';
@@ -25,6 +26,8 @@ import {
 import { useTrip } from '@hooks/useTrips';
 import { EntryMediaGallery } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -44,6 +47,7 @@ const ENTRY_TYPES: {
 export function EntryFormScreen({ route, navigation }: Props) {
   const { tripId, entryId, entryType: initialEntryType } = route.params;
   const isEditing = !!entryId;
+  const insets = useSafeAreaInsets();
 
   // Fetch existing entry data for editing
   const { data: existingEntry, isLoading: isLoadingEntry } = useEntry(entryId ?? '');
@@ -100,8 +104,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
   // Set header title
   useEffect(() => {
+    // We are handling the title in the body now for better styling control
     navigation.setOptions({
-      title: isEditing ? 'Edit Entry' : 'New Entry',
+      title: '', // Clear default title
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: colors.warmCream },
     });
   }, [navigation, isEditing]);
 
@@ -233,15 +240,21 @@ export function EntryFormScreen({ route, navigation }: Props) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
+        <Text style={styles.headerTitle}>{isEditing ? 'Edit Entry' : 'Log a Memory'}</Text>
+        <Text style={styles.headerSubtitle}>
+          {isEditing ? 'Update your trip details' : 'Add a new spot to your trip'}
+        </Text>
+
         {/* Entry Type Selector */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>What are you adding?</Text>
+          <Text style={styles.sectionLabel}>CATEGORY</Text>
           <View style={styles.typeGrid}>
             {ENTRY_TYPES.map((item) => {
               const isSelected = entryType === item.type;
@@ -276,7 +289,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
             {/* Location (conditional - for place, food, stay) */}
             {showPlaceInput && (
               <View style={styles.section}>
-                <Text style={styles.sectionLabel}>Location *</Text>
+                <Text style={styles.sectionLabel}>LOCATION *</Text>
                 <PlacesAutocomplete
                   value={selectedPlace}
                   onSelect={(place) => {
@@ -297,7 +310,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
             {/* Name - only shown when no place is selected */}
             {!selectedPlace && (
               <View style={styles.section}>
-                <Text style={styles.sectionLabel}>Name *</Text>
+                <Text style={styles.sectionLabel}>NAME *</Text>
                 <TextInput
                   style={[styles.input, errors.title && styles.inputError]}
                   placeholder="Give this entry a name"
@@ -319,7 +332,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
             {/* Link (optional) */}
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Link</Text>
+              <Text style={styles.sectionLabel}>LINK</Text>
               <TextInput
                 style={[styles.input, errors.link && styles.inputError]}
                 placeholder="Add website URL"
@@ -341,9 +354,20 @@ export function EntryFormScreen({ route, navigation }: Props) {
               )}
             </View>
 
+            {/* Photos Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>PHOTOS</Text>
+              <EntryMediaGallery
+                entryId={isEditing ? entryId : undefined}
+                tripId={!isEditing ? tripId : undefined}
+                editable={true}
+                onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
+              />
+            </View>
+
             {/* Notes */}
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Notes</Text>
+              <Text style={styles.sectionLabel}>NOTES</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="What made this memorable?"
@@ -355,21 +379,13 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 testID="entry-notes-input"
               />
             </View>
-
-            {/* Photos Section */}
-            <EntryMediaGallery
-              entryId={isEditing ? entryId : undefined}
-              tripId={!isEditing ? tripId : undefined}
-              editable={true}
-              onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
-            />
           </>
         )}
       </ScrollView>
 
       {/* Submit Button - only show after type is selected */}
       {hasSelectedType && (
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
           <Pressable
             style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
             onPress={handleSubmit}
@@ -380,9 +396,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Ionicons name={isEditing ? 'checkmark' : 'add'} size={20} color="#fff" />
                 <Text style={styles.submitButtonText}>
-                  {isEditing ? 'Save Changes' : 'Add Entry'}
+                  {isEditing ? 'Save Changes' : 'Log Memory'}
                 </Text>
               </>
             )}
@@ -396,30 +411,46 @@ export function EntryFormScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.warmCream,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 120, // Space for footer
+    padding: 24,
+  },
+  headerTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 34,
+    color: colors.midnightNavy,
+    marginBottom: 8,
+    marginTop: 12,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 32,
+    lineHeight: 24,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
+    fontFamily: fonts.oswald.medium,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    marginBottom: 10,
+    letterSpacing: 1.5,
+    opacity: 0.7,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
   },
   typeGrid: {
     flexDirection: 'row',
@@ -431,39 +462,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
     backgroundColor: '#fff',
     gap: 8,
     minWidth: '47%',
     flex: 1,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   typeLabel: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.semiBold,
   },
   input: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 16,
-    color: '#1a1a1a',
+    color: colors.midnightNavy,
+    fontFamily: fonts.openSans.regular,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
   },
   inputError: {
     borderWidth: 1,
     borderColor: '#FF3B30',
   },
   textArea: {
-    minHeight: 100,
+    minHeight: 120,
     paddingTop: 14,
   },
   errorText: {
     fontSize: 13,
-    color: '#FF3B30',
+    color: colors.adobeBrick,
     marginTop: 6,
     marginLeft: 4,
+    fontFamily: fonts.openSans.regular,
   },
   hint: {
     fontSize: 12,
@@ -472,30 +517,31 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#fff',
+    padding: 24,
+    backgroundColor: colors.warmCream,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: 'rgba(0,0,0,0.05)',
   },
   submitButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
     borderRadius: 12,
     gap: 8,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
   },
   submitButtonDisabled: {
-    backgroundColor: '#ccc',
+    opacity: 0.6,
   },
   submitButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
 });

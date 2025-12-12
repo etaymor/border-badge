@@ -61,10 +61,11 @@ export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const dateStr = formatDateRange(trip.date_range);
 
-  // Cleanup: stop any running animation on unmount
+  // Cleanup: stop any running animation and reset value on unmount
   useEffect(() => {
     return () => {
       scaleAnim.stopAnimation();
+      scaleAnim.setValue(1);
     };
   }, [scaleAnim]);
 

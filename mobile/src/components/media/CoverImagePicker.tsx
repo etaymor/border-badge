@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
+import { BlurView } from 'expo-blur';
 import { File as ExpoFile } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 
@@ -24,6 +25,8 @@ import {
   type LocalFile,
   MediaUploadError,
 } from '@services/mediaUpload';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 
 interface CoverImagePickerProps {
   value?: string;
@@ -237,8 +240,6 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Cover Image</Text>
-
       <Pressable
         style={[styles.picker, disabled && styles.pickerDisabled]}
         onPress={showOptions}
@@ -265,10 +266,16 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
             )}
           </View>
         ) : (
-          <View style={styles.placeholder}>
-            <Ionicons name="image-outline" size={40} color="#999" />
-            <Text style={styles.placeholderText}>Add cover image</Text>
-            <Text style={styles.placeholderHint}>Tap to select</Text>
+          <View style={styles.glassContainer}>
+            <BlurView intensity={20} tint="light" style={styles.blurView}>
+              <View style={styles.placeholderContent}>
+                <View style={styles.iconCircle}>
+                  <Ionicons name="image-outline" size={32} color={colors.midnightNavy} />
+                </View>
+                <Text style={styles.placeholderText}>Add Cover Image</Text>
+                <Text style={styles.placeholderHint}>Tap to select</Text>
+              </View>
+            </BlurView>
           </View>
         )}
       </Pressable>
@@ -292,18 +299,15 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
-    marginBottom: 8,
-  },
   picker: {
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    backgroundColor: 'transparent',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   pickerDisabled: {
     opacity: 0.6,
@@ -312,10 +316,38 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 200,
     position: 'relative',
+    backgroundColor: colors.backgroundMuted,
   },
   image: {
     width: '100%',
     height: '100%',
+  },
+  glassContainer: {
+    height: 160,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  blurView: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -346,21 +378,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  placeholder: {
-    height: 150,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-  },
   placeholderText: {
     fontSize: 16,
-    color: '#666',
-    fontWeight: '500',
-    marginTop: 8,
+    color: colors.midnightNavy,
+    fontFamily: fonts.playfair.bold,
   },
   placeholderHint: {
     fontSize: 13,
-    color: '#999',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
   },
   errorContainer: {
     marginTop: 8,
@@ -368,18 +394,22 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
-    color: '#FF3B30',
+    color: colors.adobeBrick,
     textAlign: 'center',
+    fontFamily: fonts.openSans.regular,
   },
   retryText: {
     fontSize: 13,
-    color: '#007AFF',
+    color: colors.midnightNavy,
     fontWeight: '500',
     marginTop: 4,
+    textDecorationLine: 'underline',
   },
   hint: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textSecondary,
     marginTop: 8,
+    fontFamily: fonts.openSans.regular,
+    textAlign: 'center',
   },
 });

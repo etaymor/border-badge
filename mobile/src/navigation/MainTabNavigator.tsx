@@ -1,6 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { LiquidGlassTabBar } from '@components/navigation/LiquidGlassTabBar';
+import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
 import { ProfileScreen } from '@screens/ProfileScreen';
 
 import { DreamsNavigator } from './DreamsNavigator';

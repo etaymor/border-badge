@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -10,9 +12,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
-import { Button, Input, SearchInput } from '@components/ui';
+import { Button, GlassBackButton, Input, SearchInput } from '@components/ui';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
@@ -25,6 +30,7 @@ export function TripFormScreen({ navigation, route }: Props) {
   const initialCountryId = route.params?.countryId;
   const initialCountryName = route.params?.countryName;
   const isEditing = !!tripId;
+  const insets = useSafeAreaInsets();
 
   // Form state
   const [name, setName] = useState('');
@@ -73,6 +79,13 @@ export function TripFormScreen({ navigation, route }: Props) {
       setCoverImageUrl(existingTrip.cover_image_url || '');
     }
   }, [existingTrip, isEditing]);
+
+  // Update country when navigating with a new countryId
+  useEffect(() => {
+    if (initialCountryId && !isEditing) {
+      setSelectedCountryCode(initialCountryId);
+    }
+  }, [initialCountryId, isEditing]);
 
   const handleSelectCountry = (country: Country) => {
     setSelectedCountryCode(country.code);
@@ -143,19 +156,37 @@ export function TripFormScreen({ navigation, route }: Props) {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Custom Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <GlassBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.headerTitle}>
+            {isEditing ? 'Edit Trip' : 'New Trip'}
+          </Text>
+          {/* Spacer to balance layout */}
+          <View style={styles.headerSpacer} />
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 60 : 20}
       >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.headerSubtitle}>
+            {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
+          </Text>
+
         {/* Country Picker - only show for new trips */}
         {!isEditing && (
           <View style={styles.section}>
-            <Text style={styles.label}>Country *</Text>
+            <Text style={styles.label}>DESTINATION</Text>
 
             {/* Show selected country or search input */}
             {selectedCountry ? (
@@ -172,16 +203,21 @@ export function TripFormScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             ) : (
               <View style={styles.searchContainer}>
-                <SearchInput
-                  value={countrySearch}
-                  onChangeText={(text) => {
-                    setCountrySearch(text);
-                    setShowDropdown(text.length > 0);
-                  }}
-                  placeholder="Search countries..."
-                  onFocus={() => setShowDropdown(countrySearch.length > 0)}
-                  testID="country-search"
-                />
+                <View style={styles.searchGlassWrapper}>
+                  <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
+                    <SearchInput
+                      value={countrySearch}
+                      onChangeText={(text) => {
+                        setCountrySearch(text);
+                        setShowDropdown(text.length > 0);
+                      }}
+                      placeholder="Search countries..."
+                      onFocus={() => setShowDropdown(countrySearch.length > 0)}
+                      testID="country-search"
+                      style={styles.searchInput}
+                    />
+                  </BlurView>
+                </View>
 
                 {/* Autocomplete dropdown */}
                 {showDropdown && filteredCountries.length > 0 && (
@@ -215,40 +251,52 @@ export function TripFormScreen({ navigation, route }: Props) {
         {/* Show country context when editing or pre-selected */}
         {isEditing && initialCountryName && (
           <View style={styles.contextBanner}>
+            <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
             <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
           </View>
         )}
 
         {/* Trip Name */}
-        <Input
-          label="Trip Name *"
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g., Spring in Kyoto"
-          error={nameError}
-          autoCapitalize="words"
-          autoFocus={isEditing || !!selectedCountryCode}
-          testID="trip-name-input"
-        />
+        <View style={styles.section}>
+          <Text style={styles.label}>TRIP NAME</Text>
+          <Input
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g., Spring in Kyoto"
+            error={nameError}
+            autoCapitalize="words"
+            testID="trip-name-input"
+            containerStyle={styles.inputContainer}
+          />
+        </View>
 
         {/* Cover Image */}
-        <CoverImagePicker
-          value={coverImageUrl || undefined}
-          onChange={(url) => setCoverImageUrl(url || '')}
-          disabled={isLoading}
-        />
+        <View style={styles.section}>
+          <Text style={styles.label}>COVER PHOTO</Text>
+          <CoverImagePicker
+            value={coverImageUrl || undefined}
+            onChange={(url) => setCoverImageUrl(url || '')}
+            disabled={isLoading}
+          />
+        </View>
 
-        {/* Future Feature Hint */}
-        <View style={styles.comingSoon}>
-          <Text style={styles.comingSoonTitle}>Tag Friends (Coming Soon)</Text>
-          <Text style={styles.comingSoonText}>
-            Soon you&apos;ll be able to tag friends on your trips and share memories together.
-          </Text>
+        {/* Travel Companions Feature Teaser */}
+        <View style={styles.visaStampContainer}>
+          <View style={styles.visaStampBorder}>
+            <View style={styles.comingSoonHeader}>
+              <Ionicons name="people" size={20} color={colors.mossGreen} />
+              <Text style={styles.comingSoonTitle}>Travel Companions</Text>
+            </View>
+            <Text style={styles.comingSoonText}>Tagging friends is coming in the next update.</Text>
+            <View style={styles.stampBadge}>
+              <Text style={styles.stampBadgeText}>VISA PENDING</Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
       {/* Save Button */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 8) + 80 }]}>
         <Button
           title={isEditing ? 'Save Changes' : 'Create Trip'}
           onPress={handleSave}
@@ -257,61 +305,125 @@ export function TripFormScreen({ navigation, route }: Props) {
           testID="trip-save-button"
         />
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
+  },
+  header: {
+    backgroundColor: colors.warmCream,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 24,
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    lineHeight: 44, // Match GlassBackButton height for vertical centering
+  },
+  headerSpacer: {
+    width: 44, // Same width as GlassBackButton to balance the layout
+  },
+  keyboardView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   loadingText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
   },
   scrollView: {
     flex: 1,
   },
   content: {
-    padding: 20,
-    paddingBottom: 100,
+    padding: 24,
+    paddingTop: 8,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 24,
+    lineHeight: 24,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 28,
     zIndex: 1,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
-    marginBottom: 8,
+    fontFamily: fonts.oswald.medium,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    marginBottom: 10,
+    letterSpacing: 1.5,
+    opacity: 0.7,
+    textTransform: 'uppercase',
+  },
+  inputContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
   },
   searchContainer: {
     position: 'relative',
+  },
+  searchGlassWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  searchGlassContainer: {
+    borderRadius: 12,
+    backgroundColor: '#fff',
+  },
+  searchInput: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
   },
   dropdown: {
     position: 'absolute',
     top: '100%',
     left: 0,
     right: 0,
+    marginTop: 4,
     backgroundColor: '#fff',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E5EA',
+    borderColor: 'rgba(0,0,0,0.05)',
     maxHeight: 250,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    zIndex: 10,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 100,
   },
   dropdownList: {
     maxHeight: 250,
@@ -319,10 +431,10 @@ const styles = StyleSheet.create({
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    borderBottomColor: '#f5f5f5',
   },
   flagEmoji: {
     fontSize: 24,
@@ -330,81 +442,121 @@ const styles = StyleSheet.create({
   },
   countryName: {
     fontSize: 16,
-    color: '#1a1a1a',
+    color: colors.midnightNavy,
+    fontFamily: fonts.openSans.regular,
   },
   selectedCountry: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F2F2F7',
-    paddingVertical: 14,
+    backgroundColor: '#fff',
+    paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   selectedFlag: {
     fontSize: 28,
     marginRight: 12,
   },
   selectedName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontSize: 18,
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
     flex: 1,
   },
   changeText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: colors.adobeBrick, // Changed from sunsetGold for accessibility
+    fontFamily: fonts.openSans.semiBold,
   },
   loadingHint: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textSecondary,
     marginTop: 8,
+    fontFamily: fonts.openSans.regular,
   },
   contextBanner: {
-    backgroundColor: '#E8F4FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(193, 84, 62, 0.08)',
     padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
+    borderRadius: 12,
+    marginBottom: 24,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(193, 84, 62, 0.1)',
   },
   contextText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-    textAlign: 'center',
+    color: colors.adobeBrick,
+    fontFamily: fonts.openSans.semiBold,
   },
   errorText: {
     fontSize: 12,
-    color: '#FF3B30',
+    color: colors.adobeBrick,
     marginTop: 8,
     marginLeft: 4,
+    fontFamily: fonts.openSans.regular,
   },
-  comingSoon: {
-    backgroundColor: '#F8F9FA',
-    padding: 16,
-    borderRadius: 8,
-    marginTop: 24,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
+
+  // Whimsical Visa Stamp Section
+  visaStampContainer: {
+    marginTop: 12,
+    transform: [{ rotate: '-1deg' }],
+  },
+  visaStampBorder: {
+    backgroundColor: 'rgba(84, 122, 95, 0.05)', // Moss Green light
+    padding: 24,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(84, 122, 95, 0.2)',
     borderStyle: 'dashed',
   },
+  comingSoonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
   comingSoonTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 4,
+    fontSize: 18,
+    fontFamily: fonts.playfair.bold,
+    color: colors.mossGreen,
   },
   comingSoonText: {
-    fontSize: 13,
-    color: '#999',
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
+    lineHeight: 22,
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  stampBadge: {
+    borderWidth: 2,
+    borderColor: colors.mossGreen,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    transform: [{ rotate: '-2deg' }],
+    opacity: 0.8,
+  },
+  stampBadgeText: {
+    color: colors.mossGreen,
+    fontSize: 12,
+    fontFamily: fonts.oswald.bold,
+    letterSpacing: 1,
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#fff',
+    padding: 24,
+    backgroundColor: colors.warmCream,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: 'rgba(0,0,0,0.05)',
   },
 });

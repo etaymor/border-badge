@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
 import {
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS } from '@constants/regions';
@@ -109,9 +109,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
           ]}
         >
           <View style={styles.navBar}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
-            </TouchableOpacity>
+            <GlassBackButton onPress={() => navigation.goBack()} />
             <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
@@ -184,13 +182,6 @@ const styles = StyleSheet.create({
   navBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  backButton: {
-    padding: 8,
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
     alignItems: 'center',
   },
   loginButton: {

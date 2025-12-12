@@ -28,6 +28,9 @@ const TAB_ICONS: Record<string, ImageSourcePropType> = {
   Friends: navIconFriend,
 };
 
+// Default fallback icon if route name not found
+const FALLBACK_TAB_ICON: ImageSourcePropType = navIconGlobe;
+
 // Tab labels for accessibility
 const TAB_LABELS: Record<string, string> = {
   Passport: 'Passport',
@@ -48,10 +51,11 @@ interface TabItemProps {
 function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabItemProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Cleanup: stop any running animation on unmount
+  // Cleanup: stop any running animation and reset value on unmount
   useEffect(() => {
     return () => {
       scaleAnim.stopAnimation();
+      scaleAnim.setValue(1);
     };
   }, [scaleAnim]);
 
@@ -103,7 +107,7 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
   );
 }
 
-export function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -152,7 +156,7 @@ export function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabB
                   });
                 };
 
-                const icon = TAB_ICONS[route.name];
+                const icon = TAB_ICONS[route.name] ?? FALLBACK_TAB_ICON;
                 const label = TAB_LABELS[route.name] || options.title || route.name;
 
                 return (
@@ -226,3 +230,5 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
 });
+
+export default LiquidGlassTabBar;

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountryCard } from '@components/ui';
+import { CountryCard, GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
@@ -181,9 +181,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       {/* Header */}
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <View style={styles.headerTop}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={() => navigation.goBack()} />
           <View style={styles.headerCenter}>
             <Text style={styles.regionTitle}>{region}</Text>
             <Text style={styles.progressText}>
@@ -266,16 +264,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  backButton: {
-    padding: 8,
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   headerCenter: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 12,
   },
   regionTitle: {
     fontSize: 28,

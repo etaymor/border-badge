@@ -7,6 +7,7 @@ export { CountryGridItem } from './CountryGridItem';
 export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';
+export { GlassBackButton } from './GlassBackButton';
 export { Input } from './Input';
 export { Loading } from './Loading';
 export { OTPInput } from './OTPInput';

@@ -59,10 +59,11 @@ export const CountryCard = React.memo(function CountryCard({
   const countryImage = useMemo(() => getCountryImage(code), [code]);
   const heartScale = useRef(new Animated.Value(1)).current;
 
-  // Cleanup: stop any running animation on unmount
+  // Cleanup: stop any running animation and reset value on unmount
   useEffect(() => {
     return () => {
       heartScale.stopAnimation();
+      heartScale.setValue(1);
     };
   }, [heartScale]);
 

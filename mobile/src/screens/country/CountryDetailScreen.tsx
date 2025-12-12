@@ -14,7 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
-import { Button, TripCard } from '@components/ui';
+import { Button, GlassBackButton, TripCard } from '@components/ui';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
@@ -146,29 +146,23 @@ export function CountryDetailScreen({ navigation, route }: Props) {
           <View style={[styles.heroContainer, { height: heroImageHeight }]}>
             <Image source={countryImage} style={styles.heroImage} resizeMode="cover" />
 
-            {/* Back button */}
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              style={[styles.backButtonContainer, { top: insets.top + 8 }]}
-            >
-              <BlurView intensity={30} tint="light" style={styles.backButtonGlass}>
-                <Ionicons name="chevron-back" size={28} color={colors.midnightNavy} />
-              </BlurView>
-            </TouchableOpacity>
-
-            {/* Top overlay for stamp title */}
-            <View style={[styles.heroTopOverlay, { paddingTop: insets.top }]}>
-              {/* Stamp-style country name - Oswald font, midnight navy */}
-              <Text
-                style={styles.stampTitle}
-                accessibilityRole="header"
-                accessibilityLabel={`Country: ${displayName}`}
-              >
-                {displayName}
-              </Text>
+            {/* Top overlay for header row and stamp title */}
+            <View style={[styles.heroTopOverlay, { paddingTop: insets.top + 8 }]}>
+              {/* Header row with back button and title */}
+              <View style={styles.headerRow}>
+                <GlassBackButton onPress={() => navigation.goBack()} />
+                {/* Stamp-style country name - Oswald font, midnight navy */}
+                <Text
+                  style={styles.stampTitle}
+                  accessibilityRole="header"
+                  accessibilityLabel={`Country: ${displayName}`}
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+                {/* Empty spacer to balance back button */}
+                <View style={styles.headerSpacer} />
+              </View>
             </View>
 
             {/* Bottom overlay for flag/region and action icons */}
@@ -342,22 +336,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: colors.warmCream,
   },
-  backButtonContainer: {
-    position: 'absolute',
-    left: 12,
-    zIndex: 10,
-  },
-  backButtonGlass: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
   heroImage: {
     width: '100%',
     height: '100%',
@@ -367,8 +345,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingBottom: 20,
+  },
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  headerSpacer: {
+    width: 44, // Same width as GlassBackButton to balance the layout
   },
   heroBottomOverlay: {
     position: 'absolute',
@@ -380,15 +364,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   stampTitle: {
+    flex: 1,
     fontFamily: fonts.oswald.bold,
-    fontSize: 32,
-    lineHeight: 34,
+    fontSize: 28,
+    lineHeight: 44, // Match GlassBackButton height for vertical centering
     color: colors.midnightNavy,
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginTop: 12,
-    marginHorizontal: 24,
     textShadowColor: 'rgba(255, 255, 255, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
