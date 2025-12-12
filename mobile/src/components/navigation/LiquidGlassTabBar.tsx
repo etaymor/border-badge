@@ -118,6 +118,15 @@ function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps
     return 48; // iPhone Plus/Max sizes and larger
   }, [width]);
 
+  // Check if tab bar should be hidden based on current route's tabBarStyle
+  const focusedRoute = state.routes[state.index];
+  const focusedDescriptor = descriptors[focusedRoute.key];
+  const tabBarStyle = focusedDescriptor.options.tabBarStyle as { display?: string } | undefined;
+
+  if (tabBarStyle?.display === 'none') {
+    return null;
+  }
+
   return (
     <View
       style={[

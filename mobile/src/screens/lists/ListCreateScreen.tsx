@@ -263,7 +263,12 @@ export function ListCreateScreen({ route, navigation }: Props) {
 
           {/* Public info */}
           <View style={styles.infoBanner}>
-            <Ionicons name="globe-outline" size={18} color={colors.midnightNavy} style={styles.infoIcon} />
+            <Ionicons
+              name="globe-outline"
+              size={18}
+              color={colors.midnightNavy}
+              style={styles.infoIcon}
+            />
             <View style={styles.infoTextContainer}>
               <Text style={styles.infoTitle}>Lists are public</Text>
               <Text style={styles.infoDescription}>Anyone with the link can view this list.</Text>

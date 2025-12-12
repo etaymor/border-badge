@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -36,6 +37,7 @@ import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -50,7 +52,13 @@ const ENTRY_TYPES: {
   { type: 'place', icon: 'location', label: 'Place', color: colors.adobeBrick, emoji: '📍' },
   { type: 'food', icon: 'restaurant', label: 'Food', color: colors.sunsetGold, emoji: '🍽️' },
   { type: 'stay', icon: 'bed', label: 'Stay', color: colors.mossGreen, emoji: '🏨' },
-  { type: 'experience', icon: 'star', label: 'Experience', color: colors.midnightNavy, emoji: '✨' },
+  {
+    type: 'experience',
+    icon: 'star',
+    label: 'Experience',
+    color: colors.midnightNavy,
+    emoji: '✨',
+  },
 ];
 
 // Animated category button component
@@ -164,6 +172,9 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const isEditing = !!entryId;
   const insets = useSafeAreaInsets();
 
+  // Refs
+  const scrollViewRef = useRef<ScrollView>(null);
+
   // Animations
   const formFadeAnim = useRef(new Animated.Value(0)).current;
   const formSlideAnim = useRef(new Animated.Value(30)).current;
@@ -183,6 +194,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [notes, setNotes] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
   const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
+  const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -372,6 +384,15 @@ export function EntryFormScreen({ route, navigation }: Props) {
     formSlideAnim.setValue(30);
   };
 
+  // Scroll to notes field when focused
+  const handleNotesFocus = useCallback(() => {
+    // Small delay to allow keyboard to appear, then scroll to end
+    // since notes and save button are at the bottom of the form
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  }, []);
+
   // Get selected type config
   const selectedTypeConfig = entryType ? ENTRY_TYPES.find((t) => t.type === entryType) : null;
 
@@ -391,176 +412,194 @@ export function EntryFormScreen({ route, navigation }: Props) {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <GlassBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.headerTitle}>
-            {isEditing ? 'Edit Entry' : 'Add Entry'}
-          </Text>
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Entry' : 'Add Entry'}</Text>
           <View style={styles.headerSpacer} />
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* Subtitle with trip context */}
-        <Text style={styles.headerSubtitle}>
-          {isEditing ? 'Update your memory' : trip?.name ? `Adding to ${trip.name}` : 'What would you like to remember?'}
-        </Text>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Subtitle with trip context */}
+          <Text style={styles.headerSubtitle}>
+            {isEditing
+              ? 'Update your memory'
+              : trip?.name
+                ? `Adding to ${trip.name}`
+                : 'What would you like to remember?'}
+          </Text>
 
-        {/* Category Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>CATEGORY</Text>
-          {hasSelectedType && selectedTypeConfig ? (
-            // Selected category display
-            <View style={styles.selectedCategoryContainer}>
+          {/* Category Selection */}
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>CATEGORY</Text>
+            {hasSelectedType && selectedTypeConfig ? (
+              // Selected category display
               <View style={styles.selectedCategoryOuter}>
                 <BlurView intensity={40} tint="light" style={styles.selectedCategoryInner}>
-                  <View
-                    style={[
-                      styles.selectedCategoryIconContainer,
-                      { backgroundColor: `${selectedTypeConfig.color}20` },
-                    ]}
-                  >
-                    <Ionicons
-                      name={selectedTypeConfig.icon}
-                      size={24}
-                      color={selectedTypeConfig.color}
-                    />
+                  <View style={styles.selectedCategoryContent}>
+                    <View
+                      style={[
+                        styles.selectedCategoryIconContainer,
+                        { backgroundColor: `${selectedTypeConfig.color}20` },
+                      ]}
+                    >
+                      <Ionicons
+                        name={selectedTypeConfig.icon}
+                        size={24}
+                        color={selectedTypeConfig.color}
+                      />
+                    </View>
+                    <Text
+                      style={[styles.selectedCategoryLabel, { color: selectedTypeConfig.color }]}
+                    >
+                      {selectedTypeConfig.label}
+                    </Text>
                   </View>
-                  <Text style={[styles.selectedCategoryLabel, { color: selectedTypeConfig.color }]}>
-                    {selectedTypeConfig.label}
-                  </Text>
+                  <Pressable style={styles.changeButton} onPress={handleChangeType}>
+                    <Ionicons name="swap-horizontal" size={16} color={colors.midnightNavy} />
+                    <Text style={styles.changeButtonText}>Change</Text>
+                  </Pressable>
                 </BlurView>
               </View>
-              <Pressable style={styles.changeButton} onPress={handleChangeType}>
-                <Ionicons name="swap-horizontal" size={16} color={colors.midnightNavy} />
-                <Text style={styles.changeButtonText}>Change</Text>
-              </Pressable>
-            </View>
-          ) : (
-            // Category grid
-            <View style={styles.categoryGrid}>
-              {ENTRY_TYPES.map((item, index) => (
-                <CategoryButton
-                  key={item.type}
-                  item={item}
-                  isSelected={entryType === item.type}
-                  onPress={() => handleTypeSelect(item.type)}
-                  index={index}
-                />
-              ))}
-            </View>
-          )}
-        </View>
+            ) : (
+              // Category grid
+              <View style={styles.categoryGrid}>
+                {ENTRY_TYPES.map((item, index) => (
+                  <CategoryButton
+                    key={item.type}
+                    item={item}
+                    isSelected={entryType === item.type}
+                    onPress={() => handleTypeSelect(item.type)}
+                    index={index}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
 
-        {/* Animated form fields */}
-        {hasSelectedType && (
-          <Animated.View
-            style={{
-              opacity: formFadeAnim,
-              transform: [{ translateY: formSlideAnim }],
-            }}
-          >
-            {/* Location (conditional - for place, food, stay) */}
-            {showPlaceInput && (
-              <View style={[styles.section, styles.locationSection]}>
-                <Text style={styles.sectionLabel}>LOCATION</Text>
-                <View style={styles.placesContainer}>
-                  <PlacesAutocomplete
-                    value={selectedPlace}
-                    onSelect={(place) => {
-                      setSelectedPlace(place);
-                      if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
+          {/* Animated form fields */}
+          {hasSelectedType && (
+            <Animated.View
+              style={{
+                opacity: formFadeAnim,
+                transform: [{ translateY: formSlideAnim }],
+              }}
+            >
+              {/* Location (conditional - for place, food, stay) */}
+              {showPlaceInput && (
+                <View style={[styles.section, styles.locationSection]}>
+                  <Text style={styles.sectionLabel}>LOCATION</Text>
+                  <View style={styles.placesContainer}>
+                    <PlacesAutocomplete
+                      value={selectedPlace}
+                      onSelect={(place) => {
+                        setSelectedPlace(place);
+                        if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
+                      }}
+                      placeholder="Search for a place..."
+                      countryCode={trip?.country_code}
+                    />
+                  </View>
+                  {errors.place && (
+                    <Text style={styles.errorText} testID="error-location-required">
+                      {errors.place}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Name - only shown when no place is selected */}
+              {!selectedPlace && (
+                <View style={styles.section}>
+                  <GlassInput
+                    label="NAME"
+                    placeholder="Give this entry a name"
+                    value={title}
+                    onChangeText={(text) => {
+                      setTitle(text);
+                      if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
                     }}
-                    placeholder="Search for a place..."
-                    countryCode={trip?.country_code}
+                    error={errors.title}
+                    returnKeyType="next"
+                    testID="entry-title-input"
                   />
                 </View>
-                {errors.place && (
-                  <Text style={styles.errorText} testID="error-location-required">
-                    {errors.place}
-                  </Text>
-                )}
-              </View>
-            )}
+              )}
 
-            {/* Name - only shown when no place is selected */}
-            {!selectedPlace && (
+              {/* Link (optional) */}
               <View style={styles.section}>
                 <GlassInput
-                  label="NAME"
-                  placeholder="Give this entry a name"
-                  value={title}
+                  label="LINK (OPTIONAL)"
+                  placeholder="Add website URL"
+                  value={link}
                   onChangeText={(text) => {
-                    setTitle(text);
-                    if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
+                    setLink(text);
+                    if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
                   }}
-                  error={errors.title}
+                  error={errors.link}
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   returnKeyType="next"
-                  testID="entry-title-input"
+                  testID="entry-link-input"
                 />
               </View>
-            )}
 
-            {/* Link (optional) */}
-            <View style={styles.section}>
-              <GlassInput
-                label="LINK (OPTIONAL)"
-                placeholder="Add website URL"
-                value={link}
-                onChangeText={(text) => {
-                  setLink(text);
-                  if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
-                }}
-                error={errors.link}
-                keyboardType="url"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                testID="entry-link-input"
-              />
-            </View>
+              {/* Photos Section */}
+              <View style={styles.section}>
+                <View style={styles.photosLabelRow}>
+                  <Text style={[styles.sectionLabel, styles.photosLabel]}>PHOTOS</Text>
+                  <Text style={styles.photoCountLabel}>
+                    {photoCount}/{MAX_PHOTOS_PER_ENTRY}
+                  </Text>
+                </View>
+                <View style={styles.photoGalleryContainer}>
+                  <EntryMediaGallery
+                    entryId={isEditing ? entryId : undefined}
+                    tripId={!isEditing ? tripId : undefined}
+                    editable={true}
+                    onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
+                    onMediaCountChange={setPhotoCount}
+                  />
+                </View>
+              </View>
 
-            {/* Photos Section */}
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>PHOTOS</Text>
-              <View style={styles.photoGalleryContainer}>
-                <EntryMediaGallery
-                  entryId={isEditing ? entryId : undefined}
-                  tripId={!isEditing ? tripId : undefined}
-                  editable={true}
-                  onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
+              {/* Notes */}
+              <View style={styles.section}>
+                <GlassInput
+                  label="NOTES"
+                  placeholder="What made this memorable?"
+                  value={notes}
+                  onChangeText={setNotes}
+                  onFocus={handleNotesFocus}
+                  multiline
+                  testID="entry-notes-input"
                 />
               </View>
-            </View>
 
-            {/* Notes */}
-            <View style={styles.section}>
-              <GlassInput
-                label="NOTES"
-                placeholder="What made this memorable?"
-                value={notes}
-                onChangeText={setNotes}
-                multiline
-                testID="entry-notes-input"
-              />
-            </View>
-
-            {/* Submit Button */}
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-              <Button
-                title={isEditing ? 'Save Changes' : 'Save Entry'}
-                onPress={handleSubmit}
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                testID="entry-save-button"
-              />
-            </View>
-          </Animated.View>
-        )}
-      </ScrollView>
+              {/* Submit Button */}
+              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+                <Button
+                  title={isEditing ? 'Save Changes' : 'Save Entry'}
+                  onPress={handleSubmit}
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                  testID="entry-save-button"
+                />
+              </View>
+            </Animated.View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -596,6 +635,9 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 44,
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
@@ -678,13 +720,7 @@ const styles = StyleSheet.create({
   },
 
   // Selected category display
-  selectedCategoryContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
   selectedCategoryOuter: {
-    flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: colors.shadow,
@@ -696,12 +732,17 @@ const styles = StyleSheet.create({
   selectedCategoryInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  selectedCategoryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
   selectedCategoryIconContainer: {
@@ -744,6 +785,21 @@ const styles = StyleSheet.create({
   },
 
   // Photo gallery
+  photosLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  photosLabel: {
+    marginBottom: 0, // Override when inside row
+  },
+  photoCountLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 12,
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
   photoGalleryContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
     borderRadius: 16,

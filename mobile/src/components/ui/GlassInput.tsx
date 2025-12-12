@@ -50,15 +50,9 @@ export function GlassInput({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && (
-        <Text style={styles.label}>{label}</Text>
-      )}
+      {label && <Text style={styles.label}>{label}</Text>}
       <View
-        style={[
-          styles.wrapper,
-          isFocused && styles.wrapperFocused,
-          error && styles.wrapperError,
-        ]}
+        style={[styles.wrapper, isFocused && styles.wrapperFocused, error && styles.wrapperError]}
       >
         <BlurView
           intensity={40}
@@ -70,11 +64,7 @@ export function GlassInput({
           ]}
         >
           <TextInput
-            style={[
-              styles.input,
-              multiline && styles.inputMultiline,
-              style,
-            ]}
+            style={[styles.input, multiline && styles.inputMultiline, style]}
             placeholderTextColor={colors.textTertiary}
             onFocus={handleFocus}
             onBlur={handleBlur}
@@ -84,9 +74,7 @@ export function GlassInput({
           />
         </BlurView>
       </View>
-      {error && (
-        <Text style={styles.error}>{error}</Text>
-      )}
+      {error && <Text style={styles.error}>{error}</Text>}
     </View>
   );
 }

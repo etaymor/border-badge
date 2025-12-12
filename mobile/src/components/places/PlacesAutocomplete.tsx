@@ -444,24 +444,14 @@ export function PlacesAutocomplete({
   return (
     <View style={styles.container}>
       {/* Input Field with Glass Effect */}
-      <View
-        style={[
-          styles.inputWrapper,
-          isFocused && styles.inputWrapperFocused,
-        ]}
-      >
+      <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
         <BlurView
           intensity={40}
           tint="light"
           style={[styles.inputBlur, isFocused && styles.inputBlurFocused]}
         >
           <View style={styles.inputContainer}>
-            <Ionicons
-              name="search"
-              size={18}
-              color={colors.stormGray}
-              style={styles.searchIcon}
-            />
+            <Ionicons name="search" size={18} color={colors.stormGray} style={styles.searchIcon} />
             <TextInput
               ref={inputRef}
               style={styles.textInput}
@@ -473,7 +463,12 @@ export function PlacesAutocomplete({
                 setIsFocused(true);
                 // Only show dropdown if we have predictions AND no place is currently selected
                 // Also check hasSelectedRef to prevent reopening immediately after selection
-                if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
+                if (
+                  query.length > 0 &&
+                  predictions.length > 0 &&
+                  !value &&
+                  !hasSelectedRef.current
+                ) {
                   setShowDropdown(true);
                 }
               }}

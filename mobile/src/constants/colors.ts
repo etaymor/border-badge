@@ -78,3 +78,17 @@ export const colors = {
 // Type for accessing colors
 export type ColorKey = keyof typeof colors;
 export type ColorValue = (typeof colors)[ColorKey];
+
+/**
+ * Helper to add alpha transparency to a hex color.
+ * @param hex - Hex color string (e.g., '#F4C24E' or 'F4C24E')
+ * @param alpha - Alpha value from 0 to 1
+ * @returns rgba string
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  const cleanHex = hex.replace('#', '');
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

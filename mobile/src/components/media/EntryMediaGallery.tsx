@@ -34,6 +34,7 @@ interface EntryMediaGalleryProps {
   editable?: boolean;
   onImagePress?: (media: MediaFile, index: number) => void;
   onPendingMediaChange?: (mediaIds: string[]) => void; // Track IDs for later reassignment
+  onMediaCountChange?: (count: number) => void; // Notify parent of current photo count
 }
 
 interface LocalMediaItem {
@@ -51,6 +52,7 @@ export function EntryMediaGallery({
   editable = true,
   onImagePress,
   onPendingMediaChange,
+  onMediaCountChange,
 }: EntryMediaGalleryProps) {
   // Use entry media when editing, pending trip media when creating
   const isPendingMode = !entryId && !!tripId;
@@ -90,6 +92,11 @@ export function EntryMediaGallery({
 
   const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
   const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
+
+  // Notify parent of media count changes
+  useEffect(() => {
+    onMediaCountChange?.(currentCount);
+  }, [currentCount, onMediaCountChange]);
 
   // Handle picking images from library
   const handlePickImages = useCallback(async () => {
@@ -259,9 +266,13 @@ export function EntryMediaGallery({
         )}
 
         {media.status === 'failed' && (
-          <View style={styles.overlay}>
+          <View style={styles.overlay} pointerEvents="box-none">
             <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
-            <Pressable style={styles.retryButton} onPress={() => retryUpload.mutate(media.id)}>
+            <Pressable
+              style={styles.retryButton}
+              onPress={() => retryUpload.mutate(media.id)}
+              hitSlop={8}
+            >
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
           </View>
@@ -291,15 +302,16 @@ export function EntryMediaGallery({
         )}
 
         {item.error && (
-          <View style={styles.overlay}>
+          <View style={styles.overlay} pointerEvents="box-none">
             <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
             <View style={styles.failedActions}>
-              <Pressable style={styles.retryButton} onPress={() => handleRetry(item)}>
+              <Pressable style={styles.retryButton} onPress={() => handleRetry(item)} hitSlop={8}>
                 <Text style={styles.retryText}>Retry</Text>
               </Pressable>
               <Pressable
                 style={styles.removeButton}
                 onPress={() => handleRemoveFailed(item.localUri)}
+                hitSlop={8}
               >
                 <Text style={styles.removeText}>Remove</Text>
               </Pressable>

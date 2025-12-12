@@ -1,19 +1,22 @@
 import { memo, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 
-// Entry type icons and colors
+// Entry type icons and colors using brand palette
 const ENTRY_TYPE_CONFIG: Record<
   EntryType,
   { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }
 > = {
-  place: { icon: 'location', color: '#007AFF', label: 'Place' },
-  food: { icon: 'restaurant', color: '#FF9500', label: 'Food' },
-  stay: { icon: 'bed', color: '#5856D6', label: 'Stay' },
-  experience: { icon: 'star', color: '#34C759', label: 'Experience' },
+  place: { icon: 'location', color: colors.adobeBrick, label: 'Place' },
+  food: { icon: 'restaurant', color: colors.sunsetGold, label: 'Food' },
+  stay: { icon: 'bed', color: colors.mossGreen, label: 'Stay' },
+  experience: { icon: 'star', color: colors.midnightNavy, label: 'Experience' },
 };
 
 interface EntryGridCardProps {
@@ -46,7 +49,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
       accessibilityRole="button"
       accessibilityLabel={`${entry.title}, ${typeConfig.label}`}
     >
-      {/* Image or Icon Placeholder */}
+      {/* Image or Icon Placeholder Background */}
       <View style={[styles.imageContainer, { height: cardWidth }]}>
         {hasValidImage ? (
           <Image
@@ -55,29 +58,33 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
             onError={() => setImageError(true)}
           />
         ) : (
-          <View style={[styles.iconPlaceholder, { backgroundColor: typeConfig.color + '20' }]}>
-            <Ionicons name={typeConfig.icon} size={32} color={typeConfig.color} />
+          <View style={[styles.iconPlaceholder, { backgroundColor: typeConfig.color + '15' }]}>
+            <Ionicons name={typeConfig.icon} size={40} color={typeConfig.color} />
           </View>
         )}
 
-        {/* Type badge overlay */}
-        <View style={[styles.typeBadge, { backgroundColor: typeConfig.color }]}>
-          <Ionicons name={typeConfig.icon} size={12} color="#fff" />
-        </View>
-      </View>
-
-      {/* Content */}
-      <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={2}>
-          {entry.title}
-        </Text>
-
-        {/* Place name if available */}
-        {entry.place?.name && (
-          <Text style={styles.placeName} numberOfLines={1}>
-            {entry.place.name}
+        {/* Top Glass Pane - Entry Title */}
+        <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
+          <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
+            {entry.title}
           </Text>
-        )}
+        </BlurView>
+
+        {/* Bottom Row - Type Badge Left, Media Count Right */}
+        <View style={styles.bottomRow}>
+          {/* Type Badge - Glass Pill */}
+          <BlurView intensity={30} tint="light" style={styles.typeBadge}>
+            <Ionicons name={typeConfig.icon} size={14} color={typeConfig.color} />
+          </BlurView>
+
+          {/* Media Count Badge (if more than 1 photo) */}
+          {entry.media_files && entry.media_files.length > 1 && (
+            <BlurView intensity={30} tint="light" style={styles.mediaCountBadge}>
+              <Ionicons name="images" size={12} color={colors.midnightNavy} />
+              <Text style={styles.mediaCountText}>{entry.media_files.length}</Text>
+            </BlurView>
+          )}
+        </View>
       </View>
     </Pressable>
   );
@@ -87,14 +94,17 @@ export const EntryGridCard = memo(EntryGridCardComponent);
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 20,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: colors.backgroundSecondary,
+    position: 'relative',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   imageContainer: {
     width: '100%',
@@ -103,7 +113,7 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.backgroundMuted,
   },
   iconPlaceholder: {
     width: '100%',
@@ -111,28 +121,69 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  typeBadge: {
+
+  // Top Glass Pane - Entry Title
+  topGlassPane: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm cream tint
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.6)',
+    minHeight: 44,
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    padding: 10,
   },
   title: {
+    fontFamily: fonts.oswald.bold,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    lineHeight: 18,
+    color: colors.textPrimary,
+    lineHeight: 17,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    textShadowColor: 'rgba(255, 255, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  placeName: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
+
+  // Bottom Row - Badges
+  bottomRow: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    right: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  typeBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  mediaCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  mediaCountText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    color: colors.midnightNavy,
   },
 });

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors } from '@constants/colors';
+import { isDevelopment } from '@config/env';
 import { fonts } from '@constants/typography';
 
 export interface TripCardTrip {
@@ -52,7 +53,10 @@ function formatDateRange(dateRange?: string): string {
     }
 
     return `${formatDate(start)} - ${formatDate(end)}`;
-  } catch {
+  } catch (error) {
+    if (isDevelopment) {
+      console.warn('[TripCard] Failed to parse date range:', dateRange, error);
+    }
     return '';
   }
 }

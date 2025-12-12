@@ -185,20 +185,12 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
             <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
-              <Pressable
-                style={styles.glassButtonWrapper}
-                onPress={handleEditTrip}
-                hitSlop={8}
-              >
+              <Pressable style={styles.glassButtonWrapper} onPress={handleEditTrip} hitSlop={8}>
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
                   <Ionicons name="pencil" size={20} color="#fff" />
                 </BlurView>
               </Pressable>
-              <Pressable
-                style={styles.glassButtonWrapper}
-                onPress={handleSharePress}
-                hitSlop={8}
-              >
+              <Pressable style={styles.glassButtonWrapper} onPress={handleSharePress} hitSlop={8}>
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
                   <Ionicons name="share-outline" size={22} color="#fff" />
                 </BlurView>

@@ -313,6 +313,10 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         ItemSeparatorComponent={ItemSeparator}
         refreshing={loadingTrips}
         onRefresh={refetch}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={5}
       />
     </View>
   );

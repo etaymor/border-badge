@@ -35,11 +35,7 @@ export function TripsNavigator() {
         component={TripDetailScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen
-        name="TripForm"
-        component={TripFormScreen}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="TripForm" component={TripFormScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="EntryList"
         component={EntryListScreen}
@@ -68,26 +64,14 @@ export function TripsNavigator() {
           ),
         })}
       />
-      <Stack.Screen
-        name="EntryForm"
-        component={EntryFormScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="TripLists"
-        component={TripListsScreen}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="EntryForm" component={EntryFormScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="TripLists" component={TripListsScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="ListCreate"
         component={ListCreateScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen
-        name="ListEdit"
-        component={ListEditScreen}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="ListEdit" component={ListEditScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
