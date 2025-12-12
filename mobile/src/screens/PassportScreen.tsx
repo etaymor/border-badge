@@ -652,6 +652,7 @@ export function PassportScreen({ navigation }: Props) {
         onFiltersChange={setFilters}
         onClose={handleCloseFilters}
         onClearAll={handleClearFilters}
+        onApply={handleCloseFilters}
       />
     </SafeAreaView>
   );

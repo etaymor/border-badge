@@ -210,18 +210,16 @@ describe('DreamsScreen', () => {
       expect(screen.getByText('No countries found')).toBeTruthy();
     });
 
-    it('clears search when EXPLORE button is pressed', () => {
+    it('opens filter sheet when EXPLORE button is pressed', () => {
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
       mockHooksWithData({ countries, userCountries: [] });
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const searchInput = screen.getByPlaceholderText('Type Country');
-      fireEvent.changeText(searchInput, 'jap');
-
       fireEvent.press(screen.getByText('EXPLORE'));
 
-      expect(searchInput.props.value).toBe('');
+      // Filter sheet should be visible (check for Explore Filters header)
+      expect(screen.getByText('Explore Filters')).toBeTruthy();
     });
 
     it('search is case-insensitive', () => {

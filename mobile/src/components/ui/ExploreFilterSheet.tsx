@@ -37,6 +37,8 @@ interface ExploreFilterSheetProps {
   onFiltersChange: (filters: ExploreFilters) => void;
   onClose: () => void;
   onClearAll: () => void;
+  onApply: () => void;
+  showStatusSection?: boolean;
 }
 
 const STATUS_OPTIONS: { value: CountryStatus; label: string }[] = [
@@ -51,6 +53,8 @@ export function ExploreFilterSheet({
   onFiltersChange,
   onClose,
   onClearAll,
+  onApply,
+  showStatusSection = true,
 }: ExploreFilterSheetProps) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -156,8 +160,17 @@ export function ExploreFilterSheet({
     [filters, onFiltersChange]
   );
 
-  // Active filter count
-  const activeFilterCount = countActiveFilters(filters);
+  // Active filter count (exclude status if not showing status section)
+  const activeFilterCount = showStatusSection
+    ? countActiveFilters(filters)
+    : countActiveFilters(filters) - filters.status.length;
+
+  // Handle apply button press
+  const handleApply = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    closeSheet();
+    onApply();
+  }, [closeSheet, onApply]);
 
   // Open animation on visible change
   useEffect(() => {
@@ -210,20 +223,22 @@ export function ExploreFilterSheet({
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false} bounces={false}>
-              {/* Status Section */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Status</Text>
-                <View style={styles.chipRow}>
-                  {STATUS_OPTIONS.map(({ value, label }) => (
-                    <Chip
-                      key={value}
-                      label={label}
-                      selected={filters.status.includes(value)}
-                      onPress={() => toggleStatus(value)}
-                    />
-                  ))}
+              {/* Status Section - Only shown when showStatusSection is true */}
+              {showStatusSection && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Status</Text>
+                  <View style={styles.chipRow}>
+                    {STATUS_OPTIONS.map(({ value, label }) => (
+                      <Chip
+                        key={value}
+                        label={label}
+                        selected={filters.status.includes(value)}
+                        onPress={() => toggleStatus(value)}
+                      />
+                    ))}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Continent Section */}
               <View style={styles.section}>
@@ -275,9 +290,20 @@ export function ExploreFilterSheet({
                 </View>
               </View>
 
-              {/* Bottom padding for scroll */}
-              <View style={{ height: 40 }} />
+              {/* Bottom padding for scroll to account for apply button */}
+              <View style={{ height: 80 }} />
             </ScrollView>
+
+            {/* Apply Button - Fixed at bottom */}
+            <View style={styles.applyButtonContainer}>
+              <TouchableOpacity
+                style={styles.applyButton}
+                onPress={handleApply}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.applyButtonText}>Apply Filters</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </BlurView>
       </Animated.View>
@@ -375,5 +401,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.stormGray,
     marginBottom: 8,
+  },
+  applyButtonContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(23, 42, 58, 0.1)',
+    backgroundColor: colors.warmCream,
+  },
+  applyButton: {
+    backgroundColor: colors.mossGreen,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  applyButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.cloudWhite,
+    letterSpacing: 0.5,
   },
 });

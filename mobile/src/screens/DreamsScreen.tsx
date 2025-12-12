@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -12,12 +13,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CountryCard, Snackbar } from '@components/ui';
+import { CountryCard, ExploreFilterSheet, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
+import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
+import {
+  DEFAULT_FILTERS,
+  hasActiveFilters,
+  countActiveFilters,
+  type ExploreFilters,
+} from '../types/filters';
 
 // Animation timing constants
 const HEART_PULSE_DELAY_MS = 150;
@@ -47,6 +55,8 @@ export function DreamsScreen({ navigation }: Props) {
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -104,16 +114,49 @@ export function DreamsScreen({ navigation }: Props) {
     }));
   }, [countries]);
 
+  // Apply explore filters to countries (excluding status filter since Dreams doesn't use it)
+  const filteredCountries = useMemo(() => {
+    if (!searchableCountries.length) return [];
+
+    let filtered = [...searchableCountries];
+
+    // Apply continent filter (OR within category)
+    if (filters.continents.length > 0) {
+      filtered = filtered.filter((country) => filters.continents.includes(country.region));
+    }
+
+    // Apply subregion filter (OR within category)
+    if (filters.subregions.length > 0) {
+      filtered = filtered.filter(
+        (country) => country.subregion && filters.subregions.includes(country.subregion)
+      );
+    }
+
+    // Apply recognition filter (OR within category)
+    if (filters.recognitionGroups.length > 0) {
+      const allowedRecognitions = filters.recognitionGroups.flatMap(
+        (group) => RECOGNITION_GROUPS[group]
+      );
+      filtered = filtered.filter(
+        (country) =>
+          country.recognition &&
+          allowedRecognitions.includes(country.recognition as (typeof allowedRecognitions)[number])
+      );
+    }
+
+    return filtered;
+  }, [searchableCountries, filters]);
+
   // Compute sorted countries: dreams first, then alphabetical, excluding visited
   const sortedCountries = useMemo((): DreamCountry[] => {
-    if (!searchableCountries.length) return [];
+    if (!filteredCountries.length) return [];
 
     const query = searchQuery.toLowerCase().trim();
     const wishlistCodes = new Set(wishlistCountries.map((uc) => uc.country_code));
     const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
 
     // Filter by search, exclude visited
-    const filtered = searchableCountries
+    const filtered = filteredCountries
       .filter((c) => !visitedCodes.has(c.code))
       .filter((c) => !query || c.searchName.includes(query));
 
@@ -133,7 +176,7 @@ export function DreamsScreen({ navigation }: Props) {
       region: c.region,
       isWishlisted: wishlistCodes.has(c.code),
     }));
-  }, [searchableCountries, wishlistCountries, visitedCountries, searchQuery]);
+  }, [filteredCountries, wishlistCountries, visitedCountries, searchQuery]);
 
   const handleCountryPress = useCallback(
     (country: DreamCountry) => {
@@ -284,6 +327,23 @@ export function DreamsScreen({ navigation }: Props) {
 
   const getItemKey = useCallback((item: DreamCountry) => item.code, []);
 
+  const handleExplorePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFilterSheetVisible(true);
+  }, []);
+
+  const handleCloseFilters = useCallback(() => {
+    setFilterSheetVisible(false);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
+  const activeFilterCount = countActiveFilters(filters) - filters.status.length; // Exclude status from count
+  const filtersActive = hasActiveFilters(filters) && activeFilterCount > 0;
+
   const ListHeader = useMemo(
     () => (
       <>
@@ -316,19 +376,20 @@ export function DreamsScreen({ navigation }: Props) {
             </BlurView>
           </View>
           <TouchableOpacity
-            style={styles.exploreButton}
-            onPress={() => {
-              // Clear search to show all countries
-              setSearchQuery('');
-            }}
+            style={[styles.exploreButton, filtersActive && styles.exploreButtonActive]}
+            onPress={handleExplorePress}
             activeOpacity={0.7}
           >
-            <Text style={styles.exploreButtonText}>EXPLORE</Text>
+            <Text
+              style={[styles.exploreButtonText, filtersActive && styles.exploreButtonTextActive]}
+            >
+              {filtersActive ? `FILTERS (${activeFilterCount})` : 'EXPLORE'}
+            </Text>
           </TouchableOpacity>
         </View>
       </>
     ),
-    [searchQuery, insets.top]
+    [searchQuery, insets.top, filtersActive, activeFilterCount, handleExplorePress]
   );
 
   const ListEmpty = useMemo(
@@ -400,6 +461,15 @@ export function DreamsScreen({ navigation }: Props) {
         onAction={handleSnackbarUndo}
         onDismiss={handleSnackbarDismiss}
         duration={3000}
+      />
+      <ExploreFilterSheet
+        visible={filterSheetVisible}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onClose={handleCloseFilters}
+        onClearAll={handleClearFilters}
+        onApply={handleCloseFilters}
+        showStatusSection={false}
       />
     </View>
   );
@@ -488,16 +558,23 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   exploreButton: {
-    paddingHorizontal: 4,
-    height: 48,
+    paddingHorizontal: 16,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 20,
+  },
+  exploreButtonActive: {
+    backgroundColor: colors.mossGreen,
   },
   exploreButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
     letterSpacing: 0.5,
+  },
+  exploreButtonTextActive: {
+    color: colors.cloudWhite,
   },
   // Country Card Wrapper
   countryCardWrapper: {
