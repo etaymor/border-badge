@@ -13,6 +13,8 @@ export interface Country {
   code: string;
   name: string;
   region: string;
+  subregion: string | null;
+  recognition: string | null;
 }
 
 const DB_NAME = 'countries.db';
@@ -38,11 +40,14 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
 async function initSchema(): Promise<void> {
   if (!db) return;
 
+  // Create tables if they don't exist
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS countries (
       code TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
-      region TEXT NOT NULL
+      region TEXT NOT NULL,
+      subregion TEXT,
+      recognition TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sync_metadata (
@@ -53,6 +58,26 @@ async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_countries_region ON countries(region);
     CREATE INDEX IF NOT EXISTS idx_countries_name ON countries(name);
   `);
+
+  // Migrate existing tables: add new columns if they don't exist
+  // SQLite doesn't have IF NOT EXISTS for ALTER TABLE, so we check schema first
+  const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(countries)');
+  const columns = tableInfo.map((col) => col.name);
+
+  if (!columns.includes('subregion')) {
+    await db.execAsync('ALTER TABLE countries ADD COLUMN subregion TEXT');
+    await db.execAsync(
+      'CREATE INDEX IF NOT EXISTS idx_countries_subregion ON countries(subregion)'
+    );
+    // Clear sync timestamp to force re-sync with new data
+    await db.runAsync('DELETE FROM sync_metadata WHERE key = ?', [SYNC_KEY]);
+  }
+
+  if (!columns.includes('recognition')) {
+    await db.execAsync('ALTER TABLE countries ADD COLUMN recognition TEXT');
+    // Clear sync timestamp to force re-sync with new data
+    await db.runAsync('DELETE FROM sync_metadata WHERE key = ?', [SYNC_KEY]);
+  }
 }
 
 /**
@@ -117,11 +142,17 @@ export async function saveCountries(countries: Country[]): Promise<void> {
     const BATCH_SIZE = 50;
     for (let i = 0; i < countries.length; i += BATCH_SIZE) {
       const batch = countries.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((c) => [c.code, c.name, c.region]);
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const values = batch.flatMap((c) => [
+        c.code,
+        c.name,
+        c.region,
+        c.subregion ?? null,
+        c.recognition ?? null,
+      ]);
 
       await database.runAsync(
-        `INSERT INTO countries (code, name, region) VALUES ${placeholders}`,
+        `INSERT INTO countries (code, name, region, subregion, recognition) VALUES ${placeholders}`,
         values
       );
     }
@@ -136,7 +167,9 @@ export async function saveCountries(countries: Country[]): Promise<void> {
  */
 export async function getAllCountries(): Promise<Country[]> {
   const database = await getDb();
-  return database.getAllAsync<Country>('SELECT code, name, region FROM countries ORDER BY name');
+  return database.getAllAsync<Country>(
+    'SELECT code, name, region, subregion, recognition FROM countries ORDER BY name'
+  );
 }
 
 /**
@@ -145,7 +178,7 @@ export async function getAllCountries(): Promise<Country[]> {
 export async function getCountriesByRegion(region: string): Promise<Country[]> {
   const database = await getDb();
   return database.getAllAsync<Country>(
-    'SELECT code, name, region FROM countries WHERE region = ? ORDER BY name',
+    'SELECT code, name, region, subregion, recognition FROM countries WHERE region = ? ORDER BY name',
     [region]
   );
 }
@@ -162,7 +195,7 @@ export async function searchCountries(query: string, limit: number = 10): Promis
   const searchTerm = `%${query.toLowerCase()}%`;
 
   return database.getAllAsync<Country>(
-    `SELECT code, name, region FROM countries
+    `SELECT code, name, region, subregion, recognition FROM countries
      WHERE LOWER(name) LIKE ? OR LOWER(code) LIKE ?
      ORDER BY name
      LIMIT ?`,
@@ -176,7 +209,7 @@ export async function searchCountries(query: string, limit: number = 10): Promis
 export async function getCountryByCode(code: string): Promise<Country | null> {
   const database = await getDb();
   return database.getFirstAsync<Country>(
-    'SELECT code, name, region FROM countries WHERE code = ?',
+    'SELECT code, name, region, subregion, recognition FROM countries WHERE code = ?',
     [code]
   );
 }
@@ -194,7 +227,7 @@ export async function getCountriesByCodes(codes: string[]): Promise<Country[]> {
   const placeholders = codes.map(() => '?').join(',');
 
   return database.getAllAsync<Country>(
-    `SELECT code, name, region FROM countries WHERE code IN (${placeholders}) ORDER BY name`,
+    `SELECT code, name, region, subregion, recognition FROM countries WHERE code IN (${placeholders}) ORDER BY name`,
     codes
   );
 }

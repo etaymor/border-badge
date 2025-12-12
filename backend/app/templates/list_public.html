@@ -4,68 +4,154 @@
 {% block description %}{{ list.description or 'A public travel list on Border Badge' }}{% endblock %}
 
 {% block content %}
-{% if list.cover_image_url %}
-<img src="{{ list.cover_image_url }}" alt="{{ list.name }}" class="trip-cover">
-{% endif %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "name": "{{ list.name }}",
+  "description": "{{ list.description or '' }}",
+  "datePublished": "{{ list.created_at.isoformat() }}",
+  "url": "{{ canonical_url }}",
+  "itemListElement": [
+    {% for entry in list.entries %}
+    {
+      "@type": "ListItem",
+      "position": {{ loop.index }},
+      "name": "{{ entry.title }}"
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ],
+  "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "{{ canonical_url.split('/l/')[0] }}"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "{{ list.name }}",
+        "item": "{{ canonical_url }}"
+      }
+    ]
+  }
+}
+</script>
 
-<section class="page-header">
-    <h1 class="page-title">{{ list.name }}</h1>
-    {% if list.description %}
-    <p class="page-subtitle">{{ list.description }}</p>
+<!-- Hero Section -->
+<section class="hero-section">
+    {% if list.cover_image_url %}
+    <img src="{{ list.cover_image_url }}" alt="{{ list.name }}" class="hero-bg">
+    {% else %}
+    <!-- Fallback pattern if no image -->
+    <div class="hero-bg" style="background-color: var(--color-midnight-navy); background-image: radial-gradient(circle at 10% 20%, rgba(255,255,255,0.05) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.05) 0%, transparent 20%);"></div>
     {% endif %}
-    <p class="page-meta">
-        {% if list.country_name %}{{ list.country_name }}{% endif %}
-        {% if list.trip_name %} &middot; {{ list.trip_name }}{% endif %}
-    </p>
-    <p class="page-meta" style="margin-top: 6px; color: var(--color-text-muted);">
-        Public list · Anyone with the link can view
-    </p>
+    <div class="hero-overlay"></div>
 </section>
 
-<section class="entries-section">
+<!-- List Info Card (Liquid Glass) -->
+<div class="list-info-container">
+    <div class="list-info-card">
+        <h1 class="list-title">{{ list.name }}</h1>
+        
+        <div class="list-meta">
+            {% if list.country_name %}
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">{{ list.country_flag or '🌍' }}</span> {{ list.country_name }}
+            </div>
+            {% endif %}
+            
+            {% if list.trip_name %}
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">✈️</span> {{ list.trip_name }}
+            </div>
+            {% endif %}
+
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">📍</span> {{ list.entries|length }} Places
+            </div>
+
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">📅</span> Shared {{ list.created_at.strftime('%B %d, %Y') }}
+            </div>
+        </div>
+
+        {% if list.description %}
+        <p class="list-description">{{ list.description }}</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Entries Grid -->
+<section class="entries-container">
     {% if list.entries %}
     <div class="entries-grid">
         {% for entry in list.entries %}
         {% set entry_url = entry.link if entry.link else ('https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '')) %}
+        
         {% if entry_url %}
         <a href="{{ entry_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
         {% endif %}
-        <article class="entry-card{% if entry_url %} entry-card--clickable{% endif %}">
-            {% if entry.media_urls and entry.media_urls|length > 0 %}
-            <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image" loading="lazy">
-            {% else %}
-            <div class="entry-image-placeholder">📍</div>
-            {% endif %}
-            <div class="entry-content">
-                <span class="entry-type">{{ entry.type }}</span>
-                <h3 class="entry-title">{{ entry.title }}</h3>
-                {% if entry.place_name %}
-                <p class="entry-place">{{ entry.place_name }}{% if entry.address %}, {{ entry.address }}{% endif %}</p>
-                {% endif %}
-                {% if entry.notes %}
-                <p class="entry-notes">{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}</p>
-                {% endif %}
-            </div>
-        </article>
+            
+            <article class="entry-card">
+                <div class="entry-image-wrapper">
+                    {% if entry.media_urls and entry.media_urls|length > 0 %}
+                    <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image" loading="lazy">
+                    {% else %}
+                    <div class="entry-image-placeholder">
+                        <span>No Photo</span>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div class="entry-content">
+                    {% if entry.type %}
+                    <span class="entry-category">{{ entry.type }}</span>
+                    {% endif %}
+                    
+                    <h3 class="entry-title">{{ entry.title }}</h3>
+                    
+                    {% if entry.place_name %}
+                    <div class="entry-location">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                        {{ entry.place_name }}
+                    </div>
+                    {% endif %}
+                    
+                    {% if entry.notes %}
+                    <div class="entry-notes">
+                        "{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}"
+                    </div>
+                    {% endif %}
+                </div>
+            </article>
+            
         {% if entry_url %}
         </a>
         {% endif %}
         {% endfor %}
     </div>
     {% else %}
-    <div class="container" style="text-align: center;">
-        <p style="color: var(--color-text-muted);">This list doesn't have any entries yet.</p>
+    <div class="empty-state">
+        <p>This list is just getting started. No entries yet.</p>
     </div>
     {% endif %}
 </section>
 
+<!-- CTA Section -->
 <section class="cta-section">
-    <h2 class="cta-section-title">Want to create your own lists?</h2>
-    <p class="cta-section-text">
-        Download Border Badge to track your travels and share public recommendations with friends.
-    </p>
-    <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--large">
-        Get Border Badge
-    </a>
+    <div class="cta-content">
+        <span class="cta-hand-text">Start your adventure</span>
+        <h2 class="cta-title">Track your travels & share your story</h2>
+        <p style="margin-bottom: 2rem; opacity: 0.9;">Download Border Badge to build your own lists, mark countries visited, and explore the world.</p>
+        <a href="{{ app_store_url or '#download' }}" class="cta-button">
+            Get Border Badge
+        </a>
+    </div>
 </section>
 {% endblock %}
+
+{% block footer_cta %}{% endblock %}

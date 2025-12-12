@@ -13,12 +13,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountryCard, PassportSkeleton, StampCard } from '@components/ui';
+import { CountryCard, ExploreFilterSheet, PassportSkeleton, StampCard } from '@components/ui';
 import { colors } from '@constants/colors';
+import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
+import {
+  DEFAULT_FILTERS,
+  hasActiveFilters,
+  countActiveFilters,
+  type ExploreFilters,
+} from '../types/filters';
 
 type Props = PassportStackScreenProps<'PassportHome'>;
 
@@ -161,6 +168,8 @@ export function PassportScreen({ navigation }: Props) {
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
   const isLoading = loadingUserCountries || loadingCountries;
 
@@ -189,6 +198,14 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [userCountries]);
 
+  // Pre-compute visited and wishlist code sets for efficient filtering
+  const { visitedCodes, wishlistCodes } = useMemo(() => {
+    return {
+      visitedCodes: new Set(visitedCountries.map((uc) => uc.country_code)),
+      wishlistCodes: new Set(wishlistCountries.map((uc) => uc.country_code)),
+    };
+  }, [visitedCountries, wishlistCountries]);
+
   // Pre-compute searchable country data (avoids repeated toLowerCase calls during search)
   const searchableCountries = useMemo(() => {
     if (!countries) return [];
@@ -198,15 +215,63 @@ export function PassportScreen({ navigation }: Props) {
     }));
   }, [countries]);
 
-  // Combine visited countries with country metadata for display (filtered by search)
-  const displayItems = useMemo((): CountryDisplayItem[] => {
-    if (!visitedCountries.length || !searchableCountries.length) return [];
+  // Apply explore filters to countries
+  const filteredCountries = useMemo(() => {
+    if (!searchableCountries.length) return [];
 
-    const visitedCodes = visitedCountries.map((uc) => uc.country_code);
+    let filtered = [...searchableCountries];
+
+    // Apply status filter (OR within category)
+    if (filters.status.length > 0) {
+      filtered = filtered.filter((country) => {
+        const isVisited = visitedCodes.has(country.code);
+        const isWishlisted = wishlistCodes.has(country.code);
+        const isNotVisited = !isVisited && !isWishlisted;
+
+        return (
+          (filters.status.includes('visited') && isVisited) ||
+          (filters.status.includes('dream') && isWishlisted) ||
+          (filters.status.includes('not_visited') && isNotVisited)
+        );
+      });
+    }
+
+    // Apply continent filter (OR within category)
+    if (filters.continents.length > 0) {
+      filtered = filtered.filter((country) => filters.continents.includes(country.region));
+    }
+
+    // Apply subregion filter (OR within category)
+    if (filters.subregions.length > 0) {
+      filtered = filtered.filter(
+        (country) => country.subregion && filters.subregions.includes(country.subregion)
+      );
+    }
+
+    // Apply recognition filter (OR within category)
+    if (filters.recognitionGroups.length > 0) {
+      const allowedRecognitions = filters.recognitionGroups.flatMap(
+        (group) => RECOGNITION_GROUPS[group]
+      );
+      filtered = filtered.filter(
+        (country) =>
+          country.recognition &&
+          allowedRecognitions.includes(country.recognition as (typeof allowedRecognitions)[number])
+      );
+    }
+
+    return filtered;
+  }, [searchableCountries, filters, visitedCodes, wishlistCodes]);
+
+  // Combine visited countries with country metadata for display (filtered by search and explore filters)
+  const displayItems = useMemo((): CountryDisplayItem[] => {
+    if (!visitedCountries.length || !filteredCountries.length) return [];
+
+    const visitedCodesArray = visitedCountries.map((uc) => uc.country_code);
     const query = searchQuery.toLowerCase().trim();
 
-    return searchableCountries
-      .filter((c) => visitedCodes.includes(c.code))
+    return filteredCountries
+      .filter((c) => visitedCodesArray.includes(c.code))
       .filter((c) => !query || c.searchName.includes(query))
       .map((c) => ({
         code: c.code,
@@ -215,7 +280,7 @@ export function PassportScreen({ navigation }: Props) {
         status: 'visited' as const,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, searchableCountries, searchQuery]);
+  }, [visitedCountries, filteredCountries, searchQuery]);
 
   // Compute all stats
   const stats = useMemo(() => {
@@ -243,15 +308,13 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [visitedCountries, wishlistCountries, countries]);
 
-  // Compute unvisited countries for the Explore section (filtered by search)
+  // Compute unvisited countries for the Explore section (filtered by search and explore filters)
   const unvisitedCountries = useMemo((): UnvisitedCountry[] => {
-    if (!searchableCountries.length) return [];
+    if (!filteredCountries.length) return [];
 
-    const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
-    const wishlistCodes = new Set(wishlistCountries.map((uc) => uc.country_code));
     const query = searchQuery.toLowerCase().trim();
 
-    return searchableCountries
+    return filteredCountries
       .filter((c) => !visitedCodes.has(c.code))
       .filter((c) => !query || c.searchName.includes(query))
       .map((c) => ({
@@ -261,7 +324,7 @@ export function PassportScreen({ navigation }: Props) {
         isWishlisted: wishlistCodes.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [searchableCountries, visitedCountries, wishlistCountries, searchQuery]);
+  }, [filteredCountries, visitedCodes, wishlistCodes, searchQuery]);
 
   // Flatten data into single array with section markers for FlatList virtualization
   const flatListData = useMemo((): ListItem[] => {
@@ -343,6 +406,23 @@ export function PassportScreen({ navigation }: Props) {
     },
     [addUserCountry, removeUserCountry, wishlistCountries]
   );
+
+  const handleExplorePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFilterSheetVisible(true);
+  }, []);
+
+  const handleCloseFilters = useCallback(() => {
+    setFilterSheetVisible(false);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
+  const activeFilterCount = countActiveFilters(filters);
+  const filtersActive = hasActiveFilters(filters);
 
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[]) => (
@@ -523,16 +603,20 @@ export function PassportScreen({ navigation }: Props) {
             </BlurView>
           </View>
           <TouchableOpacity
-            style={styles.exploreButton}
-            onPress={() => setSearchQuery('')}
+            style={[styles.exploreButton, filtersActive && styles.exploreButtonActive]}
+            onPress={handleExplorePress}
             activeOpacity={0.7}
           >
-            <Text style={styles.exploreButtonText}>EXPLORE</Text>
+            <Text
+              style={[styles.exploreButtonText, filtersActive && styles.exploreButtonTextActive]}
+            >
+              {filtersActive ? `FILTERS (${activeFilterCount})` : 'EXPLORE'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     ),
-    [stats, searchQuery, isLoading]
+    [stats, searchQuery, isLoading, filtersActive, activeFilterCount, handleExplorePress]
   );
 
   if (isLoading) {
@@ -561,6 +645,14 @@ export function PassportScreen({ navigation }: Props) {
           initialNumToRender={10}
         />
       </Animated.View>
+
+      <ExploreFilterSheet
+        visible={filterSheetVisible}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onClose={handleCloseFilters}
+        onClearAll={handleClearFilters}
+      />
     </SafeAreaView>
   );
 }
@@ -746,16 +838,23 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   exploreButton: {
-    paddingHorizontal: 4,
-    height: 48,
+    paddingHorizontal: 16,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 20,
+  },
+  exploreButtonActive: {
+    backgroundColor: colors.mossGreen,
   },
   exploreButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
     letterSpacing: 0.5,
+  },
+  exploreButtonTextActive: {
+    color: colors.cloudWhite,
   },
   // Section Title
   sectionTitle: {

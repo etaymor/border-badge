@@ -15,6 +15,9 @@ class CountryRecognition(str, Enum):
     OBSERVER = "observer"
     DISPUTED = "disputed"
     TERRITORY = "territory"
+    DEPENDENT_TERRITORY = "dependent_territory"
+    SPECIAL_REGION = "special_region"
+    CONSTITUENT_COUNTRY = "constituent_country"
 
 
 class UserCountryStatus(str, Enum):
@@ -31,6 +34,7 @@ class Country(BaseModel):
     code: str
     name: str
     region: str
+    subregion: str | None = None
     flag_url: str | None = None
     recognition: CountryRecognition
 

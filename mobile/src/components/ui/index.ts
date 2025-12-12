@@ -7,6 +7,7 @@ export { CountryGridItem } from './CountryGridItem';
 export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';
+export { ExploreFilterSheet } from './ExploreFilterSheet';
 export { GlassBackButton } from './GlassBackButton';
 export { GlassInput } from './GlassInput';
 export { Input } from './Input';

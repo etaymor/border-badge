@@ -79,6 +79,7 @@ def _matches_country_search(row: dict[str, Any], term: str) -> bool:
 async def list_countries(
     search: str | None = Query(None, description="Search by name or code"),
     region: str | None = Query(None, description="Filter by region"),
+    subregion: str | None = Query(None, description="Filter by subregion"),
     recognition: list[CountryRecognition] | None = Query(
         None, description="Filter by recognition status"
     ),
@@ -97,6 +98,9 @@ async def list_countries(
 
     if region:
         params["region"] = f"eq.{region}"
+
+    if subregion:
+        params["subregion"] = f"eq.{subregion}"
 
     if recognition:
         # Filter by recognition types
@@ -119,6 +123,16 @@ async def list_regions() -> list[str]:
     rows = await db.get("country", params)
     # Deduplicate
     return list(dict.fromkeys(row["region"] for row in rows))
+
+
+@router.get("/subregions", response_model=list[str])
+async def list_subregions() -> list[str]:
+    """List all unique subregions."""
+    db = get_supabase_client()
+    params = {"select": "subregion", "order": "subregion.asc"}
+    rows = await db.get("country", params)
+    # Deduplicate and filter out None values
+    return list(dict.fromkeys(row["subregion"] for row in rows if row.get("subregion")))
 
 
 @router.get("/user", response_model=list[UserCountry])
