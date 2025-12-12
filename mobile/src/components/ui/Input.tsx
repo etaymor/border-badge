@@ -86,12 +86,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   inputFocused: {
-    borderColor: colors.primary,
+    borderColor: colors.sunsetGold,
     backgroundColor: colors.white,
-    shadowColor: colors.shadow,
+    shadowColor: colors.sunsetGold,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
     elevation: 2,
   },
   inputError: {

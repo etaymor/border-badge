@@ -8,6 +8,7 @@ export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';
 export { GlassBackButton } from './GlassBackButton';
+export { GlassInput } from './GlassInput';
 export { Input } from './Input';
 export { Loading } from './Loading';
 export { OTPInput } from './OTPInput';

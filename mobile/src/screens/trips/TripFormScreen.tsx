@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
-import { Button, GlassBackButton, Input, SearchInput } from '@components/ui';
+import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
@@ -169,16 +167,13 @@ export function TripFormScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 60 : 20}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.content}>
           <Text style={styles.headerSubtitle}>
             {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
           </Text>
@@ -258,15 +253,14 @@ export function TripFormScreen({ navigation, route }: Props) {
 
         {/* Trip Name */}
         <View style={styles.section}>
-          <Text style={styles.label}>TRIP NAME</Text>
-          <Input
+          <GlassInput
+            label="TRIP NAME"
             value={name}
             onChangeText={setName}
             placeholder="e.g., Spring in Kyoto"
             error={nameError}
             autoCapitalize="words"
             testID="trip-name-input"
-            containerStyle={styles.inputContainer}
           />
         </View>
 
@@ -293,19 +287,19 @@ export function TripFormScreen({ navigation, route }: Props) {
             </View>
           </View>
         </View>
-      </ScrollView>
+        </View>
 
-      {/* Save Button */}
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 8) + 80 }]}>
-        <Button
-          title={isEditing ? 'Save Changes' : 'Create Trip'}
-          onPress={handleSave}
-          loading={isLoading}
-          disabled={isLoading}
-          testID="trip-save-button"
-        />
-      </View>
-      </KeyboardAvoidingView>
+        {/* Save Button - inside ScrollView for proper keyboard handling */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+          <Button
+            title={isEditing ? 'Save Changes' : 'Create Trip'}
+            onPress={handleSave}
+            loading={isLoading}
+            disabled={isLoading}
+            testID="trip-save-button"
+          />
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -336,9 +330,6 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 44, // Same width as GlassBackButton to balance the layout
   },
-  keyboardView: {
-    flex: 1,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -352,6 +343,9 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   content: {
     padding: 24,
@@ -376,16 +370,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     opacity: 0.7,
     textTransform: 'uppercase',
-  },
-  inputContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
   },
   searchContainer: {
     position: 'relative',
@@ -555,8 +539,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 24,
-    backgroundColor: colors.warmCream,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    paddingTop: 16,
   },
 });

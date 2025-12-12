@@ -22,6 +22,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountryByCode } from '@hooks/useCountries';
 import { EntryWithPlace, useEntries } from '@hooks/useEntries';
+import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
 
@@ -53,6 +54,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
+  const { data: lists } = useTripLists(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
@@ -68,8 +70,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [navigation, tripId]);
 
   const handleSharePress = useCallback(() => {
-    navigation.navigate('TripLists', { tripId, tripName: trip?.name });
-  }, [tripId, trip?.name, navigation]);
+    // If no lists exist, go directly to create screen
+    if (!lists || lists.length === 0) {
+      navigation.navigate('ListCreate', { tripId, tripName: trip?.name });
+    } else {
+      navigation.navigate('TripLists', { tripId, tripName: trip?.name });
+    }
+  }, [tripId, trip?.name, navigation, lists]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
@@ -178,20 +185,24 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
             <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
-              <View style={styles.glassButtonWrapper}>
+              <Pressable
+                style={styles.glassButtonWrapper}
+                onPress={handleEditTrip}
+                hitSlop={8}
+              >
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
-                  <Pressable style={styles.iconButton} onPress={handleEditTrip} hitSlop={8}>
-                    <Ionicons name="pencil" size={20} color="#fff" />
-                  </Pressable>
+                  <Ionicons name="pencil" size={20} color="#fff" />
                 </BlurView>
-              </View>
-              <View style={styles.glassButtonWrapper}>
+              </Pressable>
+              <Pressable
+                style={styles.glassButtonWrapper}
+                onPress={handleSharePress}
+                hitSlop={8}
+              >
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
-                  <Pressable style={styles.iconButton} onPress={handleSharePress} hitSlop={8}>
-                    <Ionicons name="share-outline" size={22} color="#fff" />
-                  </Pressable>
+                  <Ionicons name="share-outline" size={22} color="#fff" />
                 </BlurView>
-              </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -254,17 +265,19 @@ export function TripDetailScreen({ route, navigation }: Props) {
         />
       )}
 
-      {/* Floating Add Entry Button */}
-      <Pressable
-        style={styles.fab}
-        onPress={handleAddEntry}
-        testID="fab-add-entry"
-        accessibilityLabel="Add new entry"
-        accessibilityRole="button"
-      >
-        <Ionicons name="add" size={24} color={colors.midnightNavy} />
-        <Text style={styles.fabText}>Add Entry</Text>
-      </Pressable>
+      {/* Floating Add Entry Button - only show when there are entries */}
+      {entries && entries.length > 0 && (
+        <Pressable
+          style={styles.fab}
+          onPress={handleAddEntry}
+          testID="fab-add-entry"
+          accessibilityLabel="Add new entry"
+          accessibilityRole="button"
+        >
+          <Ionicons name="add" size={24} color={colors.midnightNavy} />
+          <Text style={styles.fabText}>Add Entry</Text>
+        </Pressable>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
@@ -376,23 +389,20 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   glassButtonWrapper: {
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
   glassButton: {
     width: 44,
     height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
 
   // No cover header
@@ -551,14 +561,14 @@ const styles = StyleSheet.create({
   // FAB
   fab: {
     position: 'absolute',
-    bottom: 100,
-    alignSelf: 'center',
+    bottom: 120,
+    right: 20,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.sunsetGold,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 28,
+    borderRadius: 12,
     gap: 8,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },

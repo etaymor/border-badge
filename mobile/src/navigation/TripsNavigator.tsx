@@ -71,16 +71,7 @@ export function TripsNavigator() {
       <Stack.Screen
         name="EntryForm"
         component={EntryFormScreen}
-        options={({ navigation }) => ({
-          title: '',
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.warmCream },
-          headerLeft: () => (
-            <View style={styles.headerLeftContainer}>
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            </View>
-          ),
-        })}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="TripLists"
@@ -90,30 +81,12 @@ export function TripsNavigator() {
       <Stack.Screen
         name="ListCreate"
         component={ListCreateScreen}
-        options={({ navigation }) => ({
-          title: '',
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.warmCream },
-          headerLeft: () => (
-            <View style={styles.headerLeftContainer}>
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            </View>
-          ),
-        })}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ListEdit"
         component={ListEditScreen}
-        options={({ navigation }) => ({
-          title: '',
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.warmCream },
-          headerLeft: () => (
-            <View style={styles.headerLeftContainer}>
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            </View>
-          ),
-        })}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

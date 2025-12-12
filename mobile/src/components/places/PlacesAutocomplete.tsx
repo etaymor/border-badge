@@ -10,7 +10,11 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import Constants from 'expo-constants';
+
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 
 const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 
@@ -209,6 +213,7 @@ export function PlacesAutocomplete({
   const [manualName, setManualName] = useState('');
   const [manualAddress, setManualAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -391,28 +396,38 @@ export function PlacesAutocomplete({
         <View style={styles.manualHeader}>
           <Text style={styles.manualTitle}>Enter Place Details</Text>
           <Pressable onPress={() => setShowManualEntry(false)}>
-            <Ionicons name="close" size={24} color="#666" />
+            <Ionicons name="close" size={24} color={colors.textSecondary} />
           </Pressable>
         </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Place name *"
-          value={manualName}
-          onChangeText={setManualName}
-          returnKeyType="next"
-          testID={`${testID}-manual-name`}
-        />
+        <View style={styles.manualInputWrapper}>
+          <BlurView intensity={40} tint="light" style={styles.manualInputBlur}>
+            <TextInput
+              style={styles.manualInput}
+              placeholder="Place name *"
+              placeholderTextColor={colors.textTertiary}
+              value={manualName}
+              onChangeText={setManualName}
+              returnKeyType="next"
+              testID={`${testID}-manual-name`}
+            />
+          </BlurView>
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Address (optional)"
-          value={manualAddress}
-          onChangeText={setManualAddress}
-          returnKeyType="done"
-          onSubmitEditing={handleManualSubmit}
-          testID={`${testID}-manual-address`}
-        />
+        <View style={styles.manualInputWrapper}>
+          <BlurView intensity={40} tint="light" style={styles.manualInputBlur}>
+            <TextInput
+              style={styles.manualInput}
+              placeholder="Address (optional)"
+              placeholderTextColor={colors.textTertiary}
+              value={manualAddress}
+              onChangeText={setManualAddress}
+              returnKeyType="done"
+              onSubmitEditing={handleManualSubmit}
+              testID={`${testID}-manual-address`}
+            />
+          </BlurView>
+        </View>
 
         <Pressable
           style={[styles.manualButton, !manualName.trim() && styles.manualButtonDisabled]}
@@ -428,31 +443,54 @@ export function PlacesAutocomplete({
 
   return (
     <View style={styles.container}>
-      {/* Input Field */}
-      <View style={styles.inputContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-        <TextInput
-          ref={inputRef}
-          style={styles.textInput}
-          placeholder={placeholder}
-          value={query}
-          onChangeText={handleTextChange}
-          onFocus={() => {
-            // Only show dropdown if we have predictions AND no place is currently selected
-            // Also check hasSelectedRef to prevent reopening immediately after selection
-            if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
-              setShowDropdown(true);
-            }
-          }}
-          returnKeyType="search"
-          testID={`${testID}-input`}
-        />
-        {isLoading && <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />}
-        {!isLoading && query.length > 0 && (
-          <Pressable onPress={handleClear} hitSlop={8}>
-            <Ionicons name="close-circle" size={20} color="#999" />
-          </Pressable>
-        )}
+      {/* Input Field with Glass Effect */}
+      <View
+        style={[
+          styles.inputWrapper,
+          isFocused && styles.inputWrapperFocused,
+        ]}
+      >
+        <BlurView
+          intensity={40}
+          tint="light"
+          style={[styles.inputBlur, isFocused && styles.inputBlurFocused]}
+        >
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="search"
+              size={18}
+              color={colors.stormGray}
+              style={styles.searchIcon}
+            />
+            <TextInput
+              ref={inputRef}
+              style={styles.textInput}
+              placeholder={placeholder}
+              placeholderTextColor={colors.textTertiary}
+              value={query}
+              onChangeText={handleTextChange}
+              onFocus={() => {
+                setIsFocused(true);
+                // Only show dropdown if we have predictions AND no place is currently selected
+                // Also check hasSelectedRef to prevent reopening immediately after selection
+                if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
+                  setShowDropdown(true);
+                }
+              }}
+              onBlur={() => setIsFocused(false)}
+              returnKeyType="search"
+              testID={`${testID}-input`}
+            />
+            {isLoading && (
+              <ActivityIndicator size="small" color={colors.sunsetGold} style={styles.loader} />
+            )}
+            {!isLoading && query.length > 0 && (
+              <Pressable onPress={handleClear} hitSlop={8}>
+                <Ionicons name="close-circle" size={20} color={colors.stormGray} />
+              </Pressable>
+            )}
+          </View>
+        </BlurView>
       </View>
 
       {/* Error Message */}
@@ -468,7 +506,7 @@ export function PlacesAutocomplete({
       {/* Selected Place Display */}
       {value && !showDropdown && (
         <View style={styles.selectedPlace}>
-          <Ionicons name="location" size={16} color="#007AFF" />
+          <Ionicons name="location" size={16} color={colors.adobeBrick} />
           <Text style={styles.selectedPlaceName} numberOfLines={1}>
             {value.name}
           </Text>
@@ -497,7 +535,7 @@ export function PlacesAutocomplete({
                 <Ionicons
                   name="location-outline"
                   size={20}
-                  color="#666"
+                  color={colors.adobeBrick}
                   style={styles.predictionIcon}
                 />
                 <View style={styles.predictionText}>
@@ -520,7 +558,7 @@ export function PlacesAutocomplete({
               setShowManualEntry(true);
             }}
           >
-            <Ionicons name="create-outline" size={18} color="#007AFF" />
+            <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
             <Text style={styles.manualEntryText}>Enter manually instead</Text>
           </Pressable>
         </View>
@@ -541,7 +579,7 @@ export function PlacesAutocomplete({
               setShowManualEntry(true);
             }}
           >
-            <Ionicons name="create-outline" size={18} color="#007AFF" />
+            <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
             <Text style={styles.manualEntryText}>Enter manually</Text>
           </Pressable>
         </View>
@@ -555,69 +593,99 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 100,
   },
+  inputWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  inputWrapperFocused: {
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  inputBlur: {
+    minHeight: 48,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  },
+  inputBlurFocused: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 48,
+    paddingHorizontal: 16,
+    minHeight: 48,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
+    opacity: 0.7,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.regular,
+    color: colors.textPrimary,
+    paddingVertical: 12,
   },
   loader: {
     marginLeft: 8,
   },
   errorText: {
     fontSize: 13,
-    color: '#FF3B30',
+    color: colors.adobeBrick,
     marginTop: 6,
     marginLeft: 4,
+    fontFamily: fonts.openSans.regular,
   },
   manualLink: {
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.adobeBrick,
     marginTop: 8,
     marginLeft: 4,
+    fontFamily: fonts.openSans.semiBold,
   },
   selectedPlace: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 10,
     paddingHorizontal: 4,
   },
   selectedPlaceName: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
     marginLeft: 6,
   },
   selectedPlaceAddress: {
     fontSize: 13,
-    color: '#666',
+    fontFamily: fonts.openSans.regular,
+    color: colors.textSecondary,
     marginLeft: 8,
     flex: 1,
   },
   dropdown: {
     position: 'absolute',
-    top: 52,
+    top: 56,
     left: 0,
     right: 0,
     backgroundColor: '#fff',
-    borderRadius: 10,
-    shadowColor: '#000',
+    borderRadius: 12,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
     maxHeight: 300,
     zIndex: 1000,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   predictionsList: {
     maxHeight: 250,
@@ -625,10 +693,10 @@ const styles = StyleSheet.create({
   predictionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   predictionIcon: {
     marginRight: 12,
@@ -638,27 +706,28 @@ const styles = StyleSheet.create({
   },
   predictionMain: {
     fontSize: 15,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   predictionSecondary: {
     fontSize: 13,
-    color: '#666',
+    fontFamily: fonts.openSans.regular,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   manualEntryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: 'rgba(0,0,0,0.05)',
     gap: 6,
   },
   manualEntryText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: colors.adobeBrick,
+    fontFamily: fonts.openSans.semiBold,
   },
   noResults: {
     paddingVertical: 20,
@@ -666,13 +735,14 @@ const styles = StyleSheet.create({
   },
   noResultsText: {
     fontSize: 14,
-    color: '#999',
+    fontFamily: fonts.openSans.regular,
+    color: colors.textSecondary,
   },
   manualContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -686,30 +756,40 @@ const styles = StyleSheet.create({
   },
   manualTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
   },
-  input: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+  manualInputWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  manualInputBlur: {
+    minHeight: 48,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  },
+  manualInput: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    fontFamily: fonts.openSans.regular,
+    color: colors.textPrimary,
   },
   manualButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
+    backgroundColor: colors.sunsetGold,
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
   },
   manualButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: colors.backgroundMuted,
   },
   manualButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
 });
