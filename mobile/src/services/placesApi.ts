@@ -91,10 +91,14 @@ export async function searchPlaces(
       }
       if (retryCount < MAX_RETRIES && !signal?.aborted) {
         await delay(RETRY_DELAY_MS * (retryCount + 1));
+        // Check if aborted during delay
+        if (signal?.aborted) {
+          return [];
+        }
         return searchPlaces(query, countryCode, signal, retryCount + 1);
       }
       logger.warn(`Places API returned status ${response.status} after ${MAX_RETRIES} retries`);
-      return [];
+      throw new Error('NETWORK_ERROR');
     }
 
     const data = await response.json();
@@ -133,6 +137,10 @@ export async function searchPlaces(
     if (retryCount < MAX_RETRIES && !signal?.aborted) {
       logger.warn(`Places fetch failed, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
       await delay(RETRY_DELAY_MS * (retryCount + 1));
+      // Check if aborted during delay
+      if (signal?.aborted) {
+        return [];
+      }
       return searchPlaces(query, countryCode, signal, retryCount + 1);
     }
 

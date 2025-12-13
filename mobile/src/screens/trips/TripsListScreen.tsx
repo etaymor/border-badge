@@ -213,7 +213,9 @@ export function TripsListScreen({ navigation }: Props) {
         stickySectionHeadersEnabled={false}
         removeClippedSubviews={true}
         ListEmptyComponent={
-          !isLoading && trips?.length === 0 ? <EmptyState onAddTrip={handleAddTrip} /> : null
+          !isLoading && sections.reduce((sum, section) => sum + section.data.length, 0) === 0 ? (
+            <EmptyState onAddTrip={handleAddTrip} />
+          ) : null
         }
       />
 

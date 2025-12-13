@@ -14,12 +14,12 @@ def get_token_from_request(request: Request) -> str | None:
 # Special flag mappings for non-standard country codes
 SPECIAL_FLAGS: dict[str, str] = {
     # UK constituent countries (subdivision flags)
-    "XS": "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F",  # Scotland
-    "XW": "\U0001F3F4\U000E0067\U000E0062\U000E0077\U000E006C\U000E0073\U000E007F",  # Wales
-    "XI": "\U0001F1EC\U0001F1E7",  # Northern Ireland (use UK flag)
+    "XS": "\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f",  # Scotland
+    "XW": "\U0001f3f4\U000e0067\U000e0062\U000e0077\U000e006c\U000e0073\U000e007f",  # Wales
+    "XI": "\U0001f1ec\U0001f1e7",  # Northern Ireland (use UK flag)
     # Special regions without standard flags
-    "ZZ": "\U0001F1F9\U0001F1FF",  # Zanzibar (use Tanzania)
-    "NC": "\U0001F1E8\U0001F1FE",  # Northern Cyprus (use Cyprus)
+    "ZZ": "\U0001f1f9\U0001f1ff",  # Zanzibar (use Tanzania)
+    "NC": "\U0001f1e8\U0001f1fe",  # Northern Cyprus (use Cyprus)
 }
 
 
