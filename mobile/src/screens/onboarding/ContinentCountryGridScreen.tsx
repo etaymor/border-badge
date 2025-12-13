@@ -1,11 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Calculate row height based on card aspect ratio (3:4) and layout
+// Available width = SCREEN_WIDTH - padding(16*2) - gap(12) = 2 cards
+// Card width = (SCREEN_WIDTH - 44) / 2
+// Card height = cardWidth * (4/3) due to aspectRatio 3/4
+// Row height = cardHeight + marginBottom(12)
+const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
+const CARD_HEIGHT = CARD_WIDTH * (4 / 3);
+const ROW_HEIGHT = CARD_HEIGHT + 12; // 12px marginBottom
+
 import { CountryCard, GlassBackButton } from '@components/ui';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
@@ -133,6 +151,16 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     [toggleBucketListCountry]
   );
 
+  // FlatList optimization for instant scroll calculations
+  const getItemLayout = useCallback(
+    (_: CountryPair[] | null | undefined, index: number) => ({
+      length: ROW_HEIGHT,
+      offset: ROW_HEIGHT * index,
+      index,
+    }),
+    []
+  );
+
   const renderCountryRow = useCallback(
     ({ item }: { item: CountryPair }) => (
       <View style={styles.countryRow}>
@@ -203,6 +231,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           data={countryPairs}
           renderItem={renderCountryRow}
           keyExtractor={(item) => item.left.code}
+          getItemLayout={getItemLayout}
           contentContainerStyle={styles.gridContent}
           showsVerticalScrollIndicator={false}
           testID="country-grid"
@@ -348,7 +377,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: `${colors.midnightNavy}30`,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
   },
   progressDotActive: {
     backgroundColor: colors.midnightNavy,

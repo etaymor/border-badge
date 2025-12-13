@@ -6,15 +6,12 @@ import {
   KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   UIManager,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Enable LayoutAnimation on Android
@@ -22,8 +19,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-import type { TripsStackScreenProps } from '@navigation/types';
-import type { EntryType } from '@navigation/types';
+import type { TripsStackScreenProps, EntryType } from '@navigation/types';
 import {
   useCreateEntry,
   useUpdateEntry,
@@ -32,6 +28,7 @@ import {
   PlaceInput,
 } from '@hooks/useEntries';
 import { useTrip } from '@hooks/useTrips';
+import { CategorySelector } from '@components/entries';
 import { EntryMediaGallery } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
@@ -40,132 +37,6 @@ import { fonts } from '@constants/typography';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
-
-// Entry type configuration with brand colors
-const ENTRY_TYPES: {
-  type: EntryType;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  color: string;
-  emoji: string;
-}[] = [
-  { type: 'place', icon: 'location', label: 'Place', color: colors.adobeBrick, emoji: '📍' },
-  { type: 'food', icon: 'restaurant', label: 'Food', color: colors.sunsetGold, emoji: '🍽️' },
-  { type: 'stay', icon: 'bed', label: 'Stay', color: colors.mossGreen, emoji: '🏨' },
-  {
-    type: 'experience',
-    icon: 'star',
-    label: 'Experience',
-    color: colors.midnightNavy,
-    emoji: '✨',
-  },
-];
-
-// Animated category button component
-function CategoryButton({
-  item,
-  isSelected,
-  onPress,
-  index,
-}: {
-  item: (typeof ENTRY_TYPES)[0];
-  isSelected: boolean;
-  onPress: () => void;
-  index: number;
-}) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Stagger entrance animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 300,
-      delay: index * 80,
-      useNativeDriver: true,
-    }).start();
-  }, [fadeAnim, index]);
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <Animated.View
-      style={[
-        styles.categoryButtonWrapper,
-        {
-          opacity: fadeAnim,
-          transform: [
-            { scale: scaleAnim },
-            {
-              translateY: fadeAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [20, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        testID={`entry-type-${item.type}`}
-      >
-        <View style={styles.categoryButtonOuter}>
-          <BlurView
-            intensity={isSelected ? 50 : 30}
-            tint="light"
-            style={[
-              styles.categoryButton,
-              isSelected && {
-                backgroundColor: `${item.color}15`,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.categoryIconContainer,
-                isSelected && { backgroundColor: `${item.color}20` },
-              ]}
-            >
-              <Ionicons
-                name={item.icon}
-                size={22}
-                color={isSelected ? item.color : colors.textSecondary}
-              />
-            </View>
-            <Text
-              style={[
-                styles.categoryLabel,
-                isSelected && { color: item.color, fontFamily: fonts.openSans.semiBold },
-              ]}
-            >
-              {item.label}
-            </Text>
-            {isSelected && (
-              <View style={[styles.selectedIndicator, { backgroundColor: item.color }]} />
-            )}
-          </BlurView>
-        </View>
-      </Pressable>
-    </Animated.View>
-  );
-}
 
 export function EntryFormScreen({ route, navigation }: Props) {
   const { tripId, entryId, entryType: initialEntryType } = route.params;
@@ -258,11 +129,23 @@ export function EntryFormScreen({ route, navigation }: Props) {
     }
   }, [existingEntry, isEditing, formFadeAnim, formSlideAnim]);
 
-  // Simple URL validation
+  // URL validation with length limit
+  const MAX_URL_LENGTH = 2048;
+
   const isValidUrl = useCallback((url: string): boolean => {
     if (!url.trim()) return true; // Empty is valid (optional field)
+
+    if (url.length > MAX_URL_LENGTH) {
+      return false;
+    }
+
     try {
-      const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+      let urlWithProtocol = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        urlWithProtocol = `https://${url}`;
+      }
+
+      const parsed = new URL(urlWithProtocol);
       return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
       return false;
@@ -393,9 +276,6 @@ export function EntryFormScreen({ route, navigation }: Props) {
     }, 150);
   }, []);
 
-  // Get selected type config
-  const selectedTypeConfig = entryType ? ENTRY_TYPES.find((t) => t.type === entryType) : null;
-
   if (isEditing && isLoadingEntry) {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
@@ -420,7 +300,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -439,52 +319,12 @@ export function EntryFormScreen({ route, navigation }: Props) {
           </Text>
 
           {/* Category Selection */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>CATEGORY</Text>
-            {hasSelectedType && selectedTypeConfig ? (
-              // Selected category display
-              <View style={styles.selectedCategoryOuter}>
-                <BlurView intensity={40} tint="light" style={styles.selectedCategoryInner}>
-                  <View style={styles.selectedCategoryContent}>
-                    <View
-                      style={[
-                        styles.selectedCategoryIconContainer,
-                        { backgroundColor: `${selectedTypeConfig.color}20` },
-                      ]}
-                    >
-                      <Ionicons
-                        name={selectedTypeConfig.icon}
-                        size={24}
-                        color={selectedTypeConfig.color}
-                      />
-                    </View>
-                    <Text
-                      style={[styles.selectedCategoryLabel, { color: selectedTypeConfig.color }]}
-                    >
-                      {selectedTypeConfig.label}
-                    </Text>
-                  </View>
-                  <Pressable style={styles.changeButton} onPress={handleChangeType}>
-                    <Ionicons name="swap-horizontal" size={16} color={colors.midnightNavy} />
-                    <Text style={styles.changeButtonText}>Change</Text>
-                  </Pressable>
-                </BlurView>
-              </View>
-            ) : (
-              // Category grid
-              <View style={styles.categoryGrid}>
-                {ENTRY_TYPES.map((item, index) => (
-                  <CategoryButton
-                    key={item.type}
-                    item={item}
-                    isSelected={entryType === item.type}
-                    onPress={() => handleTypeSelect(item.type)}
-                    index={index}
-                  />
-                ))}
-              </View>
-            )}
-          </View>
+          <CategorySelector
+            entryType={entryType}
+            hasSelectedType={hasSelectedType}
+            onTypeSelect={handleTypeSelect}
+            onChangeType={handleChangeType}
+          />
 
           {/* Animated form fields */}
           {hasSelectedType && (
@@ -665,112 +505,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     opacity: 0.7,
     textTransform: 'uppercase',
-  },
-
-  // Category grid styles
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  categoryButtonWrapper: {
-    width: '47%',
-    flexGrow: 1,
-  },
-  categoryButtonOuter: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  categoryButton: {
-    paddingVertical: 18,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    alignItems: 'center',
-    gap: 10,
-  },
-  categoryIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  categoryLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    textAlign: 'center',
-  },
-  selectedIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: '25%',
-    right: '25%',
-    height: 3,
-    borderRadius: 2,
-  },
-
-  // Selected category display
-  selectedCategoryOuter: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  selectedCategoryInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  selectedCategoryContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  selectedCategoryIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedCategoryLabel: {
-    fontSize: 18,
-    fontFamily: fonts.openSans.semiBold,
-  },
-  changeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(244, 194, 78, 0.15)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.3)',
-  },
-  changeButtonText: {
-    fontSize: 14,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
   },
 
   // Location section needs high zIndex for dropdown

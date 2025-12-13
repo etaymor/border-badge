@@ -27,6 +27,7 @@ import {
 } from '@services/mediaUpload';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { logger } from '@utils/logger';
 
 interface CoverImagePickerProps {
   value?: string;
@@ -116,7 +117,7 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Upload failed:', response.status, errorText);
+          logger.error('Upload failed:', response.status, errorText);
           throw new MediaUploadError('Failed to upload image', 'UPLOAD');
         }
 
@@ -137,7 +138,7 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         // Silently ignore aborted requests (component unmounted or new upload started)
         if ((err as Error).name === 'AbortError') return;
 
-        console.error('Cover image upload failed:', err);
+        logger.error('Cover image upload failed:', err);
         const message =
           err instanceof MediaUploadError
             ? err.message

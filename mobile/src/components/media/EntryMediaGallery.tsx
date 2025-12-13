@@ -24,6 +24,7 @@ import {
 import { pickImages, LocalFile, MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { logger } from '@utils/logger';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const ITEM_SIZE = (SCREEN_WIDTH - 48 - 16) / 3; // 3 columns with gaps
@@ -163,7 +164,7 @@ export function EntryMediaGallery({
         }
       }
     } catch (error) {
-      console.error('Failed to pick images:', error);
+      logger.error('Failed to pick images:', error);
       if ((error as Error).message.includes('denied')) {
         Alert.alert('Permission Required', 'Please allow photo library access in Settings.');
       }

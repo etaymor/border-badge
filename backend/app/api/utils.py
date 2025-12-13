@@ -12,7 +12,19 @@ def get_token_from_request(request: Request) -> str | None:
 
 
 def get_flag_emoji(country_code: str | None) -> str:
-    """Convert country code to flag emoji."""
+    """Convert ISO 3166-1 alpha-2 country code to flag emoji.
+
+    Returns empty string for invalid or non-standard codes.
+    """
     if not country_code:
         return ""
-    return "".join(chr(ord(c) + 127397) for c in country_code.upper())
+
+    # Normalize and validate
+    code = country_code.strip().upper()
+
+    # Must be exactly 2 ASCII letters A-Z
+    if len(code) != 2 or not code.isalpha() or not code.isascii():
+        return ""
+
+    # Convert to regional indicator symbols
+    return "".join(chr(ord(c) + 127397) for c in code)

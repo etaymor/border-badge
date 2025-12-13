@@ -165,12 +165,24 @@ export function ExploreFilterSheet({
     ? countActiveFilters(filters)
     : countActiveFilters(filters) - filters.status.length;
 
-  // Handle apply button press
+  // Handle apply button press - run close animation then call onApply
+  // Note: We don't call closeSheet() here because it would call onClose(),
+  // and if onApply === onClose, that would cause a double-close.
   const handleApply = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    closeSheet();
-    onApply();
-  }, [closeSheet, onApply]);
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: SHEET_HEIGHT,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => onApply());
+  }, [translateY, backdropOpacity, onApply]);
 
   // Open animation on visible change
   useEffect(() => {

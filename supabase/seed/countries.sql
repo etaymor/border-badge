@@ -59,7 +59,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('UG', 'Uganda', 'Africa', 'Eastern Africa', 'un_member'),
 ('ZM', 'Zambia', 'Africa', 'Eastern Africa', 'un_member'),
 ('ZW', 'Zimbabwe', 'Africa', 'Eastern Africa', 'un_member'),
-('EH', 'Zanzibar', 'Africa', 'Eastern Africa', 'special_region'),
+('ZZ', 'Zanzibar', 'Africa', 'Eastern Africa', 'special_region'),
 
 -- Africa - Central Africa
 ('CM', 'Cameroon', 'Africa', 'Central Africa', 'un_member'),
@@ -109,7 +109,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('LC', 'Saint Lucia', 'Americas', 'Caribbean', 'un_member'),
 ('VC', 'Saint Vincent and the Grenadines', 'Americas', 'Caribbean', 'un_member'),
 ('TT', 'Trinidad and Tobago', 'Americas', 'Caribbean', 'un_member'),
-('AI', 'Anguila', 'Americas', 'Caribbean', 'dependent_territory'),
+('AI', 'Anguilla', 'Americas', 'Caribbean', 'dependent_territory'),
 ('AW', 'Aruba', 'Americas', 'Caribbean', 'dependent_territory'),
 ('VG', 'BVI', 'Americas', 'Caribbean', 'dependent_territory'),
 ('KY', 'Cayman Islands', 'Americas', 'Caribbean', 'dependent_territory'),
@@ -214,9 +214,9 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('GB', 'United Kingdom', 'Europe', 'Northern Europe', 'un_member'),
 ('FO', 'Faroe Islands', 'Europe', 'Northern Europe', 'dependent_territory'),
 ('IM', 'Isle of Man', 'Europe', 'Northern Europe', 'dependent_territory'),
-('NIR', 'Northern Ireland', 'Europe', 'Northern Europe', 'constituent_country'),
-('SCT', 'Scotland', 'Europe', 'Northern Europe', 'constituent_country'),
-('WLS', 'Wales', 'Europe', 'Northern Europe', 'constituent_country'),
+('XI', 'Northern Ireland', 'Europe', 'Northern Europe', 'constituent_country'),
+('XS', 'Scotland', 'Europe', 'Northern Europe', 'constituent_country'),
+('XW', 'Wales', 'Europe', 'Northern Europe', 'constituent_country'),
 
 -- Europe - Western Europe
 ('AT', 'Austria', 'Europe', 'Western Europe', 'un_member'),
@@ -274,7 +274,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('KI', 'Kiribati', 'Oceania', 'Micronesia', 'un_member'),
 ('MH', 'Marshall Islands', 'Oceania', 'Micronesia', 'un_member'),
 ('FM', 'Micronesia', 'Oceania', 'Micronesia', 'un_member'),
-('NR', 'Nuaru', 'Oceania', 'Micronesia', 'un_member'),
+('NR', 'Nauru', 'Oceania', 'Micronesia', 'un_member'),
 ('PW', 'Palau', 'Oceania', 'Micronesia', 'un_member'),
 ('GU', 'Guam', 'Oceania', 'Micronesia', 'dependent_territory'),
 
@@ -282,7 +282,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('WS', 'Samoa', 'Oceania', 'Polynesia', 'un_member'),
 ('TO', 'Tonga', 'Oceania', 'Polynesia', 'un_member'),
 ('TV', 'Tuvalu', 'Oceania', 'Polynesia', 'un_member'),
-('AS', 'American Samao', 'Oceania', 'Polynesia', 'dependent_territory'),
+('AS', 'American Samoa', 'Oceania', 'Polynesia', 'dependent_territory'),
 ('CK', 'Cook Islands', 'Oceania', 'Polynesia', 'dependent_territory'),
 ('PF', 'French Polynesia', 'Oceania', 'Polynesia', 'dependent_territory'),
 

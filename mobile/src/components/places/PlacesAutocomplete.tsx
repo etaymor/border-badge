@@ -15,6 +15,7 @@ import Constants from 'expo-constants';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { logger } from '@utils/logger';
 
 const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 
@@ -104,7 +105,7 @@ async function searchPlaces(
         await delay(RETRY_DELAY_MS * (retryCount + 1));
         return searchPlaces(query, countryCode, signal, retryCount + 1);
       }
-      console.warn(`Places API returned status ${response.status} after ${MAX_RETRIES} retries`);
+      logger.warn(`Places API returned status ${response.status} after ${MAX_RETRIES} retries`);
       return [];
     }
 
@@ -145,12 +146,12 @@ async function searchPlaces(
 
     // Retry network errors (unless aborted)
     if (retryCount < MAX_RETRIES && !signal?.aborted) {
-      console.warn(`Places fetch failed, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+      logger.warn(`Places fetch failed, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
       await delay(RETRY_DELAY_MS * (retryCount + 1));
       return searchPlaces(query, countryCode, signal, retryCount + 1);
     }
 
-    console.error('Places autocomplete error after retries:', error);
+    logger.error('Places autocomplete error after retries:', error);
     throw new Error('NETWORK_ERROR');
   }
 }
@@ -172,7 +173,7 @@ async function getPlaceDetails(placeId: string): Promise<PlaceResult | null> {
     });
 
     if (!response.ok) {
-      console.error('Place details API error:', response.status);
+      logger.error('Place details API error:', response.status);
       return null;
     }
 
@@ -193,7 +194,7 @@ async function getPlaceDetails(placeId: string): Promise<PlaceResult | null> {
         : undefined,
     };
   } catch (error) {
-    console.error('Place details error:', error);
+    logger.error('Place details error:', error);
     return null;
   }
 }
@@ -220,6 +221,8 @@ export function PlacesAutocomplete({
   const inputRef = useRef<TextInput>(null);
   // Track when a selection was just made to prevent dropdown from reopening on focus
   const hasSelectedRef = useRef(false);
+  // Track the current pending selection to discard stale responses from rapid taps
+  const pendingSelectionRef = useRef<string | null>(null);
 
   // Clear selection
   const handleClear = useCallback(() => {
@@ -287,6 +290,10 @@ export function PlacesAutocomplete({
   // Handle prediction selection
   const handleSelectPrediction = useCallback(
     async (prediction: Prediction) => {
+      // Track this selection to discard stale responses from rapid taps
+      const selectionId = prediction.place_id;
+      pendingSelectionRef.current = selectionId;
+
       // Mark that we've selected to prevent dropdown from reopening
       hasSelectedRef.current = true;
       // Immediately hide dropdown and clear predictions BEFORE any async work
@@ -305,6 +312,11 @@ export function PlacesAutocomplete({
 
       try {
         const details = await getPlaceDetails(prediction.place_id);
+
+        // Discard if a newer selection was made while waiting
+        if (pendingSelectionRef.current !== selectionId) {
+          return;
+        }
 
         if (details) {
           const selectedPlace: SelectedPlace = {
@@ -331,7 +343,12 @@ export function PlacesAutocomplete({
           onSelect(selectedPlace);
         }
       } catch (err) {
-        console.error('Error fetching place details:', err);
+        // Discard if a newer selection was made while waiting
+        if (pendingSelectionRef.current !== selectionId) {
+          return;
+        }
+
+        logger.error('Error fetching place details:', err);
         // Fallback: use prediction data
         const selectedPlace: SelectedPlace = {
           google_place_id: prediction.place_id,
@@ -344,7 +361,10 @@ export function PlacesAutocomplete({
         setQuery(prediction.structured_formatting.main_text);
         onSelect(selectedPlace);
       } finally {
-        setIsLoading(false);
+        // Only clear loading if this is still the active selection
+        if (pendingSelectionRef.current === selectionId) {
+          setIsLoading(false);
+        }
       }
     },
     [onSelect]
@@ -409,6 +429,7 @@ export function PlacesAutocomplete({
               value={manualName}
               onChangeText={setManualName}
               returnKeyType="next"
+              maxLength={100}
               testID={`${testID}-manual-name`}
             />
           </BlurView>
@@ -423,6 +444,7 @@ export function PlacesAutocomplete({
               value={manualAddress}
               onChangeText={setManualAddress}
               returnKeyType="done"
+              maxLength={200}
               onSubmitEditing={handleManualSubmit}
               testID={`${testID}-manual-address`}
             />

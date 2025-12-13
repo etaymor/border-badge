@@ -5,7 +5,7 @@ import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: `${colors.midnightNavy}30`,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
   },
   progressDotActive: {
     backgroundColor: colors.midnightNavy,

@@ -8,16 +8,16 @@
 {
   "@context": "https://schema.org",
   "@type": "ItemList",
-  "name": "{{ list.name }}",
-  "description": "{{ list.description or '' }}",
-  "datePublished": "{{ list.created_at.isoformat() }}",
-  "url": "{{ canonical_url }}",
+  "name": {{ list.name|tojson }},
+  "description": {{ (list.description or '')|tojson }},
+  "datePublished": {{ list.created_at.isoformat()|tojson }},
+  "url": {{ canonical_url|tojson }},
   "itemListElement": [
     {% for entry in list.entries %}
     {
       "@type": "ListItem",
       "position": {{ loop.index }},
-      "name": "{{ entry.title }}"
+      "name": {{ entry.title|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ],
@@ -28,13 +28,13 @@
         "@type": "ListItem",
         "position": 1,
         "name": "Home",
-        "item": "{{ canonical_url.split('/l/')[0] }}"
+        "item": {{ canonical_url.split('/l/')[0]|tojson }}
       },
       {
         "@type": "ListItem",
         "position": 2,
-        "name": "{{ list.name }}",
-        "item": "{{ canonical_url }}"
+        "name": {{ list.name|tojson }},
+        "item": {{ canonical_url|tojson }}
       }
     ]
   }
