@@ -2,9 +2,9 @@ import type { RecognitionGroup } from '@constants/regions';
 
 /**
  * Country status options for filtering.
- * Maps to user_countries status + "not visited" derived state.
+ * Maps to user_countries status + "not visited" derived state + "has_trips" for countries with logged trips.
  */
-export type CountryStatus = 'visited' | 'dream' | 'not_visited';
+export type CountryStatus = 'visited' | 'dream' | 'not_visited' | 'has_trips';
 
 /**
  * Filter state for the Explore filter sheet.

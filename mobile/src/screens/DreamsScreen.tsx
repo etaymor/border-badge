@@ -13,13 +13,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ShareCardOverlay } from '@components/share';
 import { CountryCard, ExploreFilterSheet, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
+import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
 import {
   DEFAULT_FILTERS,
   hasActiveFilters,
@@ -40,6 +43,7 @@ interface DreamCountry {
   name: string;
   region: string;
   isWishlisted: boolean;
+  hasTrips: boolean;
 }
 
 interface SnackbarState {
@@ -52,11 +56,16 @@ export function DreamsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
+  const { data: trips } = useTrips();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+
+  // Share card state
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -154,6 +163,7 @@ export function DreamsScreen({ navigation }: Props) {
     const query = searchQuery.toLowerCase().trim();
     const wishlistCodes = new Set(wishlistCountries.map((uc) => uc.country_code));
     const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
+    const countriesWithTrips = new Set(trips?.map((t) => t.country_code) ?? []);
 
     // Filter by search, exclude visited
     const filtered = filteredCountries
@@ -175,8 +185,9 @@ export function DreamsScreen({ navigation }: Props) {
       name: c.name,
       region: c.region,
       isWishlisted: wishlistCodes.has(c.code),
+      hasTrips: countriesWithTrips.has(c.code),
     }));
-  }, [filteredCountries, wishlistCountries, visitedCountries, searchQuery]);
+  }, [filteredCountries, wishlistCountries, visitedCountries, trips, searchQuery]);
 
   const handleCountryPress = useCallback(
     (country: DreamCountry) => {
@@ -191,6 +202,11 @@ export function DreamsScreen({ navigation }: Props) {
 
   const handleAddVisited = useCallback(
     (countryCode: string, countryName: string) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Calculate milestone context BEFORE mutation
+      const context = buildMilestoneContext(countryCode, countries ?? [], userCountries ?? []);
+
       addUserCountry.mutate(
         { country_code: countryCode, status: 'visited' },
         {
@@ -203,9 +219,20 @@ export function DreamsScreen({ navigation }: Props) {
           },
         }
       );
+
+      // Show share card overlay
+      if (context) {
+        setShareCardContext(context);
+        setShareCardVisible(true);
+      }
     },
-    [addUserCountry]
+    [addUserCountry, countries, userCountries]
   );
+
+  const handleShareCardDismiss = useCallback(() => {
+    setShareCardVisible(false);
+    setShareCardContext(null);
+  }, []);
 
   const handleToggleWishlist = useCallback(
     (countryCode: string, countryName: string) => {
@@ -315,6 +342,7 @@ export function DreamsScreen({ navigation }: Props) {
             name={item.name}
             isVisited={false}
             isWishlisted={item.isWishlisted}
+            hasTrips={item.hasTrips}
             onPress={() => handleCountryPress(item)}
             onAddVisited={() => handleAddVisited(item.code, item.name)}
             onToggleWishlist={() => handleToggleWishlist(item.code, item.name)}
@@ -470,6 +498,12 @@ export function DreamsScreen({ navigation }: Props) {
         onClearAll={handleClearFilters}
         onApply={handleCloseFilters}
         showStatusSection={false}
+      />
+
+      <ShareCardOverlay
+        visible={shareCardVisible}
+        context={shareCardContext}
+        onDismiss={handleShareCardDismiss}
       />
     </View>
   );

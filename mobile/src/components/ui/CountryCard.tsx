@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
-  Animated,
   GestureResponderEvent,
   Image,
   StyleSheet,
@@ -31,6 +30,8 @@ export interface CountryCardProps {
   isVisited?: boolean;
   /** Whether the country is in the wishlist */
   isWishlisted?: boolean;
+  /** Whether the country has any trips logged */
+  hasTrips?: boolean;
   /** Handler when card body is pressed - navigates to CountryDetail */
   onPress: () => void;
   /** Handler for plus button - marks as visited */
@@ -43,12 +44,26 @@ export interface CountryCardProps {
   testID?: string;
 }
 
+// Custom memo comparison to prevent unnecessary re-renders
+function arePropsEqual(prev: CountryCardProps, next: CountryCardProps): boolean {
+  return (
+    prev.code === next.code &&
+    prev.name === next.name &&
+    prev.region === next.region &&
+    prev.isVisited === next.isVisited &&
+    prev.isWishlisted === next.isWishlisted &&
+    prev.hasTrips === next.hasTrips
+    // Intentionally ignore function props - they should be stable via useCallback
+  );
+}
+
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
   region,
   isVisited = false,
   isWishlisted = false,
+  hasTrips = false,
   onPress,
   onAddVisited,
   onToggleWishlist,
@@ -57,31 +72,6 @@ export const CountryCard = React.memo(function CountryCard({
 }: CountryCardProps) {
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
   const countryImage = useMemo(() => getCountryImage(code), [code]);
-  const heartScale = useRef(new Animated.Value(1)).current;
-
-  // Cleanup: stop any running animation and reset value on unmount
-  useEffect(() => {
-    return () => {
-      heartScale.stopAnimation();
-      heartScale.setValue(1);
-    };
-  }, [heartScale]);
-
-  const animateHeartPulse = useCallback(() => {
-    Animated.sequence([
-      Animated.spring(heartScale, {
-        toValue: 1.3,
-        friction: 3,
-        tension: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(heartScale, {
-        toValue: 1,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [heartScale]);
 
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
@@ -96,12 +86,9 @@ export const CountryCard = React.memo(function CountryCard({
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      if (!isWishlisted) {
-        animateHeartPulse();
-      }
       onToggleWishlist();
     },
-    [onToggleWishlist, isWishlisted, animateHeartPulse]
+    [onToggleWishlist]
   );
 
   return (
@@ -145,9 +132,17 @@ export const CountryCard = React.memo(function CountryCard({
       {/* Bottom Row - Flag Badge Left, Action Buttons Right */}
       <View style={styles.bottomRow}>
         {/* Flag Badge - Bottom Left */}
-        <BlurView intensity={30} tint="light" style={styles.glassBadge}>
-          <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-        </BlurView>
+        <View style={styles.flagContainer}>
+          <BlurView intensity={30} tint="light" style={styles.glassBadge}>
+            <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+          </BlurView>
+          {/* Trips Indicator - Small badge overlapping flag */}
+          {hasTrips && (
+            <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
+              <Ionicons name="images" size={10} color={colors.cloudWhite} />
+            </View>
+          )}
+        </View>
 
         {/* Action Buttons - Bottom Right */}
         <View style={styles.actionsContainer}>
@@ -178,37 +173,35 @@ export const CountryCard = React.memo(function CountryCard({
           </TouchableOpacity>
 
           {/* Wishlist Button */}
-          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-            <TouchableOpacity
-              onPress={handleWishlistPress}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-              accessibilityHint={
-                isWishlisted
-                  ? 'Removes country from your dreams list'
-                  : 'Adds country to your dreams list'
-              }
-              testID={`country-card-wishlist-${code}`}
+          <TouchableOpacity
+            onPress={handleWishlistPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+            accessibilityHint={
+              isWishlisted
+                ? 'Removes country from your dreams list'
+                : 'Adds country to your dreams list'
+            }
+            testID={`country-card-wishlist-${code}`}
+          >
+            <BlurView
+              intensity={30}
+              tint="light"
+              style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
             >
-              <BlurView
-                intensity={30}
-                tint="light"
-                style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
-              >
-                <Ionicons
-                  name={isWishlisted ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-                />
-              </BlurView>
-            </TouchableOpacity>
-          </Animated.View>
+              <Ionicons
+                name={isWishlisted ? 'heart' : 'heart-outline'}
+                size={20}
+                color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+              />
+            </BlurView>
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
   );
-});
+}, arePropsEqual);
 
 const styles = StyleSheet.create({
   container: {
@@ -259,6 +252,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
+  flagContainer: {
+    position: 'relative',
+  },
   glassBadge: {
     width: 44,
     height: 44,
@@ -272,6 +268,19 @@ const styles = StyleSheet.create({
   },
   flagEmoji: {
     fontSize: 24,
+  },
+  tripsIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.mossGreen,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.cloudWhite,
   },
   actionsContainer: {
     flexDirection: 'column',

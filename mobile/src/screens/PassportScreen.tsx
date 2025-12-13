@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   FlatList,
   StyleSheet,
   Text,
@@ -13,13 +14,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ShareCardOverlay } from '@components/share';
 import { CountryCard, ExploreFilterSheet, PassportSkeleton, StampCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
+import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
 import {
   DEFAULT_FILTERS,
   hasActiveFilters,
@@ -41,6 +45,7 @@ interface UnvisitedCountry {
   name: string;
   region: string;
   isWishlisted: boolean;
+  hasTrips: boolean;
 }
 
 type ListItem =
@@ -126,24 +131,41 @@ function StatBox({
   );
 }
 
-// Row height constants for getItemLayout optimization
+// Calculate row heights dynamically based on screen width for accurate getItemLayout
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Grid layout constants (must match styles)
+const GRID_PADDING = 16;
+const GRID_GAP = 12;
+const ITEM_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2;
+
+// StampCard is square, CountryCard has 3:4 aspect ratio
+const STAMP_HEIGHT = ITEM_WIDTH;
+const COUNTRY_CARD_HEIGHT = ITEM_WIDTH * (4 / 3);
+
+// Row heights including margins - must match actual rendered heights exactly
 const ROW_HEIGHTS = {
-  'section-header': 64,
-  'stamp-row': 180,
-  'unvisited-row': 140,
+  'section-header': 68, // fontSize 20-32 + marginTop 24 + marginBottom 8-12
+  'stamp-row': Math.round(STAMP_HEIGHT) + 12, // stamp height + marginBottom
+  'unvisited-row': Math.round(COUNTRY_CARD_HEIGHT) + 12, // card height + marginBottom
   'empty-state': 200,
 } as const;
 
 export function PassportScreen({ navigation }: Props) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
+  const { data: trips, isLoading: loadingTrips } = useTrips();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
-  const isLoading = loadingUserCountries || loadingCountries;
+  // Share card state
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
+
+  const isLoading = loadingUserCountries || loadingCountries || loadingTrips;
 
   // Fade-in animation for content
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -170,13 +192,14 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [userCountries]);
 
-  // Pre-compute visited and wishlist code sets for efficient filtering
-  const { visitedCodes, wishlistCodes } = useMemo(() => {
+  // Pre-compute visited, wishlist, and trip code sets for efficient filtering
+  const { visitedCodes, wishlistCodes, countriesWithTrips } = useMemo(() => {
     return {
       visitedCodes: new Set(visitedCountries.map((uc) => uc.country_code)),
       wishlistCodes: new Set(wishlistCountries.map((uc) => uc.country_code)),
+      countriesWithTrips: new Set(trips?.map((t) => t.country_code) ?? []),
     };
-  }, [visitedCountries, wishlistCountries]);
+  }, [visitedCountries, wishlistCountries, trips]);
 
   // Pre-compute searchable country data (avoids repeated toLowerCase calls during search)
   const searchableCountries = useMemo(() => {
@@ -199,11 +222,13 @@ export function PassportScreen({ navigation }: Props) {
         const isVisited = visitedCodes.has(country.code);
         const isWishlisted = wishlistCodes.has(country.code);
         const isNotVisited = !isVisited && !isWishlisted;
+        const hasTrips = countriesWithTrips.has(country.code);
 
         return (
           (filters.status.includes('visited') && isVisited) ||
           (filters.status.includes('dream') && isWishlisted) ||
-          (filters.status.includes('not_visited') && isNotVisited)
+          (filters.status.includes('not_visited') && isNotVisited) ||
+          (filters.status.includes('has_trips') && hasTrips)
         );
       });
     }
@@ -233,7 +258,7 @@ export function PassportScreen({ navigation }: Props) {
     }
 
     return filtered;
-  }, [searchableCountries, filters, visitedCodes, wishlistCodes]);
+  }, [searchableCountries, filters, visitedCodes, wishlistCodes, countriesWithTrips]);
 
   // Combine visited countries with country metadata for display (filtered by search and explore filters)
   const displayItems = useMemo((): CountryDisplayItem[] => {
@@ -294,9 +319,10 @@ export function PassportScreen({ navigation }: Props) {
         name: c.name,
         region: c.region,
         isWishlisted: wishlistCodes.has(c.code),
+        hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [filteredCountries, visitedCodes, wishlistCodes, searchQuery]);
+  }, [filteredCountries, visitedCodes, wishlistCodes, countriesWithTrips, searchQuery]);
 
   // Flatten data into single array with section markers for FlatList virtualization
   const flatListData = useMemo((): ListItem[] => {
@@ -360,10 +386,26 @@ export function PassportScreen({ navigation }: Props) {
   const handleAddVisited = useCallback(
     (countryCode: string) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Calculate milestone context BEFORE mutation
+      const context = buildMilestoneContext(countryCode, countries ?? [], userCountries ?? []);
+
+      // Fire mutation async
       addUserCountry.mutate({ country_code: countryCode, status: 'visited' });
+
+      // Show share card overlay
+      if (context) {
+        setShareCardContext(context);
+        setShareCardVisible(true);
+      }
     },
-    [addUserCountry]
+    [addUserCountry, countries, userCountries]
   );
+
+  const handleShareCardDismiss = useCallback(() => {
+    setShareCardVisible(false);
+    setShareCardContext(null);
+  }, []);
 
   const handleToggleWishlist = useCallback(
     (countryCode: string) => {
@@ -417,6 +459,7 @@ export function PassportScreen({ navigation }: Props) {
               name={country.name}
               isVisited={false}
               isWishlisted={country.isWishlisted}
+              hasTrips={country.hasTrips}
               onPress={() => handleUnvisitedCountryPress(country)}
               onAddVisited={() => handleAddVisited(country.code)}
               onToggleWishlist={() => handleToggleWishlist(country.code)}
@@ -638,6 +681,12 @@ export function PassportScreen({ navigation }: Props) {
         onClose={handleCloseFilters}
         onClearAll={handleClearFilters}
         onApply={handleCloseFilters}
+      />
+
+      <ShareCardOverlay
+        visible={shareCardVisible}
+        context={shareCardContext}
+        onDismiss={handleShareCardDismiss}
       />
     </SafeAreaView>
   );
