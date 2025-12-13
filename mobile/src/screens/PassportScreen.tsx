@@ -126,41 +126,13 @@ function StatBox({
   );
 }
 
-function AnimatedListItem({
-  children,
-  index,
-  baseDelay = 400,
-}: {
-  children: React.ReactNode;
-  index: number;
-  baseDelay?: number;
-}) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(20)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        delay: baseDelay + index * 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 500,
-        delay: baseDelay + index * 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [fadeAnim, translateY, index, baseDelay]);
-
-  return (
-    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
-      {children}
-    </Animated.View>
-  );
-}
+// Row height constants for getItemLayout optimization
+const ROW_HEIGHTS = {
+  'section-header': 64,
+  'stamp-row': 180,
+  'unvisited-row': 140,
+  'empty-state': 200,
+} as const;
 
 export function PassportScreen({ navigation }: Props) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
@@ -457,11 +429,10 @@ export function PassportScreen({ navigation }: Props) {
   );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: ListItem; index: number }) => {
-      let content;
+    ({ item }: { item: ListItem }) => {
       switch (item.type) {
         case 'section-header':
-          content = (
+          return (
             <Text
               style={[
                 styles.sectionTitle,
@@ -472,15 +443,12 @@ export function PassportScreen({ navigation }: Props) {
               {item.title}
             </Text>
           );
-          break;
         case 'stamp-row':
-          content = renderStampRow(item.data);
-          break;
+          return renderStampRow(item.data);
         case 'unvisited-row':
-          content = renderUnvisitedRow(item.data);
-          break;
+          return renderUnvisitedRow(item.data);
         case 'empty-state':
-          content = (
+          return (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>🌍</Text>
               <Text style={styles.emptyTitle}>No countries yet</Text>
@@ -489,14 +457,29 @@ export function PassportScreen({ navigation }: Props) {
               </Text>
             </View>
           );
-          break;
         default:
           return null;
       }
-
-      return <AnimatedListItem index={index}>{content}</AnimatedListItem>;
     },
     [renderStampRow, renderUnvisitedRow]
+  );
+
+  // Optimized layout calculation for instant scroll positioning
+  const getItemLayout = useCallback(
+    (_: ArrayLike<ListItem> | null | undefined, index: number) => {
+      // Calculate offset by summing heights of all items before this index
+      let offset = 0;
+      for (let i = 0; i < index; i++) {
+        const item = flatListData[i];
+        if (item) {
+          offset += ROW_HEIGHTS[item.type];
+        }
+      }
+      const item = flatListData[index];
+      const length = item ? ROW_HEIGHTS[item.type] : 0;
+      return { length, offset, index };
+    },
+    [flatListData]
   );
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);
@@ -634,15 +617,17 @@ export function PassportScreen({ navigation }: Props) {
           data={flatListData}
           renderItem={renderItem}
           keyExtractor={getItemKey}
+          getItemLayout={getItemLayout}
           ListHeaderComponent={ListHeader}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-          initialNumToRender={10}
+          maxToRenderPerBatch={20}
+          windowSize={11}
+          initialNumToRender={15}
+          updateCellsBatchingPeriod={30}
         />
       </Animated.View>
 

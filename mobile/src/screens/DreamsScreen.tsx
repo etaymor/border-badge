@@ -349,7 +349,7 @@ export function DreamsScreen({ navigation }: Props) {
       <>
         {/* Lake Blue Header */}
         <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Your Dreams</Text>
+          <Text style={styles.headerTitle}>My Dreams</Text>
         </View>
         {/* Search Row with Liquid Glass */}
         <View style={styles.searchRow}>
@@ -426,7 +426,7 @@ export function DreamsScreen({ navigation }: Props) {
     return (
       <View style={styles.container}>
         <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Your Dreams</Text>
+          <Text style={styles.headerTitle}>My Dreams</Text>
         </View>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>

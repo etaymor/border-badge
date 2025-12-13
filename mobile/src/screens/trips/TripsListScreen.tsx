@@ -137,8 +137,11 @@ export function TripsListScreen({ navigation }: Props) {
 
   const renderHeader = useMemo(
     () => (
-      <View style={styles.headerContainer}>
-        <Text style={styles.headerTitle}>My Trips</Text>
+      <>
+        {/* Header Title */}
+        <View style={styles.headerContainer}>
+          <Text style={styles.headerTitle}>My Trips</Text>
+        </View>
 
         {/* Search Bar with Liquid Glass */}
         <View style={styles.searchRow}>
@@ -165,7 +168,7 @@ export function TripsListScreen({ navigation }: Props) {
             </BlurView>
           </View>
         </View>
-      </View>
+      </>
     ),
     [searchQuery]
   );
@@ -228,19 +231,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   headerContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+    alignItems: 'center',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 34,
+    fontSize: 28,
     color: colors.midnightNavy,
-    marginBottom: 20,
+    fontStyle: 'italic',
     letterSpacing: -0.5,
   },
   searchRow: {
-    marginBottom: 8,
+    paddingTop: 8,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   searchGlassWrapper: {
     borderRadius: 24,

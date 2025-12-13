@@ -153,7 +153,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   // FlatList optimization for instant scroll calculations
   const getItemLayout = useCallback(
-    (_: CountryPair[] | null | undefined, index: number) => ({
+    (_: ArrayLike<CountryPair> | null | undefined, index: number) => ({
       length: ROW_HEIGHT,
       offset: ROW_HEIGHT * index,
       index,
