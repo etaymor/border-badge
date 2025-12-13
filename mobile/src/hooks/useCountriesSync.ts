@@ -19,7 +19,10 @@ interface SyncState {
  * Fetches countries from Supabase
  */
 async function fetchCountriesFromSupabase(): Promise<Country[]> {
-  const { data, error } = await supabase.from('country').select('code, name, region').order('name');
+  const { data, error } = await supabase
+    .from('country')
+    .select('code, name, region, subregion, recognition')
+    .order('name');
 
   if (error) {
     throw new Error(error.message);

@@ -73,4 +73,16 @@ describe('CountryCard', () => {
     const visitedButton = screen.getByTestId('country-card-visited-JP');
     expect(visitedButton.props.accessibilityLabel).toBe('Already visited');
   });
+
+  it('shows trips indicator when hasTrips is true', () => {
+    render(<CountryCard {...defaultProps} hasTrips={true} />);
+
+    expect(screen.getByTestId('country-card-trips-JP')).toBeTruthy();
+  });
+
+  it('does not show trips indicator when hasTrips is false', () => {
+    render(<CountryCard {...defaultProps} hasTrips={false} />);
+
+    expect(screen.queryByTestId('country-card-trips-JP')).toBeNull();
+  });
 });

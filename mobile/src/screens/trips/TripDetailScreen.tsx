@@ -1,4 +1,7 @@
-import { useState, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,30 +14,31 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { TripsStackScreenProps } from '@navigation/types';
-import { useTrip, useDeleteTrip, useRestoreTrip } from '@hooks/useTrips';
-import { useEntries, EntryWithPlace } from '@hooks/useEntries';
-import { useCountryByCode } from '@hooks/useCountries';
-import { ConfirmDialog, Snackbar } from '@components/ui';
 import { EntryGridCard } from '@components/entries';
+import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { useCountryByCode } from '@hooks/useCountries';
+import { EntryWithPlace, useEntries } from '@hooks/useEntries';
+import { useTripLists } from '@hooks/useLists';
+import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
+import type { TripsStackScreenProps } from '@navigation/types';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
 function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
   return (
     <View style={styles.emptyContainer}>
-      <Ionicons name="bookmark-outline" size={64} color="#ccc" />
-      <Text style={styles.emptyTitle}>No entries yet</Text>
+      <Text style={styles.emptyIcon}>📷</Text>
+      <Text style={styles.emptyTitle}>Unwritten Memories</Text>
       <Text style={styles.emptySubtitle}>
-        Start documenting your trip by adding places, food, stays, or experiences
+        This chapter is waiting to be written. Document your first memory.
       </Text>
       <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
-        <Ionicons name="add" size={20} color="#fff" />
-        <Text style={styles.emptyButtonText}>Add Your First Entry</Text>
+        <Ionicons name="add" size={20} color={colors.midnightNavy} />
+        <Text style={styles.emptyButtonText}>Add Entry</Text>
       </Pressable>
     </View>
   );
@@ -50,6 +54,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
+  const { data: lists } = useTripLists(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
@@ -65,9 +70,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [navigation, tripId]);
 
   const handleSharePress = useCallback(() => {
-    // Always navigate to TripLists - it handles empty state internally
-    navigation.navigate('TripLists', { tripId, tripName: trip?.name });
-  }, [tripId, trip?.name, navigation]);
+    // If no lists exist, go directly to create screen
+    if (!lists || lists.length === 0) {
+      navigation.navigate('ListCreate', { tripId, tripName: trip?.name });
+    } else {
+      navigation.navigate('TripLists', { tripId, tripName: trip?.name });
+    }
+  }, [tripId, trip?.name, navigation, lists]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
@@ -116,11 +125,23 @@ export function TripDetailScreen({ route, navigation }: Props) {
     [handleEntryPress]
   );
 
+  const renderHeader = useCallback(
+    () => (
+      <View style={styles.gridHeader}>
+        <View style={styles.journalHeaderContainer}>
+          <Text style={styles.journalTitle}>Travel Log</Text>
+          <View style={styles.journalLine} />
+        </View>
+      </View>
+    ),
+    []
+  );
+
   if (tripLoading) {
     return (
       <View style={styles.centered}>
         <StatusBar barStyle="dark-content" />
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={colors.sunsetGold} />
       </View>
     );
   }
@@ -129,7 +150,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
     return (
       <View style={styles.centered}>
         <StatusBar barStyle="dark-content" />
-        <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+        <Ionicons name="alert-circle-outline" size={48} color={colors.adobeBrick} />
         <Text style={styles.errorText}>Failed to load trip</Text>
         <Pressable style={styles.retryButton} onPress={() => navigation.goBack()}>
           <Text style={styles.retryButtonText}>Go Back</Text>
@@ -152,22 +173,27 @@ export function TripDetailScreen({ route, navigation }: Props) {
           />
 
           {/* Gradient overlay */}
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.gradient} />
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
+            style={styles.gradient}
+          />
 
           {/* Trip name at bottom of hero */}
           <Text style={styles.tripNameOverlay}>{trip.name}</Text>
 
-          {/* Header row - white icons with dark circle backgrounds */}
+          {/* Header row - glass buttons */}
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
-            <Pressable style={styles.iconButton} onPress={() => navigation.goBack()} hitSlop={8}>
-              <Ionicons name="chevron-back" size={24} color="#fff" />
-            </Pressable>
+            <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
-              <Pressable style={styles.iconButton} onPress={handleEditTrip} hitSlop={8}>
-                <Ionicons name="pencil" size={20} color="#fff" />
+              <Pressable style={styles.glassButtonWrapper} onPress={handleEditTrip} hitSlop={8}>
+                <BlurView intensity={20} tint="dark" style={styles.glassButton}>
+                  <Ionicons name="pencil" size={20} color="#fff" />
+                </BlurView>
               </Pressable>
-              <Pressable style={styles.iconButton} onPress={handleSharePress} hitSlop={8}>
-                <Ionicons name="share-outline" size={22} color="#fff" />
+              <Pressable style={styles.glassButtonWrapper} onPress={handleSharePress} hitSlop={8}>
+                <BlurView intensity={20} tint="dark" style={styles.glassButton}>
+                  <Ionicons name="share-outline" size={22} color="#fff" />
+                </BlurView>
               </Pressable>
             </View>
           </View>
@@ -175,17 +201,15 @@ export function TripDetailScreen({ route, navigation }: Props) {
       ) : (
         // NO COVER PHOTO - Simple header
         <View style={[styles.noCoverHeader, { paddingTop: insets.top }]}>
-          {/* Header row - dark icons */}
+          {/* Header row */}
           <View style={styles.noCoverHeaderRow}>
-            <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
-              <Ionicons name="chevron-back" size={28} color="#1a1a1a" />
-            </Pressable>
+            <GlassBackButton onPress={() => navigation.goBack()} />
             <View style={styles.headerRightIcons}>
-              <Pressable onPress={handleEditTrip} hitSlop={8}>
-                <Ionicons name="pencil" size={22} color="#1a1a1a" />
+              <Pressable onPress={handleEditTrip} hitSlop={8} style={styles.actionButton}>
+                <Ionicons name="pencil" size={22} color={colors.midnightNavy} />
               </Pressable>
-              <Pressable onPress={handleSharePress} hitSlop={8}>
-                <Ionicons name="share-outline" size={24} color="#1a1a1a" />
+              <Pressable onPress={handleSharePress} hitSlop={8} style={styles.actionButton}>
+                <Ionicons name="share-outline" size={24} color={colors.midnightNavy} />
               </Pressable>
             </View>
           </View>
@@ -194,11 +218,18 @@ export function TripDetailScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {/* Country badge */}
+      {/* Country badge (Luggage Tag Style) */}
       {country && (
         <View style={styles.countryBadgeContainer}>
-          <View style={styles.countryBadge}>
-            <Text style={styles.countryName}>{country.name}</Text>
+          <View style={styles.luggageTag}>
+            <View style={styles.luggageTagHole} />
+            <Ionicons
+              name="location-sharp"
+              size={14}
+              color={colors.adobeBrick}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={styles.countryName}>{country.name.toUpperCase()}</Text>
           </View>
         </View>
       )}
@@ -206,7 +237,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
       {/* Entries grid */}
       {entriesLoading ? (
         <View style={styles.entriesLoading}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color={colors.sunsetGold} />
         </View>
       ) : (
         <FlatList
@@ -216,6 +247,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.entriesListContent}
+          ListHeaderComponent={entries && entries.length > 0 ? renderHeader : null}
           ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={Platform.OS === 'android'}
@@ -225,19 +257,21 @@ export function TripDetailScreen({ route, navigation }: Props) {
         />
       )}
 
-      {/* Floating Add Entry Button */}
-      <Pressable
-        style={styles.fab}
-        onPress={handleAddEntry}
-        testID="fab-add-entry"
-        accessibilityLabel="Add new entry"
-        accessibilityRole="button"
-      >
-        <Ionicons name="add" size={24} color="#fff" />
-        <Text style={styles.fabText}>Add Entry</Text>
-      </Pressable>
+      {/* Floating Add Entry Button - only show when there are entries */}
+      {entries && entries.length > 0 && (
+        <Pressable
+          style={styles.fab}
+          onPress={handleAddEntry}
+          testID="fab-add-entry"
+          accessibilityLabel="Add new entry"
+          accessibilityRole="button"
+        >
+          <Ionicons name="add" size={24} color={colors.midnightNavy} />
+          <Text style={styles.fabText}>Add Entry</Text>
+        </Pressable>
+      )}
 
-      {/* Delete Confirmation Dialog (kept for potential future use from Edit screen) */}
+      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         visible={showDeleteConfirm}
         title="Delete Trip"
@@ -267,60 +301,71 @@ export function TripDetailScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.warmCream,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
     padding: 24,
   },
   errorText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
     marginTop: 12,
     marginBottom: 24,
+    fontFamily: fonts.openSans.regular,
   },
   retryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#fff',
+    color: colors.midnightNavy,
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
 
   // Hero section (with cover photo)
   heroContainer: {
     position: 'relative',
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    overflow: 'hidden',
+    backgroundColor: colors.midnightNavy,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
   },
   coverImage: {
     width: '100%',
-    height: 250,
-    backgroundColor: '#e0e0e0',
+    height: 320,
+    backgroundColor: colors.backgroundMuted,
   },
   gradient: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 120,
+    height: 180,
   },
   tripNameOverlay: {
     position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
+    bottom: 32,
+    left: 24,
+    right: 24,
     color: '#fff',
-    fontSize: 28,
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 36,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+    letterSpacing: -0.5,
   },
   headerRow: {
     position: 'absolute',
@@ -329,24 +374,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   headerRightIcons: {
     flexDirection: 'row',
     gap: 12,
   },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  glassButtonWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  glassButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
 
   // No cover header
   noCoverHeader: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
+    paddingBottom: 8,
   },
   noCoverHeaderRow: {
     flexDirection: 'row',
@@ -355,28 +409,81 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
+  actionButton: {
+    padding: 8,
+  },
   tripNameNoCover: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 36,
+    color: colors.midnightNavy,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    letterSpacing: -0.5,
   },
 
-  // Country badge
+  // Country badge (Luggage Tag)
   countryBadgeContainer: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    backgroundColor: colors.warmCream,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    marginTop: -20, // Overlap slightly if needed, or just standard spacing
+    zIndex: 10,
   },
-  countryBadge: {
+  luggageTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
+    backgroundColor: colors.paperBeige,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    transform: [{ rotate: '-1deg' }], // Whimsical tilt
+  },
+  luggageTagHole: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.warmCream,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    marginRight: 10,
   },
   countryName: {
-    fontSize: 15,
-    color: '#666',
+    fontFamily: fonts.oswald.medium,
+    fontSize: 13,
+    color: colors.midnightNavy,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+
+  // Journal Header
+  gridHeader: {
+    marginBottom: 16,
+    marginTop: 8,
+    paddingHorizontal: 8,
+  },
+  journalHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  journalTitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 28,
+    color: colors.adobeBrick,
+    marginRight: 12,
+  },
+  journalLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(193, 84, 62, 0.1)',
+    marginTop: 4,
   },
 
   // Entries grid
@@ -387,9 +494,9 @@ const styles = StyleSheet.create({
   },
   entriesListContent: {
     padding: 16,
-    paddingBottom: 100, // Space for FAB
+    paddingBottom: 130, // Space for FAB + Tab Bar
     flexGrow: 1,
-    gap: 12,
+    gap: 16,
   },
   gridRow: {
     justifyContent: 'space-between',
@@ -400,59 +507,70 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginTop: 16,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
+    marginTop: 8,
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 15,
-    color: '#666',
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 24,
-    lineHeight: 22,
+    lineHeight: 24,
+    maxWidth: 260,
   },
   emptyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
+    backgroundColor: colors.sunsetGold,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
     gap: 8,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   emptyButtonText: {
-    color: '#fff',
+    color: colors.midnightNavy,
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
 
   // FAB
   fab: {
     position: 'absolute',
-    bottom: 24,
-    alignSelf: 'center',
+    bottom: 120,
+    right: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
+    backgroundColor: colors.sunsetGold,
+    paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 28,
+    borderRadius: 12,
     gap: 8,
-    shadowColor: '#007AFF',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
   fabText: {
-    color: '#fff',
+    color: colors.midnightNavy,
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
 });

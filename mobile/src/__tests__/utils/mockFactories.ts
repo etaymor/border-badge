@@ -264,6 +264,8 @@ export function createMockCountry(overrides?: Partial<Country>): Country {
     code: 'JP',
     name: 'Japan',
     region: 'Asia',
+    subregion: 'East Asia',
+    recognition: 'un_member',
     ...overrides,
   };
 }

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Text } from '@components/ui';
+import { GlassBackButton, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
@@ -166,13 +166,8 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
       {/* Back button - top left */}
       {showBackButton && (
-        <Animated.View style={[styles.backButton, { opacity: refs.backButtonOpacity }]}>
-          <TouchableOpacity
-            onPress={handleBack}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="arrow-back" size={28} color={colors.midnightNavy} />
-          </TouchableOpacity>
+        <Animated.View style={[styles.backButtonContainer, { opacity: refs.backButtonOpacity }]}>
+          <GlassBackButton onPress={handleBack} />
         </Animated.View>
       )}
 
@@ -347,12 +342,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  backButton: {
+  backButtonContainer: {
     position: 'absolute',
     top: 60,
     left: 20,
     zIndex: 10,
-    padding: 8,
   },
   loginButton: {
     position: 'absolute',

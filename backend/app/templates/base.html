@@ -1,56 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     {% block meta %}
     <title>{% block title %}Border Badge{% endblock %}</title>
-    <meta name="description" content="{% block description %}Track your travels, share your adventures{% endblock %}">
+    <meta
+      name="description"
+      content="{% block description %}Track your travels, share your adventures{% endblock %}"
+    />
     {% endblock %}
 
     <!-- Open Graph / Social -->
     {% block og_tags %}
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="{{ og_title | default('Border Badge') }}">
-    <meta property="og:description" content="{{ og_description | default('Track your travels, share your adventures') }}">
-    {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
-    {% if og_url %}<meta property="og:url" content="{{ og_url }}">{% endif %}
-    {% endblock %}
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="{{ og_title | default('Border Badge') }}"
+    />
+    <meta
+      property="og:description"
+      content="{{ og_description | default('Track your travels, share your adventures') }}"
+    />
+    {% if og_image %}
+    <meta property="og:image" content="{{ og_image }}" />
+    {% endif %} {% if og_url %}
+    <meta property="og:url" content="{{ og_url }}" />
+    {% endif %} {% endblock %}
 
     <!-- Twitter Card -->
     {% block twitter_tags %}
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{{ og_title | default('Border Badge') }}">
-    <meta name="twitter:description" content="{{ og_description | default('Track your travels, share your adventures') }}">
-    {% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}
-    {% endblock %}
-
-    {% if canonical_url %}
-    <link rel="canonical" href="{{ canonical_url }}">
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="{{ og_title | default('Border Badge') }}"
+    />
+    <meta
+      name="twitter:description"
+      content="{{ og_description | default('Track your travels, share your adventures') }}"
+    />
+    {% if og_image %}
+    <meta name="twitter:image" content="{{ og_image }}" />
+    {% endif %} {% endblock %} {% if canonical_url %}
+    <link rel="canonical" href="{{ canonical_url }}" />
     {% endif %}
 
-    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
-</head>
-<body>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', path='css/styles.css') }}"
+    />
+  </head>
+  <body>
     <header class="header">
-        <div class="header-content">
-            <a href="/" class="logo">Border Badge</a>
-            <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--header">Download App</a>
-        </div>
+      <div class="header-content">
+        <a href="/" class="logo">Border Badge</a>
+        <a
+          href="{{ app_store_url or '#download' }}"
+          class="cta-button cta-button--header"
+          >Download App</a
+        >
+      </div>
     </header>
 
-    <main class="main">
-        {% block content %}{% endblock %}
-    </main>
+    <main class="main">{% block content %}{% endblock %}</main>
 
     <footer class="footer">
-        <div class="footer-content">
-            <div class="footer-cta">
-                <p class="footer-tagline">Start tracking your travels today</p>
-                <a href="{{ app_store_url or '#download' }}" class="cta-button">Get Border Badge</a>
-            </div>
-            <p class="footer-copyright">&copy; 2024 Border Badge. All rights reserved.</p>
+      <div class="footer-content">
+        {% block footer_cta %}
+        <div class="footer-cta">
+          <p class="footer-tagline">Start tracking your travels today</p>
+          <a href="{{ app_store_url or '#download' }}" class="cta-button"
+            >Get Border Badge</a
+          >
         </div>
+        {% endblock %}
+        <p class="footer-copyright">
+          &copy; 2024 Border Badge. All rights reserved.
+        </p>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

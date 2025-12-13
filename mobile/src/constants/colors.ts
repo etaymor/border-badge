@@ -78,3 +78,38 @@ export const colors = {
 // Type for accessing colors
 export type ColorKey = keyof typeof colors;
 export type ColorValue = (typeof colors)[ColorKey];
+
+/**
+ * Helper to add alpha transparency to a hex color.
+ * @param hex - Hex color string (e.g., '#F4C24E', 'F4C24E', '#FFF', or 'FFF')
+ * @param alpha - Alpha value from 0 to 1 (will be clamped if out of range)
+ * @returns rgba string
+ * @throws TypeError if hex is not a valid 3 or 6 character hex color
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  // Validate and normalize hex
+  let cleanHex = hex.replace('#', '').trim();
+
+  // Expand 3-char shorthand to 6-char (e.g., 'FFF' -> 'FFFFFF')
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
+
+  // Validate format - must be exactly 6 hex characters
+  if (!/^[0-9a-fA-F]{6}$/.test(cleanHex)) {
+    throw new TypeError(`Invalid hex color: ${hex}`);
+  }
+
+  // Parse RGB values
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
+
+  // Clamp alpha to valid range
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+
+  return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
+}

@@ -11,4 +11,8 @@ export const fonts = {
     semiBold: 'OpenSans_600SemiBold',
     bold: 'OpenSans_700Bold',
   },
+  oswald: {
+    medium: 'Oswald_500Medium',
+    bold: 'Oswald_700Bold',
+  },
 } as const;

@@ -111,7 +111,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByPlaceholderText('Search countries...')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Type Country')).toBeTruthy();
     });
 
     it('renders country cards for available countries', () => {
@@ -191,7 +191,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const searchInput = screen.getByPlaceholderText('Search countries...');
+      const searchInput = screen.getByPlaceholderText('Type Country');
       fireEvent.changeText(searchInput, 'jap');
 
       expect(screen.getByText('Japan')).toBeTruthy();
@@ -205,23 +205,21 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search countries...'), 'xyz');
+      fireEvent.changeText(screen.getByPlaceholderText('Type Country'), 'xyz');
 
       expect(screen.getByText('No countries found')).toBeTruthy();
     });
 
-    it('clears search when clear button is pressed', () => {
+    it('opens filter sheet when EXPLORE button is pressed', () => {
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
       mockHooksWithData({ countries, userCountries: [] });
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const searchInput = screen.getByPlaceholderText('Search countries...');
-      fireEvent.changeText(searchInput, 'jap');
+      fireEvent.press(screen.getByText('EXPLORE'));
 
-      fireEvent.press(screen.getByText('Clear'));
-
-      expect(searchInput.props.value).toBe('');
+      // Filter sheet should be visible (check for Explore Filters header)
+      expect(screen.getByText('Explore Filters')).toBeTruthy();
     });
 
     it('search is case-insensitive', () => {
@@ -230,7 +228,7 @@ describe('DreamsScreen', () => {
 
       render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search countries...'), 'JAPAN');
+      fireEvent.changeText(screen.getByPlaceholderText('Type Country'), 'JAPAN');
 
       expect(screen.getByText('Japan')).toBeTruthy();
     });

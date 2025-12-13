@@ -3,45 +3,42 @@ import { fireEvent, render, screen } from '../utils/testUtils';
 import { Button } from '@components/ui/Button';
 
 describe('Button', () => {
-  it('renders with title (primary variant uppercases)', () => {
-    render(<Button title="Press me" onPress={jest.fn()} />);
+  it('renders with title', () => {
+    render(<Button title="Press Me" onPress={jest.fn()} />);
 
-    // Primary variant (default) uppercases the title
-    expect(screen.getByText('PRESS ME')).toBeTruthy();
+    // Button renders title as provided (Title Case per styleguide)
+    expect(screen.getByText('Press Me')).toBeTruthy();
   });
 
   it('calls onPress when pressed', () => {
     const onPress = jest.fn();
-    render(<Button title="Press me" onPress={onPress} />);
+    render(<Button title="Press Me" onPress={onPress} />);
 
-    fireEvent.press(screen.getByText('PRESS ME'));
+    fireEvent.press(screen.getByText('Press Me'));
 
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
   it('does not call onPress when disabled', () => {
     const onPress = jest.fn();
-    render(<Button title="Press me" onPress={onPress} disabled />);
+    render(<Button title="Press Me" onPress={onPress} disabled />);
 
-    fireEvent.press(screen.getByText('PRESS ME'));
+    fireEvent.press(screen.getByText('Press Me'));
 
     expect(onPress).not.toHaveBeenCalled();
   });
 
   it('shows loading indicator when loading', () => {
-    render(<Button title="Press me" onPress={jest.fn()} loading />);
+    render(<Button title="Press Me" onPress={jest.fn()} loading />);
 
     // Button text should not be visible when loading
-    expect(screen.queryByText('PRESS ME')).toBeNull();
-    expect(screen.queryByText('Press me')).toBeNull();
+    expect(screen.queryByText('Press Me')).toBeNull();
   });
 
   it('renders different variants', () => {
-    // Primary variant uppercases
     const { rerender } = render(<Button title="Primary" onPress={jest.fn()} variant="primary" />);
-    expect(screen.getByText('PRIMARY')).toBeTruthy();
+    expect(screen.getByText('Primary')).toBeTruthy();
 
-    // Non-primary variants keep original case
     rerender(<Button title="Secondary" onPress={jest.fn()} variant="secondary" />);
     expect(screen.getByText('Secondary')).toBeTruthy();
 

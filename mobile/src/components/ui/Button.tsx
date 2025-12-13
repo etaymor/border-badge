@@ -57,7 +57,7 @@ export function Button({
             textStyle,
           ]}
         >
-          {variant === 'primary' ? title.toUpperCase() : title}
+          {title}
         </Text>
       )}
     </TouchableOpacity>
@@ -101,8 +101,7 @@ const styles = StyleSheet.create({
   },
   primaryText: {
     color: colors.midnightNavy,
-    fontFamily: fonts.playfair.bold,
-    letterSpacing: 0.5,
+    fontFamily: fonts.openSans.semiBold,
   },
   secondaryText: {
     color: colors.textPrimary,

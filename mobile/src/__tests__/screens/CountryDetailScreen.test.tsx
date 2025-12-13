@@ -69,11 +69,10 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      // Primary variant button uppercases the label
-      expect(screen.getByText('PLAN A TRIP')).toBeTruthy();
+      expect(screen.getByText('Plan a Trip')).toBeTruthy();
     });
 
-    it('shows "Add New Trip" button when trips exist for country', () => {
+    it('shows "Add Another Trip" button when trips exist for country', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       const trips = [createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' })];
       mockHooksWithData({ country, trips });
@@ -81,8 +80,7 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      // Primary variant button uppercases the label
-      expect(screen.getByText('ADD NEW TRIP')).toBeTruthy();
+      expect(screen.getByText('Add Another Trip')).toBeTruthy();
     });
   });
 
@@ -98,7 +96,7 @@ describe('CountryDetailScreen', () => {
       expect(screen.getByText('Asia')).toBeTruthy();
     });
 
-    it('shows trip count in section header when trips exist', () => {
+    it('shows trip count badge in section header when trips exist', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       const trips = [
         createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' }),
@@ -109,10 +107,12 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('2 Trips')).toBeTruthy();
+      // Section header shows "Your Trips" with a badge showing count
+      expect(screen.getByText('Your Trips')).toBeTruthy();
+      expect(screen.getByText('2')).toBeTruthy();
     });
 
-    it('shows singular "Trip" for one trip', () => {
+    it('shows trip count badge for one trip', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       const trips = [createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' })];
       mockHooksWithData({ country, trips });
@@ -120,7 +120,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('1 Trip')).toBeTruthy();
+      expect(screen.getByText('Your Trips')).toBeTruthy();
+      expect(screen.getByText('1')).toBeTruthy();
     });
 
     it('shows empty state message when no trips', () => {
@@ -130,8 +131,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('No trips yet')).toBeTruthy();
-      expect(screen.getByText('Add your first trip to Japan')).toBeTruthy();
+      expect(screen.getByText('No adventures yet')).toBeTruthy();
+      expect(screen.getByText('Start planning your trip to Japan')).toBeTruthy();
     });
 
     it('renders trip cards with trip name', () => {
@@ -154,8 +155,7 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      // Primary variant button uppercases the label
-      fireEvent.press(screen.getByText('PLAN A TRIP'));
+      fireEvent.press(screen.getByText('Plan a Trip'));
 
       expect(mockParentNavigate).toHaveBeenCalledWith('Trips', {
         screen: 'TripForm',

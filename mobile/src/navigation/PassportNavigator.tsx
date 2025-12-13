@@ -18,12 +18,9 @@ export function PassportNavigator() {
       <Stack.Screen
         name="CountryDetail"
         component={CountryDetailScreen}
-        options={({ route }) => ({
-          title: route.params?.countryName ?? '',
-          headerBackButtonDisplayMode: 'minimal',
-          headerTransparent: true,
-          headerTintColor: '#fff',
-        })}
+        options={{
+          headerShown: false,
+        }}
       />
     </Stack.Navigator>
   );
