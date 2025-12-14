@@ -6,7 +6,7 @@ export { CountryCard } from './CountryCard';
 export { CountryGridItem } from './CountryGridItem';
 export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';
-export { ErrorBoundary } from './ErrorBoundary';
+export { default as ErrorBoundary } from './ErrorBoundary';
 export { ErrorState } from './ErrorState';
 export { ExploreFilterSheet } from './ExploreFilterSheet';
 export { GlassBackButton } from './GlassBackButton';

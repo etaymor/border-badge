@@ -62,7 +62,8 @@ def neq(value: str) -> str:
 def _quote_value(value: str) -> str:
     """Quote a value for PostgREST if it contains special characters.
 
-    PostgREST uses double-quoting for values with commas, parentheses, or quotes.
+    PostgREST uses double-quoting for values with commas, parentheses, quotes,
+    and other special characters that could affect query parsing.
     Double quotes inside the value are escaped by doubling them.
 
     Args:
@@ -78,9 +79,14 @@ def _quote_value(value: str) -> str:
         '"has,comma"'
         >>> _quote_value('has"quote')
         '"has""quote"'
+        >>> _quote_value("has;semicolon")
+        '"has;semicolon"'
     """
     # Characters that require quoting in PostgREST
-    needs_quoting = any(c in value for c in (",", "(", ")", '"'))
+    # Includes: comma, parentheses, quotes, semicolons, backslashes, colons, periods
+    # These could otherwise be interpreted as query syntax
+    special_chars = (",", "(", ")", '"', ";", "\\", ":", ".")
+    needs_quoting = any(c in value for c in special_chars)
     if not needs_quoting:
         return value
     # Escape double quotes by doubling them, then wrap in quotes

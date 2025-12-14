@@ -9,7 +9,8 @@ import { logger } from '@utils/logger';
 const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 
 const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 500;
+const BASE_DELAY_MS = 500;
+const MAX_DELAY_MS = 4000;
 
 // ============ Custom Error Classes ============
 
@@ -39,6 +40,21 @@ export class NetworkError extends PlacesApiError {
 
 // Helper to delay execution
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Calculate exponential backoff delay with jitter.
+ * Uses full jitter strategy to spread out retry attempts and prevent thundering herd.
+ * @param retryCount - Current retry attempt (0-indexed)
+ * @returns Delay in milliseconds with random jitter applied
+ */
+function getBackoffDelay(retryCount: number): number {
+  // Exponential backoff: BASE_DELAY * 2^retryCount
+  const exponentialDelay = BASE_DELAY_MS * Math.pow(2, retryCount);
+  // Cap at maximum delay
+  const cappedDelay = Math.min(exponentialDelay, MAX_DELAY_MS);
+  // Full jitter: random value between 0 and cappedDelay
+  return Math.random() * cappedDelay;
+}
 
 // Types for place data
 export interface PlaceResult {
@@ -116,7 +132,7 @@ export async function searchPlaces(
         throw new QuotaExceededError();
       }
       if (retryCount < MAX_RETRIES && !signal?.aborted) {
-        await delay(RETRY_DELAY_MS * (retryCount + 1));
+        await delay(getBackoffDelay(retryCount));
         // Check if aborted during delay
         if (signal?.aborted) {
           return [];
@@ -163,7 +179,7 @@ export async function searchPlaces(
 
     if (retryCount < MAX_RETRIES && !signal?.aborted) {
       logger.warn(`Places fetch failed, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
-      await delay(RETRY_DELAY_MS * (retryCount + 1));
+      await delay(getBackoffDelay(retryCount));
       // Check if aborted during delay
       if (signal?.aborted) {
         return [];

@@ -42,6 +42,8 @@ VALID_SUBREGIONS = frozenset(
         "Melanesia",
         "Micronesia",
         "Polynesia",
+        # Antarctica
+        "Antarctica",
     }
 )
 
