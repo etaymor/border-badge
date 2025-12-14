@@ -8,4 +8,5 @@ export { MotivationScreen } from './MotivationScreen';
 export { NameEntryScreen } from './NameEntryScreen';
 export { PaywallScreen } from './PaywallScreen';
 export { ProgressSummaryScreen } from './ProgressSummaryScreen';
+export { TrackingPreferenceScreen } from './TrackingPreferenceScreen';
 export { WelcomeCarouselScreen } from './WelcomeCarouselScreen';

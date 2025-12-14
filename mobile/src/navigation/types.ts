@@ -21,6 +21,7 @@ export type OnboardingStackParamList = {
   OnboardingSlider: undefined;
   Motivation: undefined;
   HomeCountry: undefined;
+  TrackingPreference: undefined;
   DreamDestination: undefined;
   ContinentIntro: { region: string; regionIndex: number };
   ContinentCountryGrid: { region: string };
@@ -50,6 +51,7 @@ export type PassportStackParamList = {
   PassportHome: undefined;
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
   ProfileSettings: undefined;
+  Trips: NavigatorScreenParams<TripsStackParamList>;
 };
 
 // Entry type for navigation

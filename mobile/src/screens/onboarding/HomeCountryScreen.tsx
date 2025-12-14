@@ -31,7 +31,7 @@ export function HomeCountryScreen({ navigation }: Props) {
     showBackButton: false,
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
-    onNavigateNext: () => navigation.navigate('DreamDestination'),
+    onNavigateNext: () => navigation.navigate('TrackingPreference'),
     onNavigateLogin: () => navigation.navigate('Auth', { screen: 'PhoneAuth' }),
     testIdPrefix: 'home-country',
   };
