@@ -104,9 +104,11 @@ export const NoResultsDropdown = memo(function NoResultsDropdown({
 const styles = StyleSheet.create({
   dropdown: {
     position: 'absolute',
-    top: 56,
+    top: 56, // Input height (48) + margin (8)
     left: 0,
     right: 0,
+    zIndex: 9999, // Super high z-index
+    elevation: 100, // Super high elevation for Android
     backgroundColor: '#fff',
     borderRadius: 12,
     shadowColor: colors.shadow,
@@ -115,7 +117,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
     maxHeight: 300,
-    zIndex: 1000,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
   },

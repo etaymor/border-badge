@@ -15,7 +15,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ShareCardOverlay } from '@components/share';
-import { CountryCard, ExploreFilterSheet, PassportSkeleton, StampCard } from '@components/ui';
+import {
+  CountryCard,
+  ExploreFilterSheet,
+  GlassIconButton,
+  PassportSkeleton,
+  StampCard,
+} from '@components/ui';
 import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
@@ -38,6 +44,7 @@ interface CountryDisplayItem {
   name: string;
   region: string;
   status: 'visited' | 'wishlist';
+  hasTrips: boolean;
 }
 
 interface UnvisitedCountry {
@@ -275,9 +282,10 @@ export function PassportScreen({ navigation }: Props) {
         name: c.name,
         region: c.region,
         status: 'visited' as const,
+        hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, filteredCountries, searchQuery]);
+  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips]);
 
   // Compute all stats
   const stats = useMemo(() => {
@@ -426,6 +434,11 @@ export function PassportScreen({ navigation }: Props) {
     setFilterSheetVisible(true);
   }, []);
 
+  const handleProfilePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate('ProfileSettings');
+  }, [navigation]);
+
   const handleCloseFilters = useCallback(() => {
     setFilterSheetVisible(false);
   }, []);
@@ -442,7 +455,12 @@ export function PassportScreen({ navigation }: Props) {
     (stamps: CountryDisplayItem[]) => (
       <View style={styles.stampRow}>
         {stamps.map((item) => (
-          <StampCard key={item.code} code={item.code} onPress={() => handleCountryPress(item)} />
+          <StampCard
+            key={item.code}
+            code={item.code}
+            hasTrips={item.hasTrips}
+            onPress={() => handleCountryPress(item)}
+          />
         ))}
       </View>
     ),
@@ -533,7 +551,14 @@ export function PassportScreen({ navigation }: Props) {
       <View>
         {/* App Header */}
         <View style={styles.header}>
+          <View style={styles.headerSpacer} />
           <Text style={styles.headerTitle}>BorderBadge</Text>
+          <GlassIconButton
+            icon="settings-outline"
+            onPress={handleProfilePress}
+            accessibilityLabel="Open profile settings"
+            testID="profile-settings-button"
+          />
         </View>
 
         {/* Travel Status Card */}
@@ -642,7 +667,15 @@ export function PassportScreen({ navigation }: Props) {
         </View>
       </View>
     ),
-    [stats, searchQuery, isLoading, filtersActive, activeFilterCount, handleExplorePress]
+    [
+      stats,
+      searchQuery,
+      isLoading,
+      filtersActive,
+      activeFilterCount,
+      handleExplorePress,
+      handleProfilePress,
+    ]
   );
 
   if (isLoading) {
@@ -705,9 +738,15 @@ const styles = StyleSheet.create({
   },
   // Header
   header: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 24,
+  },
+  headerSpacer: {
+    width: 44, // Match GlassIconButton width for centering
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,

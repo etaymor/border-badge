@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -15,13 +15,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
 import { Button, GlassBackButton, TripCard } from '@components/ui';
-import { useCountryByCode } from '@hooks/useCountries';
+import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
+import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
+import { detectMilestones, type MilestoneContext } from '@utils/milestones';
 import { getCountryImage } from '../../assets/countryImages';
 
 type Props = PassportStackScreenProps<'CountryDetail'>;
@@ -39,9 +41,14 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   // Calculate hero image height based on screen width (responsive to rotation)
   const heroImageHeight = useMemo(() => screenWidth / IMAGE_ASPECT_RATIO, [screenWidth]);
 
+  // Share overlay state
+  const [showShareOverlay, setShowShareOverlay] = useState(false);
+  const [shareContext, setShareContext] = useState<MilestoneContext | null>(null);
+
   // Use countryCode if available, otherwise use countryId (they should be the same)
   const code = countryCode || countryId;
   const { data: country } = useCountryByCode(code);
+  const { data: allCountries } = useCountries();
   const { data: trips, isLoading: loadingTrips, refetch } = useTripsByCountry(countryId);
   const { data: userCountries } = useUserCountries();
   const addUserCountry = useAddUserCountry();
@@ -118,6 +125,42 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     }
   }, [isWishlisted, code, addUserCountry, removeUserCountry]);
 
+  const handleOpenShare = useCallback(() => {
+    if (!country || !allCountries || !userCountries || countryNumber === null) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Build milestone context for the share card
+    // To compute milestones accurately, we need the state at the time this country was added
+    // Get only the countries that were visited BEFORE this one (by created_at order)
+    const thisCountryVisit = visitedCountries.find((uc) => uc.country_code === code);
+    const countriesVisitedBefore = thisCountryVisit
+      ? visitedCountries.filter(
+          (uc) =>
+            new Date(uc.created_at).getTime() < new Date(thisCountryVisit.created_at).getTime()
+        )
+      : [];
+
+    // Detect milestones as if we were adding this country at that point in time
+    const milestones = detectMilestones(code, allCountries, countriesVisitedBefore);
+
+    const context: MilestoneContext = {
+      countryCode: code,
+      countryName: country.name,
+      countryRegion: country.region,
+      countrySubregion: country.subregion,
+      newTotalCount: countryNumber,
+      milestones,
+    };
+
+    setShareContext(context);
+    setShowShareOverlay(true);
+  }, [country, allCountries, userCountries, visitedCountries, countryNumber, code]);
+
+  const handleCloseShare = useCallback(() => {
+    setShowShareOverlay(false);
+  }, []);
+
   const renderTripItem = useCallback(
     ({ item }: { item: Trip }) => (
       <TripCard
@@ -177,14 +220,27 @@ export function CountryDetailScreen({ navigation, route }: Props) {
                 ) : null}
               </View>
 
-              {/* Bottom right: Country Number OR Action Icons */}
+              {/* Bottom right: Country Number + Share OR Action Icons */}
               <View style={styles.bottomRightActions}>
                 {isVisited ? (
-                  // Show country number badge when visited
-                  <View style={styles.countryNumberBadge}>
-                    <Text style={styles.countryNumberLabel}>Country</Text>
-                    <Text style={styles.countryNumberValue}>#{countryNumber}</Text>
-                  </View>
+                  // Show share button and country number badge when visited
+                  <>
+                    <TouchableOpacity
+                      onPress={handleOpenShare}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Share country card"
+                      style={styles.actionIconButtonContainer}
+                    >
+                      <BlurView intensity={30} tint="light" style={styles.actionIconButtonGlass}>
+                        <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+                      </BlurView>
+                    </TouchableOpacity>
+                    <View style={styles.countryNumberBadge}>
+                      <Text style={styles.countryNumberLabel}>Country</Text>
+                      <Text style={styles.countryNumberValue}>#{countryNumber}</Text>
+                    </View>
+                  </>
                 ) : (
                   // Show action icons when not visited
                   <>
@@ -271,6 +327,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       isWishlisted,
       handleMarkVisited,
       handleToggleWishlist,
+      handleOpenShare,
       ctaButtonText,
       handleAddTrip,
       trips?.length,
@@ -317,6 +374,13 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         maxToRenderPerBatch={10}
         windowSize={5}
         initialNumToRender={5}
+      />
+
+      {/* Share Card Overlay */}
+      <ShareCardOverlay
+        visible={showShareOverlay}
+        context={shareContext}
+        onDismiss={handleCloseShare}
       />
     </View>
   );

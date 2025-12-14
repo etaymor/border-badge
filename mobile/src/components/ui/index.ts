@@ -9,6 +9,7 @@ export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';
 export { ExploreFilterSheet } from './ExploreFilterSheet';
 export { GlassBackButton } from './GlassBackButton';
+export { GlassIconButton } from './GlassIconButton';
 export { GlassInput } from './GlassInput';
 export { Input } from './Input';
 export { Loading } from './Loading';

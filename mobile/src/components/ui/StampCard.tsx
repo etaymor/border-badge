@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
-import { Dimensions, Image, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
+import { Dimensions, Image, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
+import { colors } from '@constants/colors';
 import { getStampImage } from '../../assets/stampImages';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -12,6 +14,8 @@ const STAMP_SIZE = (screenWidth - STAMP_PADDING * 2 - STAMP_MARGIN) / 2;
 export interface StampCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
   code: string;
+  /** Whether the country has any trips logged */
+  hasTrips?: boolean;
   /** Handler when stamp is pressed - navigates to CountryDetail */
   onPress: () => void;
   /** Optional custom container style */
@@ -22,6 +26,7 @@ export interface StampCardProps {
 
 export const StampCard = React.memo(function StampCard({
   code,
+  hasTrips = false,
   onPress,
   style,
   testID,
@@ -42,6 +47,11 @@ export const StampCard = React.memo(function StampCard({
       testID={testID || `stamp-card-${code}`}
     >
       <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+      {hasTrips && (
+        <View style={styles.tripsIndicator} testID={`stamp-card-trips-${code}`}>
+          <Ionicons name="images" size={14} color={colors.cloudWhite} />
+        </View>
+      )}
     </TouchableOpacity>
   );
 });
@@ -50,9 +60,28 @@ const styles = StyleSheet.create({
   container: {
     width: STAMP_SIZE,
     height: STAMP_SIZE,
+    position: 'relative',
   },
   stampImage: {
     width: '100%',
     height: '100%',
+  },
+  tripsIndicator: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.sunsetGold,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.cloudWhite,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

@@ -33,6 +33,7 @@ interface PlacesAutocompleteProps {
   placeholder?: string;
   countryCode?: string;
   testID?: string;
+  onDropdownOpen?: (isOpen: boolean) => void;
 }
 
 export function PlacesAutocomplete({
@@ -41,6 +42,7 @@ export function PlacesAutocomplete({
   placeholder = 'Search for a place...',
   countryCode,
   testID = 'places-search',
+  onDropdownOpen,
 }: PlacesAutocompleteProps) {
   const [query, setQuery] = useState(value?.name ?? '');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -61,11 +63,12 @@ export function PlacesAutocomplete({
     setQuery('');
     setPredictions([]);
     setShowDropdown(false);
+    onDropdownOpen?.(false);
     setShowManualEntry(false);
     setError(null);
     hasSelectedRef.current = false;
     onSelect(null);
-  }, [onSelect]);
+  }, [onSelect, onDropdownOpen]);
 
   // Handle text input change with debouncing
   const handleTextChange = useCallback(
@@ -94,6 +97,7 @@ export function PlacesAutocomplete({
           if (!abortControllerRef.current.signal.aborted && !hasSelectedRef.current) {
             setPredictions(results);
             setShowDropdown(true);
+            onDropdownOpen?.(true);
           }
         } catch (err) {
           if ((err as Error).name === 'AbortError') return;
@@ -104,9 +108,11 @@ export function PlacesAutocomplete({
             setManualEntryInitialName(''); // Don't pre-fill from error state
             setShowManualEntry(true);
             setShowDropdown(false);
+            onDropdownOpen?.(false);
           } else if (errorMessage === 'NETWORK_ERROR') {
             setError('Connection error. Check your network or enter manually.');
             setShowDropdown(false);
+            onDropdownOpen?.(false);
           }
         } finally {
           setIsLoading(false);
@@ -124,6 +130,7 @@ export function PlacesAutocomplete({
 
       hasSelectedRef.current = true;
       setShowDropdown(false);
+      onDropdownOpen?.(false);
       setPredictions([]);
       Keyboard.dismiss();
 
@@ -292,10 +299,7 @@ export function PlacesAutocomplete({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    position: 'relative',
-    zIndex: 100,
-  },
+  container: {},
   errorText: {
     fontSize: 13,
     color: colors.adobeBrick,

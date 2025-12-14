@@ -49,6 +49,7 @@ export type DreamsStackParamList = {
 export type PassportStackParamList = {
   PassportHome: undefined;
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
+  ProfileSettings: undefined;
 };
 
 // Entry type for navigation

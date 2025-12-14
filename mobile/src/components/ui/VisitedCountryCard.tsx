@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
@@ -12,6 +13,8 @@ export interface VisitedCountryCardProps {
   name: string;
   /** Country region for display context */
   region: string;
+  /** Whether the country has any trips logged */
+  hasTrips?: boolean;
   /** Handler when card is pressed - navigates to CountryDetail */
   onPress: () => void;
   /** Optional custom container style */
@@ -24,6 +27,7 @@ export const VisitedCountryCard = React.memo(function VisitedCountryCard({
   code,
   name,
   region,
+  hasTrips = false,
   onPress,
   style,
   testID,
@@ -40,11 +44,18 @@ export const VisitedCountryCard = React.memo(function VisitedCountryCard({
       accessibilityLabel={`${name}, tap to view details`}
       testID={testID || `visited-country-card-${code}`}
     >
-      <View style={styles.stampContainer}>
-        {stampImage ? (
-          <Image source={stampImage} style={styles.stampImage} resizeMode="cover" />
-        ) : (
-          <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+      <View style={styles.stampWrapper}>
+        <View style={styles.stampContainer}>
+          {stampImage ? (
+            <Image source={stampImage} style={styles.stampImage} resizeMode="cover" />
+          ) : (
+            <Text style={styles.flagEmoji}>{flagEmoji}</Text>
+          )}
+        </View>
+        {hasTrips && (
+          <View style={styles.tripsIndicator} testID={`visited-card-trips-${code}`}>
+            <Ionicons name="images" size={10} color={colors.cloudWhite} />
+          </View>
         )}
       </View>
       <View style={styles.countryInfo}>
@@ -68,6 +79,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 8,
   },
+  stampWrapper: {
+    position: 'relative',
+    marginRight: 12,
+  },
   stampContainer: {
     width: 48,
     height: 48,
@@ -75,8 +90,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundTertiary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
     overflow: 'hidden',
+  },
+  tripsIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.sunsetGold,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.cloudWhite,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
   },
   stampImage: {
     width: 48,

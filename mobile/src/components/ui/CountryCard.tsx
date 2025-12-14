@@ -136,10 +136,10 @@ export const CountryCard = React.memo(function CountryCard({
           <BlurView intensity={30} tint="light" style={styles.glassBadge}>
             <Text style={styles.flagEmoji}>{flagEmoji}</Text>
           </BlurView>
-          {/* Trips Indicator - Small badge overlapping flag */}
+          {/* Trips Indicator - Badge next to flag */}
           {hasTrips && (
             <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
-              <Ionicons name="images" size={10} color={colors.cloudWhite} />
+              <Ionicons name="images" size={14} color={colors.cloudWhite} />
             </View>
           )}
         </View>
@@ -271,16 +271,21 @@ const styles = StyleSheet.create({
   },
   tripsIndicator: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.mossGreen,
+    bottom: -4,
+    right: -6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.sunsetGold,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: colors.cloudWhite,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   actionsContainer: {
     flexDirection: 'column',

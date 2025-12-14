@@ -67,6 +67,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [scrollEnabled, setScrollScrollEnabled] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Animate form appearance when type is selected
@@ -308,6 +309,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={scrollEnabled}
         >
           {/* Subtitle with trip context */}
           <Text style={styles.headerSubtitle}>
@@ -332,23 +334,29 @@ export function EntryFormScreen({ route, navigation }: Props) {
               style={{
                 opacity: formFadeAnim,
                 transform: [{ translateY: formSlideAnim }],
+                zIndex: 10, // Ensure content layering works
               }}
             >
               {/* Location (conditional - for place, food, stay) */}
               {showPlaceInput && (
-                <View style={[styles.section, styles.locationSection]}>
+                <View
+                  style={[
+                    styles.section,
+                    { zIndex: 2000 },
+                    Platform.OS === 'ios' ? { zIndex: 2000 } : { elevation: 2000 },
+                  ]}
+                >
                   <Text style={styles.sectionLabel}>LOCATION</Text>
-                  <View style={styles.placesContainer}>
-                    <PlacesAutocomplete
-                      value={selectedPlace}
-                      onSelect={(place) => {
-                        setSelectedPlace(place);
-                        if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
-                      }}
-                      placeholder="Search for a place..."
-                      countryCode={trip?.country_code}
-                    />
-                  </View>
+                  <PlacesAutocomplete
+                    value={selectedPlace}
+                    onSelect={(place) => {
+                      setSelectedPlace(place);
+                      if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
+                    }}
+                    placeholder="Search for a place..."
+                    countryCode={trip?.country_code}
+                    onDropdownOpen={(isOpen) => setScrollScrollEnabled(!isOpen)}
+                  />
                   {errors.place && (
                     <Text style={styles.errorText} testID="error-location-required">
                       {errors.place}
@@ -460,6 +468,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 8,
+    zIndex: 3000, // Always on top
+    elevation: 20, // For Android
   },
   headerRow: {
     flexDirection: 'row',
@@ -478,14 +488,15 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
+    overflow: 'visible',
   },
   scrollView: {
     flex: 1,
+    overflow: 'visible',
   },
   scrollContent: {
-    padding: 24,
+    paddingHorizontal: 20,
     paddingTop: 8,
-    flexGrow: 1,
   },
   headerSubtitle: {
     fontFamily: fonts.openSans.regular,
@@ -506,18 +517,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     textTransform: 'uppercase',
   },
-
-  // Location section needs high zIndex for dropdown
-  locationSection: {
-    zIndex: 100,
-  },
-
-  // Places container
-  placesContainer: {
-    borderRadius: 12,
-    overflow: 'visible', // Allow dropdown to appear
-  },
-
   // Photo gallery
   photosLabelRow: {
     flexDirection: 'row',
@@ -540,6 +539,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
+    overflow: 'hidden',
   },
 
   // Error text

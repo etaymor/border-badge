@@ -64,6 +64,21 @@ function DefaultModeContent({ context }: { context: MilestoneContext }) {
         >
           {context.countryName.toUpperCase()}
         </Text>
+
+        {/* Milestone celebration - centered below country name */}
+        {hasMilestones && (
+          <View style={styles.milestoneContainer}>
+            {context.milestones.map((milestone, index) => (
+              <View
+                key={`${milestone.type}-${index}`}
+                style={[styles.milestoneTag, { backgroundColor: withAlpha(milestone.color, 0.95) }]}
+              >
+                <Ionicons name={milestone.icon} size={20} color={colors.white} />
+                <Text style={styles.milestoneText}>{milestone.label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Country number badge */}
@@ -72,21 +87,6 @@ function DefaultModeContent({ context }: { context: MilestoneContext }) {
           <Text style={styles.bigNumber}>#{context.newTotalCount}</Text>
         </View>
       </View>
-
-      {/* Milestone celebration - epic treatment */}
-      {hasMilestones && (
-        <View style={styles.milestoneContainer}>
-          {context.milestones.map((milestone, index) => (
-            <View
-              key={`${milestone.type}-${index}`}
-              style={[styles.milestoneTag, { backgroundColor: withAlpha(milestone.color, 0.95) }]}
-            >
-              <Ionicons name={milestone.icon} size={20} color={colors.white} />
-              <Text style={styles.milestoneText}>{milestone.label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
 
       {/* Watermark - TODO: Replace with logo asset when available */}
       <Text style={styles.watermark}>Border Badge</Text>
@@ -205,7 +205,8 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 20, // Increased padding to prevent text clipping
+    paddingTop: 20, // Prevent text clipping
+    paddingBottom: 12,
   },
   countryNameBold: {
     fontFamily: fonts.oswald.bold,
@@ -244,12 +245,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Milestone celebration
+  // Milestone celebration - below country name
   milestoneContainer: {
-    position: 'absolute',
-    bottom: '8%',
-    left: 0,
-    right: 0,
+    marginTop: 12,
     alignItems: 'center',
     gap: 8,
   },
