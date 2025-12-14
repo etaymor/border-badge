@@ -17,6 +17,7 @@ slowapi = "^0.1.9"
 jinja2 = "^3.1.0"
 pillow = "^11.0.0"
 pillow-heif = "^0.21.0"
+rcssmin = "^1.2.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

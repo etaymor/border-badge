@@ -28,4 +28,3 @@ def safe_external_url(url: str | None) -> str | None:
 
     sanitized = parsed._replace(scheme=scheme)
     return urlunparse(sanitized)
-

@@ -19,7 +19,7 @@ SPECIAL_FLAGS: dict[str, str] = {
     "XI": "\U0001f1ec\U0001f1e7",  # Northern Ireland (use UK flag)
     # Special regions without standard flags
     "ZZ": "\U0001f1f9\U0001f1ff",  # Zanzibar (use Tanzania)
-    "NC": "\U0001f1e8\U0001f1fe",  # Northern Cyprus (use Cyprus)
+    "XN": "\U0001f1e8\U0001f1fe",  # Northern Cyprus (use Cyprus)
 }
 
 

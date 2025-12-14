@@ -51,10 +51,17 @@
       href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap"
       rel="stylesheet"
     />
+    {% if is_production %}
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', path='css/styles.min.css') }}"
+    />
+    {% else %}
     <link
       rel="stylesheet"
       href="{{ url_for('static', path='css/styles.css') }}"
     />
+    {% endif %}
   </head>
   <body>
     <header class="header">

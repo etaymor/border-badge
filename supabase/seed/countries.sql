@@ -154,7 +154,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('AE', 'United Arab Emirates', 'Asia', 'Middle East', 'un_member'),
 ('YE', 'Yemen', 'Asia', 'Middle East', 'un_member'),
 ('PS', 'Palestine', 'Asia', 'Middle East', 'observer'),
-('NC', 'Northern Cyprus', 'Asia', 'Middle East', 'disputed'),
+('XN', 'Northern Cyprus', 'Asia', 'Middle East', 'disputed'),
 
 -- Asia - Central Asia
 ('AF', 'Afghanistan', 'Asia', 'Central Asia', 'un_member'),

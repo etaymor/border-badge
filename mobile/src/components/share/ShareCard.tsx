@@ -20,13 +20,21 @@ import type { MilestoneContext } from '@utils/milestones';
 import { getCountryImage } from '../../assets/countryImages';
 import { getStampImage } from '../../assets/stampImages';
 
-// Card dimensions: Fixed 9:16 aspect ratio (standard width 375 for logical resolution)
-// This ensures consistent export size regardless of device screen size
-const CARD_WIDTH = 375;
-const CARD_HEIGHT = (CARD_WIDTH * 16) / 9; // ~666.67
+// Card dimensions: 9:16 aspect ratio optimized for Instagram Stories (1080x1920)
+// Using 1080 as base width ensures high-quality exports for social sharing
+// The component scales down for display but captures at full resolution
+const CARD_WIDTH = 1080;
+const CARD_HEIGHT = (CARD_WIDTH * 16) / 9; // 1920
 
-// Stamp size for photo mode (bottom left corner)
+// Stamp size for photo mode (bottom left corner) - proportional to card width
 const STAMP_SIZE_PHOTO_MODE = CARD_WIDTH * 0.35;
+
+// Scale factor for converting from 375px base to 1080px
+const SCALE = CARD_WIDTH / 375;
+
+// Scaled icon sizes for Ionicons
+const ICON_SIZE_DEFAULT = Math.round(20 * SCALE);
+const ICON_SIZE_PHOTO_MODE = Math.round(18 * SCALE);
 
 interface ShareCardProps {
   context: MilestoneContext;
@@ -73,7 +81,7 @@ function DefaultModeContent({ context }: { context: MilestoneContext }) {
                 key={`${milestone.type}-${index}`}
                 style={[styles.milestoneTag, { backgroundColor: withAlpha(milestone.color, 0.95) }]}
               >
-                <Ionicons name={milestone.icon} size={20} color={colors.white} />
+                <Ionicons name={milestone.icon} size={ICON_SIZE_DEFAULT} color={colors.white} />
                 <Text style={styles.milestoneText}>{milestone.label}</Text>
               </View>
             ))}
@@ -130,7 +138,7 @@ function PhotoModeContent({
                 { backgroundColor: withAlpha(milestone.color, 0.95) },
               ]}
             >
-              <Ionicons name={milestone.icon} size={18} color={colors.white} />
+              <Ionicons name={milestone.icon} size={ICON_SIZE_PHOTO_MODE} color={colors.white} />
               <Text style={styles.photoModeMilestoneText}>{milestone.label}</Text>
             </View>
           ))}
@@ -178,7 +186,7 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 24,
+    borderRadius: 24 * SCALE,
     overflow: 'hidden',
     backgroundColor: colors.midnightNavy,
   },
@@ -200,86 +208,86 @@ const styles = StyleSheet.create({
   // Country name at top
   topContent: {
     position: 'absolute',
-    top: 32,
+    top: 32 * SCALE,
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20, // Prevent text clipping
-    paddingBottom: 12,
+    paddingHorizontal: 20 * SCALE,
+    paddingTop: 20 * SCALE,
+    paddingBottom: 12 * SCALE,
   },
   countryNameBold: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 42,
-    lineHeight: 60, // Increased line height to prevent ascender clipping
+    fontSize: 42 * SCALE,
+    lineHeight: 60 * SCALE,
     color: colors.midnightNavy,
     textAlign: 'center',
-    letterSpacing: 0.5, // Reduced from 3
+    letterSpacing: 0.5 * SCALE,
     textShadowColor: 'rgba(255, 255, 255, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 * SCALE },
+    textShadowRadius: 4 * SCALE,
   },
 
   // Number badge in bottom-left corner
   numberContainer: {
     position: 'absolute',
-    bottom: 48,
-    left: 32,
+    bottom: 48 * SCALE,
+    left: 32 * SCALE,
   },
   numberGlass: {
     backgroundColor: withAlpha(colors.white, 0.85),
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10, // Increased for better optical balance
-    borderWidth: 1,
+    borderRadius: 16 * SCALE,
+    paddingHorizontal: 16 * SCALE,
+    paddingVertical: 10 * SCALE,
+    borderWidth: 1 * SCALE,
     borderColor: withAlpha(colors.midnightNavy, 0.1),
-    minWidth: 60,
+    minWidth: 60 * SCALE,
     alignItems: 'center',
     justifyContent: 'center',
   },
   bigNumber: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 28 * SCALE,
+    lineHeight: 34 * SCALE,
     color: colors.midnightNavy,
     textAlign: 'center',
   },
 
   // Milestone celebration - below country name
   milestoneContainer: {
-    marginTop: 12,
+    marginTop: 12 * SCALE,
     alignItems: 'center',
-    gap: 8,
+    gap: 8 * SCALE,
   },
   milestoneTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-    gap: 10,
+    paddingVertical: 10 * SCALE,
+    paddingHorizontal: 20 * SCALE,
+    borderRadius: 30 * SCALE,
+    gap: 10 * SCALE,
     // Glow effect
     shadowColor: colors.sunsetGold,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
-    shadowRadius: 12,
+    shadowRadius: 12 * SCALE,
     elevation: 8,
   },
   milestoneText: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 18,
+    fontSize: 18 * SCALE,
     color: colors.white,
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 1 * SCALE,
   },
 
   // Watermark
   watermark: {
     position: 'absolute',
-    bottom: 16,
-    right: 20,
+    bottom: 16 * SCALE,
+    right: 20 * SCALE,
     fontFamily: fonts.openSans.regular,
-    fontSize: 12,
+    fontSize: 12 * SCALE,
     color: colors.warmCream,
     opacity: 0.6,
   },
@@ -293,34 +301,34 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    gap: 8,
+    gap: 8 * SCALE,
   },
   photoModeMilestoneTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    gap: 8,
+    paddingVertical: 8 * SCALE,
+    paddingHorizontal: 16 * SCALE,
+    borderRadius: 24 * SCALE,
+    gap: 8 * SCALE,
     shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 4 * SCALE },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 8 * SCALE,
     elevation: 6,
   },
   photoModeMilestoneText: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 16,
+    fontSize: 16 * SCALE,
     color: colors.white,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.5 * SCALE,
   },
 
   // Stamp in corner
   stampCornerContainer: {
     position: 'absolute',
-    bottom: 24,
-    left: 20,
+    bottom: 24 * SCALE,
+    left: 20 * SCALE,
   },
   stampWrapper: {
     position: 'relative',
@@ -328,9 +336,9 @@ const styles = StyleSheet.create({
     height: STAMP_SIZE_PHOTO_MODE,
     // Shadow for stamp
     shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 8 * SCALE },
     shadowOpacity: 0.4,
-    shadowRadius: 16,
+    shadowRadius: 16 * SCALE,
     elevation: 12,
   },
   stampCornerImage: {
@@ -339,35 +347,35 @@ const styles = StyleSheet.create({
   },
   stampNumberBadge: {
     position: 'absolute',
-    bottom: -8,
-    right: -8,
+    bottom: -8 * SCALE,
+    right: -8 * SCALE,
     backgroundColor: colors.sunsetGold,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 20 * SCALE,
+    paddingHorizontal: 12 * SCALE,
+    paddingVertical: 6 * SCALE,
     // Badge shadow
     shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 2 * SCALE },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowRadius: 4 * SCALE,
     elevation: 4,
   },
   stampNumberText: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 18,
+    fontSize: 18 * SCALE,
     color: colors.midnightNavy,
   },
 
   // Photo mode watermark
   watermarkPhotoMode: {
     position: 'absolute',
-    bottom: 16,
-    right: 20,
+    bottom: 16 * SCALE,
+    right: 20 * SCALE,
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
+    fontSize: 14 * SCALE,
     color: colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 * SCALE },
+    textShadowRadius: 4 * SCALE,
   },
 });

@@ -24,11 +24,13 @@ APP_DIR = Path(__file__).parent
 TEMPLATES_DIR = APP_DIR / "templates"
 STATIC_DIR = APP_DIR / "static"
 
+# Get settings first so we can use them in template globals
+settings = get_settings()
+
 # Jinja2 templates instance (shared across the application)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
 templates.env.filters["safe_external_url"] = safe_external_url
-
-settings = get_settings()
+templates.env.globals["is_production"] = settings.is_production
 
 # Rate limiter instance (shared across the application)
 limiter = Limiter(key_func=get_remote_address)

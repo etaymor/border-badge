@@ -14,7 +14,7 @@ const SPECIAL_FLAGS: Record<string, string> = {
 
   // Special regions without standard flags
   ZZ: '\u{1F1F9}\u{1F1FF}', // Zanzibar (use Tanzania)
-  NC: '\u{1F1E8}\u{1F1FE}', // Northern Cyprus (use Cyprus as fallback)
+  XN: '\u{1F1E8}\u{1F1FE}', // Northern Cyprus (use Cyprus as fallback)
 };
 
 /**

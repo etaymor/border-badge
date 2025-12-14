@@ -69,7 +69,7 @@ const NAME_TO_CODE = {
   Uganda: 'UG',
   Zambia: 'ZM',
   Zimbabwe: 'ZW',
-  Zanzibar: 'EH',
+  Zanzibar: 'ZZ',
 
   // Americas
   'Antigua-and-Barbuda': 'AG',
@@ -181,7 +181,7 @@ const NAME_TO_CODE = {
   Yemen: 'YE',
   // Asia - Disputed/Observer/Special
   Taiwan: 'TW',
-  'Northern-Cyprus': 'NC',
+  'Northern-Cyprus': 'XN',
   Palestine: 'PS',
   'Hong-Kong': 'HK',
   Macau: 'MO',
@@ -242,9 +242,9 @@ const NAME_TO_CODE = {
   Gibraltar: 'GI',
   Greenland: 'GL',
   'Isle-of-Man': 'IM',
-  'Northern-Ireland': 'NIR',
-  Scotland: 'SCT',
-  Wales: 'WLS',
+  'Northern-Ireland': 'XI',
+  Scotland: 'XS',
+  Wales: 'XW',
 
   // Oceania
   Australia: 'AU',
