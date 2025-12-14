@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.core.urls import safe_external_url
 from app.db.session import close_http_client
 
 # Template and static file paths
@@ -25,6 +26,7 @@ STATIC_DIR = APP_DIR / "static"
 
 # Jinja2 templates instance (shared across the application)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
+templates.env.filters["safe_external_url"] = safe_external_url
 
 settings = get_settings()
 

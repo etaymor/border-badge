@@ -90,7 +90,9 @@
     {% if list.entries %}
     <div class="entries-grid">
         {% for entry in list.entries %}
-        {% set entry_url = entry.link if entry.link else ('https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '')) %}
+        {% set sanitized_link = entry.link | safe_external_url %}
+        {% set fallback_url = 'https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '') %}
+        {% set entry_url = sanitized_link if sanitized_link else fallback_url %}
         
         {% if entry_url %}
         <a href="{{ entry_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
