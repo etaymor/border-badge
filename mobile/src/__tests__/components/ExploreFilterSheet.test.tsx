@@ -5,8 +5,8 @@ import type { ExploreFilters } from '../../types/filters';
 
 // Mock Haptics
 jest.mock('expo-haptics', () => ({
-  selectionAsync: jest.fn(),
-  impactAsync: jest.fn(),
+  selectionAsync: jest.fn().mockResolvedValue(undefined),
+  impactAsync: jest.fn().mockResolvedValue(undefined),
   ImpactFeedbackStyle: {
     Medium: 'medium',
   },
