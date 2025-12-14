@@ -271,6 +271,7 @@ The app has been simplified for initial launch. Several features are **temporari
 | **Trips List Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
 | **Friends Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
 | **Paywall Screen** | Hidden | `OnboardingNavigator.tsx` | Uncomment PaywallScreen route and update ProgressSummaryScreen navigation |
+| **Welcome Screen** | Hidden | `AuthNavigator.tsx` | Uncomment WelcomeScreen route and remove initialRouteName |
 
 ### Current Launch Navigation
 
