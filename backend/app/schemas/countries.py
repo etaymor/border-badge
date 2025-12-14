@@ -8,7 +8,9 @@ from uuid import UUID
 from pydantic import BaseModel, field_validator
 
 # Valid regions (continents)
-VALID_REGIONS = frozenset({"Africa", "Americas", "Asia", "Europe", "Oceania", "Antarctica"})
+VALID_REGIONS = frozenset(
+    {"Africa", "Americas", "Asia", "Europe", "Oceania", "Antarctica"}
+)
 
 # Valid subregions by continent
 VALID_SUBREGIONS = frozenset(

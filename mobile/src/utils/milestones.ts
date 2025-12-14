@@ -3,7 +3,7 @@
  * Detects round numbers, new continents, new subregions, and region completions.
  */
 
-import type { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
 import type { Country } from '@services/countriesDb';
@@ -12,6 +12,10 @@ import { logger } from '@utils/logger';
 
 /** Round number thresholds that trigger milestones */
 const ROUND_NUMBER_MILESTONES = [10, 25, 50, 100] as const;
+
+/** Type guard for checking if a number is a round milestone */
+const isRoundMilestone = (n: number): n is (typeof ROUND_NUMBER_MILESTONES)[number] =>
+  (ROUND_NUMBER_MILESTONES as readonly number[]).includes(n);
 
 export type MilestoneType = 'round_number' | 'new_continent' | 'new_subregion' | 'region_complete';
 
@@ -57,7 +61,7 @@ export function detectMilestones(
   const newTotalCount = previousVisited.length + 1;
 
   // 1. Round number milestones (10, 25, 50, 100)
-  if (ROUND_NUMBER_MILESTONES.includes(newTotalCount as (typeof ROUND_NUMBER_MILESTONES)[number])) {
+  if (isRoundMilestone(newTotalCount)) {
     milestones.push({
       type: 'round_number',
       label: `${newTotalCount} Countries!`,

@@ -120,7 +120,7 @@ export function PlacesAutocomplete({
         }
       }, DEBOUNCE_MS);
     },
-    [countryCode]
+    [countryCode, onDropdownOpen]
   );
 
   // Handle prediction selection
@@ -195,7 +195,7 @@ export function PlacesAutocomplete({
         }
       }
     },
-    [onSelect]
+    [onSelect, onDropdownOpen]
   );
 
   // Handle manual entry submission

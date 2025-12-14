@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  ViewStyle,
 } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
@@ -173,11 +174,14 @@ function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps
   }, [width]);
 
   // Check if tab bar should be hidden based on current route's tabBarStyle
+  // Use StyleSheet.flatten to handle array-style StyleProp values
   const focusedRoute = state.routes[state.index];
   const focusedDescriptor = descriptors[focusedRoute.key];
-  const tabBarStyle = focusedDescriptor.options.tabBarStyle as { display?: string } | undefined;
+  const flattenedTabBarStyle = StyleSheet.flatten(focusedDescriptor.options.tabBarStyle) as
+    | ViewStyle
+    | undefined;
 
-  if (tabBarStyle?.display === 'none') {
+  if (flattenedTabBarStyle?.display === 'none') {
     return null;
   }
 

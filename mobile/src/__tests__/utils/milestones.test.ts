@@ -189,7 +189,12 @@ describe('detectMilestones', () => {
     it('does not detect milestone when subregion already visited', () => {
       const countries = [
         createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia', subregion: 'East Asia' }),
-        createMockCountry({ code: 'KR', name: 'South Korea', region: 'Asia', subregion: 'East Asia' }),
+        createMockCountry({
+          code: 'KR',
+          name: 'South Korea',
+          region: 'Asia',
+          subregion: 'East Asia',
+        }),
       ];
       // Previously visited South Korea (same subregion)
       const visited: UserCountry[] = [
@@ -203,7 +208,12 @@ describe('detectMilestones', () => {
 
     it('handles country with no subregion', () => {
       const countries = [
-        createMockCountry({ code: 'AQ', name: 'Antarctica', region: 'Antarctica', subregion: null }),
+        createMockCountry({
+          code: 'AQ',
+          name: 'Antarctica',
+          region: 'Antarctica',
+          subregion: null,
+        }),
       ];
       const visited: UserCountry[] = [];
 
@@ -221,7 +231,12 @@ describe('detectMilestones', () => {
       // Small subregion with 2 countries
       const countries = [
         createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia', subregion: 'East Asia' }),
-        createMockCountry({ code: 'KR', name: 'South Korea', region: 'Asia', subregion: 'East Asia' }),
+        createMockCountry({
+          code: 'KR',
+          name: 'South Korea',
+          region: 'Asia',
+          subregion: 'East Asia',
+        }),
       ];
       // Previously visited all except Japan
       const visited: UserCountry[] = [
@@ -243,7 +258,12 @@ describe('detectMilestones', () => {
     it('does not detect completion when subregion is not fully visited', () => {
       const countries = [
         createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia', subregion: 'East Asia' }),
-        createMockCountry({ code: 'KR', name: 'South Korea', region: 'Asia', subregion: 'East Asia' }),
+        createMockCountry({
+          code: 'KR',
+          name: 'South Korea',
+          region: 'Asia',
+          subregion: 'East Asia',
+        }),
         createMockCountry({ code: 'CN', name: 'China', region: 'Asia', subregion: 'East Asia' }),
       ];
       // Missing China
@@ -258,7 +278,12 @@ describe('detectMilestones', () => {
 
     it('does not detect completion for country with no subregion', () => {
       const countries = [
-        createMockCountry({ code: 'AQ', name: 'Antarctica', region: 'Antarctica', subregion: null }),
+        createMockCountry({
+          code: 'AQ',
+          name: 'Antarctica',
+          region: 'Antarctica',
+          subregion: null,
+        }),
       ];
       const visited: UserCountry[] = [];
 
@@ -313,7 +338,12 @@ describe('detectMilestones', () => {
       const countries = [
         createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia', subregion: 'East Asia' }),
         // Add another East Asia country so region_complete doesn't trigger
-        createMockCountry({ code: 'KR', name: 'South Korea', region: 'Asia', subregion: 'East Asia' }),
+        createMockCountry({
+          code: 'KR',
+          name: 'South Korea',
+          region: 'Asia',
+          subregion: 'East Asia',
+        }),
         ...Array.from({ length: 9 }, (_, i) =>
           createMockCountry({
             code: `C${i}`,

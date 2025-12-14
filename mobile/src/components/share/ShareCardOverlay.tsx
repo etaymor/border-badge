@@ -266,7 +266,9 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
               accessibilityRole="button"
               accessibilityLabel={backgroundImage ? 'Remove photo' : 'Add photo from library'}
               accessibilityHint={
-                backgroundImage ? 'Removes the background photo' : 'Opens photo library to select a background'
+                backgroundImage
+                  ? 'Removes the background photo'
+                  : 'Opens photo library to select a background'
               }
             >
               <View style={styles.actionIconContainer}>
