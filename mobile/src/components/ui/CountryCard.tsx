@@ -44,19 +44,6 @@ export interface CountryCardProps {
   testID?: string;
 }
 
-// Custom memo comparison to prevent unnecessary re-renders
-function arePropsEqual(prev: CountryCardProps, next: CountryCardProps): boolean {
-  return (
-    prev.code === next.code &&
-    prev.name === next.name &&
-    prev.region === next.region &&
-    prev.isVisited === next.isVisited &&
-    prev.isWishlisted === next.isWishlisted &&
-    prev.hasTrips === next.hasTrips
-    // Intentionally ignore function props - they should be stable via useCallback
-  );
-}
-
 export const CountryCard = React.memo(function CountryCard({
   code,
   name,
@@ -201,7 +188,7 @@ export const CountryCard = React.memo(function CountryCard({
       </View>
     </TouchableOpacity>
   );
-}, arePropsEqual);
+});
 
 const styles = StyleSheet.create({
   container: {

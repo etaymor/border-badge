@@ -108,7 +108,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 9999, // Super high z-index
-    elevation: 100, // Super high elevation for Android
     backgroundColor: '#fff',
     borderRadius: 12,
     shadowColor: colors.shadow,

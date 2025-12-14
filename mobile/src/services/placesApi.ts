@@ -11,6 +11,32 @@ const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_GOOGLE_PL
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 500;
 
+// ============ Custom Error Classes ============
+
+/** Base error for all Places API errors */
+export class PlacesApiError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlacesApiError';
+  }
+}
+
+/** Thrown when API quota is exceeded (403/429 responses) */
+export class QuotaExceededError extends PlacesApiError {
+  constructor() {
+    super('Google Places API quota exceeded');
+    this.name = 'QuotaExceededError';
+  }
+}
+
+/** Thrown when network request fails after retries */
+export class NetworkError extends PlacesApiError {
+  constructor(message = 'Network request failed') {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
 // Helper to delay execution
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -87,7 +113,7 @@ export async function searchPlaces(
 
     if (!response.ok) {
       if (response.status === 403 || response.status === 429) {
-        throw new Error('QUOTA_EXCEEDED');
+        throw new QuotaExceededError();
       }
       if (retryCount < MAX_RETRIES && !signal?.aborted) {
         await delay(RETRY_DELAY_MS * (retryCount + 1));
@@ -98,7 +124,7 @@ export async function searchPlaces(
         return searchPlaces(query, countryCode, signal, retryCount + 1);
       }
       logger.warn(`Places API returned status ${response.status} after ${MAX_RETRIES} retries`);
-      throw new Error('NETWORK_ERROR');
+      throw new NetworkError(`Places API returned status ${response.status}`);
     }
 
     const data = await response.json();
@@ -130,7 +156,8 @@ export async function searchPlaces(
       return [];
     }
 
-    if ((error as Error).message === 'QUOTA_EXCEEDED') {
+    // Re-throw our custom errors directly
+    if (error instanceof PlacesApiError) {
       throw error;
     }
 
@@ -145,7 +172,7 @@ export async function searchPlaces(
     }
 
     logger.error('Places autocomplete error after retries:', error);
-    throw new Error('NETWORK_ERROR');
+    throw new NetworkError();
   }
 }
 

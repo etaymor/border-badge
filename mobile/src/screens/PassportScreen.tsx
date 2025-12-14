@@ -398,14 +398,18 @@ export function PassportScreen({ navigation }: Props) {
       // Calculate milestone context BEFORE mutation
       const context = buildMilestoneContext(countryCode, countries ?? [], userCountries ?? []);
 
-      // Fire mutation async
-      addUserCountry.mutate({ country_code: countryCode, status: 'visited' });
-
-      // Show share card overlay
-      if (context) {
-        setShareCardContext(context);
-        setShareCardVisible(true);
-      }
+      // Fire mutation with onSuccess callback to show share card only on success
+      addUserCountry.mutate(
+        { country_code: countryCode, status: 'visited' },
+        {
+          onSuccess: () => {
+            if (context) {
+              setShareCardContext(context);
+              setShareCardVisible(true);
+            }
+          },
+        }
+      );
     },
     [addUserCountry, countries, userCountries]
   );
@@ -525,22 +529,30 @@ export function PassportScreen({ navigation }: Props) {
     [renderStampRow, renderUnvisitedRow]
   );
 
-  // Optimized layout calculation for instant scroll positioning
+  // Precompute layout data for O(1) getItemLayout lookups
+  const layoutData = useMemo(() => {
+    const offsets: number[] = [];
+    const lengths: number[] = [];
+    let cumulativeOffset = 0;
+
+    for (const item of flatListData) {
+      offsets.push(cumulativeOffset);
+      const length = ROW_HEIGHTS[item.type];
+      lengths.push(length);
+      cumulativeOffset += length;
+    }
+
+    return { offsets, lengths };
+  }, [flatListData]);
+
+  // Optimized layout calculation for instant scroll positioning - O(1) lookup
   const getItemLayout = useCallback(
     (_: ArrayLike<ListItem> | null | undefined, index: number) => {
-      // Calculate offset by summing heights of all items before this index
-      let offset = 0;
-      for (let i = 0; i < index; i++) {
-        const item = flatListData[i];
-        if (item) {
-          offset += ROW_HEIGHTS[item.type];
-        }
-      }
-      const item = flatListData[index];
-      const length = item ? ROW_HEIGHTS[item.type] : 0;
+      const length = layoutData.lengths[index] ?? 0;
+      const offset = layoutData.offsets[index] ?? 0;
       return { length, offset, index };
     },
-    [flatListData]
+    [layoutData]
   );
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);

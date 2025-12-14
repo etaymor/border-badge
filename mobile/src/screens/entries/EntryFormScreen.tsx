@@ -67,7 +67,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [scrollEnabled, setScrollScrollEnabled] = useState(true);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Animate form appearance when type is selected
@@ -355,7 +355,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     }}
                     placeholder="Search for a place..."
                     countryCode={trip?.country_code}
-                    onDropdownOpen={(isOpen) => setScrollScrollEnabled(!isOpen)}
+                    onDropdownOpen={(isOpen) => setScrollEnabled(!isOpen)}
                   />
                   {errors.place && (
                     <Text style={styles.errorText} testID="error-location-required">

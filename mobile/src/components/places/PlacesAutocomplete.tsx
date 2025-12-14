@@ -15,6 +15,8 @@ import {
   getPlaceDetails,
   hasApiKey,
   searchPlaces,
+  QuotaExceededError,
+  NetworkError,
 } from '@services/placesApi';
 
 import { ManualEntryForm } from './ManualEntryForm';
@@ -102,14 +104,13 @@ export function PlacesAutocomplete({
         } catch (err) {
           if ((err as Error).name === 'AbortError') return;
 
-          const errorMessage = (err as Error).message;
-          if (errorMessage === 'QUOTA_EXCEEDED') {
+          if (err instanceof QuotaExceededError) {
             setError('Places search unavailable. Enter details manually.');
             setManualEntryInitialName(''); // Don't pre-fill from error state
             setShowManualEntry(true);
             setShowDropdown(false);
             onDropdownOpen?.(false);
-          } else if (errorMessage === 'NETWORK_ERROR') {
+          } else if (err instanceof NetworkError) {
             setError('Connection error. Check your network or enter manually.');
             setShowDropdown(false);
             onDropdownOpen?.(false);

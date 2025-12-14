@@ -15,6 +15,60 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
 
+// ============ LAYOUT CONSTANTS ============
+/** Border radius for the tab bar container and inner glass */
+const TAB_BAR_BORDER_RADIUS = 24;
+
+/** Blur intensity for the glass effect (0-100) */
+const BLUR_INTENSITY = 60;
+
+/** Shadow offset Y for the floating effect */
+const SHADOW_OFFSET_Y = 4;
+
+/** Shadow opacity for subtle depth */
+const SHADOW_OPACITY = 0.12;
+
+/** Shadow blur radius */
+const SHADOW_RADIUS = 16;
+
+/** Android elevation for shadow */
+const ELEVATION = 8;
+
+/** Tab icon size in pixels */
+const TAB_ICON_SIZE = 38;
+
+/** Opacity for inactive tab icons */
+const INACTIVE_TAB_OPACITY = 0.65;
+
+// ============ ANIMATION CONSTANTS ============
+/** Scale when tab is pressed down */
+const PRESS_SCALE = 0.9;
+
+/** Spring friction for press animation (lower = more bouncy) */
+const SPRING_FRICTION = 8;
+
+/** Spring tension for press-in animation (higher = faster) */
+const SPRING_TENSION_IN = 400;
+
+/** Spring tension for press-out animation */
+const SPRING_TENSION_OUT = 300;
+
+// ============ RESPONSIVE PADDING ============
+/** Breakpoint for iPhone SE and smaller */
+const SMALL_SCREEN_BREAKPOINT = 375;
+
+/** Breakpoint for iPhone 12/13 mini, iPhone X/XS */
+const MEDIUM_SCREEN_BREAKPOINT = 414;
+
+/** Horizontal padding for small screens */
+const PADDING_SMALL = 24;
+
+/** Horizontal padding for medium screens */
+const PADDING_MEDIUM = 36;
+
+/** Horizontal padding for large screens */
+const PADDING_LARGE = 48;
+
 // Tab icon assets
 import navIconGlobe from '../../../assets/nav-icons/nav_icon_globe.png';
 import navIconHotair from '../../../assets/nav-icons/nav_icon_hotair.png';
@@ -61,9 +115,9 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
 
   const handlePressIn = useCallback(() => {
     Animated.spring(scaleAnim, {
-      toValue: 0.9,
-      friction: 8,
-      tension: 400,
+      toValue: PRESS_SCALE,
+      friction: SPRING_FRICTION,
+      tension: SPRING_TENSION_IN,
       useNativeDriver: true,
     }).start();
   }, [scaleAnim]);
@@ -71,8 +125,8 @@ function TabItem({ route, label, isFocused, onPress, onLongPress, icon }: TabIte
   const handlePressOut = useCallback(() => {
     Animated.spring(scaleAnim, {
       toValue: 1,
-      friction: 8,
-      tension: 300,
+      friction: SPRING_FRICTION,
+      tension: SPRING_TENSION_OUT,
       useNativeDriver: true,
     }).start();
   }, [scaleAnim]);
@@ -113,9 +167,9 @@ function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps
 
   // Responsive horizontal padding based on screen width
   const horizontalPadding = useMemo(() => {
-    if (width < 375) return 24; // iPhone SE and smaller
-    if (width < 414) return 36; // iPhone 12/13 mini, iPhone X/XS
-    return 48; // iPhone Plus/Max sizes and larger
+    if (width < SMALL_SCREEN_BREAKPOINT) return PADDING_SMALL;
+    if (width < MEDIUM_SCREEN_BREAKPOINT) return PADDING_MEDIUM;
+    return PADDING_LARGE;
   }, [width]);
 
   // Check if tab bar should be hidden based on current route's tabBarStyle
@@ -137,7 +191,7 @@ function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps
       {/* Outer shadow layer */}
       <View style={styles.shadowLayer}>
         {/* Main glass container */}
-        <BlurView intensity={60} tint="light" style={styles.glassContainer}>
+        <BlurView intensity={BLUR_INTENSITY} tint="light" style={styles.glassContainer}>
           {/* Inner glass highlight border */}
           <View style={styles.innerGlass}>
             {/* Tab items */}
@@ -197,20 +251,20 @@ const styles = StyleSheet.create({
     // paddingHorizontal is set dynamically based on screen width
   },
   shadowLayer: {
-    borderRadius: 24,
+    borderRadius: TAB_BAR_BORDER_RADIUS,
     shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: SHADOW_OFFSET_Y },
+    shadowOpacity: SHADOW_OPACITY,
+    shadowRadius: SHADOW_RADIUS,
+    elevation: ELEVATION,
   },
   glassContainer: {
-    borderRadius: 24,
+    borderRadius: TAB_BAR_BORDER_RADIUS,
     overflow: 'hidden',
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   innerGlass: {
-    borderRadius: 24,
+    borderRadius: TAB_BAR_BORDER_RADIUS,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.9)',
     backgroundColor: 'rgba(253, 246, 237, 0.5)', // Warm cream tint
@@ -232,11 +286,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabIcon: {
-    width: 38,
-    height: 38,
+    width: TAB_ICON_SIZE,
+    height: TAB_ICON_SIZE,
   },
   tabIconInactive: {
-    opacity: 0.65,
+    opacity: INACTIVE_TAB_OPACITY,
   },
 });
 

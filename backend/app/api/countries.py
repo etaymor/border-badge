@@ -11,6 +11,8 @@ from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.schemas.countries import (
+    VALID_REGIONS,
+    VALID_SUBREGIONS,
     Country,
     CountryRecognition,
     UserCountry,
@@ -89,6 +91,20 @@ async def list_countries(
 
     Countries are public reference data - no auth required.
     """
+    # Validate region parameter to prevent injection
+    if region and region not in VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid region: '{region}'. Valid regions: {', '.join(sorted(VALID_REGIONS))}",
+        )
+
+    # Validate subregion parameter to prevent injection
+    if subregion and subregion not in VALID_SUBREGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid subregion: '{subregion}'",
+        )
+
     db = get_supabase_client()
 
     normalized_search = search.strip().lower() if search else None

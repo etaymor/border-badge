@@ -44,7 +44,6 @@ interface ExploreFilterSheetProps {
 const STATUS_OPTIONS: { value: CountryStatus; label: string }[] = [
   { value: 'visited', label: 'Visited' },
   { value: 'dream', label: 'Dream' },
-  { value: 'not_visited', label: 'Not Visited' },
   { value: 'has_trips', label: 'Has Trips' },
 ];
 

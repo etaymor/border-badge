@@ -11,12 +11,12 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  Dimensions,
   Modal,
   Pressable,
   Share,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +27,16 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { MilestoneContext } from '@utils/milestones';
 
-import { ShareCard, SHARE_CARD_WIDTH } from './ShareCard';
+import { ShareCard, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT } from './ShareCard';
+
+/** Horizontal padding on each side of the card */
+const CARD_HORIZONTAL_PADDING = 24;
+
+/** Total horizontal padding (both sides) */
+const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
+
+/** Vertical margin above and below the card */
+const CARD_VERTICAL_MARGIN = 80;
 
 interface ShareCardOverlayProps {
   visible: boolean;
@@ -35,10 +44,9 @@ interface ShareCardOverlayProps {
   onDismiss: () => void;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOverlayProps) {
   const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const viewShotRef = useRef<ViewShot>(null);
 
   // Animation values
@@ -46,8 +54,12 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
   const cardScale = useRef(new Animated.Value(0.9)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
-  // Calculate scale to fit screen width with padding
-  const displayScale = (SCREEN_WIDTH - 48) / SHARE_CARD_WIDTH;
+  // Calculate scale to fit screen with padding, respecting both width and height constraints
+  const availableWidth = screenWidth - CARD_TOTAL_HORIZONTAL_PADDING;
+  const availableHeight = screenHeight - insets.top - insets.bottom - CARD_VERTICAL_MARGIN;
+  const widthScale = availableWidth / SHARE_CARD_WIDTH;
+  const heightScale = availableHeight / SHARE_CARD_HEIGHT;
+  const displayScale = Math.min(widthScale, heightScale);
 
   // State
   const [backgroundImage, setBackgroundImage] = useState<string | undefined>(undefined);
@@ -59,7 +71,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
     if (visible && context) {
       setIsAnimating(true);
 
-      Animated.parallel([
+      const animation = Animated.parallel([
         Animated.timing(backdropOpacity, {
           toValue: 1,
           duration: 150,
@@ -76,9 +88,16 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
           duration: 200,
           useNativeDriver: true,
         }),
-      ]).start(() => {
+      ]);
+
+      animation.start(() => {
         setIsAnimating(false);
       });
+
+      // Cleanup: stop animation if component unmounts mid-animation
+      return () => {
+        animation.stop();
+      };
     } else {
       // Reset animations
       backdropOpacity.setValue(0);
@@ -207,6 +226,8 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
             style={styles.closeButton}
             onPress={handleDismiss}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close share card"
           >
             <Ionicons name="close" size={28} color={colors.warmCream} />
           </TouchableOpacity>
@@ -242,6 +263,11 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
               onPress={backgroundImage ? handleRemovePhoto : handleAddPhoto}
               activeOpacity={0.7}
               hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel={backgroundImage ? 'Remove photo' : 'Add photo from library'}
+              accessibilityHint={
+                backgroundImage ? 'Removes the background photo' : 'Opens photo library to select a background'
+              }
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons
@@ -259,6 +285,9 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
               onPress={handleShare}
               activeOpacity={0.7}
               hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Share card"
+              accessibilityHint="Opens share sheet to share this card"
             >
               <View style={[styles.actionIconContainer, styles.primaryIconContainer]}>
                 <Ionicons name="share-outline" size={24} color={colors.white} />
@@ -273,6 +302,10 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
               activeOpacity={0.7}
               disabled={isSaving}
               hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel={isSaving ? 'Saving to photos' : 'Save to photos'}
+              accessibilityHint="Saves this card to your photo library"
+              accessibilityState={{ disabled: isSaving }}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons

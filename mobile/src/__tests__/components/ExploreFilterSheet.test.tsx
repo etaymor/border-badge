@@ -70,7 +70,7 @@ describe('ExploreFilterSheet', () => {
       expect(screen.getByText('Status')).toBeTruthy();
       expect(screen.getByText('Visited')).toBeTruthy();
       expect(screen.getByText('Dream')).toBeTruthy();
-      expect(screen.getByText('Not Visited')).toBeTruthy();
+      expect(screen.getByText('Has Trips')).toBeTruthy();
     });
 
     it('hides status section when showStatusSection is false', () => {
