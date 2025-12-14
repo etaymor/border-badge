@@ -178,7 +178,11 @@ export function ExploreFilterSheet({
   // Note: We don't call closeSheet() here because it would call onClose(),
   // and if onApply === onClose, that would cause a double-close.
   const handleApply = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Fire-and-forget haptic feedback - don't block animations if it fails
+    // (e.g., UnavailabilityError on unsupported platforms)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {
+      // Silently ignore haptics failures
+    });
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: SHEET_HEIGHT,

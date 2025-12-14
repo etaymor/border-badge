@@ -305,7 +305,7 @@ const NAME_TO_CODE = {
   'saint-kitts-nevis': 'KN',
   'saint-vincent-the-grenadines': 'VC',
   'sao-tome-principe': 'ST',
-  scotl: 'SCT',
+  scotl: 'XS',
 
   // Special/Non-standard (skip these)
   'bora-bora': null, // Part of French Polynesia, not a country

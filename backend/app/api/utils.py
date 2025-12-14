@@ -29,7 +29,7 @@ def get_flag_emoji(country_code: str | None) -> str:
     Handles standard codes and special cases like Scotland (XS),
     Wales (XW), Northern Ireland (XI), etc.
 
-    Returns empty string for invalid codes.
+    Returns empty string for invalid codes or encoding errors.
     """
     if not country_code:
         return ""
@@ -46,4 +46,10 @@ def get_flag_emoji(country_code: str | None) -> str:
         return ""
 
     # Convert to regional indicator symbols
-    return "".join(chr(ord(c) + 127397) for c in code)
+    # Each letter A-Z maps to regional indicator symbols U+1F1E6 to U+1F1FF
+    # The offset 127397 = 0x1F1E6 - ord('A') = 127462 - 65
+    try:
+        return "".join(chr(ord(c) + 127397) for c in code)
+    except (ValueError, OverflowError):
+        # Handle potential encoding issues gracefully
+        return ""
