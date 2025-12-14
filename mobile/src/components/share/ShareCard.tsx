@@ -44,7 +44,11 @@ interface ShareCardProps {
 /**
  * Default mode: Full-bleed illustration with bold typography
  */
-function DefaultModeContent({ context }: { context: MilestoneContext }) {
+const DefaultModeContent = memo(function DefaultModeContent({
+  context,
+}: {
+  context: MilestoneContext;
+}) {
   const countryImage = useMemo(() => getCountryImage(context.countryCode), [context.countryCode]);
   const hasMilestones = context.milestones.length > 0;
 
@@ -100,12 +104,12 @@ function DefaultModeContent({ context }: { context: MilestoneContext }) {
       <Text style={styles.watermark}>Border Badge</Text>
     </>
   );
-}
+});
 
 /**
  * Photo mode: User's photo with stamp in corner
  */
-function PhotoModeContent({
+const PhotoModeContent = memo(function PhotoModeContent({
   context,
   backgroundImage,
 }: {
@@ -162,7 +166,7 @@ function PhotoModeContent({
       <Text style={styles.watermarkPhotoMode}>Border Badge</Text>
     </>
   );
-}
+});
 
 function ShareCardComponent({ context, backgroundImage }: ShareCardProps) {
   return (

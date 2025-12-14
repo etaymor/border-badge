@@ -1,6 +1,6 @@
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Dimensions,
@@ -77,6 +77,12 @@ export function ExploreFilterSheet({
     ]).start();
   }, [translateY, backdropOpacity]);
 
+  // Use ref to hold the latest onClose callback for panResponder
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   const closeSheet = useCallback(() => {
     Animated.parallel([
       Animated.timing(translateY, {
@@ -89,31 +95,34 @@ export function ExploreFilterSheet({
         duration: 200,
         useNativeDriver: true,
       }),
-    ]).start(() => onClose());
-  }, [translateY, backdropOpacity, onClose]);
+    ]).start(() => onCloseRef.current());
+  }, [translateY, backdropOpacity]);
 
   // Pan gesture for drag-to-dismiss
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 10,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateY.setValue(gestureState.dy);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > DISMISS_THRESHOLD) {
-          closeSheet();
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    })
-  ).current;
+  // Uses useMemo with closeSheet dependency to ensure panResponder has the latest closeSheet
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 10,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > DISMISS_THRESHOLD) {
+            closeSheet();
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [translateY, closeSheet]
+  );
 
   // Toggle handlers
   const toggleStatus = useCallback(
