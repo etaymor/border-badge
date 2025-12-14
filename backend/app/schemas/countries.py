@@ -7,6 +7,46 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
+# Valid regions (continents)
+VALID_REGIONS = frozenset(
+    {"Africa", "Americas", "Asia", "Europe", "Oceania", "Antarctica"}
+)
+
+# Valid subregions by continent
+VALID_SUBREGIONS = frozenset(
+    {
+        # Africa
+        "Northern Africa",
+        "Western Africa",
+        "Eastern Africa",
+        "Central Africa",
+        "Southern Africa",
+        # Americas
+        "North America",
+        "Central America",
+        "Caribbean",
+        "South America",
+        # Asia
+        "Middle East",
+        "Central Asia",
+        "South Asia",
+        "Southeast Asia",
+        "East Asia",
+        # Europe
+        "Northern Europe",
+        "Western Europe",
+        "Eastern Europe",
+        "Southern Europe",
+        # Oceania
+        "Australia/New Zealand",
+        "Melanesia",
+        "Micronesia",
+        "Polynesia",
+        # Antarctica
+        "Antarctica",
+    }
+)
+
 
 class CountryRecognition(str, Enum):
     """Country recognition status."""
@@ -15,6 +55,9 @@ class CountryRecognition(str, Enum):
     OBSERVER = "observer"
     DISPUTED = "disputed"
     TERRITORY = "territory"
+    DEPENDENT_TERRITORY = "dependent_territory"
+    SPECIAL_REGION = "special_region"
+    CONSTITUENT_COUNTRY = "constituent_country"
 
 
 class UserCountryStatus(str, Enum):
@@ -31,6 +74,7 @@ class Country(BaseModel):
     code: str
     name: str
     region: str
+    subregion: str | None = None
     flag_url: str | None = None
     recognition: CountryRecognition
 

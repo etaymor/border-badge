@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -9,13 +11,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CountryCard, Snackbar } from '@components/ui';
+import { ShareCardOverlay } from '@components/share';
+import { CountryCard, ExploreFilterSheet, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
+import { RECOGNITION_GROUPS } from '@constants/regions';
+import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
+import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
+import {
+  DEFAULT_FILTERS,
+  hasActiveFilters,
+  countActiveFilters,
+  type ExploreFilters,
+} from '../types/filters';
 
 // Animation timing constants
 const HEART_PULSE_DELAY_MS = 150;
@@ -30,6 +43,7 @@ interface DreamCountry {
   name: string;
   region: string;
   isWishlisted: boolean;
+  hasTrips: boolean;
 }
 
 interface SnackbarState {
@@ -39,11 +53,19 @@ interface SnackbarState {
 }
 
 export function DreamsScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
+  const { data: trips } = useTrips();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+
+  // Share card state
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -101,16 +123,50 @@ export function DreamsScreen({ navigation }: Props) {
     }));
   }, [countries]);
 
+  // Apply explore filters to countries (excluding status filter since Dreams doesn't use it)
+  const filteredCountries = useMemo(() => {
+    if (!searchableCountries.length) return [];
+
+    let filtered = [...searchableCountries];
+
+    // Apply continent filter (OR within category)
+    if (filters.continents.length > 0) {
+      filtered = filtered.filter((country) => filters.continents.includes(country.region));
+    }
+
+    // Apply subregion filter (OR within category)
+    if (filters.subregions.length > 0) {
+      filtered = filtered.filter(
+        (country) => country.subregion && filters.subregions.includes(country.subregion)
+      );
+    }
+
+    // Apply recognition filter (OR within category)
+    if (filters.recognitionGroups.length > 0) {
+      const allowedRecognitions = filters.recognitionGroups.flatMap(
+        (group) => RECOGNITION_GROUPS[group]
+      );
+      filtered = filtered.filter(
+        (country) =>
+          country.recognition &&
+          allowedRecognitions.includes(country.recognition as (typeof allowedRecognitions)[number])
+      );
+    }
+
+    return filtered;
+  }, [searchableCountries, filters]);
+
   // Compute sorted countries: dreams first, then alphabetical, excluding visited
   const sortedCountries = useMemo((): DreamCountry[] => {
-    if (!searchableCountries.length) return [];
+    if (!filteredCountries.length) return [];
 
     const query = searchQuery.toLowerCase().trim();
     const wishlistCodes = new Set(wishlistCountries.map((uc) => uc.country_code));
     const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
+    const countriesWithTrips = new Set(trips?.map((t) => t.country_code) ?? []);
 
     // Filter by search, exclude visited
-    const filtered = searchableCountries
+    const filtered = filteredCountries
       .filter((c) => !visitedCodes.has(c.code))
       .filter((c) => !query || c.searchName.includes(query));
 
@@ -129,8 +185,9 @@ export function DreamsScreen({ navigation }: Props) {
       name: c.name,
       region: c.region,
       isWishlisted: wishlistCodes.has(c.code),
+      hasTrips: countriesWithTrips.has(c.code),
     }));
-  }, [searchableCountries, wishlistCountries, visitedCountries, searchQuery]);
+  }, [filteredCountries, wishlistCountries, visitedCountries, trips, searchQuery]);
 
   const handleCountryPress = useCallback(
     (country: DreamCountry) => {
@@ -145,6 +202,11 @@ export function DreamsScreen({ navigation }: Props) {
 
   const handleAddVisited = useCallback(
     (countryCode: string, countryName: string) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Calculate milestone context BEFORE mutation
+      const context = buildMilestoneContext(countryCode, countries ?? [], userCountries ?? []);
+
       addUserCountry.mutate(
         { country_code: countryCode, status: 'visited' },
         {
@@ -157,9 +219,20 @@ export function DreamsScreen({ navigation }: Props) {
           },
         }
       );
+
+      // Show share card overlay
+      if (context) {
+        setShareCardContext(context);
+        setShareCardVisible(true);
+      }
     },
-    [addUserCountry]
+    [addUserCountry, countries, userCountries]
   );
+
+  const handleShareCardDismiss = useCallback(() => {
+    setShareCardVisible(false);
+    setShareCardContext(null);
+  }, []);
 
   const handleToggleWishlist = useCallback(
     (countryCode: string, countryName: string) => {
@@ -269,6 +342,7 @@ export function DreamsScreen({ navigation }: Props) {
             name={item.name}
             isVisited={false}
             isWishlisted={item.isWishlisted}
+            hasTrips={item.hasTrips}
             onPress={() => handleCountryPress(item)}
             onAddVisited={() => handleAddVisited(item.code, item.name)}
             onToggleWishlist={() => handleToggleWishlist(item.code, item.name)}
@@ -281,34 +355,69 @@ export function DreamsScreen({ navigation }: Props) {
 
   const getItemKey = useCallback((item: DreamCountry) => item.code, []);
 
+  const handleExplorePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFilterSheetVisible(true);
+  }, []);
+
+  const handleCloseFilters = useCallback(() => {
+    setFilterSheetVisible(false);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
+  const activeFilterCount = countActiveFilters(filters) - filters.status.length; // Exclude status from count
+  const filtersActive = hasActiveFilters(filters) && activeFilterCount > 0;
+
   const ListHeader = useMemo(
     () => (
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputContainer}>
-          <Ionicons name="search" size={18} color={colors.textTertiary} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search countries..."
-            placeholderTextColor={colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
+      <>
+        {/* Lake Blue Header */}
+        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.headerTitle}>My Dreams</Text>
         </View>
-        {searchQuery.length > 0 && (
+        {/* Search Row with Liquid Glass */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchGlassWrapper}>
+            <BlurView intensity={60} tint="light" style={styles.searchGlassContainer}>
+              <View style={styles.searchInputContainer}>
+                <Ionicons
+                  name="search"
+                  size={18}
+                  color={colors.stormGray}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Type Country"
+                  placeholderTextColor={colors.stormGray}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            </BlurView>
+          </View>
           <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => setSearchQuery('')}
+            style={[styles.exploreButton, filtersActive && styles.exploreButtonActive]}
+            onPress={handleExplorePress}
             activeOpacity={0.7}
           >
-            <Text style={styles.clearButtonText}>Clear</Text>
+            <Text
+              style={[styles.exploreButtonText, filtersActive && styles.exploreButtonTextActive]}
+            >
+              {filtersActive ? `FILTERS (${activeFilterCount})` : 'EXPLORE'}
+            </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      </>
     ),
-    [searchQuery]
+    [searchQuery, insets.top, filtersActive, activeFilterCount, handleExplorePress]
   );
 
   const ListEmpty = useMemo(
@@ -343,16 +452,19 @@ export function DreamsScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <View style={styles.container}>
+        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.headerTitle}>My Dreams</Text>
+        </View>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <View style={styles.container}>
       <FlatList
         data={sortedCountries}
         renderItem={renderItem}
@@ -378,68 +490,125 @@ export function DreamsScreen({ navigation }: Props) {
         onDismiss={handleSnackbarDismiss}
         duration={3000}
       />
-    </SafeAreaView>
+      <ExploreFilterSheet
+        visible={filterSheetVisible}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onClose={handleCloseFilters}
+        onClearAll={handleClearFilters}
+        onApply={handleCloseFilters}
+        showStatusSection={false}
+      />
+
+      <ShareCardOverlay
+        visible={shareCardVisible}
+        context={shareCardContext}
+        onDismiss={handleShareCardDismiss}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.warmCream,
+  },
+  // Header
+  headerContainer: {
+    backgroundColor: colors.lakeBlue,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    color: colors.midnightNavy,
+    fontStyle: 'italic',
+    letterSpacing: -0.5,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.warmCream,
   },
   loadingText: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textSecondary,
+    color: colors.stormGray,
   },
   listContent: {
-    paddingBottom: 24,
-    paddingHorizontal: 16,
+    paddingBottom: 100,
     flexGrow: 1,
   },
   columnWrapper: {
     gap: 12,
     marginBottom: 12,
+    paddingHorizontal: 16,
   },
-  // Search Row
+  // Search Row with Liquid Glass
   searchRow: {
     flexDirection: 'row',
-    marginTop: 16,
-    marginBottom: 16,
-    gap: 12,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    gap: 16,
     alignItems: 'center',
+    backgroundColor: colors.warmCream,
+  },
+  searchGlassWrapper: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   searchInputContainer: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 20,
     paddingHorizontal: 16,
-    height: 44,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(253, 246, 237, 0.5)',
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
   },
-  clearButton: {
-    paddingHorizontal: 12,
-    height: 44,
+  exploreButton: {
+    paddingHorizontal: 16,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 20,
   },
-  clearButtonText: {
+  exploreButtonActive: {
+    backgroundColor: colors.mossGreen,
+  },
+  exploreButtonText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    fontWeight: '500',
-    color: colors.primary,
+    color: colors.mossGreen,
+    letterSpacing: 0.5,
+  },
+  exploreButtonTextActive: {
+    color: colors.cloudWhite,
   },
   // Country Card Wrapper
   countryCardWrapper: {
@@ -457,14 +626,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
+    fontFamily: fonts.playfair.bold,
     fontSize: 20,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
     marginBottom: 8,
   },
   emptySubtitle: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 16,
-    color: colors.textSecondary,
+    color: colors.stormGray,
     textAlign: 'center',
+    lineHeight: 24,
   },
 });

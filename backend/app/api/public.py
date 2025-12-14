@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
+from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
 from app.core.media import extract_media_urls
@@ -60,7 +61,7 @@ async def view_public_list(
         {
             "slug": f"eq.{slug}",
             "deleted_at": "is.null",
-            "select": "*, trip:trip_id(name, cover_image_url, country:country_id(name))",
+            "select": "*, trip:trip_id(name, cover_image_url, country:country_id(name, code))",
         },
     )
 
@@ -115,6 +116,7 @@ async def view_public_list(
         description=lst.get("description"),
         trip_name=trip.get("name"),
         country_name=country.get("name"),
+        country_flag=get_flag_emoji(country.get("code")),
         cover_image_url=trip.get("cover_image_url"),
         created_at=lst["created_at"],
         entries=entries,

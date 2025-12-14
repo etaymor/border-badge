@@ -76,7 +76,7 @@ const NAME_TO_CODE = {
   'ug-a': 'UG', // typo in source
   zambia: 'ZM',
   zimbabwe: 'ZW',
-  zanzibar: 'EH', // Special case
+  zanzibar: 'ZZ', // Special region of Tanzania
 
   // Americas
   'antigua-barbuda': 'AG', // no "and" in stamp name
@@ -193,7 +193,7 @@ const NAME_TO_CODE = {
   yemen: 'YE',
   // Asia - Disputed/Observer/Special
   taiwan: 'TW',
-  'northern-cyprus': 'NC',
+  'northern-cyprus': 'XN',
   palestine: 'PS',
   'hong-kong': 'HK',
   macau: 'MO',
@@ -257,9 +257,9 @@ const NAME_TO_CODE = {
   gibraltar: 'GI',
   greenland: 'GL',
   'isle-of-man': 'IM',
-  'northern-ireland': 'NIR',
-  scotland: 'SCT',
-  wales: 'WLS',
+  'northern-ireland': 'XI',
+  scotland: 'XS',
+  wales: 'XW',
 
   // Oceania
   australia: 'AU',
@@ -305,7 +305,7 @@ const NAME_TO_CODE = {
   'saint-kitts-nevis': 'KN',
   'saint-vincent-the-grenadines': 'VC',
   'sao-tome-principe': 'ST',
-  scotl: 'SCT',
+  scotl: 'XS',
 
   // Special/Non-standard (skip these)
   'bora-bora': null, // Part of French Polynesia, not a country

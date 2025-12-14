@@ -4,60 +4,102 @@
 {% block description %}{{ trip.name }} in {{ trip.country_name }} - A trip shared on Border Badge{% endblock %}
 
 {% block content %}
-{% if trip.cover_image_url %}
-<img src="{{ trip.cover_image_url }}" alt="{{ trip.name }}" class="trip-cover">
-{% endif %}
-
-<section class="page-header">
-    <h1 class="page-title">{{ trip.name }}</h1>
-    <p class="page-subtitle">{{ trip.country_name }}</p>
-    {% if trip.date_range %}
-    <p class="page-meta">{{ trip.date_range }}</p>
+<!-- Hero Section -->
+<section class="hero-section">
+    {% if trip.cover_image_url %}
+    <img src="{{ trip.cover_image_url }}" alt="Cover image for {{ trip.name }} trip{% if trip.country_name %} in {{ trip.country_name }}{% endif %}" class="hero-bg">
+    {% else %}
+    <div class="hero-bg" style="background-color: var(--color-midnight-navy); background-image: radial-gradient(circle at 10% 20%, rgba(255,255,255,0.05) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.05) 0%, transparent 20%);"></div>
     {% endif %}
+    <div class="hero-overlay"></div>
 </section>
 
-<section class="entries-section">
+<!-- Trip Info Card (Liquid Glass) -->
+<div class="list-info-container">
+    <div class="list-info-card">
+        <h1 class="list-title">{{ trip.name }}</h1>
+        
+        <div class="list-meta">
+            {% if trip.country_name %}
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">🌍</span> {{ trip.country_name }}
+            </div>
+            {% endif %}
+            
+            {% if trip.date_range %}
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">📅</span> {{ trip.date_range }}
+            </div>
+            {% endif %}
+
+            <div class="meta-item">
+                <span style="font-size: 1.2em;">📍</span> {{ trip.entries|length }} Stops
+            </div>
+        </div>
+
+        <div class="creator-pill">
+             <div class="creator-avatar">BB</div>
+             Shared from Border Badge
+        </div>
+    </div>
+</div>
+
+<!-- Entries Grid -->
+<section class="entries-container">
     {% if trip.entries %}
     <div class="entries-grid">
         {% for entry in trip.entries %}
         <article class="entry-card">
-            {% if entry.media_urls and entry.media_urls|length > 0 %}
-            <img src="{{ entry.media_urls[0] }}" alt="{{ entry.title }}" class="entry-image">
-            {% else %}
-            <div class="entry-image-placeholder">
-                {% if entry.type == 'food' %}🍽️
-                {% elif entry.type == 'stay' %}🏨
-                {% elif entry.type == 'experience' %}⭐
-                {% else %}📍{% endif %}
-            </div>
-            {% endif %}
-            <div class="entry-content">
-                <span class="entry-type">{{ entry.type }}</span>
-                <h3 class="entry-title">{{ entry.title }}</h3>
-                {% if entry.place_name %}
-                <p class="entry-place">{{ entry.place_name }}</p>
+            <div class="entry-image-wrapper">
+                {% if entry.media_urls and entry.media_urls|length > 0 %}
+                <img src="{{ entry.media_urls[0] }}" alt="Photo of {{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}" class="entry-image" loading="lazy">
+                {% else %}
+                <div class="entry-image-placeholder">
+                    {% if entry.type == 'food' %}🍽️
+                    {% elif entry.type == 'stay' %}🏨
+                    {% elif entry.type == 'experience' %}⭐
+                    {% else %}📍{% endif %}
+                </div>
                 {% endif %}
+            </div>
+            
+            <div class="entry-content">
+                <span class="entry-category">{{ entry.type }}</span>
+                <h3 class="entry-title">{{ entry.title }}</h3>
+                
+                {% if entry.place_name %}
+                <div class="entry-location">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    {{ entry.place_name }}
+                </div>
+                {% endif %}
+                
                 {% if entry.notes %}
-                <p class="entry-notes">{{ entry.notes[:150] }}{% if entry.notes|length > 150 %}...{% endif %}</p>
+                <div class="entry-notes">
+                    "{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}"
+                </div>
                 {% endif %}
             </div>
         </article>
         {% endfor %}
     </div>
     {% else %}
-    <div class="container" style="text-align: center;">
-        <p style="color: var(--color-text-muted);">This trip doesn't have any entries yet.</p>
+    <div class="empty-state">
+        <p>No entries logged for this trip yet.</p>
     </div>
     {% endif %}
 </section>
 
+<!-- CTA Section -->
 <section class="cta-section">
-    <h2 class="cta-section-title">Want to log your own trips?</h2>
-    <p class="cta-section-text">
-        Download Border Badge to track your travels, add photos and notes, and share with friends.
-    </p>
-    <a href="{{ app_store_url or '#download' }}" class="cta-button cta-button--large">
-        Get Border Badge
-    </a>
+    <div class="cta-content">
+        <span class="cta-hand-text">Log your journey</span>
+        <h2 class="cta-title">Want to track your own trips?</h2>
+        <p style="margin-bottom: 2rem; opacity: 0.9;">Download Border Badge to keep a digital journal of your travels, adding photos, notes, and places.</p>
+        <a href="{{ app_store_url or '#download' }}" class="cta-button">
+            Get Border Badge
+        </a>
+    </div>
 </section>
+{% block footer_cta %}{% endblock %}
 {% endblock %}

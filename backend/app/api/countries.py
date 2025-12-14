@@ -9,8 +9,11 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
+from app.db.postgrest import eq, in_list
 from app.db.session import get_supabase_client
 from app.schemas.countries import (
+    VALID_REGIONS,
+    VALID_SUBREGIONS,
     Country,
     CountryRecognition,
     UserCountry,
@@ -52,7 +55,7 @@ async def get_country_id_by_code(country_code: str) -> str | None:
         db = get_supabase_client()
         rows = await db.get(
             "country",
-            {"code": f"eq.{code}", "select": "id"},
+            {"code": eq(code), "select": "id"},
         )
         if not rows:
             return None
@@ -77,8 +80,11 @@ def _matches_country_search(row: dict[str, Any], term: str) -> bool:
 
 @router.get("", response_model=list[Country])
 async def list_countries(
-    search: str | None = Query(None, description="Search by name or code"),
+    search: str | None = Query(
+        None, max_length=100, description="Search by name or code"
+    ),
     region: str | None = Query(None, description="Filter by region"),
+    subregion: str | None = Query(None, description="Filter by subregion"),
     recognition: list[CountryRecognition] | None = Query(
         None, description="Filter by recognition status"
     ),
@@ -88,6 +94,20 @@ async def list_countries(
 
     Countries are public reference data - no auth required.
     """
+    # Validate region parameter to prevent injection
+    if region and region not in VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid region: '{region}'. Valid regions: {', '.join(sorted(VALID_REGIONS))}",
+        )
+
+    # Validate subregion parameter to prevent injection
+    if subregion and subregion not in VALID_SUBREGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid subregion: '{subregion}'",
+        )
+
     db = get_supabase_client()
 
     normalized_search = search.strip().lower() if search else None
@@ -96,12 +116,14 @@ async def list_countries(
     params: dict[str, str] = {"select": "*", "order": "name.asc"}
 
     if region:
-        params["region"] = f"eq.{region}"
+        params["region"] = eq(region)
+
+    if subregion:
+        params["subregion"] = eq(subregion)
 
     if recognition:
         # Filter by recognition types
-        recognition_values = ",".join(r.value for r in recognition)
-        params["recognition"] = f"in.({recognition_values})"
+        params["recognition"] = in_list([r.value for r in recognition])
 
     rows = await db.get("country", params)
 
@@ -121,6 +143,16 @@ async def list_regions() -> list[str]:
     return list(dict.fromkeys(row["region"] for row in rows))
 
 
+@router.get("/subregions", response_model=list[str])
+async def list_subregions() -> list[str]:
+    """List all unique subregions."""
+    db = get_supabase_client()
+    params = {"select": "subregion", "order": "subregion.asc"}
+    rows = await db.get("country", params)
+    # Deduplicate and filter out None values
+    return list(dict.fromkeys(row["subregion"] for row in rows if row.get("subregion")))
+
+
 @router.get("/user", response_model=list[UserCountry])
 async def get_user_countries(
     request: Request,
@@ -131,7 +163,7 @@ async def get_user_countries(
     db = get_supabase_client(user_token=token)
     params = {
         "select": "*, country:country_id(code)",  # Join to get country code
-        "user_id": f"eq.{user.id}",
+        "user_id": eq(str(user.id)),
         "order": "created_at.desc",
     }
     rows = await db.get("user_countries", params)
@@ -181,8 +213,8 @@ async def set_user_country(
     existing = await db.get(
         "user_countries",
         {
-            "user_id": f"eq.{user.id}",
-            "country_id": f"eq.{country_id}",
+            "user_id": eq(str(user.id)),
+            "country_id": eq(str(country_id)),
             "select": "id",
         },
     )
@@ -192,7 +224,7 @@ async def set_user_country(
         rows = await db.patch(
             "user_countries",
             {"status": data.status.value},
-            {"id": f"eq.{existing[0]['id']}"},
+            {"id": eq(str(existing[0]["id"]))},
         )
     else:
         # Create new
@@ -333,7 +365,7 @@ async def remove_user_country_by_code(
 
     await db.delete(
         "user_countries",
-        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
+        {"user_id": eq(str(user.id)), "country_id": eq(str(country_id))},
     )
 
 
@@ -348,5 +380,5 @@ async def remove_user_country(
     db = get_supabase_client(user_token=token)
     await db.delete(
         "user_countries",
-        {"user_id": f"eq.{user.id}", "country_id": f"eq.{country_id}"},
+        {"user_id": eq(str(user.id)), "country_id": eq(country_id)},
     )

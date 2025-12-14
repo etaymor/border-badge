@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,17 +17,24 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.core.urls import safe_external_url
 from app.db.session import close_http_client
+
+# CSP nonce key for request state
+CSP_NONCE_KEY = "csp_nonce"
 
 # Template and static file paths
 APP_DIR = Path(__file__).parent
 TEMPLATES_DIR = APP_DIR / "templates"
 STATIC_DIR = APP_DIR / "static"
 
+# Get settings first so we can use them in template globals
+settings = get_settings()
+
 # Jinja2 templates instance (shared across the application)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
-
-settings = get_settings()
+templates.env.filters["safe_external_url"] = safe_external_url
+templates.env.globals["is_production"] = settings.is_production
 
 # Rate limiter instance (shared across the application)
 limiter = Limiter(key_func=get_remote_address)
@@ -45,19 +53,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await close_http_client()
 
 
+def generate_csp_nonce() -> str:
+    """Generate a cryptographically secure nonce for CSP."""
+    return secrets.token_urlsafe(16)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Add security headers to all responses."""
+    """Add security headers to all responses.
+
+    Generates a per-request CSP nonce for inline styles/scripts.
+    The nonce is stored in request.state and can be accessed in templates.
+    """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        # Generate nonce for this request
+        nonce = generate_csp_nonce()
+        request.state.csp_nonce = nonce
+
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # Build CSP with nonce for styles
+        # Note: Google Fonts CSS from fonts.googleapis.com is allowed as external stylesheet
+        # Any inline styles in templates must include nonce="{{ request.state.csp_nonce }}"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' https://*.supabase.co data:; "
-            "style-src 'self' 'unsafe-inline'; "
+            f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'"
         )
         return response

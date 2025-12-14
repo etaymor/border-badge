@@ -1,8 +1,10 @@
-import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   FlatList,
   StyleSheet,
   Text,
@@ -12,12 +14,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountryCard, PassportSkeleton, StampCard } from '@components/ui';
+import { ShareCardOverlay } from '@components/share';
+import {
+  CountryCard,
+  ExploreFilterSheet,
+  GlassIconButton,
+  PassportSkeleton,
+  StampCard,
+} from '@components/ui';
 import { colors } from '@constants/colors';
+import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
+import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
+import {
+  DEFAULT_FILTERS,
+  hasActiveFilters,
+  countActiveFilters,
+  type ExploreFilters,
+} from '../types/filters';
 
 type Props = PassportStackScreenProps<'PassportHome'>;
 
@@ -26,6 +44,7 @@ interface CountryDisplayItem {
   name: string;
   region: string;
   status: 'visited' | 'wishlist';
+  hasTrips: boolean;
 }
 
 interface UnvisitedCountry {
@@ -33,6 +52,7 @@ interface UnvisitedCountry {
   name: string;
   region: string;
   isWishlisted: boolean;
+  hasTrips: boolean;
 }
 
 type ListItem =
@@ -118,50 +138,41 @@ function StatBox({
   );
 }
 
-function AnimatedListItem({
-  children,
-  index,
-  baseDelay = 400,
-}: {
-  children: React.ReactNode;
-  index: number;
-  baseDelay?: number;
-}) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(20)).current;
+// Calculate row heights dynamically based on screen width for accurate getItemLayout
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        delay: baseDelay + index * 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 500,
-        delay: baseDelay + index * 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [fadeAnim, translateY, index, baseDelay]);
+// Grid layout constants (must match styles)
+const GRID_PADDING = 16;
+const GRID_GAP = 12;
+const ITEM_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2;
 
-  return (
-    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
-      {children}
-    </Animated.View>
-  );
-}
+// StampCard is square, CountryCard has 3:4 aspect ratio
+const STAMP_HEIGHT = ITEM_WIDTH;
+const COUNTRY_CARD_HEIGHT = ITEM_WIDTH * (4 / 3);
+
+// Row heights including margins - must match actual rendered heights exactly
+const ROW_HEIGHTS = {
+  'section-header': 68, // fontSize 20-32 + marginTop 24 + marginBottom 8-12
+  'stamp-row': Math.round(STAMP_HEIGHT) + 12, // stamp height + marginBottom
+  'unvisited-row': Math.round(COUNTRY_CARD_HEIGHT) + 12, // card height + marginBottom
+  'empty-state': 200,
+} as const;
 
 export function PassportScreen({ navigation }: Props) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
+  const { data: trips, isLoading: loadingTrips } = useTrips();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
-  const isLoading = loadingUserCountries || loadingCountries;
+  // Share card state
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
+
+  const isLoading = loadingUserCountries || loadingCountries || loadingTrips;
 
   // Fade-in animation for content
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -188,6 +199,15 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [userCountries]);
 
+  // Pre-compute visited, wishlist, and trip code sets for efficient filtering
+  const { visitedCodes, wishlistCodes, countriesWithTrips } = useMemo(() => {
+    return {
+      visitedCodes: new Set(visitedCountries.map((uc) => uc.country_code)),
+      wishlistCodes: new Set(wishlistCountries.map((uc) => uc.country_code)),
+      countriesWithTrips: new Set(trips?.map((t) => t.country_code) ?? []),
+    };
+  }, [visitedCountries, wishlistCountries, trips]);
+
   // Pre-compute searchable country data (avoids repeated toLowerCase calls during search)
   const searchableCountries = useMemo(() => {
     if (!countries) return [];
@@ -197,24 +217,75 @@ export function PassportScreen({ navigation }: Props) {
     }));
   }, [countries]);
 
-  // Combine visited countries with country metadata for display (filtered by search)
-  const displayItems = useMemo((): CountryDisplayItem[] => {
-    if (!visitedCountries.length || !searchableCountries.length) return [];
+  // Apply explore filters to countries
+  const filteredCountries = useMemo(() => {
+    if (!searchableCountries.length) return [];
 
-    const visitedCodes = visitedCountries.map((uc) => uc.country_code);
+    let filtered = [...searchableCountries];
+
+    // Apply status filter (OR within category)
+    if (filters.status.length > 0) {
+      filtered = filtered.filter((country) => {
+        const isVisited = visitedCodes.has(country.code);
+        const isWishlisted = wishlistCodes.has(country.code);
+        const isNotVisited = !isVisited && !isWishlisted;
+        const hasTrips = countriesWithTrips.has(country.code);
+
+        return (
+          (filters.status.includes('visited') && isVisited) ||
+          (filters.status.includes('dream') && isWishlisted) ||
+          (filters.status.includes('not_visited') && isNotVisited) ||
+          (filters.status.includes('has_trips') && hasTrips)
+        );
+      });
+    }
+
+    // Apply continent filter (OR within category)
+    if (filters.continents.length > 0) {
+      filtered = filtered.filter((country) => filters.continents.includes(country.region));
+    }
+
+    // Apply subregion filter (OR within category)
+    if (filters.subregions.length > 0) {
+      filtered = filtered.filter(
+        (country) => country.subregion && filters.subregions.includes(country.subregion)
+      );
+    }
+
+    // Apply recognition filter (OR within category)
+    if (filters.recognitionGroups.length > 0) {
+      const allowedRecognitions = filters.recognitionGroups.flatMap(
+        (group) => RECOGNITION_GROUPS[group]
+      );
+      filtered = filtered.filter(
+        (country) =>
+          country.recognition &&
+          allowedRecognitions.includes(country.recognition as (typeof allowedRecognitions)[number])
+      );
+    }
+
+    return filtered;
+  }, [searchableCountries, filters, visitedCodes, wishlistCodes, countriesWithTrips]);
+
+  // Combine visited countries with country metadata for display (filtered by search and explore filters)
+  const displayItems = useMemo((): CountryDisplayItem[] => {
+    if (!visitedCountries.length || !filteredCountries.length) return [];
+
+    const visitedCodesArray = visitedCountries.map((uc) => uc.country_code);
     const query = searchQuery.toLowerCase().trim();
 
-    return searchableCountries
-      .filter((c) => visitedCodes.includes(c.code))
+    return filteredCountries
+      .filter((c) => visitedCodesArray.includes(c.code))
       .filter((c) => !query || c.searchName.includes(query))
       .map((c) => ({
         code: c.code,
         name: c.name,
         region: c.region,
         status: 'visited' as const,
+        hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, searchableCountries, searchQuery]);
+  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips]);
 
   // Compute all stats
   const stats = useMemo(() => {
@@ -242,15 +313,13 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [visitedCountries, wishlistCountries, countries]);
 
-  // Compute unvisited countries for the Explore section (filtered by search)
+  // Compute unvisited countries for the Explore section (filtered by search and explore filters)
   const unvisitedCountries = useMemo((): UnvisitedCountry[] => {
-    if (!searchableCountries.length) return [];
+    if (!filteredCountries.length) return [];
 
-    const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
-    const wishlistCodes = new Set(wishlistCountries.map((uc) => uc.country_code));
     const query = searchQuery.toLowerCase().trim();
 
-    return searchableCountries
+    return filteredCountries
       .filter((c) => !visitedCodes.has(c.code))
       .filter((c) => !query || c.searchName.includes(query))
       .map((c) => ({
@@ -258,9 +327,10 @@ export function PassportScreen({ navigation }: Props) {
         name: c.name,
         region: c.region,
         isWishlisted: wishlistCodes.has(c.code),
+        hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [searchableCountries, visitedCountries, wishlistCountries, searchQuery]);
+  }, [filteredCountries, visitedCodes, wishlistCodes, countriesWithTrips, searchQuery]);
 
   // Flatten data into single array with section markers for FlatList virtualization
   const flatListData = useMemo((): ListItem[] => {
@@ -324,10 +394,30 @@ export function PassportScreen({ navigation }: Props) {
   const handleAddVisited = useCallback(
     (countryCode: string) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      addUserCountry.mutate({ country_code: countryCode, status: 'visited' });
+
+      // Calculate milestone context BEFORE mutation
+      const context = buildMilestoneContext(countryCode, countries ?? [], userCountries ?? []);
+
+      // Fire mutation with onSuccess callback to show share card only on success
+      addUserCountry.mutate(
+        { country_code: countryCode, status: 'visited' },
+        {
+          onSuccess: () => {
+            if (context) {
+              setShareCardContext(context);
+              setShareCardVisible(true);
+            }
+          },
+        }
+      );
     },
-    [addUserCountry]
+    [addUserCountry, countries, userCountries]
   );
+
+  const handleShareCardDismiss = useCallback(() => {
+    setShareCardVisible(false);
+    setShareCardContext(null);
+  }, []);
 
   const handleToggleWishlist = useCallback(
     (countryCode: string) => {
@@ -343,11 +433,38 @@ export function PassportScreen({ navigation }: Props) {
     [addUserCountry, removeUserCountry, wishlistCountries]
   );
 
+  const handleExplorePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFilterSheetVisible(true);
+  }, []);
+
+  const handleProfilePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate('ProfileSettings');
+  }, [navigation]);
+
+  const handleCloseFilters = useCallback(() => {
+    setFilterSheetVisible(false);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
+  const activeFilterCount = countActiveFilters(filters);
+  const filtersActive = hasActiveFilters(filters);
+
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[]) => (
       <View style={styles.stampRow}>
         {stamps.map((item) => (
-          <StampCard key={item.code} code={item.code} onPress={() => handleCountryPress(item)} />
+          <StampCard
+            key={item.code}
+            code={item.code}
+            hasTrips={item.hasTrips}
+            onPress={() => handleCountryPress(item)}
+          />
         ))}
       </View>
     ),
@@ -364,6 +481,7 @@ export function PassportScreen({ navigation }: Props) {
               name={country.name}
               isVisited={false}
               isWishlisted={country.isWishlisted}
+              hasTrips={country.hasTrips}
               onPress={() => handleUnvisitedCountryPress(country)}
               onAddVisited={() => handleAddVisited(country.code)}
               onToggleWishlist={() => handleToggleWishlist(country.code)}
@@ -376,11 +494,10 @@ export function PassportScreen({ navigation }: Props) {
   );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: ListItem; index: number }) => {
-      let content;
+    ({ item }: { item: ListItem }) => {
       switch (item.type) {
         case 'section-header':
-          content = (
+          return (
             <Text
               style={[
                 styles.sectionTitle,
@@ -391,15 +508,12 @@ export function PassportScreen({ navigation }: Props) {
               {item.title}
             </Text>
           );
-          break;
         case 'stamp-row':
-          content = renderStampRow(item.data);
-          break;
+          return renderStampRow(item.data);
         case 'unvisited-row':
-          content = renderUnvisitedRow(item.data);
-          break;
+          return renderUnvisitedRow(item.data);
         case 'empty-state':
-          content = (
+          return (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>🌍</Text>
               <Text style={styles.emptyTitle}>No countries yet</Text>
@@ -408,14 +522,37 @@ export function PassportScreen({ navigation }: Props) {
               </Text>
             </View>
           );
-          break;
         default:
           return null;
       }
-
-      return <AnimatedListItem index={index}>{content}</AnimatedListItem>;
     },
     [renderStampRow, renderUnvisitedRow]
+  );
+
+  // Precompute layout data for O(1) getItemLayout lookups
+  const layoutData = useMemo(() => {
+    const offsets: number[] = [];
+    const lengths: number[] = [];
+    let cumulativeOffset = 0;
+
+    for (const item of flatListData) {
+      offsets.push(cumulativeOffset);
+      const length = ROW_HEIGHTS[item.type];
+      lengths.push(length);
+      cumulativeOffset += length;
+    }
+
+    return { offsets, lengths };
+  }, [flatListData]);
+
+  // Optimized layout calculation for instant scroll positioning - O(1) lookup
+  const getItemLayout = useCallback(
+    (_: ArrayLike<ListItem> | null | undefined, index: number) => {
+      const length = layoutData.lengths[index] ?? 0;
+      const offset = layoutData.offsets[index] ?? 0;
+      return { length, offset, index };
+    },
+    [layoutData]
   );
 
   const getItemKey = useCallback((item: ListItem) => item.key, []);
@@ -426,7 +563,14 @@ export function PassportScreen({ navigation }: Props) {
       <View>
         {/* App Header */}
         <View style={styles.header}>
+          <View style={styles.headerSpacer} />
           <Text style={styles.headerTitle}>BorderBadge</Text>
+          <GlassIconButton
+            icon="settings-outline"
+            onPress={handleProfilePress}
+            accessibilityLabel="Open profile settings"
+            testID="profile-settings-button"
+          />
         </View>
 
         {/* Travel Status Card */}
@@ -497,37 +641,53 @@ export function PassportScreen({ navigation }: Props) {
           />
         </View>
 
-        {/* Search & Filter Row */}
+        {/* Search & Filter Row with Liquid Glass */}
         <View style={styles.searchRow}>
-          <View style={styles.searchInputContainer}>
-            <Ionicons
-              name="search"
-              size={20}
-              color={colors.textSecondary}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Type Country"
-              placeholderTextColor={colors.textTertiary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="words"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
+          <View style={styles.searchGlassWrapper}>
+            <BlurView intensity={60} tint="light" style={styles.searchGlassContainer}>
+              <View style={styles.searchInputContainer}>
+                <Ionicons
+                  name="search"
+                  size={18}
+                  color={colors.stormGray}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Type Country"
+                  placeholderTextColor={colors.stormGray}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            </BlurView>
           </View>
           <TouchableOpacity
-            style={styles.exploreButton}
-            onPress={() => setSearchQuery('')} // In a real app this might navigate or filter differently
+            style={[styles.exploreButton, filtersActive && styles.exploreButtonActive]}
+            onPress={handleExplorePress}
             activeOpacity={0.7}
           >
-            <Text style={styles.exploreButtonText}>EXPLORE</Text>
+            <Text
+              style={[styles.exploreButtonText, filtersActive && styles.exploreButtonTextActive]}
+            >
+              {filtersActive ? `FILTERS (${activeFilterCount})` : 'EXPLORE'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     ),
-    [stats, searchQuery, isLoading]
+    [
+      stats,
+      searchQuery,
+      isLoading,
+      filtersActive,
+      activeFilterCount,
+      handleExplorePress,
+      handleProfilePress,
+    ]
   );
 
   if (isLoading) {
@@ -545,17 +705,34 @@ export function PassportScreen({ navigation }: Props) {
           data={flatListData}
           renderItem={renderItem}
           keyExtractor={getItemKey}
+          getItemLayout={getItemLayout}
           ListHeaderComponent={ListHeader}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-          initialNumToRender={10}
+          maxToRenderPerBatch={20}
+          windowSize={11}
+          initialNumToRender={15}
+          updateCellsBatchingPeriod={30}
         />
       </Animated.View>
+
+      <ExploreFilterSheet
+        visible={filterSheetVisible}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onClose={handleCloseFilters}
+        onClearAll={handleClearFilters}
+        onApply={handleCloseFilters}
+      />
+
+      <ShareCardOverlay
+        visible={shareCardVisible}
+        context={shareCardContext}
+        onDismiss={handleShareCardDismiss}
+      />
     </SafeAreaView>
   );
 }
@@ -573,9 +750,15 @@ const styles = StyleSheet.create({
   },
   // Header
   header: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 24,
+  },
+  headerSpacer: {
+    width: 44, // Match GlassIconButton width for centering
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -698,26 +881,41 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  // Search Row
+  // Search Row with Liquid Glass
   searchRow: {
     flexDirection: 'row',
     marginHorizontal: 16,
     marginTop: 20,
-    gap: 12,
+    gap: 16,
     alignItems: 'center',
+  },
+  searchGlassWrapper: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   searchInputContainer: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.midnightNavyLight,
-    borderRadius: 24,
     paddingHorizontal: 16,
     height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(253, 246, 237, 0.5)',
   },
   searchIcon: {
-    marginRight: 8,
-    opacity: 0.5,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
@@ -726,15 +924,23 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   exploreButton: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 16,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 20,
+  },
+  exploreButtonActive: {
+    backgroundColor: colors.mossGreen,
   },
   exploreButtonText: {
-    fontFamily: fonts.openSans.bold,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
     letterSpacing: 0.5,
+  },
+  exploreButtonTextActive: {
+    color: colors.cloudWhite,
   },
   // Section Title
   sectionTitle: {

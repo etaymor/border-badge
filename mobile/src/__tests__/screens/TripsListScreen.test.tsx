@@ -103,8 +103,8 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('No trips yet')).toBeTruthy();
-      expect(screen.getByText('Add Your First Trip')).toBeTruthy();
+      expect(screen.getByText('The World Awaits')).toBeTruthy();
+      expect(screen.getByText('Plan a New Adventure')).toBeTruthy();
     });
 
     it('renders trip cards with correct data', () => {
@@ -124,12 +124,11 @@ describe('TripsListScreen', () => {
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
       expect(screen.getByText('Tokyo Adventure')).toBeTruthy();
-      expect(screen.getByText('Japan')).toBeTruthy();
     });
   });
 
   describe('Section Categorization', () => {
-    it('shows "My Trips" section header for visited country trips', () => {
+    it('shows "My Adventures" section header for visited country trips', () => {
       const trips = [createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' })];
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
       const userCountries = [createMockUserCountry({ country_code: 'JP', status: 'visited' })];
@@ -138,11 +137,11 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('My Trips')).toBeTruthy();
-      expect(screen.queryByText('Planned Trips')).toBeNull();
+      expect(screen.getByText('My Adventures')).toBeTruthy();
+      expect(screen.queryByText('Upcoming Plans')).toBeNull();
     });
 
-    it('shows "Planned Trips" section header for non-visited country trips', () => {
+    it('shows "Upcoming Plans" section header for non-visited country trips', () => {
       const trips = [createMockTrip({ id: 'trip-1', name: 'Paris Trip', country_code: 'FR' })];
       const countries = [createMockCountry({ code: 'FR', name: 'France' })];
       // User has not visited France (no userCountry entry or wishlist status)
@@ -152,8 +151,8 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('Planned Trips')).toBeTruthy();
-      expect(screen.queryByText('My Trips')).toBeNull();
+      expect(screen.getByText('Upcoming Plans')).toBeTruthy();
+      expect(screen.queryByText('My Adventures')).toBeNull();
     });
 
     it('separates mixed trips into correct sections', () => {
@@ -172,13 +171,13 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('My Trips')).toBeTruthy();
-      expect(screen.getByText('Planned Trips')).toBeTruthy();
+      expect(screen.getByText('My Adventures')).toBeTruthy();
+      expect(screen.getByText('Upcoming Plans')).toBeTruthy();
       expect(screen.getByText('Tokyo Trip')).toBeTruthy();
       expect(screen.getByText('Paris Trip')).toBeTruthy();
     });
 
-    it('shows only "My Trips" when all trips are for visited countries', () => {
+    it('shows only "My Adventures" when all trips are for visited countries', () => {
       const trips = [
         createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' }),
         createMockTrip({ id: 'trip-2', name: 'Osaka Trip', country_code: 'JP' }),
@@ -190,11 +189,11 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('My Trips')).toBeTruthy();
-      expect(screen.queryByText('Planned Trips')).toBeNull();
+      expect(screen.getByText('My Adventures')).toBeTruthy();
+      expect(screen.queryByText('Upcoming Plans')).toBeNull();
     });
 
-    it('shows only "Planned Trips" when all trips are for non-visited countries', () => {
+    it('shows only "Upcoming Plans" when all trips are for non-visited countries', () => {
       const trips = [
         createMockTrip({ id: 'trip-1', name: 'Paris Trip', country_code: 'FR' }),
         createMockTrip({ id: 'trip-2', name: 'Berlin Trip', country_code: 'DE' }),
@@ -210,11 +209,11 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('Planned Trips')).toBeTruthy();
-      expect(screen.queryByText('My Trips')).toBeNull();
+      expect(screen.getByText('Upcoming Plans')).toBeTruthy();
+      expect(screen.queryByText('My Adventures')).toBeNull();
     });
 
-    it('treats all trips as "Planned Trips" when userCountries data is undefined', () => {
+    it('treats all trips as "Upcoming Plans" when userCountries data is undefined', () => {
       const trips = [createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' })];
       const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
 
@@ -240,8 +239,8 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      expect(screen.getByText('Planned Trips')).toBeTruthy();
-      expect(screen.queryByText('My Trips')).toBeNull();
+      expect(screen.getByText('Upcoming Plans')).toBeTruthy();
+      expect(screen.queryByText('My Adventures')).toBeNull();
     });
   });
 
@@ -255,7 +254,7 @@ describe('TripsListScreen', () => {
 
       render(<TripsListScreen navigation={mockNavigation} route={mockRoute} />);
 
-      fireEvent.press(screen.getByTestId('trip-card-trip-123'));
+      fireEvent.press(screen.getByLabelText('View trip: Tokyo Trip'));
       expect(mockNavigation.navigate).toHaveBeenCalledWith('TripDetail', { tripId: 'trip-123' });
     });
 

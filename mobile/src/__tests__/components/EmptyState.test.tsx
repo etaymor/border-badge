@@ -22,8 +22,7 @@ describe('EmptyState', () => {
     const onAction = jest.fn();
     render(<EmptyState title="No items" actionLabel="Add Item" onAction={onAction} />);
 
-    // Primary variant button uppercases the label
-    const button = screen.getByText('ADD ITEM');
+    const button = screen.getByText('Add Item');
     expect(button).toBeTruthy();
   });
 
@@ -31,8 +30,7 @@ describe('EmptyState', () => {
     const onAction = jest.fn();
     render(<EmptyState title="No items" actionLabel="Add Item" onAction={onAction} />);
 
-    // Primary variant button uppercases the label
-    fireEvent.press(screen.getByText('ADD ITEM'));
+    fireEvent.press(screen.getByText('Add Item'));
 
     expect(onAction).toHaveBeenCalledTimes(1);
   });
@@ -41,14 +39,14 @@ describe('EmptyState', () => {
     const onAction = jest.fn();
     render(<EmptyState title="No items" onAction={onAction} />);
 
-    expect(screen.queryByText('ADD ITEM')).toBeNull();
+    expect(screen.queryByText('Add Item')).toBeNull();
   });
 
   it('does not render action button when onAction is missing', () => {
     render(<EmptyState title="No items" actionLabel="Add Item" />);
 
     // Button should not be rendered when onAction is not provided
-    expect(screen.queryByText('ADD ITEM')).toBeNull();
+    expect(screen.queryByText('Add Item')).toBeNull();
   });
 
   it('renders without description when not provided', () => {

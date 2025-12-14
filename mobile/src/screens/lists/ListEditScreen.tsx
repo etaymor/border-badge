@@ -3,18 +3,20 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GlassBackButton, GlassInput } from '@components/ui';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
 import {
@@ -64,6 +66,7 @@ interface SuccessViewProps {
 function SuccessView({ list, onDone }: SuccessViewProps) {
   const shareUrl = getPublicListUrl(list.slug);
   const [copied, setCopied] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const handleCopy = useCallback(async () => {
     await Clipboard.setStringAsync(shareUrl);
@@ -83,9 +86,9 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
   }, [list.name, shareUrl]);
 
   return (
-    <View style={styles.successContainer}>
+    <View style={[styles.successContainer, { paddingTop: insets.top }]}>
       <View style={styles.successIcon}>
-        <Ionicons name="checkmark-circle" size={64} color="#34C759" />
+        <Ionicons name="checkmark-circle" size={64} color={colors.mossGreen} />
       </View>
       <Text style={styles.successTitle}>List Updated!</Text>
       <Text style={styles.successSubtitle}>
@@ -94,13 +97,17 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
 
       {/* Share URL */}
       <View style={styles.successUrlContainer}>
-        <Text style={styles.successUrlLabel}>Public link</Text>
+        <Text style={styles.successUrlLabel}>PUBLIC LINK</Text>
         <View style={styles.successUrlBox}>
           <Text style={styles.successUrlText} numberOfLines={1}>
             {shareUrl}
           </Text>
           <Pressable style={styles.successCopyButton} onPress={handleCopy}>
-            <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={20} color="#007AFF" />
+            <Ionicons
+              name={copied ? 'checkmark' : 'copy-outline'}
+              size={20}
+              color={colors.sunsetGold}
+            />
           </Pressable>
         </View>
       </View>
@@ -122,6 +129,7 @@ function SuccessView({ list, onDone }: SuccessViewProps) {
 
 export function ListEditScreen({ route, navigation }: Props) {
   const { listId, tripId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const { data: list, isLoading: listLoading } = useList(listId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
@@ -303,16 +311,16 @@ export function ListEditScreen({ route, navigation }: Props) {
 
   if (listLoading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={[styles.centered, { paddingTop: insets.top }]}>
+        <ActivityIndicator size="large" color={colors.sunsetGold} />
       </View>
     );
   }
 
   if (!list) {
     return (
-      <View style={styles.centered}>
-        <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+      <View style={[styles.centered, { paddingTop: insets.top }]}>
+        <Ionicons name="alert-circle-outline" size={48} color={colors.adobeBrick} />
         <Text style={styles.errorText}>List not found</Text>
         <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backButtonText}>Go Back</Text>
@@ -322,153 +330,188 @@ export function ListEditScreen({ route, navigation }: Props) {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <FlatList
-        data={entries ?? []}
-        keyExtractor={(item) => item.id}
-        renderItem={renderEntry}
-        ListHeaderComponent={
-          <View style={styles.formSection}>
-            {/* Share URL */}
-            <View style={styles.urlContainer}>
-              <Text style={styles.label}>Public link</Text>
-              <View style={styles.urlBox}>
-                <Text style={styles.urlText} numberOfLines={1}>
-                  {shareUrl}
-                </Text>
-                <Pressable style={styles.copyButton} onPress={handleCopy}>
-                  <Ionicons
-                    name={copied ? 'checkmark' : 'copy-outline'}
-                    size={18}
-                    color="#007AFF"
-                  />
-                </Pressable>
-                <Pressable style={styles.shareIconButton} onPress={handleShare}>
-                  <Ionicons name="share-outline" size={18} color="#007AFF" />
-                </Pressable>
-              </View>
-            </View>
-
-            {/* List Name */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>List Name *</Text>
-              <TextInput
-                style={[styles.input, errors.name && styles.inputError]}
-                placeholder="e.g., Best Restaurants in Paris"
-                value={name}
-                onChangeText={(text) => {
-                  setName(text);
-                  if (errors.name) setErrors((prev) => ({ ...prev, name: '' }));
-                }}
-                returnKeyType="next"
-              />
-              {errors.name && <Text style={styles.errorTextSmall}>{errors.name}</Text>}
-            </View>
-
-            {/* Description */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Description (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Tell people what this list is about..."
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-
-            {/* Public info */}
-            <View style={styles.infoBanner}>
-              <Ionicons name="globe-outline" size={18} color="#007AFF" style={styles.infoIcon} />
-              <View style={styles.infoTextContainer}>
-                <Text style={styles.infoTitle}>Lists are public</Text>
-                <Text style={styles.infoDescription}>Anyone with the link can view this list.</Text>
-              </View>
-            </View>
-
-            {/* Entries Header */}
-            <View style={styles.entriesHeader}>
-              <Text style={styles.label}>Select Entries * ({selectedEntryIds.size} selected)</Text>
-              <View style={styles.selectionActions}>
-                <Pressable onPress={handleSelectAll}>
-                  <Text style={styles.selectionAction}>Select All</Text>
-                </Pressable>
-                <Text style={styles.selectionDivider}>|</Text>
-                <Pressable onPress={handleClearAll}>
-                  <Text style={styles.selectionAction}>Clear</Text>
-                </Pressable>
-              </View>
-            </View>
-            {errors.entries && <Text style={styles.errorTextSmall}>{errors.entries}</Text>}
-          </View>
-        }
-        ListEmptyComponent={
-          entriesLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#007AFF" />
-              <Text style={styles.loadingText}>Loading entries...</Text>
-            </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="bookmark-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>No entries in this trip</Text>
-            </View>
-          )
-        }
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-      />
-
-      {/* Submit Button */}
-      <View style={styles.footer}>
-        <Pressable
-          style={[
-            styles.submitButton,
-            (isSubmitting || selectedEntryIds.size === 0 || !hasChanges) &&
-              styles.submitButtonDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={isSubmitting || selectedEntryIds.size === 0 || !hasChanges}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="checkmark" size={20} color="#fff" />
-              <Text style={styles.submitButtonText}>Save Changes</Text>
-            </>
-          )}
-        </Pressable>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Custom Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <GlassBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.headerTitle}>Edit List</Text>
+          <View style={styles.headerSpacer} />
+        </View>
       </View>
-    </KeyboardAvoidingView>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <Text style={styles.headerSubtitle}>Update your curated list</Text>
+
+          {/* Share URL */}
+          <View style={styles.urlContainer}>
+            <Text style={styles.label}>PUBLIC LINK</Text>
+            <View style={styles.urlBox}>
+              <Text style={styles.urlText} numberOfLines={1}>
+                {shareUrl}
+              </Text>
+              <Pressable style={styles.copyButton} onPress={handleCopy}>
+                <Ionicons
+                  name={copied ? 'checkmark' : 'copy-outline'}
+                  size={18}
+                  color={colors.sunsetGold}
+                />
+              </Pressable>
+              <Pressable style={styles.shareIconButton} onPress={handleShare}>
+                <Ionicons name="share-outline" size={18} color={colors.sunsetGold} />
+              </Pressable>
+            </View>
+          </View>
+
+          {/* List Name */}
+          <GlassInput
+            label="LIST NAME"
+            value={name}
+            onChangeText={(text) => {
+              setName(text);
+              if (errors.name) setErrors((prev) => ({ ...prev, name: '' }));
+            }}
+            placeholder="e.g., Best Restaurants in Paris"
+            error={errors.name}
+            returnKeyType="next"
+            testID="list-name-input"
+          />
+
+          {/* Description */}
+          <GlassInput
+            label="DESCRIPTION (OPTIONAL)"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Tell people what this list is about..."
+            multiline
+            testID="list-description-input"
+          />
+
+          {/* Public info */}
+          <View style={styles.infoBanner}>
+            <Ionicons
+              name="globe-outline"
+              size={18}
+              color={colors.sunsetGold}
+              style={styles.infoIcon}
+            />
+            <View style={styles.infoTextContainer}>
+              <Text style={styles.infoTitle}>Lists are public</Text>
+              <Text style={styles.infoDescription}>Anyone with the link can view this list.</Text>
+            </View>
+          </View>
+
+          {/* Entries Header */}
+          <View style={styles.entriesHeader}>
+            <Text style={styles.label}>SELECT ENTRIES ({selectedEntryIds.size} selected)</Text>
+            <View style={styles.selectionActions}>
+              <Pressable onPress={handleSelectAll}>
+                <Text style={styles.selectionAction}>Select All</Text>
+              </Pressable>
+              <Text style={styles.selectionDivider}>|</Text>
+              <Pressable onPress={handleClearAll}>
+                <Text style={styles.selectionAction}>Clear</Text>
+              </Pressable>
+            </View>
+          </View>
+          {errors.entries && <Text style={styles.errorTextSmall}>{errors.entries}</Text>}
+        </View>
+
+        {/* Entries List */}
+        {entriesLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.sunsetGold} />
+            <Text style={styles.loadingText}>Loading entries...</Text>
+          </View>
+        ) : entries && entries.length > 0 ? (
+          <FlatList
+            data={entries}
+            keyExtractor={(item) => item.id}
+            renderItem={renderEntry}
+            scrollEnabled={false}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+          />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="bookmark-outline" size={48} color={colors.textTertiary} />
+            <Text style={styles.emptyText}>No entries in this trip</Text>
+          </View>
+        )}
+
+        {/* Submit Button */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+          <Pressable
+            style={[
+              styles.submitButton,
+              (isSubmitting || selectedEntryIds.size === 0 || !hasChanges) &&
+                styles.submitButtonDisabled,
+            ]}
+            onPress={handleSubmit}
+            disabled={isSubmitting || selectedEntryIds.size === 0 || !hasChanges}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={20} color="#fff" />
+                <Text style={styles.submitButtonText}>Save Changes</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
+  },
+  header: {
+    backgroundColor: colors.warmCream,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 24,
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    lineHeight: 44,
+  },
+  headerSpacer: {
+    width: 44,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
     padding: 24,
   },
   errorText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
     marginTop: 12,
     marginBottom: 24,
   },
   backButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
@@ -476,29 +519,43 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
-  listContent: {
-    paddingBottom: 100,
+  scrollView: {
+    flex: 1,
   },
-  formSection: {
-    padding: 20,
+  scrollContent: {
+    flexGrow: 1,
+  },
+  content: {
+    padding: 24,
+    paddingTop: 8,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 24,
+    lineHeight: 24,
   },
   urlContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   urlBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   urlText: {
     flex: 1,
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.sunsetGold,
+    fontFamily: fonts.openSans.regular,
     marginRight: 8,
   },
   copyButton: {
@@ -508,48 +565,34 @@ const styles = StyleSheet.create({
   shareIconButton: {
     padding: 4,
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
   label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
+    fontFamily: fonts.oswald.medium,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    marginBottom: 10,
+    letterSpacing: 1.5,
+    opacity: 0.7,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#1a1a1a',
-  },
-  inputError: {
-    borderWidth: 1,
-    borderColor: '#FF3B30',
-  },
-  textArea: {
-    minHeight: 80,
-    paddingTop: 14,
   },
   errorTextSmall: {
     fontSize: 13,
-    color: '#FF3B30',
-    marginTop: 6,
+    color: colors.adobeBrick,
+    fontFamily: fonts.openSans.regular,
+    marginTop: -16,
+    marginBottom: 16,
     marginLeft: 4,
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f5ff',
-    borderRadius: 10,
+    backgroundColor: 'rgba(218, 165, 32, 0.08)',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(218, 165, 32, 0.15)',
   },
   infoIcon: {
     marginTop: 1,
@@ -559,12 +602,13 @@ const styles = StyleSheet.create({
   },
   infoTitle: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#0a1a2f',
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
   },
   infoDescription: {
     fontSize: 13,
-    color: '#2c3e5d',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
     marginTop: 2,
   },
   entriesHeader: {
@@ -579,34 +623,34 @@ const styles = StyleSheet.create({
   },
   selectionAction: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: colors.sunsetGold,
+    fontFamily: fonts.openSans.semiBold,
   },
   selectionDivider: {
     fontSize: 14,
-    color: '#ccc',
+    color: colors.textTertiary,
     marginHorizontal: 8,
   },
   entryItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
   },
   checkbox: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#ccc',
+    borderColor: colors.textTertiary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   checkboxSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
+    borderColor: colors.sunsetGold,
   },
   entryContent: {
     flex: 1,
@@ -614,30 +658,31 @@ const styles = StyleSheet.create({
   },
   entryTitle: {
     fontSize: 15,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
   entryPlace: {
     fontSize: 13,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
     marginTop: 2,
   },
   entryTypeBadge: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
   },
   entryTypeText: {
     fontSize: 11,
-    fontWeight: '500',
-    color: '#666',
+    fontFamily: fonts.oswald.medium,
+    color: colors.textSecondary,
     textTransform: 'capitalize',
   },
   separator: {
     height: 1,
-    backgroundColor: '#f0f0f0',
-    marginLeft: 56,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    marginLeft: 60,
   },
   loadingContainer: {
     padding: 40,
@@ -645,7 +690,8 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
     marginTop: 8,
   },
   emptyContainer: {
@@ -654,41 +700,35 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
     marginTop: 16,
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    padding: 24,
+    paddingTop: 16,
   },
   submitButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
     borderRadius: 12,
     gap: 8,
   },
   submitButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: colors.textTertiary,
   },
   submitButtonText: {
     fontSize: 17,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
     color: '#fff',
   },
   // Success view styles
   successContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.warmCream,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
@@ -698,13 +738,14 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
     marginBottom: 8,
   },
   successSubtitle: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
     textAlign: 'center',
     marginBottom: 32,
   },
@@ -713,25 +754,28 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   successUrlLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontFamily: fonts.oswald.medium,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    letterSpacing: 1.5,
+    opacity: 0.7,
     marginBottom: 8,
   },
   successUrlBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   successUrlText: {
     flex: 1,
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.sunsetGold,
+    fontFamily: fonts.openSans.regular,
     marginRight: 8,
   },
   successCopyButton: {
@@ -747,27 +791,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.sunsetGold,
     paddingVertical: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     gap: 8,
   },
   successShareButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
     color: '#fff',
   },
   successDoneButton: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     paddingVertical: 14,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   successDoneButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
   },
 });

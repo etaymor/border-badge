@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
 import {
   useEntryMedia,
@@ -21,6 +22,9 @@ import {
   MediaFile,
 } from '@hooks/useMedia';
 import { pickImages, LocalFile, MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { logger } from '@utils/logger';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const ITEM_SIZE = (SCREEN_WIDTH - 48 - 16) / 3; // 3 columns with gaps
@@ -31,6 +35,7 @@ interface EntryMediaGalleryProps {
   editable?: boolean;
   onImagePress?: (media: MediaFile, index: number) => void;
   onPendingMediaChange?: (mediaIds: string[]) => void; // Track IDs for later reassignment
+  onMediaCountChange?: (count: number) => void; // Notify parent of current photo count
 }
 
 interface LocalMediaItem {
@@ -48,6 +53,7 @@ export function EntryMediaGallery({
   editable = true,
   onImagePress,
   onPendingMediaChange,
+  onMediaCountChange,
 }: EntryMediaGalleryProps) {
   // Use entry media when editing, pending trip media when creating
   const isPendingMode = !entryId && !!tripId;
@@ -87,6 +93,11 @@ export function EntryMediaGallery({
 
   const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
   const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
+
+  // Notify parent of media count changes
+  useEffect(() => {
+    onMediaCountChange?.(currentCount);
+  }, [currentCount, onMediaCountChange]);
 
   // Handle picking images from library
   const handlePickImages = useCallback(async () => {
@@ -153,7 +164,7 @@ export function EntryMediaGallery({
         }
       }
     } catch (error) {
-      console.error('Failed to pick images:', error);
+      logger.error('Failed to pick images:', error);
       if ((error as Error).message.includes('denied')) {
         Alert.alert('Permission Required', 'Please allow photo library access in Settings.');
       }
@@ -256,9 +267,13 @@ export function EntryMediaGallery({
         )}
 
         {media.status === 'failed' && (
-          <View style={styles.overlay}>
-            <Ionicons name="alert-circle" size={24} color="#FF3B30" />
-            <Pressable style={styles.retryButton} onPress={() => retryUpload.mutate(media.id)}>
+          <View style={styles.overlay} pointerEvents="box-none">
+            <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
+            <Pressable
+              style={styles.retryButton}
+              onPress={() => retryUpload.mutate(media.id)}
+              hitSlop={8}
+            >
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
           </View>
@@ -288,15 +303,16 @@ export function EntryMediaGallery({
         )}
 
         {item.error && (
-          <View style={styles.overlay}>
-            <Ionicons name="alert-circle" size={24} color="#FF3B30" />
+          <View style={styles.overlay} pointerEvents="box-none">
+            <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
             <View style={styles.failedActions}>
-              <Pressable style={styles.retryButton} onPress={() => handleRetry(item)}>
+              <Pressable style={styles.retryButton} onPress={() => handleRetry(item)} hitSlop={8}>
                 <Text style={styles.retryText}>Retry</Text>
               </Pressable>
               <Pressable
                 style={styles.removeButton}
                 onPress={() => handleRemoveFailed(item.localUri)}
+                hitSlop={8}
               >
                 <Text style={styles.removeText}>Remove</Text>
               </Pressable>
@@ -311,7 +327,7 @@ export function EntryMediaGallery({
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color="#007AFF" />
+        <ActivityIndicator size="small" color={colors.sunsetGold} />
       </View>
     );
   }
@@ -320,13 +336,6 @@ export function EntryMediaGallery({
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          Photos ({currentCount}/{MAX_PHOTOS_PER_ENTRY})
-        </Text>
-      </View>
-
       {hasMedia ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollView}>
           <View style={styles.grid}>
@@ -343,7 +352,7 @@ export function EntryMediaGallery({
                 onPress={handlePickImages}
                 disabled={isPickerOpen}
               >
-                <Ionicons name="add" size={32} color="#007AFF" />
+                <Ionicons name="add" size={32} color={colors.midnightNavy} />
               </Pressable>
             )}
           </View>
@@ -356,8 +365,15 @@ export function EntryMediaGallery({
               onPress={handlePickImages}
               disabled={isPickerOpen}
             >
-              <Ionicons name="images-outline" size={24} color="#007AFF" />
-              <Text style={styles.emptyButtonText}>Choose Photos</Text>
+              <BlurView intensity={20} tint="light" style={styles.emptyBlurView}>
+                <View style={styles.emptyContent}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="image-outline" size={28} color={colors.midnightNavy} />
+                  </View>
+                  <Text style={styles.emptyButtonText}>Choose Photos</Text>
+                  <Text style={styles.emptyHint}>Tap to add memories</Text>
+                </View>
+              </BlurView>
             </Pressable>
           ) : (
             <Text style={styles.emptyText}>No photos</Text>
@@ -377,19 +393,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
   scrollView: {
     marginHorizontal: -4,
   },
@@ -401,9 +404,9 @@ const styles = StyleSheet.create({
   mediaItem: {
     width: ITEM_SIZE,
     height: ITEM_SIZE,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.backgroundMuted,
   },
   thumbnail: {
     width: '100%',
@@ -418,7 +421,7 @@ const styles = StyleSheet.create({
   progressText: {
     color: '#fff',
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
     marginTop: 4,
   },
   deleteButton: {
@@ -432,13 +435,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
+    backgroundColor: colors.sunsetGold,
+    borderRadius: 8,
   },
   retryText: {
-    color: '#fff',
+    color: colors.midnightNavy,
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
   failedActions: {
     flexDirection: 'row',
@@ -449,44 +452,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 4,
+    borderRadius: 8,
   },
   removeText: {
     color: '#fff',
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.openSans.semiBold,
   },
   addButton: {
     width: ITEM_SIZE,
     height: ITEM_SIZE,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#007AFF',
+    borderColor: 'rgba(244, 194, 78, 0.4)', // Sunset Gold faded
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
   },
   emptyState: {
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-    borderStyle: 'dashed',
-    paddingVertical: 24,
-    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   emptyButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  emptyBlurView: {
+    width: '100%',
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 12,
+    paddingVertical: 28,
+  },
+  emptyContent: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   emptyButtonText: {
-    color: '#007AFF',
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 6,
+    color: colors.midnightNavy,
+    fontSize: 16,
+    fontFamily: fonts.playfair.bold,
+  },
+  emptyHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontFamily: fonts.openSans.regular,
   },
   emptyText: {
-    color: '#999',
+    color: colors.textSecondary,
     fontSize: 14,
+    fontFamily: fonts.openSans.regular,
+    paddingVertical: 24,
+    textAlign: 'center',
   },
 });

@@ -1,20 +1,12 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { Country } from '@hooks/useCountries';
+import { getFlagEmoji } from '@utils/flags';
 
 interface CountryListItemProps {
   country: Country;
   selected: boolean;
   onPress: () => void;
-}
-
-// Map country codes to flag emojis
-function getFlagEmoji(countryCode: string): string {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
 }
 
 export function CountryListItem({ country, selected, onPress }: CountryListItemProps) {
