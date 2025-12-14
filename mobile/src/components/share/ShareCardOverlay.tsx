@@ -22,9 +22,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 
-import { Text } from '@components/ui';
+import { ErrorBoundary, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { logger } from '@utils/logger';
 import type { MilestoneContext } from '@utils/milestones';
 
 import { ShareCard, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT } from './ShareCard';
@@ -325,7 +326,23 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
   );
 }
 
-export const ShareCardOverlay = memo(ShareCardOverlayComponent);
+const ShareCardOverlayWithBoundary = memo(function ShareCardOverlayWithBoundary(
+  props: ShareCardOverlayProps
+) {
+  const handleError = (error: Error) => {
+    logger.error('ShareCardOverlay error:', error);
+    // Dismiss the overlay on error to prevent broken UI
+    props.onDismiss();
+  };
+
+  return (
+    <ErrorBoundary onError={handleError} fallback={null}>
+      <ShareCardOverlayComponent {...props} />
+    </ErrorBoundary>
+  );
+});
+
+export const ShareCardOverlay = ShareCardOverlayWithBoundary;
 
 const styles = StyleSheet.create({
   container: {

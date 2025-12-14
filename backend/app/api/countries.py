@@ -79,7 +79,9 @@ def _matches_country_search(row: dict[str, Any], term: str) -> bool:
 
 @router.get("", response_model=list[Country])
 async def list_countries(
-    search: str | None = Query(None, description="Search by name or code"),
+    search: str | None = Query(
+        None, max_length=100, description="Search by name or code"
+    ),
     region: str | None = Query(None, description="Filter by region"),
     subregion: str | None = Query(None, description="Filter by subregion"),
     recognition: list[CountryRecognition] | None = Query(

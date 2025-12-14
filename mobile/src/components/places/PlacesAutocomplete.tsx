@@ -50,8 +50,11 @@ export function PlacesAutocomplete({
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [showManualEntry, setShowManualEntry] = useState(false);
-  const [manualEntryInitialName, setManualEntryInitialName] = useState('');
+  // Combined state to prevent race conditions between show flag and initial name
+  const [manualEntry, setManualEntry] = useState<{ show: boolean; initialName: string }>({
+    show: false,
+    initialName: '',
+  });
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,7 +69,7 @@ export function PlacesAutocomplete({
     setPredictions([]);
     setShowDropdown(false);
     onDropdownOpen?.(false);
-    setShowManualEntry(false);
+    setManualEntry({ show: false, initialName: '' });
     setError(null);
     hasSelectedRef.current = false;
     onSelect(null);
@@ -106,8 +109,7 @@ export function PlacesAutocomplete({
 
           if (err instanceof QuotaExceededError) {
             setError('Places search unavailable. Enter details manually.');
-            setManualEntryInitialName(''); // Don't pre-fill from error state
-            setShowManualEntry(true);
+            setManualEntry({ show: true, initialName: '' }); // Don't pre-fill from error state
             setShowDropdown(false);
             onDropdownOpen?.(false);
           } else if (err instanceof NetworkError) {
@@ -203,7 +205,7 @@ export function PlacesAutocomplete({
     (place: SelectedPlace) => {
       hasSelectedRef.current = true;
       setQuery(place.name);
-      setShowManualEntry(false);
+      setManualEntry({ show: false, initialName: '' });
       onSelect(place);
     },
     [onSelect]
@@ -212,8 +214,7 @@ export function PlacesAutocomplete({
   // Handle switching to manual entry mode
   const handleManualEntry = useCallback(() => {
     setShowDropdown(false);
-    setManualEntryInitialName(query); // Pre-fill when user clicks "Enter manually"
-    setShowManualEntry(true);
+    setManualEntry({ show: true, initialName: query }); // Pre-fill when user clicks "Enter manually"
   }, [query]);
 
   // Handle input focus
@@ -243,12 +244,12 @@ export function PlacesAutocomplete({
   }, [value?.name]);
 
   // Manual entry form
-  if (showManualEntry) {
+  if (manualEntry.show) {
     return (
       <ManualEntryForm
-        initialName={manualEntryInitialName}
+        initialName={manualEntry.initialName}
         onSubmit={handleManualSubmit}
-        onCancel={() => setShowManualEntry(false)}
+        onCancel={() => setManualEntry({ show: false, initialName: '' })}
         testID={testID}
       />
     );

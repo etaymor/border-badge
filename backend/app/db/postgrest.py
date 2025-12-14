@@ -59,20 +59,58 @@ def neq(value: str) -> str:
     return f"neq.{value}"
 
 
+def _quote_value(value: str) -> str:
+    """Quote a value for PostgREST if it contains special characters.
+
+    PostgREST uses double-quoting for values with commas, parentheses, or quotes.
+    Double quotes inside the value are escaped by doubling them.
+
+    Args:
+        value: The value to potentially quote.
+
+    Returns:
+        The value, quoted if necessary.
+
+    Example:
+        >>> _quote_value("simple")
+        'simple'
+        >>> _quote_value("has,comma")
+        '"has,comma"'
+        >>> _quote_value('has"quote')
+        '"has""quote"'
+    """
+    # Characters that require quoting in PostgREST
+    needs_quoting = any(c in value for c in (",", "(", ")", '"'))
+    if not needs_quoting:
+        return value
+    # Escape double quotes by doubling them, then wrap in quotes
+    escaped = value.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def in_list(values: list[str]) -> str:
     """Build a PostgREST IN filter.
 
     Args:
         values: List of values to match. Each MUST be validated before calling.
+                Empty list will raise ValueError.
 
     Returns:
         PostgREST filter string like "in.(val1,val2,val3)"
 
+    Raises:
+        ValueError: If values list is empty.
+
     Example:
         >>> in_list(["visited", "wishlist"])
         'in.(visited,wishlist)'
+        >>> in_list(["a,b", "c"])
+        'in.("a,b",c)'
     """
-    return f"in.({','.join(values)})"
+    if not values:
+        raise ValueError("in_list requires at least one value")
+    quoted_values = [_quote_value(v) for v in values]
+    return f"in.({','.join(quoted_values)})"
 
 
 def is_null() -> str:
