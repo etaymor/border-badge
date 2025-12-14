@@ -22,19 +22,19 @@ const SLIDES = [
   {
     id: '1',
     video: require('../../../assets/country-images/wonders-world/gardens-babylon.mp4'),
-    text: "Log every country you've set foot in.",
+    text: 'Stamp your passport for every country you visit.',
     showCTA: false,
   },
   {
     id: '2',
     video: require('../../../assets/country-images/wonders-world/lighthouse-alexandria.mp4'),
-    text: 'Relive each trip & get tips for the next.',
+    text: 'Save your favorite spots. Remember why you loved them.',
     showCTA: false,
   },
   {
     id: '3',
     video: require('../../../assets/country-images/wonders-world/mausoleum-halicarnassus.mp4'),
-    text: "See who's been where.",
+    text: 'Share lists. Swap recs. Inspire your friends.',
     showCTA: true,
   },
 ];

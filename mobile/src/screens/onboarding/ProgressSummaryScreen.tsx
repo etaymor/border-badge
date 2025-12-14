@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Image,
@@ -11,17 +12,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { Text } from '@components/ui';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useCountries } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
-
-const TOTAL_COUNTRIES = 198;
 
 // Stamp layout calculation - clean grid with slight rotation
 function calculateStampPositions(count: number, containerWidth: number) {
@@ -55,10 +57,14 @@ function calculateStampPositions(count: number, containerWidth: number) {
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const { selectedCountries, homeCountry } = useOnboardingStore();
+  const { data: allCountriesData } = useCountries();
 
   // Animation refs
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const stampAnimations = useRef<Animated.Value[]>([]);
+
+  // Share overlay state
+  const [showShareOverlay, setShowShareOverlay] = useState(false);
 
   // Include home country in visited count if set
   const allVisitedCountries = useMemo(() => {
@@ -69,6 +75,46 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const visitedCount = allVisitedCountries.length;
   const visibleStamps = allVisitedCountries;
+
+  // Build share context from visited countries
+  const shareContext: OnboardingShareContext | null = useMemo(() => {
+    if (allCountriesData.length === 0 || allVisitedCountries.length === 0) {
+      return null;
+    }
+
+    // Get country data for visited countries
+    const visitedCountryData = allCountriesData.filter((c) => allVisitedCountries.includes(c.code));
+
+    // Calculate unique regions and subregions
+    const regions = [...new Set(visitedCountryData.map((c) => c.region))];
+    const subregions = [
+      ...new Set(visitedCountryData.map((c) => c.subregion).filter(Boolean)),
+    ] as string[];
+
+    // Get travel tier
+    const travelTier = getTravelStatus(allVisitedCountries.length);
+
+    return {
+      visitedCountries: allVisitedCountries,
+      totalCountries: allVisitedCountries.length,
+      regions,
+      regionCount: regions.length,
+      subregions,
+      subregionCount: subregions.length,
+      travelTier,
+    };
+  }, [allCountriesData, allVisitedCountries]);
+
+  // Handle share button press
+  const handleShare = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setShowShareOverlay(true);
+  }, []);
+
+  // Handle share overlay dismiss
+  const handleDismissShare = useCallback(() => {
+    setShowShareOverlay(false);
+  }, []);
 
   const containerWidth = screenWidth - 32; // 16px padding on each side
   const stampPositions = useMemo(
@@ -132,7 +178,8 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const handleContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    navigation.navigate('Paywall');
+    // LAUNCH_SIMPLIFICATION: Skip paywall, go directly to name entry
+    navigation.navigate('NameEntry');
   };
 
   return (
@@ -145,9 +192,9 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           >
             {/* Header */}
             <View style={styles.header}>
-              <Text style={styles.headerTitle}>Look at those stamps!</Text>
+              <Text style={styles.headerTitle}>Look at you go!</Text>
               <Text style={styles.headerSubtitle}>
-                You&apos;ve explored {visitedCount} of {TOTAL_COUNTRIES} countries!
+                {visitedCount} countries and counting.
               </Text>
             </View>
 
@@ -199,8 +246,17 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           </ScrollView>
         </Animated.View>
 
-        {/* Footer Button - fixed position matching other onboarding screens */}
+        {/* Footer Buttons - fixed position matching other onboarding screens */}
         <View style={styles.bottomContainer}>
+          {/* Share button - prominent */}
+          {shareContext && (
+            <TouchableOpacity style={styles.shareButton} onPress={handleShare} activeOpacity={0.8}>
+              <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
+              <Text style={styles.shareButtonText}>Share Your Journey</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Continue button */}
           <TouchableOpacity
             style={styles.continueButton}
             onPress={handleContinue}
@@ -210,6 +266,13 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      {/* Share Overlay */}
+      <OnboardingShareOverlay
+        visible={showShareOverlay}
+        context={shareContext}
+        onDismiss={handleDismissShare}
+      />
     </View>
   );
 }
@@ -285,6 +348,25 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     paddingBottom: 40,
     alignItems: 'center',
+    gap: 12,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+    backgroundColor: withAlpha(colors.sunsetGold, 0.15),
+    borderWidth: 2,
+    borderColor: colors.sunsetGold,
+    minWidth: 220,
+  },
+  shareButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 15,
+    color: colors.sunsetGold,
   },
   continueButton: {
     backgroundColor: colors.sunsetGold,
@@ -303,8 +385,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   continueButtonText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    fontWeight: '600',
     color: colors.midnightNavy,
   },
 });

@@ -9,7 +9,8 @@ import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
-import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
+// LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
+// import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
 import { TrackingPreferenceScreen } from '@screens/onboarding/TrackingPreferenceScreen';
 import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
@@ -35,7 +36,8 @@ export function OnboardingNavigator() {
       <Stack.Screen name="ContinentCountryGrid" component={ContinentCountryGridScreen} />
       <Stack.Screen name="AntarcticaPrompt" component={AntarcticaPromptScreen} />
       <Stack.Screen name="ProgressSummary" component={ProgressSummaryScreen} />
-      <Stack.Screen name="Paywall" component={PaywallScreen} />
+      {/* LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch */}
+      {/* <Stack.Screen name="Paywall" component={PaywallScreen} /> */}
       <Stack.Screen name="NameEntry" component={NameEntryScreen} />
       <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
     </Stack.Navigator>

@@ -19,7 +19,7 @@ export function HomeCountryScreen({ navigation }: Props) {
 
   const config: CountrySelectionConfig = {
     backgroundColor: colors.dustyCoral,
-    title: 'Where do you live today?',
+    title: "Where's home?",
     dropdownBorderColor: colors.dustyCoral,
     celebration: {
       icon: 'checkmark-circle',

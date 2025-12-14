@@ -113,7 +113,7 @@ export function MotivationScreen({ navigation }: Props) {
           ]}
         >
           <Text variant="title" style={styles.title}>
-            What moves you to explore?
+            What kind of traveler are you?
           </Text>
         </Animated.View>
 

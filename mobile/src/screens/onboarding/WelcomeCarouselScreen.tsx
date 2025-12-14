@@ -54,10 +54,10 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
       {/* Text overlay - upper area */}
       <View style={styles.textOverlay}>
         <Text variant="title" style={styles.title}>
-          Welcome Explorer
+          The world is waiting
         </Text>
         <Text variant="body" style={styles.body}>
-          Your journey around the world starts here.
+          Track where you&apos;ve been. Dream about where you&apos;re going.
         </Text>
       </View>
 

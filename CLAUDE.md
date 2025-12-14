@@ -258,6 +258,46 @@ user_profile     - Extended user data
 | `docs/travel-prd.md`                      | Product requirements    |
 | `docs/travel-technical-design.md`         | Technical design        |
 
+## Launch Simplification (IMPORTANT)
+
+The app has been simplified for initial launch. Several features are **temporarily hidden** but fully implemented and ready to re-enable.
+
+### Hidden Features
+
+| Feature | Status | Location | How to Re-enable |
+|---------|--------|----------|------------------|
+| **Tab Bar** | Hidden | `RootNavigator.tsx` | Replace `PassportNavigator` with `MainTabNavigator` |
+| **Dreams Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
+| **Trips List Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
+| **Friends Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
+| **Paywall Screen** | Hidden | `OnboardingNavigator.tsx` | Uncomment PaywallScreen route and update ProgressSummaryScreen navigation |
+
+### Current Launch Navigation
+
+```
+RootNavigator
+├── Auth → AuthNavigator (unauthenticated users)
+├── Onboarding → OnboardingNavigator (first-time users)
+└── Main → PassportNavigator (authenticated users)
+    ├── PassportHome (country grid)
+    ├── CountryDetail (country details, trips, entries)
+    └── ProfileSettings (user settings)
+```
+
+### Re-enabling the Full App
+
+To restore all features after launch, update `mobile/src/navigation/RootNavigator.tsx`:
+
+1. Uncomment the `MainTabNavigator` import
+2. Replace `PassportNavigator` with `MainTabNavigator` in the `Main` screen
+3. Search for `LAUNCH_SIMPLIFICATION` comments throughout the codebase
+
+### Code Markers
+
+All launch simplification changes are marked with:
+- `// LAUNCH_SIMPLIFICATION:` - Indicates temporarily disabled code
+- `// TODO:` - Describes what to do when re-enabling
+
 ## Notes for AI Assistants
 
 1. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
@@ -266,6 +306,7 @@ user_profile     - Extended user data
 4. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status)
 5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
+7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
 
 ## Pre-Commit Checklist (REQUIRED)
 
