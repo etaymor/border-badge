@@ -43,7 +43,7 @@ function CountryStatsComponent({
   );
 }
 
-export const CountryStats = memo(CountryStatsComponent);
+export default memo(CountryStatsComponent);
 
 const styles = StyleSheet.create({
   statsRow: {

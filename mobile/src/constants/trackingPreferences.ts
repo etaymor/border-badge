@@ -103,3 +103,36 @@ export function isCountryAllowedByPreference(
 export function getCountryCountForPreference(preset: TrackingPreset): number {
   return TRACKING_PRESETS[preset].count;
 }
+
+/**
+ * Get recognition groups that are valid for a given tracking preference.
+ * This maps from the detailed recognition types to the simplified UI groups.
+ */
+export function getAllowedRecognitionGroupsForPreference(
+  preset: TrackingPreset
+): Set<'UN Member' | 'Special Status' | 'Territory'> {
+  const allowedTypes = new Set(TRACKING_PRESETS[preset].recognitionTypes);
+  const allowedGroups = new Set<'UN Member' | 'Special Status' | 'Territory'>();
+
+  // UN Member group contains: un_member
+  if (allowedTypes.has('un_member')) {
+    allowedGroups.add('UN Member');
+  }
+
+  // Special Status group contains: observer, disputed
+  if (allowedTypes.has('observer') || allowedTypes.has('disputed')) {
+    allowedGroups.add('Special Status');
+  }
+
+  // Territory group contains: territory, dependent_territory, special_region, constituent_country
+  if (
+    allowedTypes.has('territory') ||
+    allowedTypes.has('dependent_territory') ||
+    allowedTypes.has('special_region') ||
+    allowedTypes.has('constituent_country')
+  ) {
+    allowedGroups.add('Territory');
+  }
+
+  return allowedGroups;
+}

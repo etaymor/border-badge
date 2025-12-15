@@ -170,7 +170,9 @@ img {
 }
 
 /* For pages with dark hero, apply drop shadow to make logo visible */
-body:has(.hero-section) .header .logo-image {
+/* Supports both :has() selector and fallback class for browsers without :has() support */
+body:has(.hero-section) .header .logo-image,
+body.has-hero .header .logo-image {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
@@ -185,7 +187,8 @@ body:has(.hero-section) .header .logo-image {
 }
 
 /* White CTA on dark hero pages */
-body:has(.hero-section) .header .cta-button {
+body:has(.hero-section) .header .cta-button,
+body.has-hero .header .cta-button {
   color: var(--color-cloud-white);
   border-color: rgba(255, 255, 255, 0.4);
 }

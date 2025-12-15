@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   searchGlassContainer: {
     borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
   },
   searchInputWrapper: {
     flexDirection: 'row',
@@ -421,8 +421,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.9)',
-    backgroundColor: 'rgba(253, 246, 237, 0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
   },
   searchIcon: {
     marginRight: 10,

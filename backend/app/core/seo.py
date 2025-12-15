@@ -63,9 +63,7 @@ def build_trip_seo(
     """Build SEO context for a public trip page."""
     if country_name:
         title = f"{trip_name} in {country_name} - Atlasi"
-        description = (
-            f"Explore {trip_name} in {country_name} - A trip shared on Atlasi"
-        )
+        description = f"Explore {trip_name} in {country_name} - A trip shared on Atlasi"
         og_title = f"{trip_name} in {country_name}"
     else:
         title = f"{trip_name} - Atlasi"

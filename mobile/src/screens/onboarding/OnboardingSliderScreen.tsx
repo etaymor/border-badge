@@ -31,7 +31,7 @@ const SLIDES = [
   {
     id: '2',
     video: require('../../../assets/country-images/wonders-world/lighthouse-alexandria.mp4'),
-    text: 'Save your favorite spots. Remember why you loved them.',
+    text: 'Save your favorite spots. Remember the magic.',
     showCTA: false,
   },
   {

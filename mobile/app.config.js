@@ -13,7 +13,7 @@ export default {
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#FDF6ED', // warmCream - app default background
     },
     ios: {
       supportsTablet: true,

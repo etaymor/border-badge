@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -27,11 +27,25 @@ export function ListSuccessView({
   const shareUrl = getPublicListUrl(list.slug);
   const [copied, setCopied] = useState(false);
   const insets = useSafeAreaInsets();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = useCallback(async () => {
     await Clipboard.setStringAsync(shareUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Clear any existing timeout before setting a new one
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   }, [shareUrl]);
 
   const handleShare = useCallback(async () => {

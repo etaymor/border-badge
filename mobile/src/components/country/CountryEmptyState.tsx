@@ -21,7 +21,7 @@ function CountryEmptyStateComponent({ flagEmoji, displayName }: CountryEmptyStat
   );
 }
 
-export const CountryEmptyState = memo(CountryEmptyStateComponent);
+export default memo(CountryEmptyStateComponent);
 
 const styles = StyleSheet.create({
   emptyState: {

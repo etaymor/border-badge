@@ -20,7 +20,7 @@ import { WorldMapSvg } from './WorldMapSvg';
 // Card dimensions: 9:16 aspect ratio optimized for Instagram Stories
 // Render at base mobile size, ViewShot will upscale to 1080x1920 for export
 const CARD_WIDTH = 375;
-const CARD_HEIGHT = (CARD_WIDTH * 16) / 9; // 666.67
+const CARD_HEIGHT = Math.round((CARD_WIDTH * 16) / 9); // 667
 
 // Scale factor is now 1 since we're rendering at base size
 const SCALE = 1;
@@ -328,7 +328,7 @@ function OnboardingShareCardComponent({ variant, context }: OnboardingShareCardP
   }, [variant]);
 
   return (
-    <View style={styles.card}>
+    <View style={styles.card} collapsable={false}>
       <VariantComponent context={context} />
     </View>
   );
@@ -342,7 +342,8 @@ export const ONBOARDING_SHARE_CARD_HEIGHT = CARD_HEIGHT;
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: colors.warmCream,

@@ -3,11 +3,8 @@ import { useEffect, useRef } from 'react';
 import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import atlasLogo from '../../../assets/atlasi-logo.png';
 import { Chip, Text } from '@components/ui';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';

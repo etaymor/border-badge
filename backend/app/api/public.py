@@ -157,6 +157,7 @@ async def view_public_list(
             "og_url": seo.canonical_url,
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
@@ -252,6 +253,7 @@ async def view_public_trip(
             "og_url": seo.canonical_url,
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"

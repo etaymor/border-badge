@@ -30,6 +30,7 @@ import { RECOGNITION_GROUPS } from '@constants/regions';
 import {
   isCountryAllowedByPreference,
   getCountryCountForPreference,
+  getAllowedRecognitionGroupsForPreference,
 } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
@@ -183,6 +184,23 @@ export function PassportScreen({ navigation }: Props) {
 
   // Get tracking preference from profile (default to full_atlas)
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
+
+  // Sync recognitionGroups filter when tracking preference changes
+  // Remove any recognition groups that are no longer valid for the new preference
+  useEffect(() => {
+    if (filters.recognitionGroups.length === 0) return;
+
+    const allowedGroups = getAllowedRecognitionGroupsForPreference(trackingPreference);
+    const validGroups = filters.recognitionGroups.filter((group) => allowedGroups.has(group));
+
+    // Only update if some groups were removed
+    if (validGroups.length !== filters.recognitionGroups.length) {
+      setFilters((prev) => ({
+        ...prev,
+        recognitionGroups: validGroups,
+      }));
+    }
+  }, [trackingPreference, filters.recognitionGroups]);
 
   const isLoading = loadingUserCountries || loadingCountries || loadingTrips || loadingProfile;
 

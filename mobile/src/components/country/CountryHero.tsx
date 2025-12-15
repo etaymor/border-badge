@@ -76,7 +76,7 @@ function CountryHeroComponent({
   );
 }
 
-export const CountryHero = memo(CountryHeroComponent);
+export default memo(CountryHeroComponent);
 
 const styles = StyleSheet.create({
   heroBackground: {
