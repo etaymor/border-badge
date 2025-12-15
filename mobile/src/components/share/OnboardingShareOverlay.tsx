@@ -1,6 +1,7 @@
 /**
  * Full-screen overlay modal for onboarding share cards.
- * Includes swipeable carousel of three card variants, sharing, and save functionality.
+ * Displays three card variants (stamps, stats, map) with tap-to-switch pagination.
+ * Includes sharing and save functionality.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +34,12 @@ import {
   type OnboardingShareContext,
   type OnboardingShareVariant,
 } from './OnboardingShareCard';
+
+const CARD_HORIZONTAL_PADDING = 24;
+const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
+const ACTION_AREA_HEIGHT = 200; // Accounts for pagination + actions + margins
+const MIN_TOP_SPACING = 60;
+const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'map'];
 
 interface OnboardingShareOverlayProps {
   visible: boolean;
@@ -79,16 +86,15 @@ function OnboardingShareOverlayComponent({
     }
   }, [visible, context, backdropOpacity, contentOpacity]);
 
-  // Scale to fit screen while keeping aspect ratio; keep it smaller to avoid clipping
-  const availableWidth = screenWidth - 32;
-  const availableHeight = screenHeight - insets.top - insets.bottom - 320;
-  const rawScale = Math.min(
-    availableWidth / ONBOARDING_SHARE_CARD_WIDTH,
-    availableHeight / ONBOARDING_SHARE_CARD_HEIGHT
-  );
-  const displayScale = Math.max(0.45, Math.min(0.8, Number.isFinite(rawScale) ? rawScale : 0.7));
-  const scaledCardWidth = ONBOARDING_SHARE_CARD_WIDTH * displayScale;
-  const scaledCardHeight = ONBOARDING_SHARE_CARD_HEIGHT * displayScale;
+  // Scale to fit screen using same approach as ShareCard overlay
+  const availableWidth = screenWidth - CARD_TOTAL_HORIZONTAL_PADDING;
+  const availableHeight =
+    screenHeight - insets.top - insets.bottom - MIN_TOP_SPACING - ACTION_AREA_HEIGHT;
+  const widthScale = availableWidth / ONBOARDING_SHARE_CARD_WIDTH;
+  const heightScale = availableHeight / ONBOARDING_SHARE_CARD_HEIGHT;
+  const displayScale = Math.min(widthScale, heightScale);
+  const displayWidth = ONBOARDING_SHARE_CARD_WIDTH * displayScale;
+  const displayHeight = ONBOARDING_SHARE_CARD_HEIGHT * displayScale;
 
   // Handle dismiss with fade out
   const handleDismiss = useCallback(() => {
@@ -157,9 +163,6 @@ function OnboardingShareOverlayComponent({
 
   if (!context) return null;
 
-  const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'map'];
-  const variant = CARD_VARIANTS[currentIndex];
-
   return (
     <Modal
       visible={visible}
@@ -195,61 +198,54 @@ function OnboardingShareOverlayComponent({
               <Ionicons name="close" size={28} color={colors.warmCream} />
             </TouchableOpacity>
 
-            {/* Centered single card preview (still switches variants via dots) */}
-            <View style={styles.cardContainerArea}>
+            {/* Card container - matches ShareCardOverlay pattern */}
+            <Animated.View
+              style={[
+                styles.cardContainer,
+                {
+                  width: displayWidth,
+                  height: displayHeight,
+                  opacity: contentOpacity,
+                },
+              ]}
+            >
               <View
-                style={[
-                  styles.cardWrapper,
-                  {
-                    width: scaledCardWidth + 32,
-                    height: scaledCardHeight + 220,
-                    justifyContent: 'flex-start',
-                  },
-                ]}
+                style={{
+                  width: ONBOARDING_SHARE_CARD_WIDTH,
+                  height: ONBOARDING_SHARE_CARD_HEIGHT,
+                  transform: [{ scale: displayScale }],
+                  transformOrigin: 'top left',
+                }}
               >
-                <View style={styles.cardSpacer} />
-                <View
-                  style={{
-                    width: scaledCardWidth,
-                    height: scaledCardHeight,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    shadowColor: colors.black,
-                    shadowOffset: { width: 0, height: 12 },
-                    shadowOpacity: 0.25,
-                    shadowRadius: 18,
+                <ViewShot
+                  ref={(ref) => {
+                    viewShotRefs.current[currentIndex] = ref;
                   }}
+                  options={{
+                    format: 'png',
+                    quality: 0.95,
+                    width: 1080,
+                    height: 1920,
+                    result: 'tmpfile',
+                  }}
+                  style={styles.cardInner}
                 >
-                  <ViewShot
-                    ref={(ref) => {
-                      viewShotRefs.current[0] = ref;
-                    }}
-                    options={{
-                      format: 'png',
-                      quality: 0.95,
-                      width: 1080,
-                      height: 1920,
-                      result: 'tmpfile',
-                    }}
-                    style={[
-                      styles.cardInner,
-                      {
-                        transform: [{ scale: displayScale }],
-                      },
-                    ]}
-                  >
-                    <OnboardingShareCard variant={variant} context={context} />
-                  </ViewShot>
-                </View>
+                  <OnboardingShareCard variant={CARD_VARIANTS[currentIndex]} context={context} />
+                </ViewShot>
               </View>
-            </View>
+            </Animated.View>
 
             {/* Pagination dots */}
             <View style={styles.pagination}>
-              {CARD_VARIANTS.map((v, index) => (
+              {CARD_VARIANTS.map((variant, index) => (
                 <TouchableOpacity
-                  key={v}
-                  onPress={() => setCurrentIndex(index)}
+                  key={variant}
+                  onPress={() => {
+                    if (index !== currentIndex) {
+                      setCurrentIndex(index);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                  }}
                   style={styles.paginationDotContainer}
                 >
                   <View
@@ -264,7 +260,7 @@ function OnboardingShareOverlayComponent({
                       index === currentIndex && styles.paginationLabelActive,
                     ]}
                   >
-                    {v.toUpperCase()}
+                    {variant.toUpperCase()}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -335,41 +331,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  cardContainerArea: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardSpacer: {
-    height: 60,
-  },
-  cardShell: {
-    width: ONBOARDING_SHARE_CARD_WIDTH,
-    height: ONBOARDING_SHARE_CARD_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardInner: {
-    width: ONBOARDING_SHARE_CARD_WIDTH,
-    height: ONBOARDING_SHARE_CARD_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.warmCream,
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderColor: colors.sunsetGold,
-    borderWidth: 2,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(23, 42, 58, 0.95)',
   },
   content: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   closeButton: {
     position: 'absolute',
@@ -377,19 +346,21 @@ const styles = StyleSheet.create({
     zIndex: 10,
     padding: 8,
   },
-  carousel: {
-    flexGrow: 0,
-  },
-  carouselContent: {
-    alignItems: 'center',
-  },
-  cardWrapper: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   cardContainer: {
-    // Removed specific shadow styles from here as they are now inline in the renderItem
-    // to separate shadow/layout from ViewShot
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  cardInner: {
+    width: ONBOARDING_SHARE_CARD_WIDTH,
+    height: ONBOARDING_SHARE_CARD_HEIGHT,
+    backgroundColor: colors.warmCream,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderColor: colors.sunsetGold,
+    borderWidth: 2,
   },
   pagination: {
     flexDirection: 'row',
