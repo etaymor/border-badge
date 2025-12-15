@@ -753,8 +753,7 @@ def test_update_entry_patch_empty_returns_404(
             )
         assert response.status_code == 404
         assert (
-            response.json()["detail"]
-            == "Entry not found or not authorized to update"
+            response.json()["detail"] == "Entry not found or not authorized to update"
         )
     finally:
         app.dependency_overrides.clear()

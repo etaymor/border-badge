@@ -101,12 +101,7 @@ function AnimatedSplashComponent({ isAppReady, onAnimationComplete }: AnimatedSp
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       {/* Video background */}
-      <VideoView
-        player={player}
-        style={styles.video}
-        contentFit="cover"
-        nativeControls={false}
-      />
+      <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} />
 
       {/* Dark overlay for better logo visibility */}
       <View style={styles.overlay} />

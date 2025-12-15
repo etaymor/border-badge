@@ -139,10 +139,7 @@ export default function App() {
             <StatusBar style="auto" />
           </NavigationContainer>
           {showSplash && (
-            <AnimatedSplash
-              isAppReady={isAppReady}
-              onAnimationComplete={handleSplashComplete}
-            />
+            <AnimatedSplash isAppReady={isAppReady} onAnimationComplete={handleSplashComplete} />
           )}
         </SafeAreaProvider>
       </QueryClientProvider>

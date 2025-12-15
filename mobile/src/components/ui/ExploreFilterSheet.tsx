@@ -23,10 +23,7 @@ import {
   type Region,
   type RecognitionGroup,
 } from '@constants/regions';
-import {
-  TRACKING_PRESETS,
-  type TrackingPreset,
-} from '@constants/trackingPreferences';
+import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { countActiveFilters, type ExploreFilters, type CountryStatus } from '../../types/filters';
 import { Chip } from './Chip';
 import { Text } from './Text';

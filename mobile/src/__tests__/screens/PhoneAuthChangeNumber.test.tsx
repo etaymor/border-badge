@@ -53,9 +53,7 @@ describe('Change number flow', () => {
       name: 'Auth',
     } as AuthStackScreenProps<'Auth'>['route'];
 
-    const { getByTestId, getByText } = render(
-      <AuthScreen navigation={navigation} route={route} />
-    );
+    const { getByTestId, getByText } = render(<AuthScreen navigation={navigation} route={route} />);
 
     fireEvent.changeText(getByTestId('auth-phone-input'), '5551234567');
     fireEvent.press(getByTestId('auth-send-button'));

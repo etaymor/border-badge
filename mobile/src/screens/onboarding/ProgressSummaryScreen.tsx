@@ -203,14 +203,16 @@ export function ProgressSummaryScreen({ navigation }: Props) {
             {/* Title */}
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Look at you go!</Text>
-              <Text style={styles.headerSubtitle}>
-                {visitedCount} countries and counting.
-              </Text>
+              <Text style={styles.headerSubtitle}>{visitedCount} countries and counting.</Text>
             </View>
 
             {/* Share button - above stamps */}
             {shareContext && (
-              <TouchableOpacity style={styles.shareButton} onPress={handleShare} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={styles.shareButton}
+                onPress={handleShare}
+                activeOpacity={0.8}
+              >
                 <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
                 <Text style={styles.shareButtonText}>Share Your Atlas</Text>
               </TouchableOpacity>

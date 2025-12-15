@@ -39,7 +39,7 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
 
   // Use user-uploaded media first, fall back to Google Places photo
   const firstMediaUrl = hasUserMedia
-    ? entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url
+    ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
     : entry.place?.google_photo_url;
 
   const hasMedia = !!firstMediaUrl;
