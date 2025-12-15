@@ -175,136 +175,125 @@ function OnboardingShareOverlayComponent({
         {/* Backdrop */}
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
 
-        {/* Content - stop propagation to prevent dismiss on card tap */}
-        <Pressable onPress={(e) => e.stopPropagation()}>
+        {/* Content */}
+        <View style={[styles.content, { paddingTop: insets.top + 16 }]}>
+          {/* Close button */}
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={handleDismiss}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close share overlay"
+          >
+            <Ionicons name="close" size={28} color={colors.warmCream} />
+          </TouchableOpacity>
+
+          {/* Card container - matches ShareCardOverlay pattern */}
           <Animated.View
             style={[
-              styles.content,
+              styles.cardContainer,
               {
+                width: displayWidth,
+                height: displayHeight,
                 opacity: contentOpacity,
-                paddingTop: insets.top + 60,
-                paddingBottom: insets.bottom + 40,
               },
             ]}
           >
-            {/* Close button */}
-            <TouchableOpacity
-              style={[styles.closeButton, { top: insets.top + 16 }]}
-              onPress={handleDismiss}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityRole="button"
-              accessibilityLabel="Close share overlay"
+            <View
+              style={{
+                width: ONBOARDING_SHARE_CARD_WIDTH,
+                height: ONBOARDING_SHARE_CARD_HEIGHT,
+                transform: [{ scale: displayScale }],
+                transformOrigin: 'top left',
+              }}
             >
-              <Ionicons name="close" size={28} color={colors.warmCream} />
-            </TouchableOpacity>
-
-            {/* Card container - matches ShareCardOverlay pattern */}
-            <Animated.View
-              style={[
-                styles.cardContainer,
-                {
-                  width: displayWidth,
-                  height: displayHeight,
-                  opacity: contentOpacity,
-                },
-              ]}
-            >
-              <View
-                style={{
-                  width: ONBOARDING_SHARE_CARD_WIDTH,
-                  height: ONBOARDING_SHARE_CARD_HEIGHT,
-                  transform: [{ scale: displayScale }],
-                  transformOrigin: 'top left',
+              <ViewShot
+                ref={(ref) => {
+                  viewShotRefs.current[currentIndex] = ref;
                 }}
+                options={{
+                  format: 'png',
+                  quality: 0.95,
+                  width: 1080,
+                  height: 1920,
+                  result: 'tmpfile',
+                }}
+                style={styles.cardInner}
               >
-                <ViewShot
-                  ref={(ref) => {
-                    viewShotRefs.current[currentIndex] = ref;
-                  }}
-                  options={{
-                    format: 'png',
-                    quality: 0.95,
-                    width: 1080,
-                    height: 1920,
-                    result: 'tmpfile',
-                  }}
-                  style={styles.cardInner}
-                >
-                  <OnboardingShareCard variant={CARD_VARIANTS[currentIndex]} context={context} />
-                </ViewShot>
-              </View>
-            </Animated.View>
-
-            {/* Pagination dots */}
-            <View style={styles.pagination}>
-              {CARD_VARIANTS.map((variant, index) => (
-                <TouchableOpacity
-                  key={variant}
-                  onPress={() => {
-                    if (index !== currentIndex) {
-                      setCurrentIndex(index);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
-                  }}
-                  style={styles.paginationDotContainer}
-                >
-                  <View
-                    style={[
-                      styles.paginationDot,
-                      index === currentIndex && styles.paginationDotActive,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.paginationLabel,
-                      index === currentIndex && styles.paginationLabelActive,
-                    ]}
-                  >
-                    {variant.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Action buttons */}
-            <View style={[styles.actionsContainer, { paddingBottom: insets.bottom + 36 }]}>
-              {/* Share button */}
-              <TouchableOpacity
-                style={[styles.actionButton, styles.primaryAction]}
-                onPress={handleShare}
-                activeOpacity={0.7}
-                hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel="Share card"
-              >
-                <View style={[styles.actionIconContainer, styles.primaryIconContainer]}>
-                  <Ionicons name="share-outline" size={24} color={colors.white} />
-                </View>
-                <Text style={[styles.actionLabel, styles.primaryLabel]}>Share</Text>
-              </TouchableOpacity>
-
-              {/* Save button */}
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={handleSave}
-                activeOpacity={0.7}
-                disabled={isSaving}
-                hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel={isSaving ? 'Saving to photos' : 'Save to photos'}
-              >
-                <View style={styles.actionIconContainer}>
-                  <Ionicons
-                    name={isSaving ? 'hourglass-outline' : 'download-outline'}
-                    size={24}
-                    color={colors.midnightNavy}
-                  />
-                </View>
-                <Text style={styles.actionLabel}>Save</Text>
-              </TouchableOpacity>
+                <OnboardingShareCard variant={CARD_VARIANTS[currentIndex]} context={context} />
+              </ViewShot>
             </View>
           </Animated.View>
-        </Pressable>
+
+          {/* Pagination dots */}
+          <View style={styles.pagination}>
+            {CARD_VARIANTS.map((variant, index) => (
+              <TouchableOpacity
+                key={variant}
+                onPress={() => {
+                  if (index !== currentIndex) {
+                    setCurrentIndex(index);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                }}
+                style={styles.paginationDotContainer}
+              >
+                <View
+                  style={[
+                    styles.paginationDot,
+                    index === currentIndex && styles.paginationDotActive,
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.paginationLabel,
+                    index === currentIndex && styles.paginationLabelActive,
+                  ]}
+                >
+                  {variant.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Action buttons */}
+          <Animated.View style={[styles.actionsContainer, { opacity: contentOpacity }]}>
+            {/* Share button */}
+            <TouchableOpacity
+              style={[styles.actionButton, styles.primaryAction]}
+              onPress={handleShare}
+              activeOpacity={0.7}
+              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Share card"
+            >
+              <View style={[styles.actionIconContainer, styles.primaryIconContainer]}>
+                <Ionicons name="share-outline" size={24} color={colors.white} />
+              </View>
+              <Text style={[styles.actionLabel, styles.primaryLabel]}>Share</Text>
+            </TouchableOpacity>
+
+            {/* Save button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleSave}
+              activeOpacity={0.7}
+              disabled={isSaving}
+              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel={isSaving ? 'Saving to photos' : 'Save to photos'}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons
+                  name={isSaving ? 'hourglass-outline' : 'download-outline'}
+                  size={24}
+                  color={colors.midnightNavy}
+                />
+              </View>
+              <Text style={styles.actionLabel}>Save</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -339,9 +328,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   closeButton: {
     position: 'absolute',
+    top: 60,
     right: 20,
     zIndex: 10,
     padding: 8,
