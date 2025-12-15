@@ -90,7 +90,7 @@ export function MotivationScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   return (

@@ -164,7 +164,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
   }, [navigation]);
 
   const handleLogin = useCallback(() => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   }, [navigation]);
 
   const handleSelectPreset = useCallback(

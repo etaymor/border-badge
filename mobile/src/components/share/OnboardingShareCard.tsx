@@ -4,7 +4,6 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useMemo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 
@@ -18,11 +17,10 @@ import atlasLogo from '../../../assets/atlasi-logo.png';
 import { WorldMapSvg } from './WorldMapSvg';
 
 // Card dimensions: 9:16 aspect ratio optimized for Instagram Stories
-// Render at base mobile size, ViewShot will upscale to 1080x1920 for export
 const CARD_WIDTH = 375;
 const CARD_HEIGHT = Math.round((CARD_WIDTH * 16) / 9); // 667
 
-// Scale factor is now 1 since we're rendering at base size
+// Scale factor for consistent sizing
 const SCALE = 1;
 
 export type OnboardingShareVariant = 'stamps' | 'stats' | 'map';
@@ -49,8 +47,8 @@ function seededRandom(seed: number): number {
 }
 
 /**
- * Card 1: Stamps Collection
- * Grid of passport stamps with country count badge
+ * Card 1: Stamps Collection - "The Explorer's Journal"
+ * Clean, minimalistic passport page. No heavy frames, no heavy overlays.
  */
 const StampsVariant = memo(function StampsVariant({
   context,
@@ -59,259 +57,187 @@ const StampsVariant = memo(function StampsVariant({
 }) {
   const { visitedCountries, totalCountries } = context;
 
-  // Calculate grid layout
-  const count = visitedCountries.length;
-  // Increase density for a fuller look
-  const cols = count <= 6 ? 2 : count <= 12 ? 3 : 4;
-  const stampSize = Math.min((CARD_WIDTH - 80 * SCALE) / cols - 12 * SCALE, 200 * SCALE);
-  const gap = 8 * SCALE;
+  // Grid layout calculation
+  const cols = 3;
+  const stampSize = (CARD_WIDTH - 60 * SCALE) / cols; // Padding 30 horizontal total
 
-  // Calculate positions with more organic scatter
-  const positions = visitedCountries.map((_, index) => {
-    const col = index % cols;
-    const row = Math.floor(index / cols);
-    // More random rotation and slight offset for "messy" passport look
-    const rotation = (seededRandom(index * 17) - 0.5) * 25;
-    const offsetX = (seededRandom(index * 13) - 0.5) * 20 * SCALE;
-    const offsetY = (seededRandom(index * 11) - 0.5) * 20 * SCALE;
-
-    return {
-      x: 50 * SCALE + col * (stampSize + gap) + offsetX,
-      y: 300 * SCALE + row * (stampSize + gap) + offsetY,
-      rotation,
-    };
-  });
+  // Show up to 12 stamps
+  const displayStamps = visitedCountries.slice(0, 12);
 
   return (
-    <LinearGradient
-      colors={[colors.warmCream, '#F5E6D3', '#E6D2B5']}
-      style={StyleSheet.absoluteFill}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
-      {/* Texture overlay (simple dots pattern simulated with absolute views or kept simple) */}
-      <View style={styles.textureOverlay} />
+    <View style={[styles.container, { backgroundColor: '#FDFBF7' }]}>
+      {/* Texture Overlay */}
+      <View style={styles.paperTexture} />
 
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerBorder}>
-          <Text style={styles.headerTitle}>PASSPORT</Text>
-        </View>
-        <Text style={styles.headerSubtitle}>MY TRAVEL CHRONICLES</Text>
+      <View style={styles.stampsHeader}>
+        <Text style={styles.passportTitle}>PASSPORT</Text>
+        <Text style={styles.passportSubtitle}>MY TRAVEL CHRONICLES</Text>
+        <View style={styles.passportDivider} />
       </View>
 
-      {/* Country count badge - styled like a visa stamp */}
-      <View style={styles.countBadgeWrapper}>
-        <View style={styles.countBadge}>
-          <Text style={styles.countNumber}>{totalCountries}</Text>
-          <Text style={styles.countLabel}>COUNTRIES</Text>
+      {/* Main Content - Stamps Grid */}
+      <View style={styles.stampsGridWrapper}>
+        <View style={styles.stampsGrid}>
+          {displayStamps.map((code, index) => {
+            const stampImage = getStampImage(code);
+            if (!stampImage) return null;
+
+            // Very subtle rotation (-5 to 5 deg) for realism but keeping it clean
+            const rotation = (seededRandom(index * 17) - 0.5) * 10;
+
+            return (
+              <View
+                key={code}
+                style={[
+                  styles.stampCell,
+                  {
+                    width: stampSize,
+                    height: stampSize,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.stampInner,
+                    {
+                      transform: [{ rotate: `${rotation}deg` }],
+                    },
+                  ]}
+                >
+                  <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+                </View>
+              </View>
+            );
+          })}
         </View>
       </View>
 
-      {/* Stamp grid */}
-      <View style={styles.stampContainer}>
-        {visitedCountries.slice(0, 25).map((code, index) => {
-          const stampImage = getStampImage(code);
-          const pos = positions[index];
-          if (!stampImage || !pos) return null;
-
-          return (
-            <View
-              key={code}
-              style={[
-                styles.stamp,
-                {
-                  left: pos.x,
-                  top: pos.y,
-                  width: stampSize,
-                  height: stampSize,
-                  transform: [{ rotate: `${pos.rotation}deg` }],
-                },
-              ]}
-            >
-              <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
-            </View>
-          );
-        })}
-        {visitedCountries.length > 25 && (
-          <View
-            style={[
-              styles.moreStampsIndicator,
-              {
-                top: (positions[24]?.y ?? 0) + 40 * SCALE,
-                left: (positions[24]?.x ?? 0) + 40 * SCALE,
-              },
-            ]}
-          >
-            <Text style={styles.moreStampsText}>+{visitedCountries.length - 25}</Text>
+      {/* Footer / Stats */}
+      <View style={styles.stampsFooter}>
+        <View style={styles.statsRowSimple}>
+          <View style={styles.statItemSimple}>
+            <Text style={styles.statNumberDark}>{totalCountries}</Text>
+            <Text style={styles.statLabelDark}>COUNTRIES</Text>
           </View>
-        )}
-      </View>
+          <View style={styles.verticalDividerDark} />
+          <View style={styles.statItemSimple}>
+            <Text style={styles.statNumberDark}>{context.regionCount}</Text>
+            <Text style={styles.statLabelDark}>REGIONS</Text>
+          </View>
+        </View>
 
-      {/* Watermark */}
-      <Image source={atlasLogo} style={styles.watermark} resizeMode="contain" />
-    </LinearGradient>
+        <Image source={atlasLogo} style={styles.footerLogoDark} resizeMode="contain" />
+      </View>
+    </View>
   );
 });
 
 /**
- * Card 2: Travel Stats
- * Travel tier badge with key statistics
+ * Card 2: Travel Stats - "Elite Traveller"
+ * Clean dark mode. No glows. High contrast.
  */
 const StatsVariant = memo(function StatsVariant({ context }: { context: OnboardingShareContext }) {
   const { totalCountries, regionCount, subregionCount, travelTier } = context;
 
   return (
-    <LinearGradient
-      colors={['#1a2a3a', '#2c3e50', '#1a2a3a']}
-      style={StyleSheet.absoluteFill}
-      start={{ x: 0.5, y: 0 }}
-      end={{ x: 0.5, y: 1 }}
-    >
-      {/* Background decoration */}
-      <View style={styles.statsBgDecorationCircle} />
-
+    <View style={[styles.container, { backgroundColor: colors.midnightNavy }]}>
       {/* Header */}
       <View style={styles.statsHeader}>
-        <Text style={styles.statsSubtitle}>THE JOURNEY SO FAR</Text>
-        <Text style={styles.statsTitle}>EXPLORER STATS</Text>
+        <Text style={styles.statsTopLabel}>THE JOURNEY SO FAR</Text>
+        <View style={styles.statsDivider} />
       </View>
 
-      {/* Travel tier badge - hero element */}
-      <View style={styles.tierContainer}>
-        <LinearGradient
-          colors={[colors.sunsetGold, '#D4AF37']}
-          style={styles.tierCircle}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
+      {/* Main Rank Display - Centerpiece */}
+      <View style={styles.rankContainer}>
+        <View style={styles.rankIconWrapper}>
           <Ionicons
             name={travelTier.icon as keyof typeof Ionicons.glyphMap}
-            size={Math.round(64 * SCALE)}
-            color={colors.midnightNavy}
+            size={80 * SCALE}
+            color={colors.sunsetGold}
           />
-        </LinearGradient>
-        <View style={styles.tierLabelContainer}>
-          <Text style={styles.tierLabel}>CURRENT RANK</Text>
-          <Text style={styles.tierStatus}>{travelTier.status}</Text>
         </View>
+
+        <Text style={styles.rankLabel}>CURRENT RANK</Text>
+        <Text style={styles.rankName} numberOfLines={1} adjustsFontSizeToFit>
+          {travelTier.status}
+        </Text>
       </View>
 
-      {/* Hero number */}
-      <View style={styles.heroNumberContainer}>
-        <Text style={styles.heroNumber}>{totalCountries}</Text>
-        <Text style={styles.heroLabel}>COUNTRIES VISITED</Text>
-      </View>
-
-      {/* Stats grid */}
-      <View style={styles.statsGrid}>
+      {/* Stats Grid - Clean and tabular */}
+      <View style={styles.statsGridContainer}>
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{regionCount}</Text>
-          <Text style={styles.statLabel}>REGIONS</Text>
+          <Text style={styles.statBoxNumber}>{totalCountries}</Text>
+          <Text style={styles.statBoxLabel}>COUNTRIES</Text>
         </View>
-        <View style={styles.statDividerVertical} />
+        <View style={styles.verticalDivider} />
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{subregionCount}</Text>
-          <Text style={styles.statLabel}>SUBREGIONS</Text>
+          <Text style={styles.statBoxNumber}>{regionCount}</Text>
+          <Text style={styles.statBoxLabel}>REGIONS</Text>
+        </View>
+        <View style={styles.verticalDivider} />
+        <View style={styles.statBox}>
+          <Text style={styles.statBoxNumber}>{subregionCount}</Text>
+          <Text style={styles.statBoxLabel}>SUBREGIONS</Text>
         </View>
       </View>
 
-      {/* Watermark */}
-      <Image
-        source={atlasLogo}
-        style={[styles.watermark, { tintColor: withAlpha(colors.white, 0.8) }]}
-        resizeMode="contain"
-      />
-    </LinearGradient>
+      {/* Footer */}
+      <View style={styles.footerSimple}>
+        <Image source={atlasLogo} style={styles.footerLogoLight} resizeMode="contain" />
+      </View>
+    </View>
   );
 });
 
 /**
- * Card 3: World Map Infographic
- * Stylized map with visited regions highlighted
+ * Card 3: World Map - "Global Footprint"
+ * Restored the map idea but with a much cleaner execution.
+ * Minimalist geometric map with a stats overlay.
  */
 const MapVariant = memo(function MapVariant({ context }: { context: OnboardingShareContext }) {
-  const { totalCountries, regions, regionCount, travelTier } = context;
+  const { totalCountries, regions, regionCount } = context;
 
   return (
-    <LinearGradient
-      colors={[colors.midnightNavy, '#2c3e50', colors.midnightNavy]}
-      style={StyleSheet.absoluteFill}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
+    <View style={[styles.container, { backgroundColor: colors.midnightNavy }]}>
       {/* Header */}
       <View style={styles.mapHeader}>
-        <Text style={styles.mapTitle}>WORLD FOOTPRINT</Text>
-        <View style={styles.mapUnderline} />
+        <Text style={styles.mapTitle}>FOOTPRINT</Text>
+        <Text style={styles.mapSubtitle}>GLOBAL PROGRESS</Text>
       </View>
 
-      {/* World Map */}
-      <View style={styles.mapContainer}>
-        {/* Glow effect behind map */}
-        <View style={styles.mapGlow} />
+      {/* Map Area - Clean and Centered */}
+      <View style={styles.mapWrapper}>
         <WorldMapSvg
-          width={CARD_WIDTH - 40 * SCALE}
+          width={CARD_WIDTH * 0.9}
           highlightedRegions={regions}
           highlightColor={colors.sunsetGold}
-          mutedColor={withAlpha(colors.cloudWhite, 0.15)}
-          strokeColor={withAlpha(colors.cloudWhite, 0.2)}
+          mutedColor={withAlpha(colors.white, 0.1)}
+          strokeColor="transparent"
         />
       </View>
 
-      {/* Stats overlay */}
+      {/* Simple Stats Overlay */}
       <View style={styles.mapStatsContainer}>
-        <View style={styles.mapStatRow}>
-          <View style={styles.mapStatItem}>
-            <Text style={styles.mapStatNumber}>{totalCountries}</Text>
-            <Text style={styles.mapStatLabel}>COUNTRIES</Text>
-          </View>
-          <View style={styles.mapStatDivider} />
-          <View style={styles.mapStatItem}>
-            <Text style={styles.mapStatNumber}>{regionCount}/6</Text>
-            <Text style={styles.mapStatLabel}>REGIONS</Text>
+        <View style={styles.mapBigStatRow}>
+          <View>
+            <Text style={styles.mapBigStatNumber}>{totalCountries}</Text>
+            <Text style={styles.mapBigStatLabel}>COUNTRIES VISITED</Text>
           </View>
         </View>
 
-        {/* Region dots */}
-        <View style={styles.regionDotsContainer}>
-          {[...Array(6)].map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.regionDot,
-                i < regionCount && styles.regionDotFilled,
-                i < regionCount && styles.regionDotGlow,
-              ]}
-            />
-          ))}
-        </View>
+        <View style={styles.mapDividerSmall} />
 
-        {/* Tier pill */}
-        <View style={styles.mapTierContainer}>
-          <LinearGradient
-            colors={[withAlpha(colors.sunsetGold, 0.2), withAlpha(colors.sunsetGold, 0.05)]}
-            style={styles.mapTierBadge}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Ionicons
-              name={travelTier.icon as keyof typeof Ionicons.glyphMap}
-              size={Math.round(20 * SCALE)}
-              color={colors.sunsetGold}
-            />
-            <Text style={styles.mapTierText}>{travelTier.status}</Text>
-          </LinearGradient>
-        </View>
+        <Text style={styles.mapRegionText}>
+          <Text style={{ color: colors.sunsetGold }}>{regionCount}</Text> / 6 REGIONS EXPLORED
+        </Text>
       </View>
 
-      {/* Watermark */}
-      <Image
-        source={atlasLogo}
-        style={[styles.watermark, { tintColor: withAlpha(colors.white, 0.8) }]}
-        resizeMode="contain"
-      />
-    </LinearGradient>
+      {/* Footer */}
+      <View style={styles.footerSimple}>
+        <Image source={atlasLogo} style={styles.footerLogoLight} resizeMode="contain" />
+      </View>
+    </View>
   );
 });
 
@@ -336,7 +262,7 @@ function OnboardingShareCardComponent({ variant, context }: OnboardingShareCardP
 
 export const OnboardingShareCard = memo(OnboardingShareCardComponent);
 
-// Export dimensions for parent components
+// Export dimensions
 export const ONBOARDING_SHARE_CARD_WIDTH = CARD_WIDTH;
 export const ONBOARDING_SHARE_CARD_HEIGHT = CARD_HEIGHT;
 
@@ -344,342 +270,273 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: colors.warmCream,
   },
+  container: {
+    flex: 1,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    padding: 0,
+  },
 
-  // ============ SHARED STYLES ============
-
-  watermark: {
-    position: 'absolute',
-    bottom: 32 * SCALE,
-    right: 32 * SCALE,
-    width: 140 * SCALE,
-    height: 40 * SCALE,
+  // ============ SHARED ELEMENTS ============
+  verticalDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: withAlpha(colors.white, 0.15),
+  },
+  verticalDividerDark: {
+    width: 1,
+    height: 40,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.15),
+  },
+  footerLogoDark: {
+    width: 80 * SCALE,
+    height: 24 * SCALE,
+    tintColor: colors.midnightNavy,
     opacity: 0.8,
+  },
+  footerLogoLight: {
+    width: 80 * SCALE,
+    height: 24 * SCALE,
+    tintColor: colors.white,
+    opacity: 0.8,
+  },
+  footerSimple: {
+    alignItems: 'center',
+    paddingBottom: 40,
   },
 
   // ============ STAMPS VARIANT ============
-  textureOverlay: {
+  paperTexture: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    opacity: 0.1,
+    backgroundColor: '#FDFBF7', // Base paper color
   },
-  header: {
+  stampsHeader: {
     alignItems: 'center',
-    paddingTop: 100 * SCALE,
-    paddingHorizontal: 32 * SCALE,
+    marginTop: 60,
+    paddingHorizontal: 30,
     zIndex: 10,
   },
-  headerBorder: {
-    borderBottomWidth: 2 * SCALE,
-    borderBottomColor: colors.midnightNavy,
-    borderTopWidth: 2 * SCALE,
-    borderTopColor: colors.midnightNavy,
-    paddingVertical: 8 * SCALE,
-    paddingHorizontal: 24 * SCALE,
-    marginBottom: 8 * SCALE,
-  },
-  headerTitle: {
+  passportTitle: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 48 * SCALE,
+    fontSize: 48,
     color: colors.midnightNavy,
-    letterSpacing: 8 * SCALE,
-    textAlign: 'center',
+    letterSpacing: 4,
+    marginBottom: 0,
+    lineHeight: 56,
   },
-  headerSubtitle: {
+  passportSubtitle: {
     fontFamily: fonts.dawning.regular,
-    fontSize: 28 * SCALE,
-    color: colors.stormGray,
+    fontSize: 28,
+    color: colors.adobeBrick,
     transform: [{ rotate: '-2deg' }],
+    marginTop: -4,
   },
-  countBadgeWrapper: {
-    position: 'absolute',
-    top: 220 * SCALE,
-    right: 40 * SCALE,
-    zIndex: 20,
-    transform: [{ rotate: '15deg' }],
+  passportDivider: {
+    width: 60,
+    height: 3,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.1),
+    marginTop: 16,
   },
-  countBadge: {
-    alignItems: 'center',
+  stampsGridWrapper: {
+    flex: 1,
     justifyContent: 'center',
-    width: 180 * SCALE,
-    height: 180 * SCALE,
-    borderRadius: 90 * SCALE,
-    borderWidth: 6 * SCALE,
-    borderColor: withAlpha(colors.sunsetGold, 0.8),
-    borderStyle: 'dashed',
-    backgroundColor: withAlpha(colors.warmCream, 0.9),
+    alignItems: 'center',
   },
-  countNumber: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 64 * SCALE,
-    color: colors.sunsetGold,
-    lineHeight: 70 * SCALE,
+  stampsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignContent: 'center',
+    paddingHorizontal: 30,
+    gap: 8,
   },
-  countLabel: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 14 * SCALE,
-    color: colors.midnightNavy,
-    textTransform: 'uppercase',
+  stampCell: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 0,
   },
-  stampContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  stamp: {
-    position: 'absolute',
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+  stampInner: {
+    width: '85%',
+    height: '85%',
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   stampImage: {
     width: '100%',
     height: '100%',
+    opacity: 0.9,
   },
-  moreStampsIndicator: {
-    position: 'absolute',
-    backgroundColor: colors.midnightNavy,
-    width: 80 * SCALE,
-    height: 80 * SCALE,
-    borderRadius: 40 * SCALE,
-    justifyContent: 'center',
+  stampsFooter: {
+    paddingBottom: 50,
     alignItems: 'center',
-    transform: [{ rotate: '-10deg' }],
-    borderWidth: 2 * SCALE,
-    borderColor: colors.white,
+    paddingHorizontal: 30,
   },
-  moreStampsText: {
+  statsRowSimple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 32,
+    marginBottom: 24,
+  },
+  statItemSimple: {
+    alignItems: 'center',
+  },
+  statNumberDark: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 24 * SCALE,
-    color: colors.white,
+    fontSize: 36,
+    color: colors.midnightNavy,
+    marginBottom: -4,
+  },
+  statLabelDark: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 10,
+    color: withAlpha(colors.midnightNavy, 0.5),
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
 
   // ============ STATS VARIANT ============
-  statsBgDecorationCircle: {
-    position: 'absolute',
-    top: -300 * SCALE,
-    left: -200 * SCALE,
-    width: 1000 * SCALE,
-    height: 1000 * SCALE,
-    borderRadius: 500 * SCALE,
-    backgroundColor: withAlpha(colors.white, 0.03),
-  },
   statsHeader: {
     alignItems: 'center',
-    paddingTop: 120 * SCALE,
+    marginTop: 60,
+    zIndex: 10,
   },
-  statsSubtitle: {
+  statsTopLabel: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 18 * SCALE,
+    fontSize: 12,
     color: colors.sunsetGold,
-    letterSpacing: 4 * SCALE,
-    marginBottom: 16 * SCALE,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    marginBottom: 12,
   },
-  statsTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 56 * SCALE,
+  statsDivider: {
+    width: 40,
+    height: 2,
+    backgroundColor: withAlpha(colors.white, 0.1),
+  },
+  rankContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  rankIconWrapper: {
+    marginBottom: 24,
+    // Add a very subtle shadow only
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  rankLabel: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 12,
+    color: withAlpha(colors.white, 0.5),
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  rankName: {
+    fontFamily: fonts.oswald.bold,
+    fontSize: 56,
     color: colors.white,
+    textTransform: 'uppercase',
+    letterSpacing: 3,
     textAlign: 'center',
   },
-  tierContainer: {
-    alignItems: 'center',
-    marginTop: 80 * SCALE,
-  },
-  tierCircle: {
-    width: 160 * SCALE,
-    height: 160 * SCALE,
-    borderRadius: 80 * SCALE,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.sunsetGold,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 30,
-    elevation: 15,
-    marginBottom: 24 * SCALE,
-  },
-  tierLabelContainer: {
-    alignItems: 'center',
-  },
-  tierLabel: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16 * SCALE,
-    color: withAlpha(colors.white, 0.6),
-    letterSpacing: 2 * SCALE,
-    marginBottom: 4 * SCALE,
-  },
-  tierStatus: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 48 * SCALE,
-    color: colors.white,
-    textTransform: 'uppercase',
-    letterSpacing: 2 * SCALE,
-  },
-  heroNumberContainer: {
-    alignItems: 'center',
-    marginTop: 100 * SCALE,
-  },
-  heroNumber: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 200 * SCALE,
-    color: colors.white,
-    lineHeight: 200 * SCALE,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 10 },
-    textShadowRadius: 20,
-  },
-  heroLabel: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 22 * SCALE,
-    color: colors.sunsetGold,
-    textTransform: 'uppercase',
-    letterSpacing: 6 * SCALE,
-    marginTop: 16 * SCALE,
-  },
-  statsGrid: {
+  statsGridContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 100 * SCALE,
-    width: '100%',
-    paddingHorizontal: 40 * SCALE,
+    marginHorizontal: 30,
+    marginBottom: 60,
+    paddingVertical: 24,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: withAlpha(colors.white, 0.1),
   },
   statBox: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
   },
-  statNumber: {
+  statBoxNumber: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 56 * SCALE,
+    fontSize: 32,
     color: colors.white,
+    marginBottom: 4,
   },
-  statLabel: {
+  statBoxLabel: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16 * SCALE,
+    fontSize: 10,
     color: withAlpha(colors.white, 0.6),
-    marginTop: 8 * SCALE,
-    letterSpacing: 1 * SCALE,
-  },
-  statDividerVertical: {
-    width: 1 * SCALE,
-    height: 80 * SCALE,
-    backgroundColor: withAlpha(colors.white, 0.2),
-    marginHorizontal: 20 * SCALE,
+    letterSpacing: 1,
   },
 
   // ============ MAP VARIANT ============
   mapHeader: {
     alignItems: 'center',
-    paddingTop: 100 * SCALE,
+    marginTop: 60,
+    marginBottom: 20,
   },
   mapTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 56 * SCALE,
+    fontFamily: fonts.oswald.bold,
+    fontSize: 48,
     color: colors.white,
-    letterSpacing: 1 * SCALE,
+    letterSpacing: 6,
+    lineHeight: 52,
+    marginBottom: 4,
   },
-  mapUnderline: {
-    width: 80 * SCALE,
-    height: 4 * SCALE,
-    backgroundColor: colors.sunsetGold,
-    marginTop: 16 * SCALE,
-    borderRadius: 2 * SCALE,
+  mapSubtitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.sunsetGold,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
   },
-  mapContainer: {
-    alignItems: 'center',
-    marginTop: 60 * SCALE,
-    paddingHorizontal: 30 * SCALE,
-    height: 500 * SCALE,
+  mapWrapper: {
+    flex: 1,
     justifyContent: 'center',
-  },
-  mapGlow: {
-    position: 'absolute',
-    width: 600 * SCALE,
-    height: 300 * SCALE,
-    borderRadius: 150 * SCALE,
-    backgroundColor: withAlpha(colors.sunsetGold, 0.1),
+    alignItems: 'center',
+    marginTop: -40,
+    width: '100%',
   },
   mapStatsContainer: {
-    paddingHorizontal: 60 * SCALE,
-    marginTop: 80 * SCALE,
     alignItems: 'center',
+    marginBottom: 60,
   },
-  mapStatRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 60 * SCALE,
+  mapBigStatRow: {
+    marginBottom: 16,
   },
-  mapStatItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  mapStatNumber: {
+  mapBigStatNumber: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 72 * SCALE,
+    fontSize: 64,
     color: colors.white,
+    lineHeight: 72,
+    textAlign: 'center',
   },
-  mapStatLabel: {
+  mapBigStatLabel: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 16 * SCALE,
-    color: colors.sunsetGold,
-    letterSpacing: 2 * SCALE,
-    marginTop: 8 * SCALE,
+    fontSize: 12,
+    color: withAlpha(colors.white, 0.6),
+    letterSpacing: 2,
+    textAlign: 'center',
+    marginTop: -4,
   },
-  mapStatDivider: {
-    width: 1 * SCALE,
-    height: 80 * SCALE,
+  mapDividerSmall: {
+    width: 32,
+    height: 2,
     backgroundColor: withAlpha(colors.white, 0.2),
-    marginHorizontal: 30 * SCALE,
+    marginVertical: 12,
   },
-  regionDotsContainer: {
-    flexDirection: 'row',
-    gap: 16 * SCALE,
-    marginBottom: 60 * SCALE,
-  },
-  regionDot: {
-    width: 24 * SCALE,
-    height: 24 * SCALE,
-    borderRadius: 12 * SCALE,
-    backgroundColor: withAlpha(colors.white, 0.1),
-    borderWidth: 1 * SCALE,
-    borderColor: withAlpha(colors.white, 0.3),
-  },
-  regionDotFilled: {
-    backgroundColor: colors.sunsetGold,
-    borderColor: colors.sunsetGold,
-  },
-  regionDotGlow: {
-    shadowColor: colors.sunsetGold,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
-  },
-  mapTierContainer: {
-    alignItems: 'center',
-  },
-  mapTierBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16 * SCALE,
-    paddingHorizontal: 40 * SCALE,
-    borderRadius: 40 * SCALE,
-    gap: 12 * SCALE,
-    borderWidth: 1 * SCALE,
-    borderColor: withAlpha(colors.sunsetGold, 0.3),
-  },
-  mapTierText: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 24 * SCALE,
-    color: colors.sunsetGold,
-    textTransform: 'uppercase',
-    letterSpacing: 2 * SCALE,
+  mapRegionText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: withAlpha(colors.white, 0.8),
+    letterSpacing: 1,
   },
 });

@@ -18,6 +18,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.borderbadge.app',
+      usesAppleSignIn: true,
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
         dark: './assets/Atlasi-book-app-icon-midnight.png',
@@ -36,7 +37,7 @@ export default {
     web: {
       favicon: './assets/favicon.png',
     },
-    plugins: ['expo-sqlite', 'expo-font', 'expo-video'],
+    plugins: ['expo-sqlite', 'expo-font', 'expo-video', 'expo-apple-authentication'],
     extra: {
       EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
     },

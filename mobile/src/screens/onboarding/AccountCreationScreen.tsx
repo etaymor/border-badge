@@ -188,7 +188,7 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle navigation to login for existing users
   const handleAlreadyHaveAccount = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   // Animation interpolations

@@ -147,6 +147,11 @@ def test_update_entry(
 ) -> None:
     """Test updating an entry."""
     updated_entry = {**sample_entry, "title": "Updated Title"}
+    # First get verifies entry exists, then patch updates, then get fetches place
+    mock_supabase_client.get.side_effect = [
+        [sample_entry],  # Verify entry exists
+        [],  # No existing place
+    ]
     mock_supabase_client.patch.return_value = [updated_entry]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -392,7 +397,8 @@ def test_update_entry_not_found(
     auth_headers: dict[str, str],
 ) -> None:
     """Test updating an entry that doesn't exist returns 404."""
-    mock_supabase_client.patch.return_value = []
+    # First get verifies entry exists - returns empty for 404
+    mock_supabase_client.get.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -640,9 +646,10 @@ def test_update_entry_with_place_create(
     """Test updating entry with new place data (place creation)."""
     updated_entry = {**sample_entry, "title": "Updated Title"}
 
-    # patch returns updated entry, get returns empty (no existing place), post creates place
+    # get verifies entry exists, patch updates entry, get checks for existing place, post creates
     mock_supabase_client.patch.return_value = [updated_entry]
     mock_supabase_client.get.side_effect = [
+        [sample_entry],  # Verify entry exists
         [],  # No existing place
     ]
     mock_supabase_client.post.return_value = [sample_place]
@@ -686,12 +693,15 @@ def test_update_entry_with_place_update(
     updated_entry = {**sample_entry, "notes": "Updated notes"}
     updated_place = {**sample_place, "place_name": "Updated Park Name"}
 
-    # patch returns updated entry, get returns existing place, patch updates place
+    # get verifies entry exists then returns existing place, patch updates entry then place
     mock_supabase_client.patch.side_effect = [
         [updated_entry],  # Entry update
         [updated_place],  # Place update
     ]
-    mock_supabase_client.get.return_value = [sample_place]  # Existing place
+    mock_supabase_client.get.side_effect = [
+        [sample_entry],  # Verify entry exists
+        [sample_place],  # Existing place check
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -806,7 +816,11 @@ def test_update_entry_fetches_existing_place_when_no_place_data(
     updated_entry = {**sample_entry, "title": "New Title"}
 
     mock_supabase_client.patch.return_value = [updated_entry]
-    mock_supabase_client.get.return_value = [sample_place]  # Existing place
+    # First get verifies entry exists, second get fetches existing place
+    mock_supabase_client.get.side_effect = [
+        [sample_entry],  # Verify entry exists
+        [sample_place],  # Existing place
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

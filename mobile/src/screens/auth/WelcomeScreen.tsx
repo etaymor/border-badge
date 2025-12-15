@@ -18,14 +18,16 @@ export function WelcomeScreen({ navigation }: Props) {
         <View style={styles.buttonContainer}>
           <Button
             title="Get Started"
-            onPress={() => navigation.navigate('PhoneAuth')}
+            // @ts-expect-error - React Navigation 7 typing issue with composite screens
+            onPress={() => navigation.navigate('Auth')}
             style={styles.button}
             testID="welcome-get-started-button"
           />
 
           <Button
             title="I have an account"
-            onPress={() => navigation.navigate('PhoneAuth')}
+            // @ts-expect-error - React Navigation 7 typing issue with composite screens
+            onPress={() => navigation.navigate('Auth')}
             variant="outline"
             style={styles.button}
             testID="welcome-login-button"

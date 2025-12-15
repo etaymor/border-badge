@@ -1,6 +1,6 @@
 import { render, screen } from './utils/testUtils';
 
-import { PhoneAuthScreen } from '@screens/auth/PhoneAuthScreen';
+import { AuthScreen } from '@screens/auth';
 import type { AuthStackScreenProps } from '@navigation/types';
 
 // Mock navigation for individual screen tests
@@ -10,29 +10,29 @@ const mockNavigation = {
   goBack: jest.fn(),
   setOptions: jest.fn(),
   canGoBack: jest.fn().mockReturnValue(false),
-} as unknown as AuthStackScreenProps<'PhoneAuth'>['navigation'];
+} as unknown as AuthStackScreenProps<'Auth'>['navigation'];
 
-const mockRoute = {} as AuthStackScreenProps<'PhoneAuth'>['route'];
+const mockRoute = {} as AuthStackScreenProps<'Auth'>['route'];
 
-describe('PhoneAuthScreen', () => {
+describe('AuthScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('renders welcome back title', () => {
-    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
+    render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
     expect(screen.getByText('Welcome back')).toBeTruthy();
   });
 
   it('displays phone number input', () => {
-    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
+    render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
     expect(screen.getByPlaceholderText('Phone Number')).toBeTruthy();
   });
 
   it('displays continue button', () => {
-    render(<PhoneAuthScreen navigation={mockNavigation} route={mockRoute} />);
+    render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
     expect(screen.getByText('Continue')).toBeTruthy();
   });

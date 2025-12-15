@@ -12,7 +12,7 @@ export type RootStackParamList = {
 // Auth stack screens
 export type AuthStackParamList = {
   Welcome: undefined;
-  PhoneAuth: undefined;
+  Auth: undefined;
 };
 
 // Onboarding stack screens

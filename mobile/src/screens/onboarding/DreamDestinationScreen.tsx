@@ -38,7 +38,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
     onNavigateNext: () =>
       navigation.navigate('ContinentIntro', { region: REGIONS[0], regionIndex: 0 }),
     onNavigateBack: () => navigation.goBack(),
-    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'PhoneAuth' }),
+    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'Auth' }),
     testIdPrefix: 'dream-destination',
   };
 

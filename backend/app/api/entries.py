@@ -236,35 +236,37 @@ async def update_entry(
             detail="No fields to update",
         )
 
-    # Extract place data before updating entry
+    # Extract place data before processing entry fields
     place_data = update_data.pop("place", None)
 
-    # Convert date to ISO format if present
-    if "date" in update_data and update_data["date"]:
-        update_data["date"] = update_data["date"].isoformat()
+    # Verify entry exists and user has access (RLS enforced)
+    existing_entries = await db.get("entry", {"id": f"eq.{entry_id}"})
+    if not existing_entries:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not authorized",
+        )
 
-    # Convert type enum to string if present
-    if "type" in update_data and update_data["type"]:
-        update_data["type"] = update_data["type"].value
-
-    # Update entry fields if any remain
+    # Update entry fields if any remain after extracting place
     if update_data:
+        # Convert date to ISO format if present and not None
+        if "date" in update_data and update_data["date"] is not None:
+            update_data["date"] = update_data["date"].isoformat()
+
+        # Convert type enum to string if present and not None
+        if "type" in update_data and update_data["type"] is not None:
+            update_data["type"] = update_data["type"].value
+
         rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
         if not rows:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Entry not found or not authorized",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update entry",
             )
         entry = Entry(**rows[0])
     else:
-        # Just fetch existing entry if no entry fields to update
-        entries = await db.get("entry", {"id": f"eq.{entry_id}"})
-        if not entries:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Entry not found or not authorized",
-            )
-        entry = Entry(**entries[0])
+        # No entry fields to update, use the existing entry we already fetched
+        entry = Entry(**existing_entries[0])
 
     # Handle place update/upsert
     place = None

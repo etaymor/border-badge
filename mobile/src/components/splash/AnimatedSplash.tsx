@@ -4,7 +4,7 @@
  */
 
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, View } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -35,10 +35,18 @@ function AnimatedSplashComponent({ isAppReady, onAnimationComplete }: AnimatedSp
     p.play();
   });
 
-  // Handle video ready state
-  const handleVideoReady = useCallback(() => {
-    setIsVideoReady(true);
-  }, []);
+  // Listen for player status changes to detect when video is ready
+  useEffect(() => {
+    if (!player) return;
+
+    const subscription = player.addListener('statusChange', (status) => {
+      if (status.status === 'readyToPlay' && !isVideoReady) {
+        setIsVideoReady(true);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [player, isVideoReady]);
 
   // Fallback: if video doesn't signal ready within 1 second, proceed anyway
   useEffect(() => {
@@ -98,7 +106,6 @@ function AnimatedSplashComponent({ isAppReady, onAnimationComplete }: AnimatedSp
         style={styles.video}
         contentFit="cover"
         nativeControls={false}
-        onReadyForDisplay={handleVideoReady}
       />
 
       {/* Dark overlay for better logo visibility */}

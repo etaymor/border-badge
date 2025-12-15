@@ -127,7 +127,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   return (

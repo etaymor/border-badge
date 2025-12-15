@@ -25,7 +25,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   return (
