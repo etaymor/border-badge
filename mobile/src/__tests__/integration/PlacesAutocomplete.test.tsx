@@ -275,6 +275,8 @@ describe('PlacesAutocomplete Integration', () => {
           address: 'Tokyo, Japan',
           latitude: 35.6762,
           longitude: 139.6503,
+          google_photo_url: null,
+          website_url: null,
         });
       });
     });
@@ -316,6 +318,8 @@ describe('PlacesAutocomplete Integration', () => {
           address: 'Fallback Address',
           latitude: null,
           longitude: null,
+          google_photo_url: null,
+          website_url: null,
         });
       });
     });
@@ -358,6 +362,8 @@ describe('PlacesAutocomplete Integration', () => {
           address: 'Some Address',
           latitude: null,
           longitude: null,
+          google_photo_url: null,
+          website_url: null,
         });
       });
     });
@@ -604,6 +610,8 @@ describe('PlacesAutocomplete Integration', () => {
         address: 'Tokyo',
         latitude: 35.6762,
         longitude: 139.6503,
+        google_photo_url: null,
+        website_url: null,
       };
 
       render(
@@ -626,6 +634,8 @@ describe('PlacesAutocomplete Integration', () => {
         address: 'Asakusa, Tokyo',
         latitude: 35.7147,
         longitude: 139.7966,
+        google_photo_url: null,
+        website_url: null,
       };
 
       const { getByDisplayValue } = render(
@@ -644,6 +654,8 @@ describe('PlacesAutocomplete Integration', () => {
         address: 'Address 1',
         latitude: 35.0,
         longitude: 139.0,
+        google_photo_url: null,
+        website_url: null,
       };
 
       const { getByDisplayValue, rerender } = render(
@@ -659,6 +671,8 @@ describe('PlacesAutocomplete Integration', () => {
         address: 'Address 2',
         latitude: 36.0,
         longitude: 140.0,
+        google_photo_url: null,
+        website_url: null,
       };
 
       rerender(<PlacesAutocomplete onSelect={onSelect} value={newValue} placeholder="Search..." />);

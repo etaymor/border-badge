@@ -13,6 +13,7 @@ import {
   type Prediction,
   type SelectedPlace,
   getPlaceDetails,
+  getPhotoUrl,
   hasApiKey,
   searchPlaces,
   QuotaExceededError,
@@ -153,12 +154,18 @@ export function PlacesAutocomplete({
         }
 
         if (details) {
+          // Get the first photo URL if available
+          const firstPhoto = details.photos?.[0];
+          const googlePhotoUrl = firstPhoto ? getPhotoUrl(firstPhoto.name) : null;
+
           const selectedPlace: SelectedPlace = {
             google_place_id: details.place_id,
             name: details.name,
             address: details.formatted_address ?? null,
             latitude: details.geometry?.location.lat ?? null,
             longitude: details.geometry?.location.lng ?? null,
+            google_photo_url: googlePhotoUrl,
+            website_url: details.website_uri ?? null,
           };
 
           setQuery(details.name);
@@ -170,6 +177,8 @@ export function PlacesAutocomplete({
             address: prediction.structured_formatting.secondary_text ?? null,
             latitude: null,
             longitude: null,
+            google_photo_url: null,
+            website_url: null,
           };
 
           setQuery(prediction.structured_formatting.main_text);
@@ -187,6 +196,8 @@ export function PlacesAutocomplete({
           address: prediction.structured_formatting.secondary_text ?? null,
           latitude: null,
           longitude: null,
+          google_photo_url: null,
+          website_url: null,
         };
 
         setQuery(prediction.structured_formatting.main_text);

@@ -23,6 +23,10 @@ import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
 // Stamp layout calculation - clean grid with slight rotation
@@ -189,14 +193,28 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            bounces={true}
           >
-            {/* Header */}
+            {/* Header with logo */}
+            <View style={styles.headerRow}>
+              <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+            </View>
+
+            {/* Title */}
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Look at you go!</Text>
               <Text style={styles.headerSubtitle}>
                 {visitedCount} countries and counting.
               </Text>
             </View>
+
+            {/* Share button - above stamps */}
+            {shareContext && (
+              <TouchableOpacity style={styles.shareButton} onPress={handleShare} activeOpacity={0.8}>
+                <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
+                <Text style={styles.shareButtonText}>Share Your Atlas</Text>
+              </TouchableOpacity>
+            )}
 
             {/* Stamp Grid */}
             <View style={styles.stampSection}>
@@ -248,14 +266,6 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
         {/* Footer Buttons - fixed position matching other onboarding screens */}
         <View style={styles.bottomContainer}>
-          {/* Share button - prominent */}
-          {shareContext && (
-            <TouchableOpacity style={styles.shareButton} onPress={handleShare} activeOpacity={0.8}>
-              <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
-              <Text style={styles.shareButtonText}>Share Your Journey</Text>
-            </TouchableOpacity>
-          )}
-
           {/* Continue button */}
           <TouchableOpacity
             style={styles.continueButton}
@@ -292,19 +302,33 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 120,
   },
+  // Header with logo
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   // Header
   header: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
     alignItems: 'center',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 28,
+    lineHeight: 36,
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   headerSubtitle: {
     fontFamily: fonts.openSans.regular,
@@ -354,18 +378,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 20,
     gap: 8,
     backgroundColor: withAlpha(colors.sunsetGold, 0.15),
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: colors.sunsetGold,
-    minWidth: 220,
+    marginBottom: 16,
   },
   shareButtonText: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 15,
+    fontSize: 14,
     color: colors.sunsetGold,
   },
   continueButton: {

@@ -6,10 +6,10 @@ from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
 def test_build_landing_seo() -> None:
     """Test landing page SEO context generation."""
     seo = build_landing_seo("https://example.com")
-    assert seo.title == "Border Badge - Track Your Travels"
+    assert seo.title == "Atlasi - Track Your Travels"
     assert seo.canonical_url == "https://example.com"
     assert seo.og_type == "website"
-    assert "Border Badge" in seo.og_title
+    assert "Atlasi" in seo.og_title
 
 
 def test_build_list_seo() -> None:
@@ -50,8 +50,8 @@ def test_build_trip_seo_empty_country() -> None:
         country_name="",
         base_url="https://example.com",
     )
-    # Should not produce "My Trip in - Border Badge"
-    assert seo.title == "My Trip - Border Badge"
+    # Should not produce "My Trip in - Atlasi"
+    assert seo.title == "My Trip - Atlasi"
     assert seo.og_title == "My Trip"
     assert " in " not in seo.title
     assert " in " not in seo.description

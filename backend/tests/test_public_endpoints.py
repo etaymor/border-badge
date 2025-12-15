@@ -24,7 +24,7 @@ def test_landing_page_returns_html(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Border Badge" in response.text
+    assert "Atlasi" in response.text
 
 
 def test_landing_page_has_cache_header(client: TestClient) -> None:

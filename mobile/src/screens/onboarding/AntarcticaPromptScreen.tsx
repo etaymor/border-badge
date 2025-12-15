@@ -20,6 +20,7 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
+const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
@@ -110,6 +111,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
         >
           <View style={styles.navBar}>
             <GlassBackButton onPress={() => navigation.goBack()} />
+            <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
@@ -184,6 +186,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   loginButton: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -198,6 +204,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.playfair.bold,
     color: colors.midnightNavy,
     textAlign: 'center',
+    marginTop: 16,
   },
   imageContainer: {
     flex: 1,

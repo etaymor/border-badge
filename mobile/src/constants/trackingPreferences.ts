@@ -9,8 +9,8 @@ export const TRACKING_PRESETS = {
     name: 'Classic Traveler',
     count: 194,
     recognitionTypes: ['un_member', 'territory'] as const, // territory = Antarctica
-    description: 'The 193 UN Member States plus Antarctica—the standard for most travelers.',
-    shortDescription: 'UN Member States + Antarctica',
+    description: 'The standard for most travelers.',
+    shortDescription: '193 UN Member States + Antarctica',
     examples: 'United States, France, Japan, Brazil, Kenya',
     bestFor: 'Traditional passport collectors who want the globally recognized count.',
   },
@@ -19,7 +19,7 @@ export const TRACKING_PRESETS = {
     name: 'UN Complete',
     count: 196,
     recognitionTypes: ['un_member', 'territory', 'observer'] as const,
-    description: 'Adds the two UN Observer States—nations with special recognition.',
+    description: 'Adds the two UN Observer States.',
     shortDescription: '+ Vatican City, Palestine',
     examples: 'Vatican City, Palestine',
     bestFor: 'Travelers who want to include all UN-recognized entities.',
@@ -27,9 +27,9 @@ export const TRACKING_PRESETS = {
   explorer_plus: {
     id: 'explorer_plus' as const,
     name: 'Explorer Plus',
-    count: 200,
+    count: 199,
     recognitionTypes: ['un_member', 'territory', 'observer', 'disputed'] as const,
-    description: 'Adds disputed territories with unique identities and borders.',
+    description: 'Adds disputed territories.',
     shortDescription: '+ Taiwan, Kosovo, Northern Cyprus',
     examples: 'Taiwan, Kosovo, Northern Cyprus',
     bestFor: 'Travelers who recognize places with distinct cultures, governments, and experiences.',
@@ -37,7 +37,7 @@ export const TRACKING_PRESETS = {
   full_atlas: {
     id: 'full_atlas' as const,
     name: 'The Full Atlas',
-    count: 230,
+    count: 227,
     recognitionTypes: [
       'un_member',
       'territory',
@@ -47,7 +47,7 @@ export const TRACKING_PRESETS = {
       'special_region',
       'constituent_country',
     ] as const,
-    description: 'Every territory, dependency, and special region—for those who want to track it all.',
+    description: 'For those who want to track it all.',
     shortDescription: '+ All territories & dependencies',
     examples: 'Puerto Rico, Hong Kong, Scotland, Greenland',
     bestFor:

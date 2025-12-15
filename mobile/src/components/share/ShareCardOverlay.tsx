@@ -36,8 +36,11 @@ const CARD_HORIZONTAL_PADDING = 24;
 /** Total horizontal padding (both sides) */
 const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
 
-/** Vertical margin above and below the card */
-const CARD_VERTICAL_MARGIN = 80;
+/** Space reserved for action buttons below the card */
+const ACTION_BUTTONS_HEIGHT = 120;
+
+/** Minimum top spacing from safe area */
+const MIN_TOP_SPACING = 60;
 
 interface ShareCardOverlayProps {
   visible: boolean;
@@ -55,12 +58,18 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
   const cardScale = useRef(new Animated.Value(0.9)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
-  // Calculate scale to fit screen with padding, respecting both width and height constraints
+  // Calculate display dimensions to fit screen with padding
+  // Reserve space for: safe area top, close button, action buttons, safe area bottom
   const availableWidth = screenWidth - CARD_TOTAL_HORIZONTAL_PADDING;
-  const availableHeight = screenHeight - insets.top - insets.bottom - CARD_VERTICAL_MARGIN;
+  const availableHeight =
+    screenHeight - insets.top - insets.bottom - MIN_TOP_SPACING - ACTION_BUTTONS_HEIGHT;
   const widthScale = availableWidth / SHARE_CARD_WIDTH;
   const heightScale = availableHeight / SHARE_CARD_HEIGHT;
   const displayScale = Math.min(widthScale, heightScale);
+
+  // Calculate display dimensions (actual rendered size)
+  const displayWidth = SHARE_CARD_WIDTH * displayScale;
+  const displayHeight = SHARE_CARD_HEIGHT * displayScale;
 
   // State
   const [backgroundImage, setBackgroundImage] = useState<string | undefined>(undefined);
@@ -79,7 +88,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
           useNativeDriver: true,
         }),
         Animated.spring(cardScale, {
-          toValue: displayScale,
+          toValue: 1,
           friction: 8,
           tension: 100,
           useNativeDriver: true,
@@ -102,21 +111,21 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
     } else {
       // Reset animations
       backdropOpacity.setValue(0);
-      cardScale.setValue(0.9 * displayScale);
+      cardScale.setValue(0.9);
       cardOpacity.setValue(0);
       setBackgroundImage(undefined);
     }
-  }, [visible, context, backdropOpacity, cardScale, cardOpacity, displayScale]);
+  }, [visible, context, backdropOpacity, cardScale, cardOpacity]);
 
   // Skip animation on tap
   const handleSkipAnimation = useCallback(() => {
     if (isAnimating) {
       backdropOpacity.setValue(1);
-      cardScale.setValue(displayScale);
+      cardScale.setValue(1);
       cardOpacity.setValue(1);
       setIsAnimating(false);
     }
-  }, [isAnimating, backdropOpacity, cardScale, cardOpacity, displayScale]);
+  }, [isAnimating, backdropOpacity, cardScale, cardOpacity]);
 
   // Handle dismiss with fade out
   const handleDismiss = useCallback(() => {
@@ -233,27 +242,38 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
             <Ionicons name="close" size={28} color={colors.warmCream} />
           </TouchableOpacity>
 
-          {/* Share Card */}
+          {/* Share Card - Container sized for display, card scaled down inside */}
           <Animated.View
             style={[
               styles.cardContainer,
               {
+                width: displayWidth,
+                height: displayHeight,
                 opacity: cardOpacity,
                 transform: [{ scale: cardScale }],
               },
             ]}
           >
-            <ViewShot
-              ref={viewShotRef}
-              options={{
-                format: 'png',
-                quality: 0.9,
-                width: 1080, // Instagram Story width
-                height: 1920, // Instagram Story height
+            <View
+              style={{
+                width: SHARE_CARD_WIDTH,
+                height: SHARE_CARD_HEIGHT,
+                transform: [{ scale: displayScale }],
+                transformOrigin: 'top left',
               }}
             >
-              <ShareCard context={context} backgroundImage={backgroundImage} />
-            </ViewShot>
+              <ViewShot
+                ref={viewShotRef}
+                options={{
+                  format: 'png',
+                  quality: 0.9,
+                  width: 1080, // Instagram Story width
+                  height: 1920, // Instagram Story height
+                }}
+              >
+                <ShareCard context={context} backgroundImage={backgroundImage} />
+              </ViewShot>
+            </View>
           </Animated.View>
 
           {/* Action buttons */}
@@ -279,7 +299,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
                   color={colors.midnightNavy}
                 />
               </View>
-              <Text style={styles.actionLabel}>{backgroundImage ? 'Remove' : 'Add Photo'}</Text>
+              <Text style={styles.actionLabel}>{backgroundImage ? 'Remove' : 'Customize'}</Text>
             </TouchableOpacity>
 
             {/* Share button */}

@@ -2,12 +2,12 @@ import 'dotenv/config';
 
 export default {
   expo: {
-    name: 'Border Badge',
+    name: 'Atlasi',
     slug: 'border-badge',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/icon.png',
-    userInterfaceStyle: 'light',
+    icon: './assets/Atlasi-book-app-icon-cream.png',
+    userInterfaceStyle: 'automatic',
     scheme: 'borderbadge',
     newArchEnabled: true,
     splash: {
@@ -18,11 +18,17 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.borderbadge.app',
+      icon: {
+        light: './assets/Atlasi-book-app-icon-cream.png',
+        dark: './assets/Atlasi-book-app-icon-midnight.png',
+        tinted: true,
+      },
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: './assets/adaptive-icon.png',
-        backgroundColor: '#ffffff',
+        foregroundImage: './assets/Atlasi-book-app-icon-cream.png',
+        monochromeImage: './assets/Atlasi-book-app-icon-midnight.png',
+        backgroundColor: '#FDF6ED',
       },
       edgeToEdgeEnabled: true,
       package: 'com.borderbadge.app',

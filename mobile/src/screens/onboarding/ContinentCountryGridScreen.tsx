@@ -208,21 +208,20 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
-        <View style={styles.headerTop}>
+        <View style={styles.headerRow}>
           <GlassBackButton onPress={() => navigation.goBack()} />
-          <View style={styles.headerCenter}>
-            <Text style={styles.regionTitle}>{region}</Text>
-            <Text style={styles.progressText}>
-              {selectedInRegion}/{regionCountries.length} countries selected
-            </Text>
+          <Text style={styles.regionTitle}>{region}</Text>
+          <View style={styles.badgePlaceholder}>
+            {selectedInRegion > 0 && (
+              <Animated.View style={[styles.floatingBadge, { transform: [{ scale: badgeScale }] }]}>
+                <Text style={styles.floatingBadgeText}>{selectedInRegion}</Text>
+              </Animated.View>
+            )}
           </View>
-          {/* Floating selected badge */}
-          {selectedInRegion > 0 && (
-            <Animated.View style={[styles.floatingBadge, { transform: [{ scale: badgeScale }] }]}>
-              <Text style={styles.floatingBadgeText}>{selectedInRegion}</Text>
-            </Animated.View>
-          )}
         </View>
+        <Text style={styles.progressText}>
+          {selectedInRegion}/{regionCountries.length} countries selected
+        </Text>
       </Animated.View>
 
       {/* Country grid */}
@@ -289,16 +288,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.paperBeige,
   },
-  headerTop: {
+  headerRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerCenter: {
-    flex: 1,
-    marginLeft: 12,
+  badgePlaceholder: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   regionTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: fonts.playfair.bold,
     color: colors.midnightNavy,
   },
@@ -306,7 +308,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.openSans.regular,
     color: colors.stormGray,
-    marginTop: 2,
+    textAlign: 'center',
+    marginTop: 4,
   },
   floatingBadge: {
     backgroundColor: colors.mossGreen,

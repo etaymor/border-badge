@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
 import { PassportScreen } from '@screens/PassportScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
+// LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
+import { TripsNavigator } from './TripsNavigator';
 
 import type { PassportStackParamList } from './types';
 
@@ -26,6 +28,13 @@ export function PassportNavigator() {
       <Stack.Screen
         name="ProfileSettings"
         component={ProfileSettingsScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="Trips"
+        component={TripsNavigator}
         options={{
           headerShown: false,
         }}

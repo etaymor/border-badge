@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -27,6 +28,10 @@ import {
   validateOTP,
   validatePhone,
 } from '@utils/phoneValidation';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
@@ -209,18 +214,24 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Back button for OTP step */}
-      {step === 'otp' && (
-        <TouchableOpacity
-          onPress={handleBackToPhone}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="Change phone number"
-        >
-          <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
-          <Text style={styles.backText}>Change number</Text>
-        </TouchableOpacity>
-      )}
+      {/* Header with logo */}
+      <View style={styles.headerRow}>
+        {step === 'otp' ? (
+          <TouchableOpacity
+            onPress={handleBackToPhone}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Change phone number"
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
+            <Text style={styles.backText}>Change number</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.backButtonPlaceholder} />
+        )}
+        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+        <View style={styles.backButtonPlaceholder} />
+      </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -371,17 +382,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.warmCream,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  logo: {
+    width: 140,
+    height: 40,
+  },
+  backButtonPlaceholder: {
+    width: 120,
+  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    alignSelf: 'flex-start',
     gap: 4,
+    width: 120,
   },
   backText: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
+    fontSize: 14,
     color: colors.midnightNavy,
   },
   keyboardView: {
@@ -393,7 +417,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 48,
+    paddingTop: 16,
     paddingBottom: 24,
   },
   title: {

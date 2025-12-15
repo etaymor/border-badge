@@ -27,6 +27,7 @@ export interface Place {
   latitude: number | null;
   longitude: number | null;
   address: string | null;
+  google_photo_url: string | null;
 }
 
 // Place create input (for creating entries with places)
@@ -36,6 +37,7 @@ export interface PlaceInput {
   address: string | null;
   latitude: number | null;
   longitude: number | null;
+  google_photo_url: string | null;
 }
 
 // Entry interface - frontend format with entry_type and entry_date
@@ -83,6 +85,7 @@ const ENTRIES_QUERY_KEY = ['entries'];
 // Transform backend entry to frontend format
 function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
   const place = entry.place as Record<string, unknown> | null;
+  const extraData = place?.extra_data as Record<string, unknown> | null;
   return {
     id: entry.id as string,
     trip_id: entry.trip_id as string,
@@ -101,6 +104,7 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
           latitude: (place.lat as number) ?? null,
           longitude: (place.lng as number) ?? null,
           address: (place.address as string) ?? null,
+          google_photo_url: (extraData?.google_photo_url as string) ?? null,
         }
       : null,
     media_files: entry.media_files as MediaFile[] | undefined,
@@ -151,6 +155,9 @@ export function useCreateEntry() {
               lat: input.place.latitude,
               lng: input.place.longitude,
               address: input.place.address,
+              extra_data: input.place.google_photo_url
+                ? { google_photo_url: input.place.google_photo_url }
+                : undefined,
             }
           : undefined,
         pending_media_ids: input.pending_media_ids,
@@ -197,6 +204,9 @@ export function useUpdateEntry() {
           lat: data.place.latitude,
           lng: data.place.longitude,
           address: data.place.address,
+          extra_data: data.place.google_photo_url
+            ? { google_photo_url: data.place.google_photo_url }
+            : undefined,
         };
       }
       const response = await api.patch(`/entries/${entryId}`, backendInput);

@@ -217,14 +217,14 @@ async def get_entry(
     return EntryWithPlace(**entry.model_dump(), place=place)
 
 
-@router.patch("/entries/{entry_id}", response_model=Entry)
+@router.patch("/entries/{entry_id}", response_model=EntryWithPlace)
 @limiter.limit("30/minute")
 async def update_entry(
     request: Request,
     entry_id: UUID,
     data: EntryUpdate,
     user: CurrentUser,
-) -> Entry:
+) -> EntryWithPlace:
     """Update an entry."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -236,18 +236,70 @@ async def update_entry(
             detail="No fields to update",
         )
 
+    # Extract place data before updating entry
+    place_data = update_data.pop("place", None)
+
     # Convert date to ISO format if present
     if "date" in update_data and update_data["date"]:
         update_data["date"] = update_data["date"].isoformat()
 
-    rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Entry not found or not authorized",
-        )
+    # Convert type enum to string if present
+    if "type" in update_data and update_data["type"]:
+        update_data["type"] = update_data["type"].value
 
-    return Entry(**rows[0])
+    # Update entry fields if any remain
+    if update_data:
+        rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized",
+            )
+        entry = Entry(**rows[0])
+    else:
+        # Just fetch existing entry if no entry fields to update
+        entries = await db.get("entry", {"id": f"eq.{entry_id}"})
+        if not entries:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized",
+            )
+        entry = Entry(**entries[0])
+
+    # Handle place update/upsert
+    place = None
+    if place_data:
+        # Check if place already exists for this entry
+        existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+
+        place_payload = {
+            "entry_id": str(entry_id),
+            "google_place_id": place_data.get("google_place_id"),
+            "place_name": place_data.get("place_name"),
+            "lat": place_data.get("lat"),
+            "lng": place_data.get("lng"),
+            "address": place_data.get("address"),
+            "extra_data": place_data.get("extra_data"),
+        }
+
+        if existing_places:
+            # Update existing place
+            place_rows = await db.patch(
+                "place", place_payload, {"entry_id": f"eq.{entry_id}"}
+            )
+        else:
+            # Create new place
+            place_rows = await db.post("place", place_payload)
+
+        if place_rows:
+            place = Place(**place_rows[0])
+    else:
+        # Fetch existing place if any
+        places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+        if places:
+            place = Place(**places[0])
+
+    return EntryWithPlace(**entry.model_dump(), place=place)
 
 
 @router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

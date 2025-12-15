@@ -18,17 +18,18 @@ export type AllRegion = (typeof ALL_REGIONS)[number];
  * Used for granular filtering in the Explore filter sheet.
  */
 export const SUBREGIONS: Record<Region, readonly string[]> = {
-  Africa: [
-    'Northern Africa',
-    'Western Africa',
-    'Eastern Africa',
-    'Central Africa',
-    'Southern Africa',
-  ],
+  Africa: ['North Africa', 'East Africa', 'Southern Africa', 'West & Central Africa'],
   Americas: ['North America', 'Central America', 'Caribbean', 'South America'],
-  Asia: ['Middle East', 'Central Asia', 'South Asia', 'Southeast Asia', 'East Asia'],
-  Europe: ['Northern Europe', 'Western Europe', 'Eastern Europe', 'Southern Europe'],
-  Oceania: ['Australia/New Zealand', 'Melanesia', 'Micronesia', 'Polynesia'],
+  Asia: ['East & Southeast Asia', 'South Asia', 'Middle East', 'Central Asia'],
+  Europe: [
+    'Core Europe',
+    'Nordics',
+    'Southern Europe',
+    'Balkans',
+    'Eastern Europe',
+    'British Isles',
+  ],
+  Oceania: ['Australia & New Zealand', 'Pacific Islands'],
 } as const;
 
 /**

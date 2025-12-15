@@ -19,10 +19,10 @@ class SEOContext:
 def build_landing_seo(base_url: str) -> SEOContext:
     """Build SEO context for the landing page."""
     return SEOContext(
-        title="Border Badge - Track Your Travels",
-        description="Mark countries visited, build your wishlist, and share your travel experiences with friends. Download Border Badge today.",
+        title="Atlasi - Track Your Travels",
+        description="Mark countries visited, build your wishlist, and share your travel experiences with friends. Download Atlasi today.",
         canonical_url=base_url,
-        og_title="Border Badge - Track Your Travels",
+        og_title="Atlasi - Track Your Travels",
         og_description="Mark countries visited, build your wishlist, and share your travel experiences with friends.",
         og_type="website",
     )
@@ -37,8 +37,8 @@ def build_list_seo(
     cover_image_url: str | None = None,
 ) -> SEOContext:
     """Build SEO context for a public list page."""
-    title = f"{list_name} - Border Badge"
-    meta_description = description or "A curated travel list shared on Border Badge"
+    title = f"{list_name} - Atlasi"
+    meta_description = description or "A curated travel list shared on Atlasi"
     if country_name:
         meta_description = f"{list_name} in {country_name} - {meta_description}"
 
@@ -62,14 +62,14 @@ def build_trip_seo(
 ) -> SEOContext:
     """Build SEO context for a public trip page."""
     if country_name:
-        title = f"{trip_name} in {country_name} - Border Badge"
+        title = f"{trip_name} in {country_name} - Atlasi"
         description = (
-            f"Explore {trip_name} in {country_name} - A trip shared on Border Badge"
+            f"Explore {trip_name} in {country_name} - A trip shared on Atlasi"
         )
         og_title = f"{trip_name} in {country_name}"
     else:
-        title = f"{trip_name} - Border Badge"
-        description = f"Explore {trip_name} - A trip shared on Border Badge"
+        title = f"{trip_name} - Atlasi"
+        description = f"Explore {trip_name} - A trip shared on Atlasi"
         og_title = trip_name
 
     return SEOContext(

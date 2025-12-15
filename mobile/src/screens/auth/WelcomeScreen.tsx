@@ -11,7 +11,7 @@ export function WelcomeScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.logo}>Border Badge</Text>
+          <Text style={styles.logo}>Atlasi</Text>
           <Text style={styles.tagline}>Track your travels around the world</Text>
         </View>
 

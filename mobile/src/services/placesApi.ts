@@ -57,6 +57,12 @@ function getBackoffDelay(retryCount: number): number {
 }
 
 // Types for place data
+export interface PlacePhoto {
+  name: string; // Photo resource name (e.g., "places/PLACE_ID/photos/PHOTO_REF")
+  widthPx: number;
+  heightPx: number;
+}
+
 export interface PlaceResult {
   place_id: string;
   name: string;
@@ -67,6 +73,8 @@ export interface PlaceResult {
       lng: number;
     };
   };
+  photos?: PlacePhoto[];
+  website_uri?: string;
 }
 
 export interface SelectedPlace {
@@ -75,6 +83,8 @@ export interface SelectedPlace {
   address: string | null;
   latitude: number | null;
   longitude: number | null;
+  google_photo_url: string | null;
+  website_url: string | null;
 }
 
 export interface Prediction {
@@ -91,6 +101,48 @@ export interface Prediction {
  */
 export function hasApiKey(): boolean {
   return !!GOOGLE_PLACES_API_KEY;
+}
+
+/**
+ * Extract the legacy photo_reference value from a Places API photo resource name.
+ * The new Places API (v1) returns resource names like:
+ *   places/PLACE_ID/photos/AWU5eF...
+ * We need the final segment (after `/photos/`) to use the legacy photo endpoint,
+ * which works without custom headers and can be rendered directly inside <Image>.
+ */
+function extractPhotoReference(photoName: string): string | null {
+  if (!photoName) {
+    return null;
+  }
+
+  const match = photoName.match(/\/photos\/([^/]+)$/);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  const segments = photoName.split('/');
+  return segments.pop() || null;
+}
+
+/**
+ * Construct a Google Places photo URL that can be consumed by React Native <Image>.
+ * We fall back to the legacy photo endpoint because it allows API keys via query params.
+ */
+export function getPhotoUrl(photoName: string, maxWidthPx = 400): string | null {
+  if (!GOOGLE_PLACES_API_KEY) {
+    logger.warn('Cannot build Google photo URL without API key');
+    return null;
+  }
+
+  const photoReference = extractPhotoReference(photoName);
+  if (!photoReference) {
+    logger.warn('Failed to parse Google photo reference from resource name');
+    return null;
+  }
+
+  const clampedWidth = Math.min(Math.max(Math.floor(maxWidthPx), 1), 1600);
+  const encodedReference = encodeURIComponent(photoReference);
+  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${clampedWidth}&photo_reference=${encodedReference}&key=${GOOGLE_PLACES_API_KEY}`;
 }
 
 /**
@@ -206,7 +258,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
     const response = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location',
+        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,photos,websiteUri',
       },
     });
 
@@ -216,6 +268,15 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
     }
 
     const data = await response.json();
+
+    // Transform photos array if present
+    const photos: PlacePhoto[] | undefined = data.photos?.map(
+      (photo: { name: string; widthPx?: number; heightPx?: number }) => ({
+        name: photo.name,
+        widthPx: photo.widthPx ?? 0,
+        heightPx: photo.heightPx ?? 0,
+      })
+    );
 
     return {
       place_id: data.id,
@@ -229,6 +290,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
             },
           }
         : undefined,
+      photos,
+      website_uri: data.websiteUri ?? undefined,
     };
   } catch (error) {
     logger.error('Place details error:', error);

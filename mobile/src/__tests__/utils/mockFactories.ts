@@ -70,6 +70,7 @@ export function createMockPlace(overrides?: Partial<Place>): Place {
     latitude: 35.6762,
     longitude: 139.6503,
     address: '123 Test Street, Tokyo',
+    google_photo_url: null,
     ...overrides,
   };
 }
@@ -81,6 +82,7 @@ export function createMockPlaceInput(overrides?: Partial<PlaceInput>): PlaceInpu
     address: '123 Test Street, Tokyo',
     latitude: 35.6762,
     longitude: 139.6503,
+    google_photo_url: null,
     ...overrides,
   };
 }
@@ -315,6 +317,13 @@ export function createMockPlaceDetails() {
       latitude: 35.6762,
       longitude: 139.6503,
     },
+    photos: [
+      {
+        name: 'places/ChIJ123abc/photos/test-photo-ref',
+        widthPx: 400,
+        heightPx: 300,
+      },
+    ],
   };
 }
 

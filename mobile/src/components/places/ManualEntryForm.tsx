@@ -37,6 +37,8 @@ export const ManualEntryForm = memo(function ManualEntryForm({
       address: manualAddress.trim() || null,
       latitude: null,
       longitude: null,
+      google_photo_url: null,
+      website_url: null,
     };
 
     onSubmit(selectedPlace);
