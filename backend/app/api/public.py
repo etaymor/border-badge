@@ -53,6 +53,7 @@ async def landing_page(request: Request) -> HTMLResponse:
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"

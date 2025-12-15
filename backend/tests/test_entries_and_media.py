@@ -730,6 +730,36 @@ def test_update_entry_with_place_update(
         app.dependency_overrides.clear()
 
 
+def test_update_entry_patch_empty_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_entry: dict[str, Any],
+) -> None:
+    """Return 404 when Supabase PATCH touches no rows (e.g. stricter RLS)."""
+    mock_supabase_client.get.return_value = [sample_entry]
+    mock_supabase_client.patch.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/entries/{sample_entry['id']}",
+                headers=auth_headers,
+                json={"notes": "Updated notes"},
+            )
+        assert response.status_code == 404
+        assert (
+            response.json()["detail"]
+            == "Entry not found or not authorized to update"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_update_entry_place_only_no_entry_fields(
     client: TestClient,
     mock_supabase_client: AsyncMock,

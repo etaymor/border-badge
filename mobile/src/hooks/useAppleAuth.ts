@@ -59,9 +59,14 @@ export function useAppleSignIn() {
           .join(' ');
 
         if (displayName) {
-          await supabase.rpc('update_display_name', {
-            new_display_name: displayName,
-          });
+          try {
+            await supabase.rpc('update_display_name', {
+              new_display_name: displayName,
+            });
+          } catch (error) {
+            // Non-critical failure - user can update name later in settings
+            console.warn('Failed to update display name from Apple Sign-In:', error);
+          }
         }
       }
 

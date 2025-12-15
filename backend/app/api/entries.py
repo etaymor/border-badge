@@ -260,43 +260,48 @@ async def update_entry(
         rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
         if not rows:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update entry",
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized to update",
             )
         entry = Entry(**rows[0])
     else:
         # No entry fields to update, use the existing entry we already fetched
         entry = Entry(**existing_entries[0])
 
-    # Handle place update/upsert
+    # Handle place update/upsert/delete
     place = None
-    if place_data:
-        # Check if place already exists for this entry
-        existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
-
-        place_payload = {
-            "entry_id": str(entry_id),
-            "google_place_id": place_data.get("google_place_id"),
-            "place_name": place_data.get("place_name"),
-            "lat": place_data.get("lat"),
-            "lng": place_data.get("lng"),
-            "address": place_data.get("address"),
-            "extra_data": place_data.get("extra_data"),
-        }
-
-        if existing_places:
-            # Update existing place
-            place_rows = await db.patch(
-                "place", place_payload, {"entry_id": f"eq.{entry_id}"}
-            )
+    if place_data is not None:
+        if place_data == {}:
+            # Empty dict signals explicit removal of place data
+            await db.delete("place", {"entry_id": f"eq.{entry_id}"})
+            place = None
         else:
-            # Create new place
-            place_rows = await db.post("place", place_payload)
+            # Check if place already exists for this entry
+            existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
 
-        if place_rows:
-            place = Place(**place_rows[0])
+            place_payload = {
+                "entry_id": str(entry_id),
+                "google_place_id": place_data.get("google_place_id"),
+                "place_name": place_data.get("place_name"),
+                "lat": place_data.get("lat"),
+                "lng": place_data.get("lng"),
+                "address": place_data.get("address"),
+                "extra_data": place_data.get("extra_data"),
+            }
+
+            if existing_places:
+                # Update existing place
+                place_rows = await db.patch(
+                    "place", place_payload, {"entry_id": f"eq.{entry_id}"}
+                )
+            else:
+                # Create new place
+                place_rows = await db.post("place", place_payload)
+
+            if place_rows:
+                place = Place(**place_rows[0])
     else:
-        # Fetch existing place if any
+        # place_data is None (not provided) - fetch existing place if any
         places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
         if places:
             place = Place(**places[0])

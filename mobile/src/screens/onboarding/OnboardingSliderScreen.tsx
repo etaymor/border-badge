@@ -196,6 +196,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         onScrollToIndexFailed={
           handleScrollToIndexFailed as FlatListProps<Slide>['onScrollToIndexFailed']
         }
+        extraData={activeIndex}
       />
 
       {/* Bottom section: button only - fixed position */}

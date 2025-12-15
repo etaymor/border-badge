@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useRef } from 'react';
+import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
   Image,
@@ -36,7 +36,12 @@ interface PresetCardProps {
   animatedValue: Animated.Value;
 }
 
-function PresetCard({ preset, isSelected, onSelect, animatedValue }: PresetCardProps) {
+const PresetCard = memo(function PresetCard({
+  preset,
+  isSelected,
+  onSelect,
+  animatedValue,
+}: PresetCardProps) {
   const presetData = TRACKING_PRESETS[preset];
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -97,7 +102,7 @@ function PresetCard({ preset, isSelected, onSelect, animatedValue }: PresetCardP
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 export function TrackingPreferenceScreen({ navigation }: Props) {
   const { trackingPreference, setTrackingPreference } = useOnboardingStore();
