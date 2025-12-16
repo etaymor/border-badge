@@ -1,6 +1,7 @@
 """Entry endpoints."""
 
 import logging
+from enum import Enum
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -239,13 +240,15 @@ async def update_entry(
     # Extract place data before processing entry fields
     place_data = update_data.pop("place", None)
 
-    # Verify entry exists and user has access (RLS enforced)
-    existing_entries = await db.get("entry", {"id": f"eq.{entry_id}"})
-    if not existing_entries:
+    # Validate place data if provided (but not for empty dict which signals deletion)
+    if place_data is not None and place_data != {} and not place_data.get("place_name"):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Entry not found or not authorized",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="place_name is required when providing place data",
         )
+
+    # Fetch existing place early - reused for both update logic and preserving existing
+    existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
 
     # Update entry fields if any remain after extracting place
     if update_data:
@@ -255,8 +258,7 @@ async def update_entry(
 
         # Convert type enum to string if present and not None
         if "type" in update_data and update_data["type"] is not None:
-            # Only convert if it's an enum (Pydantic may have already serialized it)
-            if hasattr(update_data["type"], "value"):
+            if isinstance(update_data["type"], Enum):
                 update_data["type"] = update_data["type"].value
 
         rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
@@ -267,7 +269,13 @@ async def update_entry(
             )
         entry = Entry(**rows[0])
     else:
-        # No entry fields to update, use the existing entry we already fetched
+        # No entry fields to update - fetch entry to return it
+        existing_entries = await db.get("entry", {"id": f"eq.{entry_id}"})
+        if not existing_entries:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized",
+            )
         entry = Entry(**existing_entries[0])
 
     # Handle place update/upsert/delete
@@ -278,9 +286,6 @@ async def update_entry(
             await db.delete("place", {"entry_id": f"eq.{entry_id}"})
             place = None
         else:
-            # Check if place already exists for this entry
-            existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
-
             place_payload = {
                 "entry_id": str(entry_id),
                 "google_place_id": place_data.get("google_place_id"),
@@ -304,9 +309,8 @@ async def update_entry(
                 place = Place(**place_rows[0])
     else:
         # place_data is None (omitted from request) - preserve existing place
-        places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
-        if places:
-            place = Place(**places[0])
+        if existing_places:
+            place = Place(**existing_places[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

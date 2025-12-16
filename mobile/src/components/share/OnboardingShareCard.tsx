@@ -23,6 +23,31 @@ const CARD_HEIGHT = Math.round((CARD_WIDTH * 16) / 9); // 667
 // Scale factor for consistent sizing
 const SCALE = 1;
 
+/**
+ * Pre-calculated stamp positions for a natural scattered look.
+ * Each position: { x: % from left, y: % from top, rotation: deg, scale: factor }
+ * Layout is optimized for 9:16 aspect ratio cards with up to 12 stamps.
+ */
+const STAMP_POSITIONS = [
+  // Top area stamps
+  { x: 8, y: 12, rotation: -8, scale: 1.0 },
+  { x: 52, y: 8, rotation: 12, scale: 0.95 },
+  // Upper middle
+  { x: 28, y: 22, rotation: -4, scale: 1.05 },
+  { x: 68, y: 20, rotation: 8, scale: 0.9 },
+  // Middle area
+  { x: 5, y: 34, rotation: 6, scale: 0.95 },
+  { x: 42, y: 36, rotation: -10, scale: 1.0 },
+  { x: 72, y: 38, rotation: 4, scale: 0.92 },
+  // Lower middle
+  { x: 18, y: 50, rotation: -6, scale: 1.02 },
+  { x: 55, y: 52, rotation: 14, scale: 0.88 },
+  // Bottom area
+  { x: 8, y: 64, rotation: 10, scale: 0.95 },
+  { x: 38, y: 68, rotation: -12, scale: 1.0 },
+  { x: 65, y: 66, rotation: 5, scale: 0.9 },
+] as const;
+
 export type OnboardingShareVariant = 'stamps' | 'stats' | 'map';
 
 export interface ContinentStats {
@@ -59,31 +84,6 @@ const StampsVariant = memo(function StampsVariant({
 }) {
   const { visitedCountries, totalCountries } = context;
 
-  // Pre-calculated stamp positions for a natural scattered look
-  // Each position is { x: %, y: %, rotation: deg, scale: factor }
-  const stampPositions = useMemo(() => {
-    const positions = [
-      // Top area stamps
-      { x: 8, y: 12, rotation: -8, scale: 1.0 },
-      { x: 52, y: 8, rotation: 12, scale: 0.95 },
-      // Upper middle
-      { x: 28, y: 22, rotation: -4, scale: 1.05 },
-      { x: 68, y: 20, rotation: 8, scale: 0.9 },
-      // Middle area
-      { x: 5, y: 34, rotation: 6, scale: 0.95 },
-      { x: 42, y: 36, rotation: -10, scale: 1.0 },
-      { x: 72, y: 38, rotation: 4, scale: 0.92 },
-      // Lower middle
-      { x: 18, y: 50, rotation: -6, scale: 1.02 },
-      { x: 55, y: 52, rotation: 14, scale: 0.88 },
-      // Bottom area
-      { x: 8, y: 64, rotation: 10, scale: 0.95 },
-      { x: 38, y: 68, rotation: -12, scale: 1.0 },
-      { x: 65, y: 66, rotation: 5, scale: 0.9 },
-    ];
-    return positions;
-  }, []);
-
   const displayStamps = useMemo(() => {
     return visitedCountries.slice(0, 12);
   }, [visitedCountries]);
@@ -103,7 +103,7 @@ const StampsVariant = memo(function StampsVariant({
           const stampImage = getStampImage(code);
           if (!stampImage) return null;
 
-          const pos = stampPositions[index];
+          const pos = STAMP_POSITIONS[index];
           if (!pos) return null;
 
           return (
