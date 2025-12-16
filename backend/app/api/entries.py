@@ -305,8 +305,12 @@ async def update_entry(
                 # Create new place
                 place_rows = await db.post("place", place_payload)
 
-            if place_rows:
-                place = Place(**place_rows[0])
+            if not place_rows:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to save place data",
+                )
+            place = Place(**place_rows[0])
     else:
         # place_data is None (omitted from request) - preserve existing place
         if existing_places:

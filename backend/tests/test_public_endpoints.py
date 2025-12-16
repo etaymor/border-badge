@@ -598,6 +598,45 @@ def test_extract_place_photo_url_with_non_string_url() -> None:
     assert result is None
 
 
+def test_extract_place_photo_url_with_invalid_scheme() -> None:
+    """Test _extract_place_photo_url returns None when URL has invalid scheme."""
+    from app.api.public import _extract_place_photo_url
+
+    # Test javascript: scheme (XSS vector)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "javascript:alert('xss')"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test data: scheme
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {
+            "google_photo_url": "data:text/html,<script>alert('xss')</script>"
+        },
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test file: scheme
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "file:///etc/passwd"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test http (valid)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "http://example.com/photo.jpg"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "http://example.com/photo.jpg"
+
+
 def test_public_trip_with_place_photo_url(
     client: TestClient,
     mock_supabase_client: AsyncMock,

@@ -109,6 +109,9 @@ export function useAppleSignIn() {
       }
     },
     onError: (error) => {
+      // Log full error for debugging (non-sensitive context)
+      console.error('Apple Sign-In error:', error);
+
       // Don't show error for user cancellation
       if (error instanceof Error) {
         // Apple cancellation error codes

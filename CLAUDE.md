@@ -173,7 +173,7 @@ SUPABASE_JWT_SECRET=<jwt-secret>
 ## Database Schema (Key Tables)
 
 ```
-country          - Reference data (197 countries)
+country          - Reference data (227 countries/territories)
 user_countries   - User's visited/wishlist status
 trip             - User trips (soft delete supported)
 trip_tags        - Consent workflow for tagged friends

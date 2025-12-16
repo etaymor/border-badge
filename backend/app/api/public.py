@@ -30,7 +30,12 @@ def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
     if not isinstance(extra_data, dict):
         return None
     photo_url = extra_data.get("google_photo_url")
-    return photo_url if isinstance(photo_url, str) and photo_url else None
+    if not isinstance(photo_url, str) or not photo_url:
+        return None
+    # Validate URL scheme to prevent injection
+    if not photo_url.startswith(("https://", "http://")):
+        return None
+    return photo_url
 
 
 @router.get("/", response_class=HTMLResponse)
