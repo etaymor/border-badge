@@ -62,10 +62,8 @@ UPDATE country SET rarity_score = 9 WHERE code IN (
   'TL',  -- Timor-Leste
   'BN',  -- Brunei
   'XK',  -- Kosovo
-  'XN',  -- Northern Cyprus
-  'XI',  -- Somaliland
-  'XS',  -- South Ossetia
-  'XW'   -- Western Sahara
+  'XN'   -- Northern Cyprus
+  -- Note: XI, XS, XW are UK regions (Northern Ireland, Scotland, Wales) defined in 0018
 );
 
 -- Score 8: Rare (off the beaten path)
@@ -185,7 +183,10 @@ UPDATE country SET rarity_score = 7 WHERE code IN (
   'AG',  -- Antigua
   'KN',  -- St Kitts
   'NZ',  -- New Zealand
-  'AU'   -- Australia
+  'AU',  -- Australia
+  'XI',  -- Northern Ireland (UK constituent - less visited than England)
+  'XS',  -- Scotland (UK constituent - less visited than England)
+  'XW'   -- Wales (UK constituent - less visited than England)
 );
 
 -- Score 6: Moderate

@@ -26,13 +26,11 @@ def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
     """Pull google_photo_url out of place.extra_data if present."""
     if not place:
         return None
-
     extra_data = place.get("extra_data")
-    if isinstance(extra_data, dict):
-        photo_url = extra_data.get("google_photo_url")
-        if isinstance(photo_url, str) and photo_url:
-            return photo_url
-    return None
+    if not isinstance(extra_data, dict):
+        return None
+    photo_url = extra_data.get("google_photo_url")
+    return photo_url if isinstance(photo_url, str) and photo_url else None
 
 
 @router.get("/", response_class=HTMLResponse)

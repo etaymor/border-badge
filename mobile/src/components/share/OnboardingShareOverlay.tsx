@@ -64,10 +64,12 @@ function OnboardingShareOverlayComponent({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Animation sequence
+  // Animation sequence with cleanup to prevent memory leaks
   useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+
     if (visible && context) {
-      Animated.parallel([
+      animation = Animated.parallel([
         Animated.timing(backdropOpacity, {
           toValue: 1,
           duration: 200,
@@ -79,11 +81,19 @@ function OnboardingShareOverlayComponent({
           delay: 100,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      animation.start();
     } else {
       backdropOpacity.setValue(0);
       contentOpacity.setValue(0);
     }
+
+    // Cleanup: stop animation if component unmounts mid-animation
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
   }, [visible, context, backdropOpacity, contentOpacity]);
 
   // Scale to fit screen using same approach as ShareCard overlay

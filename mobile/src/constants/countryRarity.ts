@@ -71,9 +71,7 @@ export const COUNTRY_RARITY: Record<string, number> = {
   BN: 9, // Brunei
   XK: 9, // Kosovo
   XN: 9, // Northern Cyprus
-  XI: 9, // Somaliland
-  XS: 9, // South Ossetia
-  XW: 9, // Western Sahara
+  // Note: XI, XS, XW are UK regions (Northern Ireland, Scotland, Wales) - not rare destinations
 
   // Score 8: Rare
   MG: 8, // Madagascar
@@ -190,6 +188,9 @@ export const COUNTRY_RARITY: Record<string, number> = {
   KN: 7, // St Kitts
   NZ: 7, // New Zealand
   AU: 7, // Australia
+  XI: 7, // Northern Ireland (UK constituent - less visited than England)
+  XS: 7, // Scotland (UK constituent - less visited than England)
+  XW: 7, // Wales (UK constituent - less visited than England)
 
   // Score 6: Moderate
   MA: 6, // Morocco
@@ -240,7 +241,7 @@ export const COUNTRY_RARITY: Record<string, number> = {
   JP: 5, // Japan
   CN: 5, // China
   IE: 5, // Ireland
-  GB: 5, // United Kingdom
+  GB: 5, // United Kingdom (England)
   PT: 5, // Portugal
   AT: 5, // Austria
   CH: 5, // Switzerland
@@ -294,10 +295,10 @@ export function estimateTravelerPercentile(countryCount: number): number {
  * Based on countries.sql seed data.
  */
 export const CONTINENT_TOTALS: Record<string, number> = {
-  Africa: 59,
-  Americas: 41,
-  Asia: 53,
+  Africa: 55,
+  Americas: 50,
+  Asia: 52,
   Europe: 51,
-  Oceania: 22,
+  Oceania: 18,
   Antarctica: 1,
 };

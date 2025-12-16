@@ -32,10 +32,12 @@ BEGIN
       WHEN NEW.phone LIKE '%555%' THEN true
       ELSE false
     END
-  );
+  )
+  ON CONFLICT (user_id) DO NOTHING;  -- Handle duplicate triggers gracefully
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+   SET search_path = public;  -- Explicit search_path for security
 
 -- Update comment to reflect Apple auth support
 COMMENT ON FUNCTION handle_new_user() IS

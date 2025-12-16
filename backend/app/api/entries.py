@@ -255,7 +255,9 @@ async def update_entry(
 
         # Convert type enum to string if present and not None
         if "type" in update_data and update_data["type"] is not None:
-            update_data["type"] = update_data["type"].value
+            # Only convert if it's an enum (Pydantic may have already serialized it)
+            if hasattr(update_data["type"], "value"):
+                update_data["type"] = update_data["type"].value
 
         rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
         if not rows:
@@ -301,7 +303,7 @@ async def update_entry(
             if place_rows:
                 place = Place(**place_rows[0])
     else:
-        # place_data is None (not provided) - fetch existing place if any
+        # place_data is None (omitted from request) - preserve existing place
         places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
         if places:
             place = Place(**places[0])
