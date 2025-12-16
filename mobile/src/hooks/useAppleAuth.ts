@@ -78,6 +78,8 @@ export function useAppleSignIn() {
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
         // Check if returning user (same logic as phone auth)
+        let hasOnboarded = false;
+
         try {
           const { data: userCountries } = await supabase
             .from('user_countries')
@@ -85,25 +87,21 @@ export function useAppleSignIn() {
             .eq('user_id', data.session.user.id)
             .limit(1);
 
-          const hasOnboarded = userCountries && userCountries.length > 0;
+          hasOnboarded = !!(userCountries && userCountries.length > 0);
+        } catch (checkError) {
+          console.warn('Failed to check onboarding status:', checkError);
+          // Continue - will attempt migration below
+        }
 
-          if (hasOnboarded) {
-            setHasCompletedOnboarding(true);
-            await storeOnboardingComplete();
-          } else {
-            // New user - run migration
-            try {
-              await migrateGuestData(data.session);
-            } catch (migrationError) {
-              console.warn('Migration failed for new Apple user:', migrationError);
-            }
-          }
-        } catch {
-          // If check fails, try migration anyway
+        if (hasOnboarded) {
+          setHasCompletedOnboarding(true);
+          await storeOnboardingComplete();
+        } else {
+          // New user or check failed - attempt migration
           try {
             await migrateGuestData(data.session);
           } catch (migrationError) {
-            console.warn('Migration failed after user check error:', migrationError);
+            console.warn('Migration failed for Apple user:', migrationError);
           }
         }
 

@@ -15,6 +15,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
+import {
+  CONTINENT_TOTALS,
+  getCountryRarity,
+} from '@constants/countryRarity';
+import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -98,6 +103,27 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     // Get travel tier
     const travelTier = getTravelStatus(allVisitedCountries.length);
 
+    // Calculate continent stats for share cards
+    const continentStats = ALL_REGIONS.map((region) => {
+      const visitedInRegion = visitedCountryData.filter((c) => c.region === region);
+
+      // Find rarest visited country (highest rarity score)
+      let rarestCountryCode: string | null = null;
+      if (visitedInRegion.length > 0) {
+        const rarest = visitedInRegion.reduce((best, c) =>
+          getCountryRarity(c.code) > getCountryRarity(best.code) ? c : best
+        );
+        rarestCountryCode = rarest.code;
+      }
+
+      return {
+        name: region,
+        visitedCount: visitedInRegion.length,
+        totalCount: CONTINENT_TOTALS[region] || 0,
+        rarestCountryCode,
+      };
+    });
+
     return {
       visitedCountries: allVisitedCountries,
       totalCountries: allVisitedCountries.length,
@@ -106,6 +132,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
       subregions,
       subregionCount: subregions.length,
       travelTier,
+      continentStats,
     };
   }, [allCountriesData, allVisitedCountries]);
 

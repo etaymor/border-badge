@@ -13,10 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
+import atlasLogo from '../../../assets/atlasi-logo.png';
 import { colors } from '@constants/colors';
 import {
   TRACKING_PRESET_ORDER,
@@ -28,6 +25,15 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'TrackingPreference'>;
+
+// Animation timing constants
+const ANIMATION_TIMING = {
+  titleDuration: 400,
+  subtitleDuration: 300,
+  cardStagger: 100,
+  cardDuration: 300,
+  buttonDuration: 300,
+} as const;
 
 interface PresetCardProps {
   preset: TrackingPreset;
@@ -125,30 +131,46 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
       Animated.parallel([
         Animated.timing(titleOpacity, {
           toValue: 1,
-          duration: 400,
+          duration: ANIMATION_TIMING.titleDuration,
           useNativeDriver: true,
         }),
         Animated.timing(titleTranslate, {
           toValue: 0,
-          duration: 400,
+          duration: ANIMATION_TIMING.titleDuration,
           useNativeDriver: true,
         }),
       ]),
       Animated.timing(subtitleOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: ANIMATION_TIMING.subtitleDuration,
         useNativeDriver: true,
       }),
       // Stagger cards
-      Animated.stagger(100, [
-        Animated.timing(card1Opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(card2Opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(card3Opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(card4Opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.stagger(ANIMATION_TIMING.cardStagger, [
+        Animated.timing(card1Opacity, {
+          toValue: 1,
+          duration: ANIMATION_TIMING.cardDuration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(card2Opacity, {
+          toValue: 1,
+          duration: ANIMATION_TIMING.cardDuration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(card3Opacity, {
+          toValue: 1,
+          duration: ANIMATION_TIMING.cardDuration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(card4Opacity, {
+          toValue: 1,
+          duration: ANIMATION_TIMING.cardDuration,
+          useNativeDriver: true,
+        }),
       ]),
       Animated.timing(buttonOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: ANIMATION_TIMING.buttonDuration,
         useNativeDriver: true,
       }),
     ]).start();
