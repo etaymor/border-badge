@@ -15,10 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
-import {
-  CONTINENT_TOTALS,
-  getCountryRarity,
-} from '@constants/countryRarity';
+import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
 import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
