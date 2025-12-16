@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   useFonts,
@@ -34,6 +34,7 @@ export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding } = useAuthStore();
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
+  const nativeSplashHiddenRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -87,8 +88,6 @@ export default function App() {
         setIsLoading(false);
         // Mark app as ready for the animated splash to transition
         setIsAppReady(true);
-        // Hide the native splash screen now that our animated one is showing
-        SplashScreen.hideAsync();
       }
 
       // Then set up listener for future changes (after session restore completes)
@@ -126,6 +125,17 @@ export default function App() {
     setShowSplash(false);
   }, []);
 
+  // Hide the native splash only once the animated splash is ready to display
+  const handleSplashVisible = useCallback(() => {
+    if (nativeSplashHiddenRef.current) {
+      return;
+    }
+    nativeSplashHiddenRef.current = true;
+    SplashScreen.hideAsync().catch((error) => {
+      console.warn('Failed to hide native splash screen:', error);
+    });
+  }, []);
+
   if (!fontsLoaded) {
     return null;
   }
@@ -139,7 +149,11 @@ export default function App() {
             <StatusBar style="auto" />
           </NavigationContainer>
           {showSplash && (
-            <AnimatedSplash isAppReady={isAppReady} onAnimationComplete={handleSplashComplete} />
+            <AnimatedSplash
+              isAppReady={isAppReady}
+              onAnimationComplete={handleSplashComplete}
+              onSplashVisible={handleSplashVisible}
+            />
           )}
         </SafeAreaProvider>
       </QueryClientProvider>

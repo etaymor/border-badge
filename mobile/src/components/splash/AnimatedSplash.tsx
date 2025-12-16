@@ -19,14 +19,21 @@ interface AnimatedSplashProps {
   isAppReady: boolean;
   /** Callback when splash animation completes and should be removed */
   onAnimationComplete: () => void;
+  /** Callback to signal that the animated splash is now visible (video ready) */
+  onSplashVisible: () => void;
 }
 
-function AnimatedSplashComponent({ isAppReady, onAnimationComplete }: AnimatedSplashProps) {
+function AnimatedSplashComponent({
+  isAppReady,
+  onAnimationComplete,
+  onSplashVisible,
+}: AnimatedSplashProps) {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const logoScale = useRef(new Animated.Value(0.8)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const hasStartedFadeOut = useRef(false);
+  const hasNotifiedVisible = useRef(false);
 
   // Create video player
   const player = useVideoPlayer(splashVideo, (p) => {
@@ -78,6 +85,14 @@ function AnimatedSplashComponent({ isAppReady, onAnimationComplete }: AnimatedSp
       ]).start();
     }
   }, [isVideoReady, logoOpacity, logoScale]);
+
+  // Notify parent that the splash is now visible (video ready)
+  useEffect(() => {
+    if (isVideoReady && !hasNotifiedVisible.current) {
+      hasNotifiedVisible.current = true;
+      onSplashVisible();
+    }
+  }, [isVideoReady, onSplashVisible]);
 
   // Fade out splash when app is ready
   useEffect(() => {
