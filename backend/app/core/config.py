@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     app_store_url: str = ""  # iOS App Store URL (placeholder)
     play_store_url: str = ""  # Google Play Store URL (placeholder)
 
+    # OpenRouter Configuration (for traveler classification)
+    openrouter_api_key: str = ""
+    openrouter_model: str = "google/gemini-flash-2.5-lite"
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

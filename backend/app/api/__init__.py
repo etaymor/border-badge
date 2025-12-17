@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from app.api import countries, entries, lists, media, places, profile, public, trips
+from app.api import (
+    classification,
+    countries,
+    entries,
+    lists,
+    media,
+    places,
+    profile,
+    public,
+    trips,
+)
 
 router = APIRouter()
 
@@ -16,3 +26,6 @@ router.include_router(entries.router, tags=["entries"])
 router.include_router(places.router, prefix="/places", tags=["places"])
 router.include_router(media.router, prefix="/media/files", tags=["media"])
 router.include_router(lists.router, tags=["lists"])
+router.include_router(
+    classification.router, prefix="/classify", tags=["classification"]
+)

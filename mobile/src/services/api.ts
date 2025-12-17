@@ -103,3 +103,30 @@ export async function getOnboardingComplete(): Promise<boolean> {
 export async function clearOnboardingComplete(): Promise<void> {
   await SecureStore.deleteItemAsync(ONBOARDING_COMPLETE_KEY);
 }
+
+// ============================================================================
+// Traveler Classification API
+// ============================================================================
+
+export interface TravelerClassificationRequest {
+  countries_visited: string[];
+  interest_tags: string[];
+}
+
+export interface TravelerClassificationResponse {
+  traveler_type: string;
+  signature_country: string;
+  confidence: number;
+  rationale_short: string;
+}
+
+/**
+ * Classify a traveler based on their visited countries and interest tags.
+ * Returns a creative traveler type label and signature country.
+ */
+export async function classifyTraveler(
+  request: TravelerClassificationRequest
+): Promise<TravelerClassificationResponse> {
+  const response = await api.post<TravelerClassificationResponse>('/classify/traveler', request);
+  return response.data;
+}
