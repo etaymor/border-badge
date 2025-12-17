@@ -147,9 +147,10 @@ def test_update_entry(
 ) -> None:
     """Test updating an entry."""
     updated_entry = {**sample_entry, "title": "Updated Title"}
-    # First get fetches existing place (early fetch), then patch updates entry
-    mock_supabase_client.get.return_value = []  # No existing place
-    mock_supabase_client.patch.return_value = [updated_entry]
+    # RPC returns list with entry_row and place_row
+    mock_supabase_client.rpc.return_value = [
+        {"entry_row": updated_entry, "place_row": None}
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -394,9 +395,8 @@ def test_update_entry_not_found(
     auth_headers: dict[str, str],
 ) -> None:
     """Test updating an entry that doesn't exist returns 404."""
-    # First get fetches place (early), then patch returns empty (entry not found)
-    mock_supabase_client.get.return_value = []  # No existing place
-    mock_supabase_client.patch.return_value = []  # Entry not found
+    # RPC returns empty result when entry not found or unauthorized
+    mock_supabase_client.rpc.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -644,10 +644,10 @@ def test_update_entry_with_place_create(
     """Test updating entry with new place data (place creation)."""
     updated_entry = {**sample_entry, "title": "Updated Title"}
 
-    # get fetches place (early), patch updates entry, post creates place
-    mock_supabase_client.get.return_value = []  # No existing place
-    mock_supabase_client.patch.return_value = [updated_entry]
-    mock_supabase_client.post.return_value = [sample_place]
+    # RPC atomically updates entry and creates place
+    mock_supabase_client.rpc.return_value = [
+        {"entry_row": updated_entry, "place_row": sample_place}
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -688,11 +688,9 @@ def test_update_entry_with_place_update(
     updated_entry = {**sample_entry, "notes": "Updated notes"}
     updated_place = {**sample_place, "place_name": "Updated Park Name"}
 
-    # get fetches place (early), patch updates entry then place
-    mock_supabase_client.get.return_value = [sample_place]  # Existing place
-    mock_supabase_client.patch.side_effect = [
-        [updated_entry],  # Entry update
-        [updated_place],  # Place update
+    # RPC atomically updates entry and place
+    mock_supabase_client.rpc.return_value = [
+        {"entry_row": updated_entry, "place_row": updated_place}
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -729,10 +727,9 @@ def test_update_entry_patch_empty_returns_404(
     auth_headers: dict[str, str],
     sample_entry: dict[str, Any],
 ) -> None:
-    """Return 404 when Supabase PATCH touches no rows (e.g. stricter RLS)."""
-    # get fetches place (early), patch returns empty (RLS denies)
-    mock_supabase_client.get.return_value = []  # No existing place
-    mock_supabase_client.patch.return_value = []  # Entry not found/RLS denied
+    """Return 404 when RPC returns empty (entry not found/RLS denied)."""
+    # RPC returns empty when entry not found or RLS denies
+    mock_supabase_client.rpc.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -760,13 +757,11 @@ def test_update_entry_place_only_no_entry_fields(
     sample_entry: dict[str, Any],
     sample_place: dict[str, Any],
 ) -> None:
-    """Test updating only place data (no entry fields) - tests the else branch."""
-    # When only place data is sent: get place (early), get entry (no patch), post place
-    mock_supabase_client.get.side_effect = [
-        [],  # No existing place (early fetch)
-        [sample_entry],  # Fetch existing entry (since no fields to patch)
+    """Test updating only place data (no entry fields) - tests place-only update."""
+    # RPC atomically handles entry (no changes) and creates place
+    mock_supabase_client.rpc.return_value = [
+        {"entry_row": sample_entry, "place_row": sample_place}
     ]
-    mock_supabase_client.post.return_value = [sample_place]  # Create new place
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -800,8 +795,8 @@ def test_update_entry_place_only_not_found(
     auth_headers: dict[str, str],
 ) -> None:
     """Test updating only place data for non-existent entry returns 404."""
-    # Entry not found when fetching
-    mock_supabase_client.get.return_value = []
+    # RPC returns empty when entry not found
+    mock_supabase_client.rpc.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -837,11 +832,10 @@ def test_update_entry_fetches_existing_place_when_no_place_data(
     """Test that existing place is preserved when no place data is provided in update."""
     updated_entry = {**sample_entry, "title": "New Title"}
 
-    # get fetches place (early), patch updates entry - existing place is reused
-    mock_supabase_client.get.return_value = [
-        sample_place
-    ]  # Existing place (early fetch)
-    mock_supabase_client.patch.return_value = [updated_entry]
+    # RPC atomically updates entry and preserves existing place (p_place_operation='none')
+    mock_supabase_client.rpc.return_value = [
+        {"entry_row": updated_entry, "place_row": sample_place}
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

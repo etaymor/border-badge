@@ -154,7 +154,25 @@ async def create_entry(
         place_rows = await db.post("place", place_data)
         if not place_rows:
             # Rollback: delete the entry we just created
-            await db.delete("entry", {"id": f"eq.{entry.id}"})
+            # If cleanup fails, log the orphaned entry for manual resolution
+            try:
+                await db.delete("entry", {"id": f"eq.{entry.id}"})
+                logger.warning(
+                    "Place creation failed for entry %s, successfully rolled back",
+                    entry.id,
+                )
+            except Exception as cleanup_error:
+                logger.error(
+                    "ORPHANED ENTRY: Entry %s created but place creation failed "
+                    "and cleanup delete also failed: %s. Manual cleanup required.",
+                    entry.id,
+                    cleanup_error,
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create entry. Please contact support.",
+                ) from None
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create place for entry",
@@ -226,7 +244,11 @@ async def update_entry(
     data: EntryUpdate,
     user: CurrentUser,
 ) -> EntryWithPlace:
-    """Update an entry."""
+    """Update an entry atomically with its associated place data.
+
+    Uses a database transaction to ensure entry and place updates either
+    both succeed or both fail, preventing data inconsistency.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
@@ -247,86 +269,68 @@ async def update_entry(
             detail="place_name is required when providing place data",
         )
 
-    # Track whether we need to fetch existing places
-    # Only needed when: preserving existing (place_data is None) or updating (place_data has values)
-    existing_places: list[dict] | None = None
-    needs_existing_places = place_data is None or (
-        place_data is not None and place_data != {}
-    )
-    if needs_existing_places:
-        existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
-
-    # Update entry fields if any remain after extracting place
-    if update_data:
-        # Convert date to ISO format if present and not None
-        if "date" in update_data and update_data["date"] is not None:
-            update_data["date"] = update_data["date"].isoformat()
-
-        # Convert type enum to string if present and not None
-        if "type" in update_data and update_data["type"] is not None:
-            if isinstance(update_data["type"], EntryType):
-                update_data["type"] = update_data["type"].value
-
-        rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
-        if not rows:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Entry not found or not authorized to update",
-            )
-        entry = Entry(**rows[0])
+    # Determine place operation for the atomic function
+    if place_data is None:
+        place_operation = "none"  # Preserve existing place
+        place_payload: dict = {}
+    elif place_data == {}:
+        place_operation = "delete"  # Remove existing place
+        place_payload = {}
     else:
-        # No entry fields to update - fetch entry to return it
-        existing_entries = await db.get("entry", {"id": f"eq.{entry_id}"})
-        if not existing_entries:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Entry not found or not authorized to update",
-            )
-        entry = Entry(**existing_entries[0])
+        place_operation = "upsert"  # Create or update place
+        place_payload = {
+            "google_place_id": place_data.get("google_place_id"),
+            "place_name": place_data.get("place_name"),
+            "lat": place_data.get("lat"),
+            "lng": place_data.get("lng"),
+            "address": place_data.get("address"),
+            "extra_data": place_data.get("extra_data"),
+        }
 
-    # Handle place update/upsert/delete
-    place = None
-    if place_data is not None:
-        if place_data == {}:
-            # Empty dict signals explicit removal of place data
-            await db.delete("place", {"entry_id": f"eq.{entry_id}"})
-            place = None
-        else:
-            place_payload = {
-                "entry_id": str(entry_id),
-                "google_place_id": place_data.get("google_place_id"),
-                "place_name": place_data.get("place_name"),
-                "lat": place_data.get("lat"),
-                "lng": place_data.get("lng"),
-                "address": place_data.get("address"),
-                "extra_data": place_data.get("extra_data"),
-            }
-
-            if existing_places:
-                # Update existing place
-                place_rows = await db.patch(
-                    "place", place_payload, {"entry_id": f"eq.{entry_id}"}
-                )
+    # Prepare entry data for the RPC call
+    entry_payload: dict = {}
+    for key, value in update_data.items():
+        if value is not None:
+            if key == "date":
+                entry_payload[key] = value.isoformat()
+            elif key == "type" and isinstance(value, EntryType):
+                entry_payload[key] = value.value
             else:
-                # Create new place
-                place_rows = await db.post("place", place_payload)
+                entry_payload[key] = value
+        elif key in update_data:
+            # Explicitly set to null (e.g., clearing notes)
+            entry_payload[key] = None
 
-            if not place_rows:
-                # Log the failure for debugging - entry update succeeded but place failed
-                logger.error(
-                    "Place save failed for entry %s after entry update. "
-                    "Entry changes were committed but place data was not saved.",
-                    entry_id,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to save place data. Entry was updated but place changes were lost.",
-                )
-            place = Place(**place_rows[0])
-    else:
-        # place_data is None (omitted from request) - preserve existing place
-        if existing_places:
-            place = Place(**existing_places[0])
+    # Call atomic RPC function - both entry and place update in single transaction
+    result = await db.rpc(
+        "atomic_update_entry_with_place",
+        {
+            "p_entry_id": str(entry_id),
+            "p_entry_data": entry_payload,
+            "p_place_operation": place_operation,
+            "p_place_data": place_payload,
+        },
+    )
+
+    if not result or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not authorized to update",
+        )
+
+    # Parse the result from the RPC function
+    row = result[0]
+    entry_data = row.get("entry_row")
+    place_data_result = row.get("place_row")
+
+    if not entry_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update entry",
+        )
+
+    entry = Entry(**entry_data)
+    place = Place(**place_data_result) if place_data_result else None
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

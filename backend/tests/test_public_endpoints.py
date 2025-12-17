@@ -525,15 +525,34 @@ def test_public_list_private_returns_404(
 
 
 def test_extract_place_photo_url_with_valid_url() -> None:
-    """Test _extract_place_photo_url returns URL when present in extra_data."""
+    """Test _extract_place_photo_url returns URL when from valid Google domain."""
     from app.api.public import _extract_place_photo_url
 
+    # Test maps.googleapis.com (whitelisted)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "https://maps.googleapis.com/photo.jpg"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "https://maps.googleapis.com/photo.jpg"
+
+    # Test lh3.googleusercontent.com (whitelisted)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {
+            "google_photo_url": "https://lh3.googleusercontent.com/photo.jpg"
+        },
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "https://lh3.googleusercontent.com/photo.jpg"
+
+    # Test non-Google domain (rejected for SSRF protection)
     place = {
         "place_name": "Test Place",
         "extra_data": {"google_photo_url": "https://example.com/photo.jpg"},
     }
     result = _extract_place_photo_url(place)
-    assert result == "https://example.com/photo.jpg"
+    assert result is None
 
 
 def test_extract_place_photo_url_with_none_place() -> None:
@@ -628,13 +647,21 @@ def test_extract_place_photo_url_with_invalid_scheme() -> None:
     result = _extract_place_photo_url(place)
     assert result is None
 
-    # Test http (valid)
+    # Test http on Google domain (valid scheme + whitelisted domain)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "http://maps.googleapis.com/photo.jpg"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "http://maps.googleapis.com/photo.jpg"
+
+    # Test http on non-Google domain (rejected - not whitelisted)
     place = {
         "place_name": "Test Place",
         "extra_data": {"google_photo_url": "http://example.com/photo.jpg"},
     }
     result = _extract_place_photo_url(place)
-    assert result == "http://example.com/photo.jpg"
+    assert result is None
 
 
 def test_public_trip_with_place_photo_url(
