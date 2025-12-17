@@ -1,4 +1,4 @@
-/* Border Badge Public Pages - Best-in-Class Design */
+/* Atlasi Public Pages - Best-in-Class Design */
 
 /* CSS Variables (Design Tokens) */
 :root {
@@ -154,21 +154,26 @@ img {
 }
 
 .logo {
-  font-family: var(--font-family-title);
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(
-    --color-text-main
-  ); /* Default to main text color, override in hero context if needed */
-  text-shadow: none;
-  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
 }
 
-/* For pages with dark hero (like list/trip detail), we might want white logo */
-.hero-section + .header .logo, /* If header is inside/over hero */
-body:has(.hero-section) .header .logo {
-  color: var(--color-cloud-white);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+.logo-image {
+  height: 32px;
+  width: auto;
+  transition: var(--transition-base);
+}
+
+/* On hover, subtle scale effect */
+.logo:hover .logo-image {
+  transform: scale(1.05);
+}
+
+/* For pages with dark hero, apply drop shadow to make logo visible */
+/* Supports both :has() selector and fallback class for browsers without :has() support */
+body:has(.hero-section) .header .logo-image,
+body.has-hero .header .logo-image {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 /* If the header is actually outside the hero in the DOM but positioned absolutely */
@@ -182,7 +187,8 @@ body:has(.hero-section) .header .logo {
 }
 
 /* White CTA on dark hero pages */
-body:has(.hero-section) .header .cta-button {
+body:has(.hero-section) .header .cta-button,
+body.has-hero .header .cta-button {
   color: var(--color-cloud-white);
   border-color: rgba(255, 255, 255, 0.4);
 }

@@ -11,21 +11,23 @@ export function WelcomeScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.logo}>Border Badge</Text>
+          <Text style={styles.logo}>Atlasi</Text>
           <Text style={styles.tagline}>Track your travels around the world</Text>
         </View>
 
         <View style={styles.buttonContainer}>
           <Button
             title="Get Started"
-            onPress={() => navigation.navigate('PhoneAuth')}
+            // @ts-expect-error - React Navigation 7 typing issue with composite screens
+            onPress={() => navigation.navigate('Auth')}
             style={styles.button}
             testID="welcome-get-started-button"
           />
 
           <Button
             title="I have an account"
-            onPress={() => navigation.navigate('PhoneAuth')}
+            // @ts-expect-error - React Navigation 7 typing issue with composite screens
+            onPress={() => navigation.navigate('Auth')}
             variant="outline"
             style={styles.button}
             testID="welcome-login-button"

@@ -2,6 +2,7 @@
 
 import html
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -19,6 +20,22 @@ from app.schemas.public import PublicTripEntry, PublicTripView
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["public"])
+
+
+def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
+    """Pull google_photo_url out of place.extra_data if present."""
+    if not place:
+        return None
+    extra_data = place.get("extra_data")
+    if not isinstance(extra_data, dict):
+        return None
+    photo_url = extra_data.get("google_photo_url")
+    if not isinstance(photo_url, str) or not photo_url:
+        return None
+    # Validate URL scheme to prevent injection
+    if not photo_url.startswith(("https://", "http://")):
+        return None
+    return photo_url
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -39,6 +56,7 @@ async def landing_page(request: Request) -> HTMLResponse:
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
@@ -79,7 +97,7 @@ async def view_public_list(
         "list_entries",
         {
             "list_id": f"eq.{lst['id']}",
-            "select": "*, entry:entry_id(id, title, type, notes, link, place:place(place_name, address, google_place_id, lat, lng), media_files(file_path, thumbnail_path, status))",
+            "select": "*, entry:entry_id(id, title, type, notes, link, place:place(place_name, address, google_place_id, lat, lng, extra_data), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
             "limit": 50,  # Limit entries for public view
         },
@@ -103,6 +121,7 @@ async def view_public_list(
                     latitude=place.get("lat"),
                     longitude=place.get("lng"),
                     media_urls=extract_media_urls(entry.get("media_files")),
+                    place_photo_url=_extract_place_photo_url(place),
                 )
             )
 
@@ -142,6 +161,7 @@ async def view_public_list(
             "og_url": seo.canonical_url,
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
@@ -183,7 +203,7 @@ async def view_public_trip(
         {
             "trip_id": f"eq.{trip['id']}",
             "deleted_at": "is.null",
-            "select": "id, title, type, notes, place:place(place_name, address), media_files(file_path, thumbnail_path, status)",
+            "select": "id, title, type, notes, place:place(place_name, address, extra_data), media_files(file_path, thumbnail_path, status)",
             "order": "created_at.desc",
         },
     )
@@ -200,6 +220,7 @@ async def view_public_trip(
                 place_name=place.get("place_name"),
                 address=place.get("address"),
                 media_urls=extract_media_urls(entry.get("media_files")),
+                place_photo_url=_extract_place_photo_url(place),
             )
         )
 
@@ -236,6 +257,7 @@ async def view_public_trip(
             "og_url": seo.canonical_url,
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
+            "has_hero": True,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"

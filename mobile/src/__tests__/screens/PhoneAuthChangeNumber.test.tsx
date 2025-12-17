@@ -2,7 +2,7 @@ import React from 'react';
 
 import type { AuthStackScreenProps, OnboardingStackScreenProps } from '@navigation/types';
 import { AccountCreationScreen } from '@screens/onboarding/AccountCreationScreen';
-import { PhoneAuthScreen } from '@screens/auth/PhoneAuthScreen';
+import { AuthScreen } from '@screens/auth';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
@@ -45,26 +45,24 @@ describe('Change number flow', () => {
     }));
   });
 
-  it('clears phone input when changing number on PhoneAuthScreen', async () => {
+  it('clears phone input when changing number on AuthScreen', async () => {
     const navigation =
-      createMockNavigation() as unknown as AuthStackScreenProps<'PhoneAuth'>['navigation'];
+      createMockNavigation() as unknown as AuthStackScreenProps<'Auth'>['navigation'];
     const route = {
       key: 'test-auth',
-      name: 'PhoneAuth',
-    } as AuthStackScreenProps<'PhoneAuth'>['route'];
+      name: 'Auth',
+    } as AuthStackScreenProps<'Auth'>['route'];
 
-    const { getByTestId, getByText } = render(
-      <PhoneAuthScreen navigation={navigation} route={route} />
-    );
+    const { getByTestId, getByText } = render(<AuthScreen navigation={navigation} route={route} />);
 
-    fireEvent.changeText(getByTestId('phone-auth-input'), '5551234567');
-    fireEvent.press(getByTestId('phone-auth-send-button'));
+    fireEvent.changeText(getByTestId('auth-phone-input'), '5551234567');
+    fireEvent.press(getByTestId('auth-send-button'));
 
     await waitFor(() => expect(getByText('Change number')).toBeTruthy());
 
     fireEvent.press(getByText('Change number'));
 
-    await waitFor(() => expect(getByTestId('phone-auth-input').props.value).toBe(''));
+    await waitFor(() => expect(getByTestId('auth-phone-input').props.value).toBe(''));
   });
 
   it('clears phone input when changing number on AccountCreationScreen', async () => {

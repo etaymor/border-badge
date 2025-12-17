@@ -24,7 +24,7 @@ def test_landing_page_returns_html(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Border Badge" in response.text
+    assert "Atlasi" in response.text
 
 
 def test_landing_page_has_cache_header(client: TestClient) -> None:
@@ -517,3 +517,212 @@ def test_public_list_private_returns_404(
         response = client.get("/l/private-list-slug")
 
     assert response.status_code == 404
+
+
+# ============================================================================
+# _extract_place_photo_url Tests
+# ============================================================================
+
+
+def test_extract_place_photo_url_with_valid_url() -> None:
+    """Test _extract_place_photo_url returns URL when present in extra_data."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "https://example.com/photo.jpg"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "https://example.com/photo.jpg"
+
+
+def test_extract_place_photo_url_with_none_place() -> None:
+    """Test _extract_place_photo_url returns None when place is None."""
+    from app.api.public import _extract_place_photo_url
+
+    result = _extract_place_photo_url(None)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_no_extra_data() -> None:
+    """Test _extract_place_photo_url returns None when extra_data is missing."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place"}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_none_extra_data() -> None:
+    """Test _extract_place_photo_url returns None when extra_data is None."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place", "extra_data": None}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_non_dict_extra_data() -> None:
+    """Test _extract_place_photo_url returns None when extra_data is not a dict."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place", "extra_data": "not a dict"}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_missing_google_photo_url() -> None:
+    """Test _extract_place_photo_url returns None when google_photo_url key is missing."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place", "extra_data": {"other_key": "value"}}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_empty_string() -> None:
+    """Test _extract_place_photo_url returns None when google_photo_url is empty string."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place", "extra_data": {"google_photo_url": ""}}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_non_string_url() -> None:
+    """Test _extract_place_photo_url returns None when google_photo_url is not a string."""
+    from app.api.public import _extract_place_photo_url
+
+    place = {"place_name": "Test Place", "extra_data": {"google_photo_url": 12345}}
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+
+def test_extract_place_photo_url_with_invalid_scheme() -> None:
+    """Test _extract_place_photo_url returns None when URL has invalid scheme."""
+    from app.api.public import _extract_place_photo_url
+
+    # Test javascript: scheme (XSS vector)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "javascript:alert('xss')"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test data: scheme
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {
+            "google_photo_url": "data:text/html,<script>alert('xss')</script>"
+        },
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test file: scheme
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "file:///etc/passwd"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result is None
+
+    # Test http (valid)
+    place = {
+        "place_name": "Test Place",
+        "extra_data": {"google_photo_url": "http://example.com/photo.jpg"},
+    }
+    result = _extract_place_photo_url(place)
+    assert result == "http://example.com/photo.jpg"
+
+
+def test_public_trip_with_place_photo_url(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test public trip page extracts place photo URL from extra_data."""
+    trip_data = {
+        "id": TEST_TRIP_ID,
+        "user_id": TEST_USER_ID,
+        "name": "Summer Vacation",
+        "share_slug": "summer-vacation-abc123",
+        "cover_image_url": None,
+        "date_range": None,
+        "created_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "country": {"name": "United States", "code": "US"},
+    }
+    entry_rows = [
+        {
+            "id": TEST_ENTRY_ID,
+            "title": "Great Restaurant",
+            "type": "food",
+            "notes": "Amazing tacos!",
+            "place": {
+                "place_name": "Taco Stand",
+                "address": "123 Main St",
+                "extra_data": {
+                    "google_photo_url": "https://maps.googleapis.com/photo.jpg"
+                },
+            },
+            "media_files": [],
+        }
+    ]
+    mock_supabase_client.get.side_effect = [
+        [trip_data],
+        entry_rows,
+    ]
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/t/summer-vacation-abc123")
+
+    assert response.status_code == 200
+    assert "Great Restaurant" in response.text
+
+
+def test_public_list_with_place_photo_url(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """Test public list page extracts place photo URL from extra_data."""
+    list_with_trip = {
+        **sample_list,
+        "trip": {"name": "Summer Vacation", "country": {"name": "United States"}},
+    }
+    entry_rows = [
+        {
+            "id": "entry-1",
+            "entry_id": TEST_ENTRY_ID,
+            "position": 0,
+            "entry": {
+                "id": TEST_ENTRY_ID,
+                "title": "Best Coffee Shop",
+                "type": "food",
+                "notes": "Great espresso!",
+                "link": None,
+                "place": {
+                    "place_name": "Coffee House",
+                    "address": "456 Oak Ave",
+                    "google_place_id": "ChIJ123",
+                    "lat": 40.7,
+                    "lng": -73.9,
+                    "extra_data": {
+                        "google_photo_url": "https://maps.googleapis.com/coffee.jpg"
+                    },
+                },
+                "media_files": [],
+            },
+        }
+    ]
+    mock_supabase_client.get.side_effect = [
+        [list_with_trip],
+        entry_rows,
+    ]
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/l/best-places-to-visit-abc123")
+
+    assert response.status_code == 200
+    assert "Best Coffee Shop" in response.text

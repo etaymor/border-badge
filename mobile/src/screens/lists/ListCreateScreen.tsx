@@ -5,21 +5,20 @@ import {
   FlatList,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, GlassBackButton, GlassInput } from '@components/ui';
+import { ListSuccessView } from '@components/lists';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
-import { useCreateList, getPublicListUrl, ListDetail } from '@hooks/useLists';
+import { useCreateList, ListDetail } from '@hooks/useLists';
 
 type Props = TripsStackScreenProps<'ListCreate'>;
 
@@ -49,75 +48,6 @@ function EntrySelectionItem({ entry, selected, onToggle }: EntrySelectionItemPro
         <Text style={styles.entryTypeText}>{entry.entry_type}</Text>
       </View>
     </Pressable>
-  );
-}
-
-interface SuccessViewProps {
-  list: ListDetail;
-  onDone: () => void;
-}
-
-function SuccessView({ list, onDone }: SuccessViewProps) {
-  const shareUrl = getPublicListUrl(list.slug);
-  const [copied, setCopied] = useState(false);
-  const insets = useSafeAreaInsets();
-
-  const handleCopy = useCallback(async () => {
-    await Clipboard.setStringAsync(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [shareUrl]);
-
-  const handleShare = useCallback(async () => {
-    try {
-      await Share.share({
-        message: `Check out my list "${list.name}": ${shareUrl}`,
-        url: shareUrl,
-      });
-    } catch (error) {
-      console.error('Share error:', error);
-    }
-  }, [list.name, shareUrl]);
-
-  return (
-    <View style={[styles.successContainer, { paddingTop: insets.top }]}>
-      <View style={styles.successIcon}>
-        <Ionicons name="checkmark-circle" size={64} color={colors.mossGreen} />
-      </View>
-      <Text style={styles.successTitle}>List Created!</Text>
-      <Text style={styles.successSubtitle}>
-        Anyone with the link can view &quot;{list.name}&quot;
-      </Text>
-
-      {/* Share URL */}
-      <View style={styles.urlContainer}>
-        <Text style={styles.urlLabel}>Public link</Text>
-        <View style={styles.urlBox}>
-          <Text style={styles.urlText} numberOfLines={1}>
-            {shareUrl}
-          </Text>
-          <Pressable style={styles.copyButton} onPress={handleCopy}>
-            <Ionicons
-              name={copied ? 'checkmark' : 'copy-outline'}
-              size={20}
-              color={colors.midnightNavy}
-            />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Actions */}
-      <View style={styles.successActions}>
-        <Pressable style={styles.shareButton} onPress={handleShare}>
-          <Ionicons name="share-outline" size={20} color={colors.midnightNavy} />
-          <Text style={styles.shareButtonText}>Share</Text>
-        </Pressable>
-
-        <Pressable style={styles.doneButton} onPress={onDone}>
-          <Text style={styles.doneButtonText}>Done</Text>
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
@@ -218,7 +148,7 @@ export function ListCreateScreen({ route, navigation }: Props) {
 
   // Show success view after creation
   if (createdList) {
-    return <SuccessView list={createdList} onDone={handleDone} />;
+    return <ListSuccessView list={createdList} onDone={handleDone} />;
   }
 
   return (
@@ -515,95 +445,5 @@ const styles = StyleSheet.create({
   footer: {
     padding: 24,
     paddingTop: 16,
-  },
-  // Success view
-  successContainer: {
-    flex: 1,
-    backgroundColor: colors.warmCream,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  successIcon: {
-    marginBottom: 16,
-  },
-  successTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 24,
-    color: colors.midnightNavy,
-    marginBottom: 8,
-  },
-  successSubtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 32,
-  },
-  urlContainer: {
-    width: '100%',
-    marginBottom: 32,
-  },
-  urlLabel: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 12,
-    color: colors.midnightNavy,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-    opacity: 0.7,
-  },
-  urlBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  urlText: {
-    flex: 1,
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    marginRight: 8,
-  },
-  copyButton: {
-    padding: 4,
-  },
-  successActions: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  shareButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.sunsetGold,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  shareButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.midnightNavy,
-  },
-  doneButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(23, 42, 58, 0.08)',
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  doneButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.midnightNavy,
   },
 });

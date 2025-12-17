@@ -124,6 +124,7 @@ async function doMigration(session: Session): Promise<MigrationResult> {
     homeCountry,
     motivationTags,
     personaTags,
+    trackingPreference,
     reset,
   } = useOnboardingStore.getState();
 
@@ -159,9 +160,13 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   const allMigratedCountries = [...visitedResult.data, ...wishlistResult.data];
   queryClient.setQueryData(['user-countries', session.user.id], allMigratedCountries);
 
-  // Migrate profile preferences (home country, travel motives, persona tags)
+  // Migrate profile preferences (home country, travel motives, persona tags, tracking preference)
   // Add a small delay to avoid rate limiting after country migrations
-  const hasProfileData = homeCountry || motivationTags.length > 0 || personaTags.length > 0;
+  const hasProfileData =
+    homeCountry ||
+    motivationTags.length > 0 ||
+    personaTags.length > 0 ||
+    trackingPreference !== 'full_atlas';
   if (hasProfileData) {
     try {
       // Small delay to avoid hitting rate limits after batch country requests
@@ -172,6 +177,7 @@ async function doMigration(session: Session): Promise<MigrationResult> {
           home_country_code: homeCountry,
           travel_motives: motivationTags,
           persona_tags: personaTags,
+          tracking_preference: trackingPreference,
         });
       });
       migratedProfile = true;

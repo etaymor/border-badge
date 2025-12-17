@@ -89,6 +89,7 @@ class PublicListEntry(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     media_urls: list[str] = []
+    place_photo_url: str | None = None
 
 
 class PublicListView(BaseModel):

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -33,12 +33,21 @@ function formatDate(dateString: string | null): string {
 
 function EntryCardComponent({ entry, onPress }: EntryCardProps) {
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
-  const hasMedia = entry.media_files && entry.media_files.length > 0;
+  const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
-  const firstMediaUrl =
-    hasMedia && entry.media_files?.[0]?.thumbnail_url
-      ? entry.media_files[0].thumbnail_url
-      : entry.media_files?.[0]?.url;
+  const [imageError, setImageError] = useState(false);
+
+  // Use user-uploaded media first, fall back to Google Places photo
+  const firstMediaUrl = hasUserMedia
+    ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
+    : entry.place?.google_photo_url;
+
+  const hasMedia = !!firstMediaUrl;
+  const shouldShowImage = hasMedia && !imageError;
+
+  useEffect(() => {
+    setImageError(false);
+  }, [entry.id, firstMediaUrl]);
 
   // Build accessibility label
   const accessibilityParts = [
@@ -46,7 +55,7 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     entry.title,
     entry.place?.name && `at ${entry.place.name}`,
     entry.entry_date && formatDate(entry.entry_date),
-    hasMedia && `${mediaCount} photo${mediaCount > 1 ? 's' : ''}`,
+    hasUserMedia && `${mediaCount} photo${mediaCount > 1 ? 's' : ''}`,
   ].filter(Boolean);
 
   return (
@@ -83,10 +92,14 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
       </View>
 
       {/* Media Preview */}
-      {hasMedia ? (
+      {shouldShowImage ? (
         <View style={styles.mediaContainer}>
           {firstMediaUrl ? (
-            <Image source={{ uri: firstMediaUrl }} style={styles.mediaThumbnail} />
+            <Image
+              source={{ uri: firstMediaUrl }}
+              style={styles.mediaThumbnail}
+              onError={() => setImageError(true)}
+            />
           ) : (
             <View style={styles.mediaThumbnailPlaceholder}>
               <Ionicons name="image" size={20} color="#ccc" />

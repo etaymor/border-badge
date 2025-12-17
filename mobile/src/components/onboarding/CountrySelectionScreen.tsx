@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   FlatList,
+  Image,
   Keyboard,
   StyleSheet,
   TextInput,
@@ -13,6 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
@@ -164,19 +170,24 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
-      {/* Back button - top left */}
-      {showBackButton && (
-        <Animated.View style={[styles.backButtonContainer, { opacity: refs.backButtonOpacity }]}>
-          <GlassBackButton onPress={handleBack} />
-        </Animated.View>
-      )}
+      {/* Header with logo and login */}
+      <View style={styles.headerRow}>
+        {/* Back button - left side */}
+        {showBackButton && (
+          <Animated.View style={[styles.backButtonContainer, { opacity: refs.backButtonOpacity }]}>
+            <GlassBackButton onPress={handleBack} />
+          </Animated.View>
+        )}
 
-      {/* Login button - top right */}
-      <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-        <Text variant="label" style={styles.loginText}>
-          Login
-        </Text>
-      </TouchableOpacity>
+        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+
+        {/* Login button - right side */}
+        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+          <Text variant="label" style={styles.loginText}>
+            Login
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.content}>
         {/* Title */}
@@ -194,7 +205,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
           </Text>
         </Animated.View>
 
-        {/* Search Input */}
+        {/* Search Input - Liquid Glass Style */}
         <Animated.View
           style={[
             styles.searchContainer,
@@ -204,38 +215,42 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             },
           ]}
         >
-          <View style={styles.searchInputWrapper}>
-            <Ionicons
-              name="search"
-              size={28}
-              color={colors.midnightNavyMuted}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={(text) => {
-                setSearchQuery(text);
-                setShowDropdown(text.length > 0);
-              }}
-              placeholder="Type Country"
-              placeholderTextColor={colors.midnightNavyMuted}
-              autoCapitalize="words"
-              autoCorrect={false}
-              onFocus={() => setShowDropdown(searchQuery.length > 0)}
-              testID={`${testIdPrefix}-search`}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                onPress={() => {
-                  setSearchQuery('');
-                  setShowDropdown(false);
-                }}
-                style={styles.clearButton}
-              >
-                <Ionicons name="close-circle" size={26} color={colors.midnightNavyMuted} />
-              </TouchableOpacity>
-            )}
+          <View style={styles.searchGlassWrapper}>
+            <BlurView intensity={60} tint="light" style={styles.searchGlassContainer}>
+              <View style={styles.searchInputWrapper}>
+                <Ionicons
+                  name="search"
+                  size={18}
+                  color={colors.stormGray}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.searchInput}
+                  value={searchQuery}
+                  onChangeText={(text) => {
+                    setSearchQuery(text);
+                    setShowDropdown(text.length > 0);
+                  }}
+                  placeholder="Type Country"
+                  placeholderTextColor={colors.stormGray}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onFocus={() => setShowDropdown(searchQuery.length > 0)}
+                  testID={`${testIdPrefix}-search`}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery('');
+                      setShowDropdown(false);
+                    }}
+                    style={styles.clearButton}
+                  >
+                    <Ionicons name="close-circle" size={20} color={colors.stormGray} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </BlurView>
           </View>
 
           {/* Dropdown */}
@@ -342,17 +357,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
   backButtonContainer: {
     position: 'absolute',
-    top: 60,
     left: 20,
-    zIndex: 10,
+  },
+  logo: {
+    width: 140,
+    height: 40,
   },
   loginButton: {
     position: 'absolute',
-    top: 60,
     right: 20,
-    zIndex: 10,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -362,7 +385,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 80,
+    paddingTop: 16,
   },
   header: {
     marginBottom: 48,
@@ -376,34 +399,46 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 10,
   },
+  searchGlassWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.midnightNavyLight,
-    borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 12,
-    minHeight: 60,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
   },
   searchIcon: {
-    marginRight: 16,
-    alignSelf: 'center',
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    fontSize: 28,
     fontFamily: fonts.openSans.regular,
+    fontSize: 16,
     color: colors.midnightNavy,
-    paddingVertical: 0,
-    lineHeight: 36,
   },
   clearButton: {
     padding: 4,
   },
   dropdown: {
     position: 'absolute',
-    top: 76,
+    top: 60,
     left: 0,
     right: 0,
     backgroundColor: colors.warmCream,

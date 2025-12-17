@@ -19,7 +19,7 @@ export function HomeCountryScreen({ navigation }: Props) {
 
   const config: CountrySelectionConfig = {
     backgroundColor: colors.dustyCoral,
-    title: 'Where do you live today?',
+    title: "Where's home?",
     dropdownBorderColor: colors.dustyCoral,
     celebration: {
       icon: 'checkmark-circle',
@@ -31,8 +31,8 @@ export function HomeCountryScreen({ navigation }: Props) {
     showBackButton: false,
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
-    onNavigateNext: () => navigation.navigate('DreamDestination'),
-    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'PhoneAuth' }),
+    onNavigateNext: () => navigation.navigate('TrackingPreference'),
+    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'Auth' }),
     testIdPrefix: 'home-country',
   };
 

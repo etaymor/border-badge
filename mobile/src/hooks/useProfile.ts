@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
+import type { TrackingPreset } from '@constants/trackingPreferences';
 import { api } from '@services/api';
 
 export interface Profile {
@@ -11,6 +12,7 @@ export interface Profile {
   home_country_code?: string;
   travel_motives?: string[];
   persona_tags?: string[];
+  tracking_preference: TrackingPreset;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +23,7 @@ export interface UpdateProfileInput {
   home_country_code?: string;
   travel_motives?: string[];
   persona_tags?: string[];
+  tracking_preference?: TrackingPreset;
 }
 
 const PROFILE_QUERY_KEY = ['profile'];

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   useFonts,
@@ -14,10 +14,12 @@ import {
 import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AnimatedSplash } from '@components/splash';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
 import { queryClient } from './src/queryClient';
@@ -25,8 +27,14 @@ import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } f
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 
+// Prevent the native splash screen from auto-hiding
+SplashScreen.preventAutoHideAsync();
+
 export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding } = useAuthStore();
+  const [showSplash, setShowSplash] = useState(true);
+  const [isAppReady, setIsAppReady] = useState(false);
+  const nativeSplashHiddenRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -78,6 +86,8 @@ export default function App() {
         console.error('Failed to restore session:', error);
       } finally {
         setIsLoading(false);
+        // Mark app as ready for the animated splash to transition
+        setIsAppReady(true);
       }
 
       // Then set up listener for future changes (after session restore completes)
@@ -110,6 +120,22 @@ export default function App() {
     };
   }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
 
+  // Handle splash animation complete
+  const handleSplashComplete = useCallback(() => {
+    setShowSplash(false);
+  }, []);
+
+  // Hide the native splash only once the animated splash is ready to display
+  const handleSplashVisible = useCallback(() => {
+    if (nativeSplashHiddenRef.current) {
+      return;
+    }
+    nativeSplashHiddenRef.current = true;
+    SplashScreen.hideAsync().catch((error) => {
+      console.warn('Failed to hide native splash screen:', error);
+    });
+  }, []);
+
   if (!fontsLoaded) {
     return null;
   }
@@ -122,6 +148,13 @@ export default function App() {
             <RootNavigator />
             <StatusBar style="auto" />
           </NavigationContainer>
+          {showSplash && (
+            <AnimatedSplash
+              isAppReady={isAppReady}
+              onAnimationComplete={handleSplashComplete}
+              onSplashVisible={handleSplashVisible}
+            />
+          )}
         </SafeAreaProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

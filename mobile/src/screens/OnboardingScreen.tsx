@@ -18,7 +18,7 @@ export function OnboardingScreen(_props: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Welcome to Border Badge!</Text>
+        <Text style={styles.title}>Welcome to Atlasi!</Text>
         <Text style={styles.subtitle}>
           {"Track your travels and see where you've been around the world."}
         </Text>

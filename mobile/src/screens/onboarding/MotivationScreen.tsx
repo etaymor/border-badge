@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
-import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import atlasLogo from '../../../assets/atlasi-logo.png';
 import { Chip, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -89,17 +90,20 @@ export function MotivationScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Login button - top right */}
-      <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-        <Text variant="label" style={styles.loginText}>
-          Login
-        </Text>
-      </TouchableOpacity>
+      {/* Header with logo and login */}
+      <View style={styles.headerRow}>
+        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
+          <Text variant="label" style={styles.loginText}>
+            Login
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.content}>
         {/* Title */}
@@ -113,7 +117,7 @@ export function MotivationScreen({ navigation }: Props) {
           ]}
         >
           <Text variant="title" style={styles.title}>
-            What moves you to explore?
+            What kind of traveler are you?
           </Text>
         </Animated.View>
 
@@ -188,11 +192,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.lakeBlue,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   loginButton: {
     position: 'absolute',
-    top: 60,
     right: 20,
-    zIndex: 10,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -202,7 +216,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 80,
+    paddingTop: 16,
   },
   header: {
     marginBottom: 32,

@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Image,
@@ -11,17 +12,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { Text } from '@components/ui';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
+import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
+import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
+import { useCountries } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
 
-type Props = OnboardingStackScreenProps<'ProgressSummary'>;
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
-const TOTAL_COUNTRIES = 198;
+type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
 // Stamp layout calculation - clean grid with slight rotation
 function calculateStampPositions(count: number, containerWidth: number) {
@@ -55,10 +63,14 @@ function calculateStampPositions(count: number, containerWidth: number) {
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const { selectedCountries, homeCountry } = useOnboardingStore();
+  const { data: allCountriesData } = useCountries();
 
   // Animation refs
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const stampAnimations = useRef<Animated.Value[]>([]);
+
+  // Share overlay state
+  const [showShareOverlay, setShowShareOverlay] = useState(false);
 
   // Include home country in visited count if set
   const allVisitedCountries = useMemo(() => {
@@ -69,6 +81,68 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const visitedCount = allVisitedCountries.length;
   const visibleStamps = allVisitedCountries;
+
+  // Build share context from visited countries
+  const shareContext: OnboardingShareContext | null = useMemo(() => {
+    if (allCountriesData.length === 0 || allVisitedCountries.length === 0) {
+      return null;
+    }
+
+    // Get country data for visited countries
+    const visitedCountryData = allCountriesData.filter((c) => allVisitedCountries.includes(c.code));
+
+    // Calculate unique regions and subregions
+    const regions = [...new Set(visitedCountryData.map((c) => c.region))];
+    const subregions = [
+      ...new Set(visitedCountryData.map((c) => c.subregion).filter(Boolean)),
+    ] as string[];
+
+    // Get travel tier
+    const travelTier = getTravelStatus(allVisitedCountries.length);
+
+    // Calculate continent stats for share cards
+    const continentStats = ALL_REGIONS.map((region) => {
+      const visitedInRegion = visitedCountryData.filter((c) => c.region === region);
+
+      // Find rarest visited country (highest rarity score)
+      let rarestCountryCode: string | null = null;
+      if (visitedInRegion.length > 0) {
+        const rarest = visitedInRegion.reduce((best, c) =>
+          getCountryRarity(c.code) > getCountryRarity(best.code) ? c : best
+        );
+        rarestCountryCode = rarest.code;
+      }
+
+      return {
+        name: region,
+        visitedCount: visitedInRegion.length,
+        totalCount: CONTINENT_TOTALS[region] || 0,
+        rarestCountryCode,
+      };
+    });
+
+    return {
+      visitedCountries: allVisitedCountries,
+      totalCountries: allVisitedCountries.length,
+      regions,
+      regionCount: regions.length,
+      subregions,
+      subregionCount: subregions.length,
+      travelTier,
+      continentStats,
+    };
+  }, [allCountriesData, allVisitedCountries]);
+
+  // Handle share button press
+  const handleShare = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setShowShareOverlay(true);
+  }, []);
+
+  // Handle share overlay dismiss
+  const handleDismissShare = useCallback(() => {
+    setShowShareOverlay(false);
+  }, []);
 
   const containerWidth = screenWidth - 32; // 16px padding on each side
   const stampPositions = useMemo(
@@ -132,7 +206,8 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const handleContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    navigation.navigate('Paywall');
+    // LAUNCH_SIMPLIFICATION: Skip paywall, go directly to name entry
+    navigation.navigate('NameEntry');
   };
 
   return (
@@ -142,14 +217,30 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            bounces={true}
           >
-            {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>Look at those stamps!</Text>
-              <Text style={styles.headerSubtitle}>
-                You&apos;ve explored {visitedCount} of {TOTAL_COUNTRIES} countries!
-              </Text>
+            {/* Header with logo */}
+            <View style={styles.headerRow}>
+              <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             </View>
+
+            {/* Title */}
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Look at you go!</Text>
+              <Text style={styles.headerSubtitle}>{visitedCount} countries and counting.</Text>
+            </View>
+
+            {/* Share button - above stamps */}
+            {shareContext && (
+              <TouchableOpacity
+                style={styles.shareButton}
+                onPress={handleShare}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
+                <Text style={styles.shareButtonText}>Share Your Atlas</Text>
+              </TouchableOpacity>
+            )}
 
             {/* Stamp Grid */}
             <View style={styles.stampSection}>
@@ -199,8 +290,9 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           </ScrollView>
         </Animated.View>
 
-        {/* Footer Button - fixed position matching other onboarding screens */}
+        {/* Footer Buttons - fixed position matching other onboarding screens */}
         <View style={styles.bottomContainer}>
+          {/* Continue button */}
           <TouchableOpacity
             style={styles.continueButton}
             onPress={handleContinue}
@@ -210,6 +302,13 @@ export function ProgressSummaryScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      {/* Share Overlay */}
+      <OnboardingShareOverlay
+        visible={showShareOverlay}
+        context={shareContext}
+        onDismiss={handleDismissShare}
+      />
     </View>
   );
 }
@@ -229,19 +328,33 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 120,
   },
+  // Header with logo
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   // Header
   header: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
     alignItems: 'center',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 28,
+    lineHeight: 36,
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   headerSubtitle: {
     fontFamily: fonts.openSans.regular,
@@ -285,6 +398,26 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     paddingBottom: 40,
     alignItems: 'center',
+    gap: 12,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    gap: 8,
+    backgroundColor: withAlpha(colors.sunsetGold, 0.15),
+    borderWidth: 1.5,
+    borderColor: colors.sunsetGold,
+    marginBottom: 16,
+  },
+  shareButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.sunsetGold,
   },
   continueButton: {
     backgroundColor: colors.sunsetGold,
@@ -303,8 +436,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   continueButtonText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    fontWeight: '600',
     color: colors.midnightNavy,
   },
 });

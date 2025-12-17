@@ -6,70 +6,71 @@
 -- - Dependent territories (various)
 -- - Special regions (Antarctica, Hong Kong, Macau, etc.)
 -- Recognition types: un_member, observer, disputed, territory, dependent_territory, special_region, constituent_country
--- Subregions: Northern/Western/Eastern/Central/Southern Africa, North/Central America, Caribbean, South America,
---             Middle East, Central/South/Southeast/East Asia, Northern/Western/Eastern/Southern Europe,
---             Australia/New Zealand, Melanesia, Micronesia, Polynesia
+-- Subregions:
+--   Europe: Core Europe, Nordics, Southern Europe, Balkans, Eastern Europe, British Isles
+--   Asia: East & Southeast Asia, South Asia, Middle East, Central Asia
+--   Africa: North Africa, East Africa, Southern Africa, West & Central Africa
+--   Americas: North America, Central America, Caribbean, South America
+--   Oceania: Australia & New Zealand, Pacific Islands
 
 -- Clear existing countries and insert fresh data
 TRUNCATE TABLE country CASCADE;
 
 INSERT INTO country (code, name, region, subregion, recognition) VALUES
--- Africa - Northern Africa
-('DZ', 'Algeria', 'Africa', 'Northern Africa', 'un_member'),
-('EG', 'Egypt', 'Africa', 'Northern Africa', 'un_member'),
-('LY', 'Libya', 'Africa', 'Northern Africa', 'un_member'),
-('MA', 'Morocco', 'Africa', 'Northern Africa', 'un_member'),
-('SD', 'Sudan', 'Africa', 'Northern Africa', 'un_member'),
-('TN', 'Tunisia', 'Africa', 'Northern Africa', 'un_member'),
+-- Africa - North Africa
+('DZ', 'Algeria', 'Africa', 'North Africa', 'un_member'),
+('EG', 'Egypt', 'Africa', 'North Africa', 'un_member'),
+('LY', 'Libya', 'Africa', 'North Africa', 'un_member'),
+('MA', 'Morocco', 'Africa', 'North Africa', 'un_member'),
+('SD', 'Sudan', 'Africa', 'North Africa', 'un_member'),
+('TN', 'Tunisia', 'Africa', 'North Africa', 'un_member'),
 
--- Africa - Western Africa
-('BJ', 'Benin', 'Africa', 'Western Africa', 'un_member'),
-('BF', 'Burkina Faso', 'Africa', 'Western Africa', 'un_member'),
-('CV', 'Cape Verde', 'Africa', 'Western Africa', 'un_member'),
-('CI', 'Ivory Coast', 'Africa', 'Western Africa', 'un_member'),
-('GM', 'Gambia', 'Africa', 'Western Africa', 'un_member'),
-('GH', 'Ghana', 'Africa', 'Western Africa', 'un_member'),
-('GN', 'Guinea', 'Africa', 'Western Africa', 'un_member'),
-('GW', 'Guinea-Bissau', 'Africa', 'Western Africa', 'un_member'),
-('LR', 'Liberia', 'Africa', 'Western Africa', 'un_member'),
-('ML', 'Mali', 'Africa', 'Western Africa', 'un_member'),
-('MR', 'Mauritania', 'Africa', 'Western Africa', 'un_member'),
-('NE', 'Niger', 'Africa', 'Western Africa', 'un_member'),
-('NG', 'Nigeria', 'Africa', 'Western Africa', 'un_member'),
-('SN', 'Senegal', 'Africa', 'Western Africa', 'un_member'),
-('SL', 'Sierra Leone', 'Africa', 'Western Africa', 'un_member'),
-('TG', 'Togo', 'Africa', 'Western Africa', 'un_member'),
+-- Africa - West & Central Africa
+('BJ', 'Benin', 'Africa', 'West & Central Africa', 'un_member'),
+('BF', 'Burkina Faso', 'Africa', 'West & Central Africa', 'un_member'),
+('CV', 'Cape Verde', 'Africa', 'West & Central Africa', 'un_member'),
+('CI', 'Ivory Coast', 'Africa', 'West & Central Africa', 'un_member'),
+('GM', 'Gambia', 'Africa', 'West & Central Africa', 'un_member'),
+('GH', 'Ghana', 'Africa', 'West & Central Africa', 'un_member'),
+('GN', 'Guinea', 'Africa', 'West & Central Africa', 'un_member'),
+('GW', 'Guinea-Bissau', 'Africa', 'West & Central Africa', 'un_member'),
+('LR', 'Liberia', 'Africa', 'West & Central Africa', 'un_member'),
+('ML', 'Mali', 'Africa', 'West & Central Africa', 'un_member'),
+('MR', 'Mauritania', 'Africa', 'West & Central Africa', 'un_member'),
+('NE', 'Niger', 'Africa', 'West & Central Africa', 'un_member'),
+('NG', 'Nigeria', 'Africa', 'West & Central Africa', 'un_member'),
+('SN', 'Senegal', 'Africa', 'West & Central Africa', 'un_member'),
+('SL', 'Sierra Leone', 'Africa', 'West & Central Africa', 'un_member'),
+('TG', 'Togo', 'Africa', 'West & Central Africa', 'un_member'),
+('CM', 'Cameroon', 'Africa', 'West & Central Africa', 'un_member'),
+('CF', 'Central African Republic', 'Africa', 'West & Central Africa', 'un_member'),
+('TD', 'Chad', 'Africa', 'West & Central Africa', 'un_member'),
+('CG', 'Republic of Congo', 'Africa', 'West & Central Africa', 'un_member'),
+('CD', 'Democratic Republic of Congo', 'Africa', 'West & Central Africa', 'un_member'),
+('GQ', 'Equatorial Guinea', 'Africa', 'West & Central Africa', 'un_member'),
+('GA', 'Gabon', 'Africa', 'West & Central Africa', 'un_member'),
+('ST', 'Sao Tome and Principe', 'Africa', 'West & Central Africa', 'un_member'),
 
--- Africa - Eastern Africa
-('BI', 'Burundi', 'Africa', 'Eastern Africa', 'un_member'),
-('KM', 'Comoros', 'Africa', 'Eastern Africa', 'un_member'),
-('DJ', 'Djibouti', 'Africa', 'Eastern Africa', 'un_member'),
-('ER', 'Eritrea', 'Africa', 'Eastern Africa', 'un_member'),
-('ET', 'Ethiopia', 'Africa', 'Eastern Africa', 'un_member'),
-('KE', 'Kenya', 'Africa', 'Eastern Africa', 'un_member'),
-('MG', 'Madagascar', 'Africa', 'Eastern Africa', 'un_member'),
-('MW', 'Malawi', 'Africa', 'Eastern Africa', 'un_member'),
-('MU', 'Mauritius', 'Africa', 'Eastern Africa', 'un_member'),
-('MZ', 'Mozambique', 'Africa', 'Eastern Africa', 'un_member'),
-('RW', 'Rwanda', 'Africa', 'Eastern Africa', 'un_member'),
-('SC', 'Seychelles', 'Africa', 'Eastern Africa', 'un_member'),
-('SO', 'Somalia', 'Africa', 'Eastern Africa', 'un_member'),
-('SS', 'South Sudan', 'Africa', 'Eastern Africa', 'un_member'),
-('TZ', 'Tanzania', 'Africa', 'Eastern Africa', 'un_member'),
-('UG', 'Uganda', 'Africa', 'Eastern Africa', 'un_member'),
-('ZM', 'Zambia', 'Africa', 'Eastern Africa', 'un_member'),
-('ZW', 'Zimbabwe', 'Africa', 'Eastern Africa', 'un_member'),
-('ZZ', 'Zanzibar', 'Africa', 'Eastern Africa', 'special_region'),
-
--- Africa - Central Africa
-('CM', 'Cameroon', 'Africa', 'Central Africa', 'un_member'),
-('CF', 'Central African Republic', 'Africa', 'Central Africa', 'un_member'),
-('TD', 'Chad', 'Africa', 'Central Africa', 'un_member'),
-('CG', 'Republic of Congo', 'Africa', 'Central Africa', 'un_member'),
-('CD', 'Democratic Republic of Congo', 'Africa', 'Central Africa', 'un_member'),
-('GQ', 'Equatorial Guinea', 'Africa', 'Central Africa', 'un_member'),
-('GA', 'Gabon', 'Africa', 'Central Africa', 'un_member'),
-('ST', 'Sao Tome and Principe', 'Africa', 'Central Africa', 'un_member'),
+-- Africa - East Africa
+('BI', 'Burundi', 'Africa', 'East Africa', 'un_member'),
+('KM', 'Comoros', 'Africa', 'East Africa', 'un_member'),
+('DJ', 'Djibouti', 'Africa', 'East Africa', 'un_member'),
+('ER', 'Eritrea', 'Africa', 'East Africa', 'un_member'),
+('ET', 'Ethiopia', 'Africa', 'East Africa', 'un_member'),
+('KE', 'Kenya', 'Africa', 'East Africa', 'un_member'),
+('MG', 'Madagascar', 'Africa', 'East Africa', 'un_member'),
+('MW', 'Malawi', 'Africa', 'East Africa', 'un_member'),
+('MU', 'Mauritius', 'Africa', 'East Africa', 'un_member'),
+('MZ', 'Mozambique', 'Africa', 'East Africa', 'un_member'),
+('RW', 'Rwanda', 'Africa', 'East Africa', 'un_member'),
+('SC', 'Seychelles', 'Africa', 'East Africa', 'un_member'),
+('SO', 'Somalia', 'Africa', 'East Africa', 'un_member'),
+('SS', 'South Sudan', 'Africa', 'East Africa', 'un_member'),
+('TZ', 'Tanzania', 'Africa', 'East Africa', 'un_member'),
+('UG', 'Uganda', 'Africa', 'East Africa', 'un_member'),
+('ZM', 'Zambia', 'Africa', 'East Africa', 'un_member'),
+('ZW', 'Zimbabwe', 'Africa', 'East Africa', 'un_member'),
+('ZZ', 'Zanzibar', 'Africa', 'East Africa', 'special_region'),
 
 -- Africa - Southern Africa
 ('AO', 'Angola', 'Africa', 'Southern Africa', 'un_member'),
@@ -156,7 +157,7 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('PS', 'Palestine', 'Asia', 'Middle East', 'observer'),
 ('XN', 'Northern Cyprus', 'Asia', 'Middle East', 'disputed'),
 
--- Asia - Central Asia
+-- Asia - Central Asia (includes Caucasus)
 ('AF', 'Afghanistan', 'Asia', 'Central Asia', 'un_member'),
 ('KZ', 'Kazakhstan', 'Asia', 'Central Asia', 'un_member'),
 ('KG', 'Kyrgyzstan', 'Asia', 'Central Asia', 'un_member'),
@@ -164,6 +165,9 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('TJ', 'Tajikistan', 'Asia', 'Central Asia', 'un_member'),
 ('TM', 'Turkmenistan', 'Asia', 'Central Asia', 'un_member'),
 ('UZ', 'Uzbekistan', 'Asia', 'Central Asia', 'un_member'),
+('AM', 'Armenia', 'Asia', 'Central Asia', 'un_member'),
+('AZ', 'Azerbaijan', 'Asia', 'Central Asia', 'un_member'),
+('GE', 'Georgia', 'Asia', 'Central Asia', 'un_member'),
 
 -- Asia - South Asia
 ('BD', 'Bangladesh', 'Asia', 'South Asia', 'un_member'),
@@ -174,66 +178,61 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('PK', 'Pakistan', 'Asia', 'South Asia', 'un_member'),
 ('LK', 'Sri Lanka', 'Asia', 'South Asia', 'un_member'),
 
--- Asia - Southeast Asia
-('BN', 'Brunei', 'Asia', 'Southeast Asia', 'un_member'),
-('KH', 'Cambodia', 'Asia', 'Southeast Asia', 'un_member'),
-('ID', 'Indonesia', 'Asia', 'Southeast Asia', 'un_member'),
-('LA', 'Laos', 'Asia', 'Southeast Asia', 'un_member'),
-('MY', 'Malaysia', 'Asia', 'Southeast Asia', 'un_member'),
-('MM', 'Myanmar', 'Asia', 'Southeast Asia', 'un_member'),
-('PH', 'Philippines', 'Asia', 'Southeast Asia', 'un_member'),
-('SG', 'Singapore', 'Asia', 'Southeast Asia', 'un_member'),
-('TH', 'Thailand', 'Asia', 'Southeast Asia', 'un_member'),
-('TL', 'East Timor', 'Asia', 'Southeast Asia', 'un_member'),
-('VN', 'Vietnam', 'Asia', 'Southeast Asia', 'un_member'),
+-- Asia - East & Southeast Asia
+('BN', 'Brunei', 'Asia', 'East & Southeast Asia', 'un_member'),
+('KH', 'Cambodia', 'Asia', 'East & Southeast Asia', 'un_member'),
+('ID', 'Indonesia', 'Asia', 'East & Southeast Asia', 'un_member'),
+('LA', 'Laos', 'Asia', 'East & Southeast Asia', 'un_member'),
+('MY', 'Malaysia', 'Asia', 'East & Southeast Asia', 'un_member'),
+('MM', 'Myanmar', 'Asia', 'East & Southeast Asia', 'un_member'),
+('PH', 'Philippines', 'Asia', 'East & Southeast Asia', 'un_member'),
+('SG', 'Singapore', 'Asia', 'East & Southeast Asia', 'un_member'),
+('TH', 'Thailand', 'Asia', 'East & Southeast Asia', 'un_member'),
+('TL', 'East Timor', 'Asia', 'East & Southeast Asia', 'un_member'),
+('VN', 'Vietnam', 'Asia', 'East & Southeast Asia', 'un_member'),
+('CN', 'China', 'Asia', 'East & Southeast Asia', 'un_member'),
+('JP', 'Japan', 'Asia', 'East & Southeast Asia', 'un_member'),
+('KP', 'North Korea', 'Asia', 'East & Southeast Asia', 'un_member'),
+('KR', 'South Korea', 'Asia', 'East & Southeast Asia', 'un_member'),
+('TW', 'Taiwan', 'Asia', 'East & Southeast Asia', 'disputed'),
+('HK', 'Hong Kong', 'Asia', 'East & Southeast Asia', 'special_region'),
+('MO', 'Macau', 'Asia', 'East & Southeast Asia', 'special_region'),
 
--- Asia - East Asia
-('CN', 'China', 'Asia', 'East Asia', 'un_member'),
-('JP', 'Japan', 'Asia', 'East Asia', 'un_member'),
-('KP', 'North Korea', 'Asia', 'East Asia', 'un_member'),
-('KR', 'South Korea', 'Asia', 'East Asia', 'un_member'),
-('TW', 'Taiwan', 'Asia', 'East Asia', 'disputed'),
-('HK', 'Hong Kong', 'Asia', 'East Asia', 'special_region'),
-('MO', 'Macau', 'Asia', 'East Asia', 'special_region'),
+-- Europe - Core Europe
+('AT', 'Austria', 'Europe', 'Core Europe', 'un_member'),
+('BE', 'Belgium', 'Europe', 'Core Europe', 'un_member'),
+('FR', 'France', 'Europe', 'Core Europe', 'un_member'),
+('DE', 'Germany', 'Europe', 'Core Europe', 'un_member'),
+('LI', 'Liechtenstein', 'Europe', 'Core Europe', 'un_member'),
+('LU', 'Luxembourg', 'Europe', 'Core Europe', 'un_member'),
+('MC', 'Monaco', 'Europe', 'Core Europe', 'un_member'),
+('NL', 'Netherlands', 'Europe', 'Core Europe', 'un_member'),
+('CH', 'Switzerland', 'Europe', 'Core Europe', 'un_member'),
 
--- Asia - Caucasus (grouped with Central Asia for simplicity)
-('AM', 'Armenia', 'Asia', 'Central Asia', 'un_member'),
-('AZ', 'Azerbaijan', 'Asia', 'Central Asia', 'un_member'),
-('GE', 'Georgia', 'Asia', 'Central Asia', 'un_member'),
+-- Europe - Nordics
+('DK', 'Denmark', 'Europe', 'Nordics', 'un_member'),
+('FI', 'Finland', 'Europe', 'Nordics', 'un_member'),
+('IS', 'Iceland', 'Europe', 'Nordics', 'un_member'),
+('NO', 'Norway', 'Europe', 'Nordics', 'un_member'),
+('SE', 'Sweden', 'Europe', 'Nordics', 'un_member'),
+('FO', 'Faroe Islands', 'Europe', 'Nordics', 'dependent_territory'),
 
--- Europe - Northern Europe
-('DK', 'Denmark', 'Europe', 'Northern Europe', 'un_member'),
-('EE', 'Estonia', 'Europe', 'Northern Europe', 'un_member'),
-('FI', 'Finland', 'Europe', 'Northern Europe', 'un_member'),
-('IS', 'Iceland', 'Europe', 'Northern Europe', 'un_member'),
-('IE', 'Ireland', 'Europe', 'Northern Europe', 'un_member'),
-('LV', 'Latvia', 'Europe', 'Northern Europe', 'un_member'),
-('LT', 'Lithuania', 'Europe', 'Northern Europe', 'un_member'),
-('NO', 'Norway', 'Europe', 'Northern Europe', 'un_member'),
-('SE', 'Sweden', 'Europe', 'Northern Europe', 'un_member'),
-('GB', 'United Kingdom', 'Europe', 'Northern Europe', 'un_member'),
-('FO', 'Faroe Islands', 'Europe', 'Northern Europe', 'dependent_territory'),
-('IM', 'Isle of Man', 'Europe', 'Northern Europe', 'dependent_territory'),
-('XI', 'Northern Ireland', 'Europe', 'Northern Europe', 'constituent_country'),
-('XS', 'Scotland', 'Europe', 'Northern Europe', 'constituent_country'),
-('XW', 'Wales', 'Europe', 'Northern Europe', 'constituent_country'),
+-- Europe - British Isles
+('GB', 'United Kingdom', 'Europe', 'British Isles', 'un_member'),
+('IE', 'Ireland', 'Europe', 'British Isles', 'un_member'),
+('IM', 'Isle of Man', 'Europe', 'British Isles', 'dependent_territory'),
+('XI', 'Northern Ireland', 'Europe', 'British Isles', 'constituent_country'),
+('XS', 'Scotland', 'Europe', 'British Isles', 'constituent_country'),
+('XW', 'Wales', 'Europe', 'British Isles', 'constituent_country'),
 
--- Europe - Western Europe
-('AT', 'Austria', 'Europe', 'Western Europe', 'un_member'),
-('BE', 'Belgium', 'Europe', 'Western Europe', 'un_member'),
-('FR', 'France', 'Europe', 'Western Europe', 'un_member'),
-('DE', 'Germany', 'Europe', 'Western Europe', 'un_member'),
-('LI', 'Liechtenstein', 'Europe', 'Western Europe', 'un_member'),
-('LU', 'Luxembourg', 'Europe', 'Western Europe', 'un_member'),
-('MC', 'Monaco', 'Europe', 'Western Europe', 'un_member'),
-('NL', 'Netherlands', 'Europe', 'Western Europe', 'un_member'),
-('CH', 'Switzerland', 'Europe', 'Western Europe', 'un_member'),
-
--- Europe - Eastern Europe
+-- Europe - Eastern Europe (includes Baltic states)
 ('BY', 'Belarus', 'Europe', 'Eastern Europe', 'un_member'),
 ('BG', 'Bulgaria', 'Europe', 'Eastern Europe', 'un_member'),
 ('CZ', 'Czech Republic', 'Europe', 'Eastern Europe', 'un_member'),
+('EE', 'Estonia', 'Europe', 'Eastern Europe', 'un_member'),
 ('HU', 'Hungary', 'Europe', 'Eastern Europe', 'un_member'),
+('LV', 'Latvia', 'Europe', 'Eastern Europe', 'un_member'),
+('LT', 'Lithuania', 'Europe', 'Eastern Europe', 'un_member'),
 ('MD', 'Moldova', 'Europe', 'Eastern Europe', 'un_member'),
 ('PL', 'Poland', 'Europe', 'Eastern Europe', 'un_member'),
 ('RO', 'Romania', 'Europe', 'Eastern Europe', 'un_member'),
@@ -241,50 +240,48 @@ INSERT INTO country (code, name, region, subregion, recognition) VALUES
 ('SK', 'Slovakia', 'Europe', 'Eastern Europe', 'un_member'),
 ('UA', 'Ukraine', 'Europe', 'Eastern Europe', 'un_member'),
 
+-- Europe - Balkans
+('AL', 'Albania', 'Europe', 'Balkans', 'un_member'),
+('BA', 'Bosnia and Herzegovina', 'Europe', 'Balkans', 'un_member'),
+('HR', 'Croatia', 'Europe', 'Balkans', 'un_member'),
+('ME', 'Montenegro', 'Europe', 'Balkans', 'un_member'),
+('MK', 'North Macedonia', 'Europe', 'Balkans', 'un_member'),
+('RS', 'Serbia', 'Europe', 'Balkans', 'un_member'),
+('SI', 'Slovenia', 'Europe', 'Balkans', 'un_member'),
+('XK', 'Kosovo', 'Europe', 'Balkans', 'disputed'),
+
 -- Europe - Southern Europe
-('AL', 'Albania', 'Europe', 'Southern Europe', 'un_member'),
 ('AD', 'Andorra', 'Europe', 'Southern Europe', 'un_member'),
-('BA', 'Bosnia and Herzegovina', 'Europe', 'Southern Europe', 'un_member'),
-('HR', 'Croatia', 'Europe', 'Southern Europe', 'un_member'),
 ('GR', 'Greece', 'Europe', 'Southern Europe', 'un_member'),
 ('IT', 'Italy', 'Europe', 'Southern Europe', 'un_member'),
 ('MT', 'Malta', 'Europe', 'Southern Europe', 'un_member'),
-('ME', 'Montenegro', 'Europe', 'Southern Europe', 'un_member'),
-('MK', 'North Macedonia', 'Europe', 'Southern Europe', 'un_member'),
 ('PT', 'Portugal', 'Europe', 'Southern Europe', 'un_member'),
 ('SM', 'San Marino', 'Europe', 'Southern Europe', 'un_member'),
-('RS', 'Serbia', 'Europe', 'Southern Europe', 'un_member'),
-('SI', 'Slovenia', 'Europe', 'Southern Europe', 'un_member'),
 ('ES', 'Spain', 'Europe', 'Southern Europe', 'un_member'),
 ('VA', 'Vatican City', 'Europe', 'Southern Europe', 'observer'),
-('XK', 'Kosovo', 'Europe', 'Southern Europe', 'disputed'),
 ('GI', 'Gibraltar', 'Europe', 'Southern Europe', 'dependent_territory'),
 
--- Oceania - Australia/New Zealand
-('AU', 'Australia', 'Oceania', 'Australia/New Zealand', 'un_member'),
-('NZ', 'New Zealand', 'Oceania', 'Australia/New Zealand', 'un_member'),
+-- Oceania - Australia & New Zealand
+('AU', 'Australia', 'Oceania', 'Australia & New Zealand', 'un_member'),
+('NZ', 'New Zealand', 'Oceania', 'Australia & New Zealand', 'un_member'),
 
--- Oceania - Melanesia
-('FJ', 'Fiji', 'Oceania', 'Melanesia', 'un_member'),
-('PG', 'Papua New Guinea', 'Oceania', 'Melanesia', 'un_member'),
-('SB', 'Solomon Islands', 'Oceania', 'Melanesia', 'un_member'),
-('VU', 'Vanuatu', 'Oceania', 'Melanesia', 'un_member'),
-
--- Oceania - Micronesia
-('KI', 'Kiribati', 'Oceania', 'Micronesia', 'un_member'),
-('MH', 'Marshall Islands', 'Oceania', 'Micronesia', 'un_member'),
-('FM', 'Micronesia', 'Oceania', 'Micronesia', 'un_member'),
-('NR', 'Nauru', 'Oceania', 'Micronesia', 'un_member'),
-('PW', 'Palau', 'Oceania', 'Micronesia', 'un_member'),
-('GU', 'Guam', 'Oceania', 'Micronesia', 'dependent_territory'),
-
--- Oceania - Polynesia
-('WS', 'Samoa', 'Oceania', 'Polynesia', 'un_member'),
-('TO', 'Tonga', 'Oceania', 'Polynesia', 'un_member'),
-('TV', 'Tuvalu', 'Oceania', 'Polynesia', 'un_member'),
-('AS', 'American Samoa', 'Oceania', 'Polynesia', 'dependent_territory'),
-('CK', 'Cook Islands', 'Oceania', 'Polynesia', 'dependent_territory'),
-('PF', 'French Polynesia', 'Oceania', 'Polynesia', 'dependent_territory'),
+-- Oceania - Pacific Islands
+('FJ', 'Fiji', 'Oceania', 'Pacific Islands', 'un_member'),
+('PG', 'Papua New Guinea', 'Oceania', 'Pacific Islands', 'un_member'),
+('SB', 'Solomon Islands', 'Oceania', 'Pacific Islands', 'un_member'),
+('VU', 'Vanuatu', 'Oceania', 'Pacific Islands', 'un_member'),
+('KI', 'Kiribati', 'Oceania', 'Pacific Islands', 'un_member'),
+('MH', 'Marshall Islands', 'Oceania', 'Pacific Islands', 'un_member'),
+('FM', 'Micronesia', 'Oceania', 'Pacific Islands', 'un_member'),
+('NR', 'Nauru', 'Oceania', 'Pacific Islands', 'un_member'),
+('PW', 'Palau', 'Oceania', 'Pacific Islands', 'un_member'),
+('GU', 'Guam', 'Oceania', 'Pacific Islands', 'dependent_territory'),
+('WS', 'Samoa', 'Oceania', 'Pacific Islands', 'un_member'),
+('TO', 'Tonga', 'Oceania', 'Pacific Islands', 'un_member'),
+('TV', 'Tuvalu', 'Oceania', 'Pacific Islands', 'un_member'),
+('AS', 'American Samoa', 'Oceania', 'Pacific Islands', 'dependent_territory'),
+('CK', 'Cook Islands', 'Oceania', 'Pacific Islands', 'dependent_territory'),
+('PF', 'French Polynesia', 'Oceania', 'Pacific Islands', 'dependent_territory'),
 
 -- Antarctica
 ('AQ', 'Antarctica', 'Antarctica', 'Antarctica', 'territory');

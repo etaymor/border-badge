@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import type { TrackingPreset } from '@constants/trackingPreferences';
+
 interface OnboardingState {
   // Existing fields
   motivationTags: string[]; // "Why I Travel" tags
@@ -15,6 +17,7 @@ interface OnboardingState {
   bucketListCountries: string[]; // Countries added to bucket list during onboarding
   visitedContinents: string[]; // Tracks which continents user said "Yes" to
   displayName: string | null; // User's display name for account creation
+  trackingPreference: TrackingPreset; // Country tracking preference
 
   // Actions - existing
   setMotivationTags: (tags: string[]) => void;
@@ -33,6 +36,7 @@ interface OnboardingState {
   addVisitedContinent: (region: string) => void;
   removeVisitedContinent: (region: string) => void;
   setDisplayName: (name: string | null) => void;
+  setTrackingPreference: (preference: TrackingPreset) => void;
 }
 
 const initialState = {
@@ -45,6 +49,7 @@ const initialState = {
   bucketListCountries: [] as string[],
   visitedContinents: [] as string[],
   displayName: null as string | null,
+  trackingPreference: 'full_atlas' as TrackingPreset,
 };
 
 export const useOnboardingStore = create<OnboardingState>()(
@@ -110,6 +115,8 @@ export const useOnboardingStore = create<OnboardingState>()(
       },
 
       setDisplayName: (name) => set({ displayName: name }),
+
+      setTrackingPreference: (preference) => set({ trackingPreference: preference }),
 
       reset: () => set(initialState),
     }),

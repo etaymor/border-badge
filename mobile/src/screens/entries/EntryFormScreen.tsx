@@ -122,6 +122,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
           address: existingEntry.place.address,
           latitude: existingEntry.place.latitude,
           longitude: existingEntry.place.longitude,
+          google_photo_url: existingEntry.place.google_photo_url,
+          website_url: null, // Existing entries don't have website_url stored
         });
       }
       // Set animations to final state for editing
@@ -192,6 +194,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
             address: selectedPlace.address,
             latitude: selectedPlace.latitude,
             longitude: selectedPlace.longitude,
+            google_photo_url: selectedPlace.google_photo_url,
           }
         : undefined;
 
@@ -352,6 +355,10 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     onSelect={(place) => {
                       setSelectedPlace(place);
                       if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
+                      // Auto-fill the link field with the place's website URL if available
+                      if (place?.website_url && !link.trim()) {
+                        setLink(place.website_url);
+                      }
                     }}
                     placeholder="Search for a place..."
                     countryCode={trip?.country_code}

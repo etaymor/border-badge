@@ -18,6 +18,7 @@ class PublicTripEntry(BaseModel):
     place_name: str | None = None
     address: str | None = None
     media_urls: list[str] = []
+    place_photo_url: str | None = None
 
 
 class PublicTripView(BaseModel):

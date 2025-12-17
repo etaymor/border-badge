@@ -96,9 +96,9 @@ describe('ExploreFilterSheet', () => {
       renderSheet();
 
       expect(screen.getByText('Subregion')).toBeTruthy();
-      expect(screen.getByText('Northern Africa')).toBeTruthy();
+      expect(screen.getByText('North Africa')).toBeTruthy();
       expect(screen.getByText('Central America')).toBeTruthy();
-      expect(screen.getByText('East Asia')).toBeTruthy();
+      expect(screen.getByText('East & Southeast Asia')).toBeTruthy();
     });
 
     it('renders recognition section', () => {
@@ -196,24 +196,27 @@ describe('ExploreFilterSheet', () => {
     it('adds subregion to filters when not selected', () => {
       renderSheet();
 
-      fireEvent.press(screen.getByText('Northern Africa'));
+      fireEvent.press(screen.getByText('North Africa'));
 
       expect(mockOnFiltersChange).toHaveBeenCalledWith({
         ...defaultFilters,
-        subregions: ['Northern Africa'],
+        subregions: ['North Africa'],
       });
     });
 
     it('removes subregion from filters when already selected', () => {
       renderSheet({
-        filters: { ...defaultFilters, subregions: ['Northern Africa', 'East Asia'] },
+        filters: {
+          ...defaultFilters,
+          subregions: ['North Africa', 'East & Southeast Asia'],
+        },
       });
 
-      fireEvent.press(screen.getByText('East Asia'));
+      fireEvent.press(screen.getByText('East & Southeast Asia'));
 
       expect(mockOnFiltersChange).toHaveBeenCalledWith({
         ...defaultFilters,
-        subregions: ['Northern Africa'],
+        subregions: ['North Africa'],
       });
     });
   });

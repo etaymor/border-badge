@@ -16,6 +16,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
+import quillIcon from '../../../assets/quill-icon.png';
 
 export interface CountryCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
@@ -100,12 +101,7 @@ export const CountryCard = React.memo(function CountryCard({
       {/* Top Liquid Glass Pane - Country Name */}
       <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
         <View style={styles.textContainer}>
-          <Text
-            style={styles.countryName}
-            numberOfLines={2}
-            adjustsFontSizeToFit
-            minimumFontScale={0.85}
-          >
+          <Text style={styles.countryName} numberOfLines={2}>
             {name}
           </Text>
           {region && (
@@ -126,7 +122,7 @@ export const CountryCard = React.memo(function CountryCard({
           {/* Trips Indicator - Badge next to flag */}
           {hasTrips && (
             <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
-              <Ionicons name="images" size={14} color={colors.cloudWhite} />
+              <Image source={quillIcon} style={styles.tripsIcon} />
             </View>
           )}
         </View>
@@ -258,21 +254,17 @@ const styles = StyleSheet.create({
   },
   tripsIndicator: {
     position: 'absolute',
-    bottom: -4,
-    right: -6,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.sunsetGold,
+    bottom: -8,
+    right: -10,
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.cloudWhite,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+  },
+  tripsIcon: {
+    width: 36,
+    height: 36,
+    resizeMode: 'contain',
   },
   actionsContainer: {
     flexDirection: 'column',

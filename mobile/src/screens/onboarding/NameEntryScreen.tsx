@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -16,6 +17,10 @@ import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'NameEntry'>;
 
@@ -99,6 +104,11 @@ export function NameEntryScreen({ navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
+        {/* Header with logo */}
+        <View style={styles.headerRow}>
+          <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+        </View>
+
         <View style={styles.content}>
           {/* Title */}
           <Animated.View
@@ -186,10 +196,22 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 16,
   },
   title: {
     marginBottom: 8,

@@ -4,20 +4,27 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, GlassBackButton, GlassInput } from '@components/ui';
 import { colors } from '@constants/colors';
+import {
+  TRACKING_PRESETS,
+  TRACKING_PRESET_ORDER,
+  type TrackingPreset,
+} from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useSignOut } from '@hooks/useAuth';
 import { useCountryByCode } from '@hooks/useCountries';
-import { useProfile } from '@hooks/useProfile';
+import { useProfile, useUpdateProfile } from '@hooks/useProfile';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
@@ -136,12 +143,16 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: homeCountry } = useCountryByCode(profile?.home_country_code);
   const updateDisplayName = useUpdateDisplayName();
+  const updateProfile = useUpdateProfile();
   const signOut = useSignOut();
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [nameError, setNameError] = useState<string | undefined>();
+
+  // Tracking preference modal state
+  const [trackingModalVisible, setTrackingModalVisible] = useState(false);
 
   const handleGoBack = useCallback(() => {
     navigation.goBack();
@@ -200,6 +211,33 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     signOut.mutate();
   }, [signOut]);
 
+  const handleOpenTrackingModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setTrackingModalVisible(true);
+  }, []);
+
+  const handleCloseTrackingModal = useCallback(() => {
+    setTrackingModalVisible(false);
+  }, []);
+
+  const handleSelectTrackingPreference = useCallback(
+    async (preset: TrackingPreset) => {
+      if (preset === profile?.tracking_preference) {
+        setTrackingModalVisible(false);
+        return;
+      }
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      try {
+        await updateProfile.mutateAsync({ tracking_preference: preset });
+        setTrackingModalVisible(false);
+      } catch {
+        // Error is handled by mutation's onError
+      }
+    },
+    [profile?.tracking_preference, updateProfile]
+  );
+
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
   const formattedPhone = useMemo(
@@ -214,6 +252,15 @@ export function ProfileSettingsScreen({ navigation }: Props) {
       name: homeCountry.name,
     };
   }, [homeCountry]);
+
+  const trackingPreferenceDisplay = useMemo(() => {
+    const preset = profile?.tracking_preference ?? 'full_atlas';
+    const presetData = TRACKING_PRESETS[preset];
+    return {
+      name: presetData.name,
+      count: presetData.count,
+    };
+  }, [profile?.tracking_preference]);
 
   if (profileLoading) {
     return (
@@ -319,6 +366,29 @@ export function ProfileSettingsScreen({ navigation }: Props) {
             </View>
           )}
 
+          {/* Country Tracking */}
+          <Pressable
+            onPress={handleOpenTrackingModal}
+            style={styles.infoRowPressable}
+            accessibilityRole="button"
+            accessibilityLabel="Change country tracking preference"
+          >
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>COUNTRY TRACKING</Text>
+              <View style={styles.trackingValueRow}>
+                <Text style={styles.infoValue}>
+                  {trackingPreferenceDisplay.name} ({trackingPreferenceDisplay.count})
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.stormGray}
+                  style={styles.chevronIcon}
+                />
+              </View>
+            </View>
+          </Pressable>
+
           {/* Member Since */}
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>MEMBER SINCE</Text>
@@ -347,6 +417,54 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Tracking Preference Modal */}
+      <Modal
+        visible={trackingModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseTrackingModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={handleCloseTrackingModal}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Country Tracking</Text>
+            <Text style={styles.modalSubtitle}>
+              Choose what counts as a country in your passport
+            </Text>
+
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              {TRACKING_PRESET_ORDER.map((preset) => {
+                const presetData = TRACKING_PRESETS[preset];
+                const isSelected = profile?.tracking_preference === preset;
+                return (
+                  <TouchableOpacity
+                    key={preset}
+                    style={[styles.presetOption, isSelected && styles.presetOptionSelected]}
+                    onPress={() => handleSelectTrackingPreference(preset)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                      {isSelected && <View style={styles.radioInner} />}
+                    </View>
+                    <View style={styles.presetOptionContent}>
+                      <View style={styles.presetOptionHeader}>
+                        <Text style={styles.presetOptionName}>{presetData.name}</Text>
+                        <Text style={styles.presetOptionCount}>{presetData.count}</Text>
+                      </View>
+                      <Text style={styles.presetOptionDescription}>{presetData.description}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseTrackingModal}>
+              <Text style={styles.modalCloseButtonText}>Done</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -507,5 +625,130 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.adobeBrick,
+  },
+  // Pressable info row
+  infoRowPressable: {
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  trackingValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chevronIcon: {
+    marginLeft: 4,
+  },
+  // Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(23, 42, 58, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: colors.warmCream,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: 34,
+    maxHeight: '80%',
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: colors.stormGray,
+    opacity: 0.4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  presetOption: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  presetOptionSelected: {
+    borderColor: colors.mossGreen,
+    backgroundColor: 'rgba(87, 120, 90, 0.08)',
+  },
+  radioCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.stormGray,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    marginTop: 2,
+  },
+  radioCircleSelected: {
+    borderColor: colors.mossGreen,
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.mossGreen,
+  },
+  presetOptionContent: {
+    flex: 1,
+  },
+  presetOptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  presetOptionName: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  presetOptionCount: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 14,
+    color: colors.stormGray,
+  },
+  presetOptionDescription: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    lineHeight: 18,
+  },
+  modalCloseButton: {
+    backgroundColor: colors.mossGreen,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalCloseButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.cloudWhite,
   },
 });

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}{{ trip.name }} - Border Badge{% endblock %}
-{% block description %}{{ trip.name }} in {{ trip.country_name }} - A trip shared on Border Badge{% endblock %}
+{% block title %}{{ trip.name }} - Atlasi{% endblock %}
+{% block description %}{{ trip.name }} in {{ trip.country_name }} - A trip shared on Atlasi{% endblock %}
 
 {% block content %}
 <!-- Hero Section -->
@@ -38,8 +38,8 @@
         </div>
 
         <div class="creator-pill">
-             <div class="creator-avatar">BB</div>
-             Shared from Border Badge
+             <div class="creator-avatar">A</div>
+             Shared from Atlasi
         </div>
     </div>
 </div>
@@ -49,10 +49,12 @@
     {% if trip.entries %}
     <div class="entries-grid">
         {% for entry in trip.entries %}
+        {% set primary_image = entry.media_urls[0] if entry.media_urls and entry.media_urls|length > 0 else entry.place_photo_url %}
+        {% set sanitized_image = primary_image | safe_external_url if primary_image else None %}
         <article class="entry-card">
             <div class="entry-image-wrapper">
-                {% if entry.media_urls and entry.media_urls|length > 0 %}
-                <img src="{{ entry.media_urls[0] }}" alt="Photo of {{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}" class="entry-image" loading="lazy">
+                {% if sanitized_image %}
+                <img src="{{ sanitized_image }}" alt="Photo of {{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}" class="entry-image" loading="lazy">
                 {% else %}
                 <div class="entry-image-placeholder">
                     {% if entry.type == 'food' %}🍽️
@@ -95,9 +97,9 @@
     <div class="cta-content">
         <span class="cta-hand-text">Log your journey</span>
         <h2 class="cta-title">Want to track your own trips?</h2>
-        <p style="margin-bottom: 2rem; opacity: 0.9;">Download Border Badge to keep a digital journal of your travels, adding photos, notes, and places.</p>
+        <p style="margin-bottom: 2rem; opacity: 0.9;">Download Atlasi to keep a digital journal of your travels, adding photos, notes, and places.</p>
         <a href="{{ app_store_url or '#download' }}" class="cta-button">
-            Get Border Badge
+            Get Atlasi
         </a>
     </div>
 </section>

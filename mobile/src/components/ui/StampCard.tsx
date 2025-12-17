@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import { Dimensions, Image, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '@constants/colors';
 import { getStampImage } from '../../assets/stampImages';
+import quillIcon from '../../../assets/quill-icon.png';
 
 const { width: screenWidth } = Dimensions.get('window');
 const STAMP_MARGIN = 8;
@@ -49,7 +48,7 @@ export const StampCard = React.memo(function StampCard({
       <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
       {hasTrips && (
         <View style={styles.tripsIndicator} testID={`stamp-card-trips-${code}`}>
-          <Ionicons name="images" size={14} color={colors.cloudWhite} />
+          <Image source={quillIcon} style={styles.tripsIcon} />
         </View>
       )}
     </TouchableOpacity>
@@ -68,20 +67,16 @@ const styles = StyleSheet.create({
   },
   tripsIndicator: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.sunsetGold,
+    bottom: 4,
+    right: 4,
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.cloudWhite,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+  },
+  tripsIcon: {
+    width: 38,
+    height: 38,
+    resizeMode: 'contain',
   },
 });

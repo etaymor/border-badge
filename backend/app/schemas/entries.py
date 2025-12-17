@@ -75,10 +75,12 @@ class EntryUpdate(BaseModel):
     """Request to update an entry."""
 
     title: str | None = None
+    type: EntryType | None = None
     notes: str | None = None
     link: str | None = None
     metadata: dict[str, Any] | None = None
     date: datetime | None = None
+    place: PlaceCreate | None = None
 
     @field_validator("link")
     @classmethod

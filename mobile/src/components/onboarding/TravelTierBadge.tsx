@@ -5,26 +5,7 @@ import { Animated, StyleSheet, View } from 'react-native';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-
-const TRAVEL_STATUS_TIERS = [
-  { threshold: 5, status: 'Local Wanderer', icon: 'walk-outline' as const },
-  { threshold: 15, status: 'Pathfinder', icon: 'compass-outline' as const },
-  { threshold: 30, status: 'Border Breaker', icon: 'map-outline' as const },
-  { threshold: 50, status: 'Roving Explorer', icon: 'navigate-outline' as const },
-  { threshold: 80, status: 'Globe Trotter', icon: 'globe-outline' as const },
-  { threshold: 120, status: 'World Seeker', icon: 'planet-outline' as const },
-  { threshold: 160, status: 'Continental Master', icon: 'earth-outline' as const },
-  { threshold: Infinity, status: 'Global Elite', icon: 'trophy-outline' as const },
-];
-
-function getTravelStatus(visitedCount: number) {
-  for (const tier of TRAVEL_STATUS_TIERS) {
-    if (visitedCount < tier.threshold) {
-      return tier;
-    }
-  }
-  return TRAVEL_STATUS_TIERS[TRAVEL_STATUS_TIERS.length - 1];
-}
+import { getTravelStatus } from '@utils/travelTier';
 
 export interface TravelTierBadgeProps {
   visitedCount: number;

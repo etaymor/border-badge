@@ -1,2 +1,2 @@
-export { PhoneAuthScreen } from './PhoneAuthScreen';
+export { AuthScreen } from './AuthScreen';
 export { WelcomeScreen } from './WelcomeScreen';

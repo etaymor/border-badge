@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -15,6 +16,7 @@ import { OnboardingPhoneInput } from '@components/onboarding';
 import { OTPInput, ResendTimer, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
 import {
@@ -24,11 +26,11 @@ import {
   validatePhone,
 } from '@utils/phoneValidation';
 
-type Props = AuthStackScreenProps<'PhoneAuth'>;
+type Props = AuthStackScreenProps<'Auth'>;
 
 type AuthStep = 'phone' | 'otp';
 
-export function PhoneAuthScreen({ navigation }: Props) {
+export function AuthScreen({ navigation }: Props) {
   const [step, setStep] = useState<AuthStep>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -38,6 +40,8 @@ export function PhoneAuthScreen({ navigation }: Props) {
 
   const sendOTP = useSendOTP();
   const verifyOTP = useVerifyOTP();
+  const appleSignIn = useAppleSignIn();
+  const isAppleAvailable = useAppleAuthAvailable();
 
   const canGoBack = navigation.canGoBack();
 
@@ -155,6 +159,11 @@ export function PhoneAuthScreen({ navigation }: Props) {
     setOtpSentAt(undefined);
   };
 
+  // Handle Apple Sign In
+  const handleAppleSignIn = () => {
+    appleSignIn.mutate();
+  };
+
   // Animation interpolations
   const titleTranslateY = titleAnim.interpolate({
     inputRange: [0, 1],
@@ -243,7 +252,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                   placeholder="Phone Number"
                   error={phoneError}
                   containerStyle={styles.input}
-                  testID="phone-auth-input"
+                  testID="auth-phone-input"
                 />
               </Animated.View>
 
@@ -261,13 +270,38 @@ export function PhoneAuthScreen({ navigation }: Props) {
                   disabled={sendOTP.isPending}
                   accessibilityRole="button"
                   accessibilityLabel="Continue to verification"
-                  testID="phone-auth-send-button"
+                  testID="auth-send-button"
                 >
                   <Text style={styles.buttonText}>
                     {sendOTP.isPending ? 'Sending...' : 'Continue'}
                   </Text>
                 </TouchableOpacity>
               </Animated.View>
+
+              {/* Apple Sign In - only shown on iOS */}
+              {isAppleAvailable && (
+                <Animated.View
+                  style={{
+                    opacity: buttonAnim,
+                  }}
+                >
+                  {/* Divider */}
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  {/* Apple Sign In Button */}
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={12}
+                    style={styles.appleButton}
+                    onPress={handleAppleSignIn}
+                  />
+                </Animated.View>
+              )}
             </View>
           ) : (
             // OTP Entry Step
@@ -289,7 +323,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                   onComplete={handleVerifyOTP}
                   error={otpError}
                   autoFocus
-                  testID="phone-auth-otp"
+                  testID="auth-otp"
                 />
               </View>
 
@@ -300,7 +334,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 disabled={verifyOTP.isPending}
                 accessibilityRole="button"
                 accessibilityLabel="Verify code and sign in"
-                testID="phone-auth-verify-button"
+                testID="auth-verify-button"
               >
                 <Text style={styles.buttonText}>
                   {verifyOTP.isPending ? 'Verifying...' : 'Verify'}
@@ -312,7 +346,7 @@ export function PhoneAuthScreen({ navigation }: Props) {
                 isResending={sendOTP.isPending}
                 cooldownSeconds={RESEND_COOLDOWN_SECONDS}
                 startTime={otpSentAt}
-                testID="phone-auth-resend"
+                testID="auth-resend"
               />
             </Animated.View>
           )}
@@ -391,5 +425,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.midnightNavy,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+  },
+  appleButton: {
+    width: '100%',
+    height: 50,
   },
 });

@@ -14,6 +14,7 @@ from app.schemas.entries import (
     Entry,
     EntryCreate,
     EntryMediaFile,
+    EntryType,
     EntryUpdate,
     EntryWithPlace,
     Place,
@@ -217,14 +218,14 @@ async def get_entry(
     return EntryWithPlace(**entry.model_dump(), place=place)
 
 
-@router.patch("/entries/{entry_id}", response_model=Entry)
+@router.patch("/entries/{entry_id}", response_model=EntryWithPlace)
 @limiter.limit("30/minute")
 async def update_entry(
     request: Request,
     entry_id: UUID,
     data: EntryUpdate,
     user: CurrentUser,
-) -> Entry:
+) -> EntryWithPlace:
     """Update an entry."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -236,18 +237,98 @@ async def update_entry(
             detail="No fields to update",
         )
 
-    # Convert date to ISO format if present
-    if "date" in update_data and update_data["date"]:
-        update_data["date"] = update_data["date"].isoformat()
+    # Extract place data before processing entry fields
+    place_data = update_data.pop("place", None)
 
-    rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
-    if not rows:
+    # Validate place data if provided (but not for empty dict which signals deletion)
+    if place_data is not None and place_data != {} and not place_data.get("place_name"):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Entry not found or not authorized",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="place_name is required when providing place data",
         )
 
-    return Entry(**rows[0])
+    # Track whether we need to fetch existing places
+    # Only needed when: preserving existing (place_data is None) or updating (place_data has values)
+    existing_places: list[dict] | None = None
+    needs_existing_places = place_data is None or (
+        place_data is not None and place_data != {}
+    )
+    if needs_existing_places:
+        existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+
+    # Update entry fields if any remain after extracting place
+    if update_data:
+        # Convert date to ISO format if present and not None
+        if "date" in update_data and update_data["date"] is not None:
+            update_data["date"] = update_data["date"].isoformat()
+
+        # Convert type enum to string if present and not None
+        if "type" in update_data and update_data["type"] is not None:
+            if isinstance(update_data["type"], EntryType):
+                update_data["type"] = update_data["type"].value
+
+        rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized to update",
+            )
+        entry = Entry(**rows[0])
+    else:
+        # No entry fields to update - fetch entry to return it
+        existing_entries = await db.get("entry", {"id": f"eq.{entry_id}"})
+        if not existing_entries:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Entry not found or not authorized to update",
+            )
+        entry = Entry(**existing_entries[0])
+
+    # Handle place update/upsert/delete
+    place = None
+    if place_data is not None:
+        if place_data == {}:
+            # Empty dict signals explicit removal of place data
+            await db.delete("place", {"entry_id": f"eq.{entry_id}"})
+            place = None
+        else:
+            place_payload = {
+                "entry_id": str(entry_id),
+                "google_place_id": place_data.get("google_place_id"),
+                "place_name": place_data.get("place_name"),
+                "lat": place_data.get("lat"),
+                "lng": place_data.get("lng"),
+                "address": place_data.get("address"),
+                "extra_data": place_data.get("extra_data"),
+            }
+
+            if existing_places:
+                # Update existing place
+                place_rows = await db.patch(
+                    "place", place_payload, {"entry_id": f"eq.{entry_id}"}
+                )
+            else:
+                # Create new place
+                place_rows = await db.post("place", place_payload)
+
+            if not place_rows:
+                # Log the failure for debugging - entry update succeeded but place failed
+                logger.error(
+                    "Place save failed for entry %s after entry update. "
+                    "Entry changes were committed but place data was not saved.",
+                    entry_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to save place data. Entry was updated but place changes were lost.",
+                )
+            place = Place(**place_rows[0])
+    else:
+        # place_data is None (omitted from request) - preserve existing place
+        if existing_places:
+            place = Place(**existing_places[0])
+
+    return EntryWithPlace(**entry.model_dump(), place=place)
 
 
 @router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

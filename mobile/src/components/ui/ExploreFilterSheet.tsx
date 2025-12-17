@@ -23,6 +23,7 @@ import {
   type Region,
   type RecognitionGroup,
 } from '@constants/regions';
+import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { countActiveFilters, type ExploreFilters, type CountryStatus } from '../../types/filters';
 import { Chip } from './Chip';
 import { Text } from './Text';
@@ -39,6 +40,7 @@ interface ExploreFilterSheetProps {
   onClearAll: () => void;
   onApply: () => void;
   showStatusSection?: boolean;
+  trackingPreference?: TrackingPreset;
 }
 
 const STATUS_OPTIONS: { value: CountryStatus; label: string }[] = [
@@ -55,10 +57,28 @@ export function ExploreFilterSheet({
   onClearAll,
   onApply,
   showStatusSection = true,
+  trackingPreference = 'full_atlas',
 }: ExploreFilterSheetProps) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  // Get allowed recognition groups based on tracking preference
+  const allowedRecognitionGroups = useMemo(() => {
+    const presetRecognitionTypes = TRACKING_PRESETS[trackingPreference].recognitionTypes;
+    return RECOGNITION_GROUP_LABELS.filter((group) => {
+      // Check if any of the group's recognition types are in the allowed types
+      const groupRecognitionTypes =
+        group === 'UN Member'
+          ? ['un_member']
+          : group === 'Special Status'
+            ? ['observer', 'disputed']
+            : ['territory', 'dependent_territory', 'special_region', 'constituent_country'];
+      return groupRecognitionTypes.some((type) =>
+        (presetRecognitionTypes as readonly string[]).includes(type)
+      );
+    });
+  }, [trackingPreference]);
 
   // Animation handlers
   const openSheet = useCallback(() => {
@@ -300,20 +320,22 @@ export function ExploreFilterSheet({
                 ))}
               </View>
 
-              {/* Recognition Section */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Recognition</Text>
-                <View style={styles.chipRow}>
-                  {RECOGNITION_GROUP_LABELS.map((group) => (
-                    <Chip
-                      key={group}
-                      label={group}
-                      selected={filters.recognitionGroups.includes(group)}
-                      onPress={() => toggleRecognition(group)}
-                    />
-                  ))}
+              {/* Recognition Section - Only show if more than one group is available */}
+              {allowedRecognitionGroups.length > 1 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Recognition</Text>
+                  <View style={styles.chipRow}>
+                    {allowedRecognitionGroups.map((group) => (
+                      <Chip
+                        key={group}
+                        label={group}
+                        selected={filters.recognitionGroups.includes(group)}
+                        onPress={() => toggleRecognition(group)}
+                      />
+                    ))}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Bottom padding for scroll to account for apply button */}
               <View style={{ height: 80 }} />

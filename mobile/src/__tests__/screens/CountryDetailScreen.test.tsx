@@ -10,13 +10,11 @@ import type { PassportStackScreenProps } from '@navigation/types';
 import * as useCountriesModule from '@hooks/useCountries';
 import * as useTripsModule from '@hooks/useTrips';
 
-// Create mock navigation with getParent
-const mockParentNavigate = jest.fn();
+// Create mock navigation
+const mockNavigate = jest.fn();
 const mockNavigation = {
   ...createMockNavigation(),
-  getParent: jest.fn().mockReturnValue({
-    navigate: mockParentNavigate,
-  }),
+  navigate: mockNavigate,
 } as unknown as PassportStackScreenProps<'CountryDetail'>['navigation'];
 
 const createMockRoute = (params: {
@@ -157,7 +155,7 @@ describe('CountryDetailScreen', () => {
 
       fireEvent.press(screen.getByText('Plan a Trip'));
 
-      expect(mockParentNavigate).toHaveBeenCalledWith('Trips', {
+      expect(mockNavigate).toHaveBeenCalledWith('Trips', {
         screen: 'TripForm',
         params: {
           countryId: 'JP',
@@ -176,7 +174,7 @@ describe('CountryDetailScreen', () => {
 
       fireEvent.press(screen.getByText('Tokyo Trip'));
 
-      expect(mockParentNavigate).toHaveBeenCalledWith('Trips', {
+      expect(mockNavigate).toHaveBeenCalledWith('Trips', {
         screen: 'TripDetail',
         params: { tripId: 'trip-123' },
       });

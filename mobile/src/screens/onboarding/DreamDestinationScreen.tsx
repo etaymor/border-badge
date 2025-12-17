@@ -21,7 +21,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
 
   const config: CountrySelectionConfig = {
     backgroundColor: colors.lakeBlue,
-    title: 'Pick a place you dream of visiting',
+    title: 'Pick your dream destination',
     dropdownBorderColor: colors.lakeBlue,
     celebration: {
       icon: 'sparkles',
@@ -38,7 +38,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
     onNavigateNext: () =>
       navigation.navigate('ContinentIntro', { region: REGIONS[0], regionIndex: 0 }),
     onNavigateBack: () => navigation.goBack(),
-    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'PhoneAuth' }),
+    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'Auth' }),
     testIdPrefix: 'dream-destination',
   };
 

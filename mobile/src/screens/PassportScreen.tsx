@@ -6,12 +6,15 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import atlastLogo from '../../assets/atlasi-logo.png';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ShareCardOverlay } from '@components/share';
@@ -24,8 +27,14 @@ import {
 } from '@components/ui';
 import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
+import {
+  isCountryAllowedByPreference,
+  getCountryCountForPreference,
+  getAllowedRecognitionGroupsForPreference,
+} from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useProfile } from '@hooks/useProfile';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -162,6 +171,7 @@ export function PassportScreen({ navigation }: Props) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const { data: trips, isLoading: loadingTrips } = useTrips();
+  const { data: profile, isLoading: loadingProfile } = useProfile();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
   const [searchQuery, setSearchQuery] = useState('');
@@ -172,7 +182,27 @@ export function PassportScreen({ navigation }: Props) {
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
 
-  const isLoading = loadingUserCountries || loadingCountries || loadingTrips;
+  // Get tracking preference from profile (default to full_atlas)
+  const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
+
+  // Sync recognitionGroups filter when tracking preference changes
+  // Remove any recognition groups that are no longer valid for the new preference
+  useEffect(() => {
+    if (filters.recognitionGroups.length === 0) return;
+
+    const allowedGroups = getAllowedRecognitionGroupsForPreference(trackingPreference);
+    const validGroups = filters.recognitionGroups.filter((group) => allowedGroups.has(group));
+
+    // Only update if some groups were removed
+    if (validGroups.length !== filters.recognitionGroups.length) {
+      setFilters((prev) => ({
+        ...prev,
+        recognitionGroups: validGroups,
+      }));
+    }
+  }, [trackingPreference, filters.recognitionGroups]);
+
+  const isLoading = loadingUserCountries || loadingCountries || loadingTrips || loadingProfile;
 
   // Fade-in animation for content
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -208,14 +238,17 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [visitedCountries, wishlistCountries, trips]);
 
-  // Pre-compute searchable country data (avoids repeated toLowerCase calls during search)
+  // Pre-compute searchable country data filtered by tracking preference
+  // This is the master list that respects the user's tracking preference
   const searchableCountries = useMemo(() => {
     if (!countries) return [];
-    return countries.map((c) => ({
-      ...c,
-      searchName: c.name.toLowerCase(),
-    }));
-  }, [countries]);
+    return countries
+      .filter((c) => isCountryAllowedByPreference(c.recognition, trackingPreference))
+      .map((c) => ({
+        ...c,
+        searchName: c.name.toLowerCase(),
+      }));
+  }, [countries, trackingPreference]);
 
   // Apply explore filters to countries
   const filteredCountries = useMemo(() => {
@@ -287,17 +320,27 @@ export function PassportScreen({ navigation }: Props) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips]);
 
-  // Compute all stats
+  // Compute all stats (filtered by tracking preference)
   const stats = useMemo(() => {
-    const stampedCount = visitedCountries.length;
-    const dreamsCount = wishlistCountries.length;
-    const totalCountries = countries?.length || 193; // 193 UN member states usually
+    // Filter visited/wishlist to only include countries allowed by tracking preference
+    const allowedVisitedCountries = visitedCountries.filter((uc) => {
+      const country = countries?.find((c) => c.code === uc.country_code);
+      return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
+    });
+    const allowedWishlistCountries = wishlistCountries.filter((uc) => {
+      const country = countries?.find((c) => c.code === uc.country_code);
+      return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
+    });
+
+    const stampedCount = allowedVisitedCountries.length;
+    const dreamsCount = allowedWishlistCountries.length;
+    const totalCountries = getCountryCountForPreference(trackingPreference);
     const worldPercentage =
       totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
-    // Calculate unique regions visited
-    const visitedCodes = new Set(visitedCountries.map((uc) => uc.country_code));
-    const visitedCountryDetails = countries?.filter((c) => visitedCodes.has(c.code)) || [];
+    // Calculate unique regions visited (from allowed countries only)
+    const visitedCodesSet = new Set(allowedVisitedCountries.map((uc) => uc.country_code));
+    const visitedCountryDetails = countries?.filter((c) => visitedCodesSet.has(c.code)) || [];
     const uniqueRegions = new Set(visitedCountryDetails.map((c) => c.region));
     const regionsCount = uniqueRegions.size;
 
@@ -311,7 +354,7 @@ export function PassportScreen({ navigation }: Props) {
       regionsCount,
       travelStatus,
     };
-  }, [visitedCountries, wishlistCountries, countries]);
+  }, [visitedCountries, wishlistCountries, countries, trackingPreference]);
 
   // Compute unvisited countries for the Explore section (filtered by search and explore filters)
   const unvisitedCountries = useMemo((): UnvisitedCountry[] => {
@@ -341,8 +384,8 @@ export function PassportScreen({ navigation }: Props) {
       items.push({ type: 'section-header', title: "Where you've been", key: 'header-visited' });
     }
 
-    // Add empty state if no visited countries and no search
-    if (!searchQuery && visitedCountries.length === 0) {
+    // Add empty state if no visited countries (within tracking preference) and no search
+    if (!searchQuery && displayItems.length === 0 && stats.stampedCount === 0) {
       items.push({ type: 'empty-state', key: 'empty-state' });
     }
 
@@ -365,7 +408,7 @@ export function PassportScreen({ navigation }: Props) {
     }
 
     return items;
-  }, [displayItems, unvisitedCountries, searchQuery, visitedCountries.length]);
+  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount]);
 
   const handleCountryPress = useCallback(
     (item: CountryDisplayItem) => {
@@ -564,7 +607,7 @@ export function PassportScreen({ navigation }: Props) {
         {/* App Header */}
         <View style={styles.header}>
           <View style={styles.headerSpacer} />
-          <Text style={styles.headerTitle}>BorderBadge</Text>
+          <Image source={atlastLogo} style={styles.headerLogo} resizeMode="contain" />
           <GlassIconButton
             icon="settings-outline"
             onPress={handleProfilePress}
@@ -726,6 +769,7 @@ export function PassportScreen({ navigation }: Props) {
         onClose={handleCloseFilters}
         onClearAll={handleClearFilters}
         onApply={handleCloseFilters}
+        trackingPreference={trackingPreference}
       />
 
       <ShareCardOverlay
@@ -760,11 +804,9 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 44, // Match GlassIconButton width for centering
   },
-  headerTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 28,
-    color: colors.midnightNavy,
-    textAlign: 'center',
+  headerLogo: {
+    width: 140,
+    height: 40,
   },
   // Travel Status Card
   statusCard: {

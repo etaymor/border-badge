@@ -38,8 +38,11 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
   const typeConfig =
     ENTRY_TYPE_CONFIG[entry.entry_type as keyof typeof ENTRY_TYPE_CONFIG] ??
     ENTRY_TYPE_CONFIG.place;
+
+  // Use user-uploaded media first, fall back to Google Places photo
   const firstMedia = entry.media_files?.[0];
-  const firstMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
+  const userMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
+  const firstMediaUrl = userMediaUrl ?? entry.place?.google_photo_url;
   const hasValidImage = firstMediaUrl && !imageError;
 
   return (

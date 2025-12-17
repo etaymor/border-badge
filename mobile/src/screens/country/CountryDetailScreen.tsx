@@ -1,51 +1,48 @@
-import { useCallback, useMemo, useState } from 'react';
-import {
-  FlatList,
-  Image,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Animated, Dimensions, StatusBar, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
 import { Button, GlassBackButton, TripCard } from '@components/ui';
+import {
+  CountryHero,
+  CountryActionBar,
+  CountryStats,
+  CountryEmptyState,
+  TripsSectionHeader,
+} from '@components/country';
 import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
 import { colors } from '@constants/colors';
-import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 import { detectMilestones, type MilestoneContext } from '@utils/milestones';
 import { getCountryImage } from '../../assets/countryImages';
 
 type Props = PassportStackScreenProps<'CountryDetail'>;
 
-// Image aspect ratio is 1856:2464 (width:height) = 0.753
-const IMAGE_ASPECT_RATIO = 1856 / 2464;
-
-const ItemSeparator = () => <View style={styles.separator} />;
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const HERO_HEIGHT = SCREEN_HEIGHT * 0.55;
+const HEADER_MAX_HEIGHT = HERO_HEIGHT;
+const HEADER_MIN_HEIGHT = 100;
+const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
 
 export function CountryDetailScreen({ navigation, route }: Props) {
   const { countryId, countryName, countryCode } = route.params;
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
 
-  // Calculate hero image height based on screen width (responsive to rotation)
-  const heroImageHeight = useMemo(() => screenWidth / IMAGE_ASPECT_RATIO, [screenWidth]);
+  // Animation Values
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   // Share overlay state
   const [showShareOverlay, setShowShareOverlay] = useState(false);
   const [shareContext, setShareContext] = useState<MilestoneContext | null>(null);
 
-  // Use countryCode if available, otherwise use countryId (they should be the same)
+  // Data Hooks
   const code = countryCode || countryId;
   const { data: country } = useCountryByCode(code);
   const { data: allCountries } = useCountries();
@@ -57,9 +54,10 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const flagEmoji = getFlagEmoji(code);
   const countryImage = getCountryImage(code);
   const displayName = country?.name || countryName || code;
+  const subregion = country?.subregion || country?.region || '';
   const region = country?.region || '';
 
-  // Get visited countries and calculate this country's number
+  // Derived State
   const visitedCountries = useMemo(
     () =>
       userCountries
@@ -73,21 +71,22 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     [visitedCountries, code]
   );
 
-  // Country number (1-indexed position in visited list)
   const countryNumber = useMemo(() => {
     const index = visitedCountries.findIndex((uc) => uc.country_code === code);
     return index >= 0 ? index + 1 : null;
   }, [visitedCountries, code]);
 
-  const isWishlisted = useMemo(
+  const isDream = useMemo(
     () =>
       userCountries?.some((uc) => uc.country_code === code && uc.status === 'wishlist') ?? false,
     [userCountries, code]
   );
 
+  const hasTrips = (trips?.length ?? 0) > 0;
+
+  // Handlers
   const handleAddTrip = useCallback(() => {
-    // Navigate to trips stack and then to TripForm
-    navigation.getParent()?.navigate('Trips', {
+    navigation.navigate('Trips', {
       screen: 'TripForm',
       params: {
         countryId,
@@ -98,8 +97,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   const handleTripPress = useCallback(
     (trip: Trip) => {
-      // Navigate to trips stack and then to TripDetail
-      navigation.getParent()?.navigate('Trips', {
+      navigation.navigate('Trips', {
         screen: 'TripDetail',
         params: { tripId: trip.id },
       });
@@ -116,23 +114,20 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     }
   }, [isVisited, code, addUserCountry, removeUserCountry]);
 
-  const handleToggleWishlist = useCallback(() => {
+  const handleToggleDream = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (isWishlisted) {
+    if (isDream) {
       removeUserCountry.mutate(code);
     } else {
       addUserCountry.mutate({ country_code: code, status: 'wishlist' });
     }
-  }, [isWishlisted, code, addUserCountry, removeUserCountry]);
+  }, [isDream, code, addUserCountry, removeUserCountry]);
 
   const handleOpenShare = useCallback(() => {
     if (!country || !allCountries || !userCountries || countryNumber === null) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Build milestone context for the share card
-    // To compute milestones accurately, we need the state at the time this country was added
-    // Get only the countries that were visited BEFORE this one (by created_at order)
     const thisCountryVisit = visitedCountries.find((uc) => uc.country_code === code);
     const countriesVisitedBefore = thisCountryVisit
       ? visitedCountries.filter(
@@ -141,7 +136,6 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         )
       : [];
 
-    // Detect milestones as if we were adding this country at that point in time
     const milestones = detectMilestones(code, allCountries, countriesVisitedBefore);
 
     const context: MilestoneContext = {
@@ -161,222 +155,155 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     setShowShareOverlay(false);
   }, []);
 
+  // Animations
+  const imageScale = scrollY.interpolate({
+    inputRange: [-HERO_HEIGHT, 0],
+    outputRange: [2, 1],
+    extrapolateRight: 'clamp',
+  });
+
+  const imageTranslateY = scrollY.interpolate({
+    inputRange: [-100, 0, HEADER_SCROLL_DISTANCE],
+    outputRange: [0, 0, HEADER_SCROLL_DISTANCE * 0.5],
+    extrapolate: 'clamp',
+  });
+
+  const titleScale = scrollY.interpolate({
+    inputRange: [0, HEADER_SCROLL_DISTANCE / 2, HEADER_SCROLL_DISTANCE],
+    outputRange: [1, 0.9, 0.8],
+    extrapolate: 'clamp',
+  });
+
+  const titleOpacity = scrollY.interpolate({
+    inputRange: [0, HEADER_SCROLL_DISTANCE * 0.6, HEADER_SCROLL_DISTANCE],
+    outputRange: [1, 0.5, 0],
+    extrapolate: 'clamp',
+  });
+
   const renderTripItem = useCallback(
     ({ item }: { item: Trip }) => (
-      <TripCard
-        trip={item}
-        flagEmoji={flagEmoji}
-        onPress={() => handleTripPress(item)}
-        testID={`trip-card-${item.id}`}
-      />
+      <View style={styles.tripCardWrapper}>
+        <TripCard
+          trip={item}
+          flagEmoji={flagEmoji}
+          onPress={() => handleTripPress(item)}
+          testID={`trip-card-${item.id}`}
+        />
+      </View>
     ),
     [flagEmoji, handleTripPress]
   );
 
-  // Determine button text based on visited status
-  const ctaButtonText = useMemo(() => {
-    if ((trips?.length ?? 0) > 0) {
-      return 'Add Another Trip';
-    }
-    return isVisited ? 'Log Your Trip' : 'Plan a Trip';
-  }, [trips?.length, isVisited]);
-
   const ListHeader = useMemo(
     () => (
-      <View style={styles.header}>
-        {/* Hero Image */}
-        {countryImage ? (
-          <View style={[styles.heroContainer, { height: heroImageHeight }]}>
-            <Image source={countryImage} style={styles.heroImage} resizeMode="cover" />
+      <View style={styles.contentContainer}>
+        {/* Spacer for the fixed hero section */}
+        <View style={{ height: HERO_HEIGHT - 40 }} />
 
-            {/* Top overlay for header row and stamp title */}
-            <View style={[styles.heroTopOverlay, { paddingTop: insets.top + 8 }]}>
-              {/* Header row with back button and title */}
-              <View style={styles.headerRow}>
-                <GlassBackButton onPress={() => navigation.goBack()} />
-                {/* Stamp-style country name - Oswald font, midnight navy */}
-                <Text
-                  style={styles.stampTitle}
-                  accessibilityRole="header"
-                  accessibilityLabel={`Country: ${displayName}`}
-                  numberOfLines={1}
-                >
-                  {displayName}
-                </Text>
-                {/* Empty spacer to balance back button */}
-                <View style={styles.headerSpacer} />
-              </View>
-            </View>
+        <View style={styles.sheetContainer}>
+          <CountryActionBar
+            isVisited={isVisited}
+            isDream={isDream}
+            onMarkVisited={handleMarkVisited}
+            onToggleDream={handleToggleDream}
+          />
 
-            {/* Bottom overlay for flag/region and action icons */}
-            <View style={styles.heroBottomOverlay}>
-              {/* Bottom left: Flag and Region */}
-              <View style={styles.bottomLeftInfo}>
-                <Text style={styles.heroFlag}>{flagEmoji}</Text>
-                {region ? (
-                  <BlurView intensity={30} tint="light" style={styles.heroRegionBadgeGlass}>
-                    <Text style={styles.heroRegionText}>{region}</Text>
-                  </BlurView>
-                ) : null}
-              </View>
+          <CountryStats
+            region={region}
+            subregion={subregion}
+            isVisited={isVisited}
+            countryNumber={countryNumber}
+            reducedTopMargin={!isVisited}
+          />
 
-              {/* Bottom right: Country Number + Share OR Action Icons */}
-              <View style={styles.bottomRightActions}>
-                {isVisited ? (
-                  // Show share button and country number badge when visited
-                  <>
-                    <TouchableOpacity
-                      onPress={handleOpenShare}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Share country card"
-                      style={styles.actionIconButtonContainer}
-                    >
-                      <BlurView intensity={30} tint="light" style={styles.actionIconButtonGlass}>
-                        <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
-                      </BlurView>
-                    </TouchableOpacity>
-                    <View style={styles.countryNumberBadge}>
-                      <Text style={styles.countryNumberLabel}>Country</Text>
-                      <Text style={styles.countryNumberValue}>#{countryNumber}</Text>
-                    </View>
-                  </>
-                ) : (
-                  // Show action icons when not visited
-                  <>
-                    <TouchableOpacity
-                      onPress={handleMarkVisited}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Mark as visited"
-                      style={styles.actionIconButtonContainer}
-                    >
-                      <BlurView
-                        intensity={30}
-                        tint="light"
-                        style={[styles.actionIconButtonGlass, styles.visitedIconButton]}
-                      >
-                        <Ionicons name="add" size={24} color={colors.mossGreen} />
-                      </BlurView>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={handleToggleWishlist}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                      style={styles.actionIconButtonContainer}
-                    >
-                      <BlurView
-                        intensity={30}
-                        tint="light"
-                        style={[
-                          styles.actionIconButtonGlass,
-                          styles.wishlistIconButton,
-                          isWishlisted && styles.wishlistIconButtonActive,
-                        ]}
-                      >
-                        <Ionicons
-                          name={isWishlisted ? 'heart' : 'heart-outline'}
-                          size={22}
-                          color={isWishlisted ? colors.white : colors.adobeBrick}
-                        />
-                      </BlurView>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
+          {/* CTA Section */}
+          <View style={styles.ctaSection}>
+            <Button
+              title={hasTrips ? 'Add Another Trip' : isVisited ? 'Log a Trip' : 'Plan a Trip'}
+              onPress={handleAddTrip}
+              variant="primary"
+            />
           </View>
-        ) : (
-          /* Fallback when no country image */
-          <View style={[styles.fallbackHeader, { paddingTop: insets.top + 60 }]}>
-            <Text style={styles.fallbackName}>{displayName}</Text>
-            <View style={styles.fallbackInfoRow}>
-              <Text style={styles.fallbackFlag}>{flagEmoji}</Text>
-              {region ? <Text style={styles.fallbackRegion}>{region}</Text> : null}
-            </View>
-          </View>
-        )}
 
-        {/* CTA Button Section */}
-        <View style={styles.ctaSection}>
-          <Button title={ctaButtonText} onPress={handleAddTrip} testID="add-trip-button" />
+          <TripsSectionHeader tripCount={trips?.length ?? 0} />
+
+          {/* Empty State */}
+          {!hasTrips && !loadingTrips && (
+            <CountryEmptyState flagEmoji={flagEmoji} displayName={displayName} />
+          )}
         </View>
-
-        {/* Trips Section Header */}
-        {(trips?.length ?? 0) > 0 && (
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Trips</Text>
-            <View style={styles.tripCountBadge}>
-              <Text style={styles.tripCountText}>{trips?.length}</Text>
-            </View>
-          </View>
-        )}
       </View>
     ),
     [
-      countryImage,
-      heroImageHeight,
-      insets.top,
-      displayName,
-      flagEmoji,
-      region,
-      countryNumber,
       isVisited,
-      isWishlisted,
+      isDream,
       handleMarkVisited,
-      handleToggleWishlist,
-      handleOpenShare,
-      ctaButtonText,
-      handleAddTrip,
+      handleToggleDream,
+      region,
+      subregion,
+      countryNumber,
+      hasTrips,
       trips?.length,
-      navigation,
+      handleAddTrip,
+      loadingTrips,
+      flagEmoji,
+      displayName,
     ]
-  );
-
-  const ListEmpty = useMemo(
-    () =>
-      !loadingTrips ? (
-        <View style={styles.emptyState}>
-          {/* Placeholder for illustration - user will add custom asset */}
-          <View style={styles.emptyIllustration}>
-            <Ionicons name="book-outline" size={64} color={colors.lakeBlue} />
-          </View>
-
-          <Text style={styles.emptyTitle}>No adventures yet</Text>
-          <Text style={styles.emptySubtitle}>
-            {isVisited
-              ? `Log your memories from ${displayName}`
-              : `Start planning your trip to ${displayName}`}
-          </Text>
-        </View>
-      ) : null,
-    [loadingTrips, displayName, isVisited]
   );
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
 
-      <FlatList
+      <CountryHero
+        displayName={displayName}
+        subregion={subregion}
+        flagEmoji={flagEmoji}
+        countryImage={countryImage}
+        heroHeight={HERO_HEIGHT}
+        insetTop={insets.top}
+        imageScale={imageScale}
+        imageTranslateY={imageTranslateY}
+        titleScale={titleScale}
+        titleOpacity={titleOpacity}
+      />
+
+      {/* Main Scrollable Content */}
+      <Animated.FlatList
         data={trips || []}
         renderItem={renderTripItem}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={ListHeader}
-        ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={ItemSeparator}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: true,
+        })}
+        scrollEventThrottle={16}
         refreshing={loadingTrips}
         onRefresh={refetch}
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        windowSize={5}
-        initialNumToRender={5}
       />
 
-      {/* Share Card Overlay */}
+      {/* Sticky Header (Back Button & Share) */}
+      <View style={[styles.fixedHeader, { paddingTop: insets.top }]}>
+        <GlassBackButton onPress={() => navigation.goBack()} />
+
+        {/* Right: Share Button */}
+        {isVisited && (
+          <TouchableOpacity
+            onPress={handleOpenShare}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.8}
+            style={styles.headerShareButton}
+            accessibilityLabel="Share country card"
+          >
+            <BlurView intensity={30} tint="light" style={styles.headerShareGlass}>
+              <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+            </BlurView>
+          </TouchableOpacity>
+        )}
+      </View>
+
       <ShareCardOverlay
         visible={showShareOverlay}
         context={shareContext}
@@ -391,102 +318,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.warmCream,
   },
-  listContent: {
-    flexGrow: 1,
-    paddingBottom: 40,
-  },
-  header: {
-    paddingTop: 0,
-  },
-
-  // Hero Section
-  heroContainer: {
-    position: 'relative',
-    backgroundColor: colors.warmCream,
-  },
-  heroImage: {
-    width: '100%',
-    height: '100%',
-  },
-  heroTopOverlay: {
+  fixedHeader: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 16,
-  },
-  headerSpacer: {
-    width: 44, // Same width as GlassBackButton to balance the layout
-  },
-  heroBottomOverlay: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
+    zIndex: 100,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  stampTitle: {
-    flex: 1,
-    fontFamily: fonts.oswald.bold,
-    fontSize: 28,
-    lineHeight: 44, // Match GlassBackButton height for vertical centering
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    textShadowColor: 'rgba(255, 255, 255, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-
-  // Bottom left info (flag + region)
-  bottomLeftInfo: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    height: 60,
   },
-  heroFlag: {
-    fontSize: 32,
-    textShadowColor: 'rgba(255, 255, 255, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  heroRegionBadgeGlass: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  heroRegionText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 12,
-    color: colors.midnightNavy,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
-  // Bottom right actions
-  bottomRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  // Action icon buttons (when not visited)
-  actionIconButtonContainer: {
+  headerShareButton: {
     borderRadius: 22,
     overflow: 'hidden',
   },
-  actionIconButtonGlass: {
+  headerShareGlass: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -496,147 +344,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
   },
-  visitedIconButton: {
-    // Default glass style works
+  listContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
-  wishlistIconButton: {
-    // Default glass style works
+  contentContainer: {
+    zIndex: 10,
   },
-  wishlistIconButtonActive: {
-    backgroundColor: colors.adobeBrick, // Keep active state opaque or change if desired
-    borderColor: colors.adobeBrick,
-  },
-
-  // Country number badge (bottom right, when visited)
-  countryNumberBadge: {
-    backgroundColor: colors.sunsetGold,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  countryNumberLabel: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 10,
-    color: colors.midnightNavy,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    opacity: 0.8,
-  },
-  countryNumberValue: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 20,
-    color: colors.midnightNavy,
-  },
-
-  // Fallback (no image)
-  fallbackHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 20,
+  sheetContainer: {
     backgroundColor: colors.warmCream,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    marginTop: -30,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  fallbackName: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 32,
-    lineHeight: 34,
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  ctaSection: {
     marginBottom: 16,
   },
-  fallbackInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  fallbackFlag: {
-    fontSize: 32,
-  },
-  fallbackRegion: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.stormGray,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-
-  // CTA Section
-  ctaSection: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 8,
-  },
-
-  // Section Header
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 12,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.midnightNavyBorder,
-  },
-  sectionTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 20,
-    color: colors.midnightNavy,
-  },
-  tripCountBadge: {
-    backgroundColor: colors.mossGreen,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  tripCountText: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 14,
-    color: colors.cloudWhite,
-  },
-
-  // Trip Card Separator
-  separator: {
-    height: 0,
-  },
-
-  // Empty State
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingVertical: 60,
-  },
-  emptyIllustration: {
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: colors.paperBeige,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  emptyTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 22,
-    color: colors.midnightNavy,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.stormGray,
-    textAlign: 'center',
-    lineHeight: 24,
+  tripCardWrapper: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
 });

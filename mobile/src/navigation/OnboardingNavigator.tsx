@@ -9,8 +9,10 @@ import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
-import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
+// LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
+// import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
+import { TrackingPreferenceScreen } from '@screens/onboarding/TrackingPreferenceScreen';
 import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
 
 import type { OnboardingStackParamList } from './types';
@@ -28,12 +30,14 @@ export function OnboardingNavigator() {
       <Stack.Screen name="OnboardingSlider" component={OnboardingSliderScreen} />
       <Stack.Screen name="Motivation" component={MotivationScreen} />
       <Stack.Screen name="HomeCountry" component={HomeCountryScreen} />
+      <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} />
       <Stack.Screen name="DreamDestination" component={DreamDestinationScreen} />
       <Stack.Screen name="ContinentIntro" component={ContinentIntroScreen} />
       <Stack.Screen name="ContinentCountryGrid" component={ContinentCountryGridScreen} />
       <Stack.Screen name="AntarcticaPrompt" component={AntarcticaPromptScreen} />
       <Stack.Screen name="ProgressSummary" component={ProgressSummaryScreen} />
-      <Stack.Screen name="Paywall" component={PaywallScreen} />
+      {/* LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch */}
+      {/* <Stack.Screen name="Paywall" component={PaywallScreen} /> */}
       <Stack.Screen name="NameEntry" component={NameEntryScreen} />
       <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
     </Stack.Navigator>

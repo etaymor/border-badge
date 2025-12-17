@@ -90,8 +90,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(
-    title="Border Badge API",
-    description="Backend API for the Border Badge travel tracking app",
+    title="Atlasi API",
+    description="Backend API for the Atlasi travel tracking app",
     version="0.1.0",
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,

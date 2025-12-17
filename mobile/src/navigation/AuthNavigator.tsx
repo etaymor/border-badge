@@ -1,7 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { PhoneAuthScreen } from '@screens/auth/PhoneAuthScreen';
-import { WelcomeScreen } from '@screens/auth/WelcomeScreen';
+import { AuthScreen } from '@screens/auth';
+// LAUNCH_SIMPLIFICATION: WelcomeScreen skipped - users go directly to Auth
+// import { WelcomeScreen } from '@screens/auth';
 
 import type { AuthStackParamList } from './types';
 
@@ -13,9 +14,11 @@ export function AuthNavigator() {
       screenOptions={{
         headerShown: false,
       }}
+      initialRouteName="Auth"
     >
-      <Stack.Screen name="Welcome" component={WelcomeScreen} />
-      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
+      {/* LAUNCH_SIMPLIFICATION: WelcomeScreen skipped for cleaner sign-out flow */}
+      {/* <Stack.Screen name="Welcome" component={WelcomeScreen} /> */}
+      <Stack.Screen name="Auth" component={AuthScreen} />
     </Stack.Navigator>
   );
 }

@@ -19,6 +19,7 @@ import { fonts } from '@constants/typography';
 import type { MilestoneContext } from '@utils/milestones';
 import { getCountryImage } from '../../assets/countryImages';
 import { getStampImage } from '../../assets/stampImages';
+import atlasLogo from '../../../assets/atlasi-logo.png';
 
 // Card dimensions: 9:16 aspect ratio optimized for Instagram Stories (1080x1920)
 // Using 1080 as base width ensures high-quality exports for social sharing
@@ -85,7 +86,12 @@ const DefaultModeContent = memo(function DefaultModeContent({
                 key={`${milestone.type}-${index}`}
                 style={[styles.milestoneTag, { backgroundColor: withAlpha(milestone.color, 0.95) }]}
               >
-                <Ionicons name={milestone.icon} size={ICON_SIZE_DEFAULT} color={colors.white} />
+                <Ionicons
+                  name={milestone.icon}
+                  size={ICON_SIZE_DEFAULT}
+                  color={colors.white}
+                  style={styles.milestoneIcon}
+                />
                 <Text style={styles.milestoneText}>{milestone.label}</Text>
               </View>
             ))}
@@ -100,8 +106,8 @@ const DefaultModeContent = memo(function DefaultModeContent({
         </View>
       </View>
 
-      {/* Watermark - TODO: Replace with logo asset when available */}
-      <Text style={styles.watermark}>Border Badge</Text>
+      {/* Watermark */}
+      <Image source={atlasLogo} style={styles.watermark} resizeMode="contain" />
     </>
   );
 });
@@ -162,8 +168,8 @@ const PhotoModeContent = memo(function PhotoModeContent({
         )}
       </View>
 
-      {/* Watermark - TODO: Replace with logo asset when available */}
-      <Text style={styles.watermarkPhotoMode}>Border Badge</Text>
+      {/* Watermark */}
+      <Image source={atlasLogo} style={styles.watermarkPhotoMode} resizeMode="contain" />
     </>
   );
 });
@@ -259,17 +265,18 @@ const styles = StyleSheet.create({
 
   // Milestone celebration - below country name
   milestoneContainer: {
-    marginTop: 12 * SCALE,
+    marginTop: 16 * SCALE,
     alignItems: 'center',
     gap: 8 * SCALE,
+    width: '100%',
   },
   milestoneTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10 * SCALE,
-    paddingHorizontal: 20 * SCALE,
-    borderRadius: 30 * SCALE,
-    gap: 10 * SCALE,
+    justifyContent: 'center',
+    height: 52 * SCALE,
+    paddingHorizontal: 24 * SCALE,
+    borderRadius: 26 * SCALE,
     // Glow effect
     shadowColor: colors.sunsetGold,
     shadowOffset: { width: 0, height: 0 },
@@ -277,23 +284,27 @@ const styles = StyleSheet.create({
     shadowRadius: 12 * SCALE,
     elevation: 8,
   },
+  milestoneIcon: {
+    marginRight: 10 * SCALE,
+  },
   milestoneText: {
     fontFamily: fonts.oswald.medium,
     fontSize: 18 * SCALE,
+    lineHeight: 24 * SCALE,
     color: colors.white,
     textTransform: 'uppercase',
     letterSpacing: 1 * SCALE,
+    includeFontPadding: false,
   },
 
-  // Watermark
+  // Watermark - aligned with number badge vertically
   watermark: {
     position: 'absolute',
-    bottom: 16 * SCALE,
-    right: 20 * SCALE,
-    fontFamily: fonts.openSans.regular,
-    fontSize: 12 * SCALE,
-    color: colors.warmCream,
-    opacity: 0.6,
+    bottom: 48 * SCALE,
+    right: 32 * SCALE,
+    width: 120 * SCALE,
+    height: 36 * SCALE,
+    opacity: 0.8,
   },
 
   // ============ PHOTO MODE STYLES ============
@@ -370,16 +381,14 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
 
-  // Photo mode watermark
+  // Photo mode watermark - aligned with stamp vertically
   watermarkPhotoMode: {
     position: 'absolute',
-    bottom: 16 * SCALE,
-    right: 20 * SCALE,
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14 * SCALE,
-    color: colors.white,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 * SCALE },
-    textShadowRadius: 4 * SCALE,
+    bottom: 32 * SCALE,
+    right: 24 * SCALE,
+    width: 120 * SCALE,
+    height: 36 * SCALE,
+    opacity: 0.9,
+    tintColor: colors.white,
   },
 });

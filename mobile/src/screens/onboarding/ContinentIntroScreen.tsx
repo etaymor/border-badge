@@ -1,10 +1,14 @@
 import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const atlasLogo = require('../../../assets/atlasi-logo.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
@@ -123,7 +127,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'PhoneAuth' });
+    navigation.navigate('Auth', { screen: 'Auth' });
   };
 
   return (
@@ -145,6 +149,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
             ) : (
               <View style={styles.backButtonPlaceholder} />
             )}
+            <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
@@ -229,6 +234,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
   },
+  logo: {
+    width: 140,
+    height: 40,
+  },
   loginButton: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -243,6 +252,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.playfair.bold,
     color: colors.midnightNavy,
     textAlign: 'center',
+    marginTop: 16,
   },
   videoContainer: {
     flex: 1,
