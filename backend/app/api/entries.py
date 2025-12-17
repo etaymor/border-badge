@@ -1,7 +1,6 @@
 """Entry endpoints."""
 
 import logging
-from enum import Enum
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -15,6 +14,7 @@ from app.schemas.entries import (
     Entry,
     EntryCreate,
     EntryMediaFile,
+    EntryType,
     EntryUpdate,
     EntryWithPlace,
     Place,
@@ -264,7 +264,7 @@ async def update_entry(
 
         # Convert type enum to string if present and not None
         if "type" in update_data and update_data["type"] is not None:
-            if isinstance(update_data["type"], Enum):
+            if isinstance(update_data["type"], EntryType):
                 update_data["type"] = update_data["type"].value
 
         rows = await db.patch("entry", update_data, {"id": f"eq.{entry_id}"})
@@ -280,7 +280,7 @@ async def update_entry(
         if not existing_entries:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Entry not found or not authorized",
+                detail="Entry not found or not authorized to update",
             )
         entry = Entry(**existing_entries[0])
 
