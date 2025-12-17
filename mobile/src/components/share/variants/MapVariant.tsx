@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, ImageBackground, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 
@@ -6,10 +6,7 @@ import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountryByCode } from '@hooks/useCountries';
-import {
-  classifyTraveler,
-  type TravelerClassificationResponse,
-} from '@services/api';
+import { classifyTraveler, type TravelerClassificationResponse } from '@services/api';
 import { getFlagEmoji } from '@utils/flags';
 
 import { getCountryImage } from '../../../assets/countryImages';
@@ -29,15 +26,21 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [_error, setError] = useState(false);
 
+  // AbortController ref for cancelling in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Combine motivation and persona tags for classification
   const interestTags = useMemo(
     () => [...motivationTags, ...personaTags],
     [motivationTags, personaTags]
   );
 
-  // Call classification API on mount
+  // Call classification API on mount or when dependencies change
   useEffect(() => {
-    let isMounted = true;
+    // Abort any in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     async function fetchClassification() {
       if (visitedCountries.length === 0) {
@@ -46,19 +49,32 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
         return;
       }
 
-      try {
-        const result = await classifyTraveler({
-          countries_visited: visitedCountries,
-          interest_tags: interestTags,
-        });
+      // Reset state for new request
+      setIsLoading(true);
+      setError(false);
 
-        if (isMounted) {
+      try {
+        const result = await classifyTraveler(
+          {
+            countries_visited: visitedCountries,
+            interest_tags: interestTags,
+          },
+          signal
+        );
+
+        // Only update state if this request wasn't aborted
+        if (!signal.aborted) {
           setClassification(result);
           setIsLoading(false);
         }
       } catch (e) {
+        // Ignore abort errors - they're expected during cleanup
+        const error = e as Error;
+        if (error.name === 'AbortError' || error.name === 'CanceledError') {
+          return;
+        }
         console.error('Classification failed:', e);
-        if (isMounted) {
+        if (!signal.aborted) {
           setError(true);
           setIsLoading(false);
         }
@@ -67,8 +83,9 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
 
     fetchClassification();
 
+    // Cleanup: abort request on unmount or before next effect run
     return () => {
-      isMounted = false;
+      abortControllerRef.current?.abort();
     };
   }, [visitedCountries, interestTags]);
 
@@ -79,10 +96,7 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
   const { data: countryData } = useCountryByCode(signatureCountryCode);
 
   // Get country image
-  const countryImage = useMemo(
-    () => getCountryImage(signatureCountryCode),
-    [signatureCountryCode]
-  );
+  const countryImage = useMemo(() => getCountryImage(signatureCountryCode), [signatureCountryCode]);
 
   // Traveler type text
   const travelerType = classification?.traveler_type || 'Global Explorer';

@@ -123,10 +123,15 @@ export interface TravelerClassificationResponse {
 /**
  * Classify a traveler based on their visited countries and interest tags.
  * Returns a creative traveler type label and signature country.
+ * @param request - Classification request data
+ * @param signal - Optional AbortSignal for request cancellation
  */
 export async function classifyTraveler(
-  request: TravelerClassificationRequest
+  request: TravelerClassificationRequest,
+  signal?: AbortSignal
 ): Promise<TravelerClassificationResponse> {
-  const response = await api.post<TravelerClassificationResponse>('/classify/traveler', request);
+  const response = await api.post<TravelerClassificationResponse>('/classify/traveler', request, {
+    signal,
+  });
   return response.data;
 }

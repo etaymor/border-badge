@@ -29,4 +29,3 @@ export const STAMP_POSITIONS = [
   { x: 38, y: 68, rotation: -12, scale: 1.0 },
   { x: 65, y: 66, rotation: 5, scale: 0.9 },
 ] as const;
-

@@ -26,4 +26,3 @@ export interface OnboardingShareContext {
 export interface VariantProps {
   context: OnboardingShareContext;
 }
-

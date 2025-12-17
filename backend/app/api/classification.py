@@ -2,18 +2,18 @@
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
+from app.main import limiter
 from app.schemas.classification import (
     TravelerClassificationRequest,
     TravelerClassificationResponse,
@@ -21,10 +21,12 @@ from app.schemas.classification import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-limiter = Limiter(key_func=get_remote_address)
 
 # OpenRouter API endpoint
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Regex to strip markdown code fences (handles ```json, ```javascript, etc.)
+CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
 # LLM prompts for classification
 SYSTEM_PROMPT = """You are a creative travel personality classifier. You MUST output only valid JSON matching the schema.
@@ -119,6 +121,8 @@ async def call_openrouter_llm(
         "max_tokens": 200,
     }
 
+    # SECURITY NOTE: Authorization header contains the OpenRouter API key.
+    # Ensure no middleware or logging configuration exposes request headers.
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
@@ -144,14 +148,11 @@ async def call_openrouter_llm(
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         # Parse JSON from the response content
-        # Handle case where LLM wraps in markdown code block
+        # Strip markdown code fences if present (handles ```json, ``` etc.)
         content = content.strip()
-        if content.startswith("```"):
-            # Remove markdown code block
-            lines = content.split("\n")
-            content = "\n".join(
-                line for line in lines if not line.startswith("```")
-            ).strip()
+        fence_match = CODE_FENCE_PATTERN.match(content)
+        if fence_match:
+            content = fence_match.group(1).strip()
 
         return json.loads(content)
 
@@ -200,10 +201,16 @@ def validate_llm_response(
         )
         return None
 
+    # Clamp confidence to valid range [0.0, 1.0]
+    if isinstance(confidence, int | float):
+        conf_value = max(0.0, min(1.0, float(confidence)))
+    else:
+        conf_value = 0.5
+
     return {
         "traveler_type": traveler_type,
         "signature_country": signature_country,
-        "confidence": float(confidence) if isinstance(confidence, int | float) else 0.5,
+        "confidence": conf_value,
         "rationale_short": rationale or "Classification based on travel patterns",
     }
 
