@@ -247,8 +247,14 @@ async def update_entry(
             detail="place_name is required when providing place data",
         )
 
-    # Fetch existing place early - reused for both update logic and preserving existing
-    existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+    # Track whether we need to fetch existing places
+    # Only needed when: preserving existing (place_data is None) or updating (place_data has values)
+    existing_places: list[dict] | None = None
+    needs_existing_places = place_data is None or (
+        place_data is not None and place_data != {}
+    )
+    if needs_existing_places:
+        existing_places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
 
     # Update entry fields if any remain after extracting place
     if update_data:
@@ -306,9 +312,15 @@ async def update_entry(
                 place_rows = await db.post("place", place_payload)
 
             if not place_rows:
+                # Log the failure for debugging - entry update succeeded but place failed
+                logger.error(
+                    "Place save failed for entry %s after entry update. "
+                    "Entry changes were committed but place data was not saved.",
+                    entry_id,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to save place data",
+                    detail="Failed to save place data. Entry was updated but place changes were lost.",
                 )
             place = Place(**place_rows[0])
     else:

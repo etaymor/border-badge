@@ -4,7 +4,7 @@
  */
 
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, View } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -42,18 +42,11 @@ function AnimatedSplashComponent({
     p.play();
   });
 
-  // Listen for player status changes to detect when video is ready
-  useEffect(() => {
-    if (!player) return;
-
-    const subscription = player.addListener('statusChange', (status) => {
-      if (status.status === 'readyToPlay' && !isVideoReady) {
-        setIsVideoReady(true);
-      }
-    });
-
-    return () => subscription.remove();
-  }, [player, isVideoReady]);
+  // Handler for when the first video frame is rendered
+  // useCallback with empty deps ensures stable reference across renders
+  const handleFirstFrameRender = useCallback(() => {
+    setIsVideoReady(true);
+  }, []);
 
   // Fallback: if video doesn't signal ready within 1 second, proceed anyway
   useEffect(() => {
@@ -116,7 +109,13 @@ function AnimatedSplashComponent({
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       {/* Video background */}
-      <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} />
+      <VideoView
+        player={player}
+        style={styles.video}
+        contentFit="cover"
+        nativeControls={false}
+        onFirstFrameRender={handleFirstFrameRender}
+      />
 
       {/* Dark overlay for better logo visibility */}
       <View style={styles.overlay} />
