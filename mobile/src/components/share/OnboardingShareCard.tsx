@@ -208,9 +208,10 @@ const StatsVariant = memo(function StatsVariant({ context }: { context: Onboardi
 
               {/* Continent name and count */}
               <Text style={styles.continentNameGrid}>{continent.name}</Text>
-              <Text style={styles.continentCountGrid}>
-                {continent.visitedCount}/{continent.totalCount}
-              </Text>
+              <View style={styles.continentCountRow}>
+                <Text style={styles.continentCountVisited}>{continent.visitedCount}</Text>
+                <Text style={styles.continentCountTotal}>/{continent.totalCount}</Text>
+              </View>
             </View>
           );
         })}
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
   },
   statItemNew: {
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
   },
   statNumberNew: {
     fontFamily: fonts.oswald.bold,
@@ -431,7 +432,7 @@ const styles = StyleSheet.create({
   taglineTextOswald: {
     fontFamily: fonts.oswald.medium,
     fontSize: 14,
-    color: withAlpha(colors.midnightNavy, 0.7),
+    color: colors.midnightNavy,
     letterSpacing: 0.5,
   },
 
@@ -461,7 +462,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     alignContent: 'center',
-    gap: 8,
+    gap: 4,
   },
   continentGridItem: {
     width: '30%',
@@ -469,15 +470,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   continentStampContainerLarge: {
-    width: 48,
-    height: 48,
+    width: 64,
+    height: 64,
     marginBottom: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   continentStampLarge: {
-    width: 48,
-    height: 48,
+    width: 64,
+    height: 64,
   },
   continentStampPlaceholderLarge: {
     width: 36,
@@ -487,15 +488,24 @@ const styles = StyleSheet.create({
   },
   continentNameGrid: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 11,
+    fontSize: 13,
     color: colors.midnightNavy,
     textAlign: 'center',
   },
-  continentCountGrid: {
+  continentCountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+  },
+  continentCountVisited: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 16,
+    fontSize: 24,
     color: colors.midnightNavy,
-    textAlign: 'center',
+  },
+  continentCountTotal: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 14,
+    color: withAlpha(colors.midnightNavy, 0.5),
   },
   statsFooterFour: {
     flexDirection: 'row',
@@ -539,7 +549,7 @@ const styles = StyleSheet.create({
   statsTaglineOswald: {
     fontFamily: fonts.oswald.medium,
     fontSize: 14,
-    color: withAlpha(colors.midnightNavy, 0.7),
+    color: colors.midnightNavy,
     letterSpacing: 0.5,
   },
 

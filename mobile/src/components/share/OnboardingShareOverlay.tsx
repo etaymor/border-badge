@@ -374,6 +374,7 @@ const styles = StyleSheet.create({
   paginationDotContainer: {
     alignItems: 'center',
     gap: 6,
+    minWidth: 60,
   },
   paginationDot: {
     width: 10,
