@@ -17,7 +17,11 @@ import {
 import atlastLogo from '../../assets/atlasi-logo.png';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ShareCardOverlay } from '@components/share';
+import {
+  OnboardingShareOverlay,
+  ShareCardOverlay,
+  type OnboardingShareContext,
+} from '@components/share';
 import {
   CountryCard,
   ExploreFilterSheet,
@@ -26,7 +30,8 @@ import {
   StampCard,
 } from '@components/ui';
 import { colors } from '@constants/colors';
-import { RECOGNITION_GROUPS } from '@constants/regions';
+import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
+import { ALL_REGIONS, RECOGNITION_GROUPS } from '@constants/regions';
 import {
   isCountryAllowedByPreference,
   getCountryCountForPreference,
@@ -39,6 +44,7 @@ import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
+import { getTravelStatus as getTravelTier } from '@utils/travelTier';
 import {
   DEFAULT_FILTERS,
   hasActiveFilters,
@@ -178,9 +184,12 @@ export function PassportScreen({ navigation }: Props) {
   const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
-  // Share card state
+  // Share card state (milestone share)
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
+
+  // Passport share overlay state
+  const [passportShareVisible, setPassportShareVisible] = useState(false);
 
   // Get tracking preference from profile (default to full_atlas)
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
@@ -356,6 +365,54 @@ export function PassportScreen({ navigation }: Props) {
     };
   }, [visitedCountries, wishlistCountries, countries, trackingPreference]);
 
+  // Build share context for passport share overlay
+  const passportShareContext: OnboardingShareContext | null = useMemo(() => {
+    if (!countries?.length || !visitedCountries.length) return null;
+
+    const visitedCodes = visitedCountries.map((uc) => uc.country_code);
+    const visitedCountryData = countries.filter((c) => visitedCodes.includes(c.code));
+
+    // Calculate unique regions and subregions
+    const regions = [...new Set(visitedCountryData.map((c) => c.region))];
+    const subregions = [
+      ...new Set(visitedCountryData.map((c) => c.subregion).filter(Boolean)),
+    ] as string[];
+
+    // Calculate continent stats for share cards
+    const continentStats = ALL_REGIONS.map((region) => {
+      const visitedInRegion = visitedCountryData.filter((c) => c.region === region);
+
+      // Find rarest visited country (highest rarity score)
+      let rarestCountryCode: string | null = null;
+      if (visitedInRegion.length > 0) {
+        const rarest = visitedInRegion.reduce((best, c) =>
+          getCountryRarity(c.code) > getCountryRarity(best.code) ? c : best
+        );
+        rarestCountryCode = rarest.code;
+      }
+
+      return {
+        name: region,
+        visitedCount: visitedInRegion.length,
+        totalCount: CONTINENT_TOTALS[region] || 0,
+        rarestCountryCode,
+      };
+    });
+
+    return {
+      visitedCountries: visitedCodes,
+      totalCountries: visitedCodes.length,
+      regions,
+      regionCount: regions.length,
+      subregions,
+      subregionCount: subregions.length,
+      travelTier: getTravelTier(visitedCodes.length),
+      continentStats,
+      motivationTags: profile?.travel_motives ?? [],
+      personaTags: profile?.persona_tags ?? [],
+    };
+  }, [countries, visitedCountries, profile]);
+
   // Compute unvisited countries for the Explore section (filtered by search and explore filters)
   const unvisitedCountries = useMemo((): UnvisitedCountry[] => {
     if (!filteredCountries.length) return [];
@@ -462,6 +519,15 @@ export function PassportScreen({ navigation }: Props) {
     setShareCardContext(null);
   }, []);
 
+  const handlePassportShare = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPassportShareVisible(true);
+  }, []);
+
+  const handlePassportShareDismiss = useCallback(() => {
+    setPassportShareVisible(false);
+  }, []);
+
   const handleToggleWishlist = useCallback(
     (countryCode: string) => {
       Haptics.selectionAsync();
@@ -540,6 +606,22 @@ export function PassportScreen({ navigation }: Props) {
     ({ item }: { item: ListItem }) => {
       switch (item.type) {
         case 'section-header':
+          // Add share button for "Where you've been" section
+          if (item.key === 'header-visited' && passportShareContext) {
+            return (
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.sectionTitle, styles.scriptTitle]}>{item.title}</Text>
+                <TouchableOpacity
+                  onPress={handlePassportShare}
+                  style={styles.sectionShareButton}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Share your passport"
+                >
+                  <Ionicons name="share-outline" size={22} color={colors.adobeBrick} />
+                </TouchableOpacity>
+              </View>
+            );
+          }
           return (
             <Text
               style={[
@@ -569,7 +651,7 @@ export function PassportScreen({ navigation }: Props) {
           return null;
       }
     },
-    [renderStampRow, renderUnvisitedRow]
+    [renderStampRow, renderUnvisitedRow, passportShareContext, handlePassportShare]
   );
 
   // Precompute layout data for O(1) getItemLayout lookups
@@ -776,6 +858,12 @@ export function PassportScreen({ navigation }: Props) {
         visible={shareCardVisible}
         context={shareCardContext}
         onDismiss={handleShareCardDismiss}
+      />
+
+      <OnboardingShareOverlay
+        visible={passportShareVisible}
+        context={passportShareContext}
+        onDismiss={handlePassportShareDismiss}
       />
     </SafeAreaView>
   );
@@ -999,6 +1087,18 @@ const styles = StyleSheet.create({
     color: colors.adobeBrick,
     marginTop: 24,
     marginBottom: 8,
+  },
+  // Section header row with share button
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  sectionShareButton: {
+    padding: 8,
   },
   // Stamp Row (2-up grid)
   stampRow: {
