@@ -29,6 +29,8 @@ export const useAuthStore = create<AuthState>((set) => ({
 }));
 
 // Selectors - use these to prevent re-renders when unrelated state changes
+// Note: Currently unused but kept for future optimization. Usage example:
+// const session = useAuthStore(selectSession);
 export const selectSession = (state: AuthState) => state.session;
 export const selectHasCompletedOnboarding = (state: AuthState) => state.hasCompletedOnboarding;
 export const selectIsLoading = (state: AuthState) => state.isLoading;

@@ -11,6 +11,8 @@ const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
 // In-memory token cache to avoid SecureStore I/O on every request
 let cachedToken: string | null = null;
+// Promise to deduplicate concurrent token fetches
+let tokenFetchPromise: Promise<string | null> | null = null;
 
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
@@ -56,8 +58,15 @@ api.interceptors.request.use(
     // Use cached token if available, otherwise fetch from SecureStore
     let token = cachedToken;
     if (!token) {
-      token = await SecureStore.getItemAsync(TOKEN_KEY);
-      cachedToken = token;
+      // Deduplicate concurrent token fetches - only one SecureStore read at a time
+      if (!tokenFetchPromise) {
+        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY).then((t) => {
+          cachedToken = t;
+          tokenFetchPromise = null;
+          return t;
+        });
+      }
+      token = await tokenFetchPromise;
     }
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;

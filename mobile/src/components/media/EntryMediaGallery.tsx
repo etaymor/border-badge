@@ -78,6 +78,14 @@ export function EntryMediaGallery({
   const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
   const PROGRESS_UPDATE_INTERVAL = 150; // ms - throttle progress updates
 
+  // Clean up progress tracking on unmount to prevent memory leaks
+  useEffect(() => {
+    const progressMap = lastProgressUpdateRef.current;
+    return () => {
+      progressMap.clear();
+    };
+  }, []);
+
   // Track pending media IDs for parent component
   useEffect(() => {
     if (isPendingMode && onPendingMediaChange) {

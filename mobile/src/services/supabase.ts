@@ -42,9 +42,10 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
 
 // Keep API token cache in sync with Supabase auth state
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'TOKEN_REFRESHED' && session) {
-    updateCachedToken(session.access_token);
-  } else if (event === 'SIGNED_OUT') {
+  if (event === 'SIGNED_OUT') {
     updateCachedToken(null);
+  } else if (session?.access_token) {
+    // Handle SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED, and any future events
+    updateCachedToken(session.access_token);
   }
 });
