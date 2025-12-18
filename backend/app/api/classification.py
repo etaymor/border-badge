@@ -223,7 +223,7 @@ def validate_llm_response(
         return None
 
     # Clamp confidence to valid range [0.0, 1.0]
-    if isinstance(confidence, int | float):
+    if isinstance(confidence, (int, float)):  # noqa: UP038
         conf_value = max(0.0, min(1.0, float(confidence)))
     else:
         conf_value = 0.5

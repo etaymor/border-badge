@@ -15,7 +15,7 @@ import type { VariantProps } from '../types';
  * Card 2: Travel Stats - Continent breakdown with percentile ranking
  * Warm cream background with continent-by-continent stats.
  */
-export const StatsVariant = memo(function StatsVariant({ context }: VariantProps) {
+function StatsVariant({ context }: VariantProps) {
   const { totalCountries, regionCount, subregionCount, continentStats } = context;
 
   const travelerPercentile = useMemo(
@@ -135,7 +135,7 @@ export const StatsVariant = memo(function StatsVariant({ context }: VariantProps
       </View>
     </View>
   );
-});
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -264,3 +264,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
+
+export default memo(StatsVariant);

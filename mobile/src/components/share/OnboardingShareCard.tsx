@@ -12,7 +12,7 @@ import { CARD_HEIGHT, CARD_WIDTH } from './constants';
 import type { OnboardingShareContext, OnboardingShareVariant } from './types';
 import { MapVariant } from './variants/MapVariant';
 import { StampsVariant } from './variants/StampsVariant';
-import { StatsVariant } from './variants/StatsVariant';
+import StatsVariant from './variants/StatsVariant';
 
 export * from './types';
 export {
