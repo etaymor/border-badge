@@ -56,7 +56,10 @@ BEGIN
   IF p_entry_data IS NOT NULL AND p_entry_data != '{}'::JSONB THEN
     UPDATE entry
     SET
-      title = COALESCE(p_entry_data->>'title', title),
+      title = CASE
+        WHEN p_entry_data ? 'title' THEN p_entry_data->>'title'
+        ELSE title
+      END,
       notes = CASE
         WHEN p_entry_data ? 'notes' THEN p_entry_data->>'notes'
         ELSE notes
