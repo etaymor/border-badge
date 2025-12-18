@@ -1,6 +1,6 @@
 /**
  * Full-screen overlay modal for onboarding share cards.
- * Displays three card variants (stamps, stats, map) with tap-to-switch pagination.
+ * Displays three card variants (stamps, stats, vibe) with tap-to-switch pagination.
  * Includes sharing and save functionality.
  */
 
@@ -39,7 +39,7 @@ const CARD_HORIZONTAL_PADDING = 24;
 const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
 const ACTION_AREA_HEIGHT = 200; // Accounts for pagination + actions + margins
 const MIN_TOP_SPACING = 60;
-const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'map'];
+const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'vibe'];
 
 interface OnboardingShareOverlayProps {
   visible: boolean;

@@ -1,6 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, ImageBackground, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
 
 import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
@@ -15,7 +14,7 @@ import { CARD_HEIGHT, CARD_WIDTH, SCALE } from '../constants';
 import type { VariantProps } from '../types';
 
 /**
- * Card 3: Signature Country - "Your Travel Identity"
+ * Card 3: Vibe - "Your Travel Identity"
  * Full-screen country image with LLM-powered traveler classification.
  * Shows traveler type badge and signature country that represents their travel style.
  */
@@ -107,6 +106,16 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
   // Country name
   const countryName = countryData?.name || signatureCountryCode;
 
+  // Scale font size based on country name length
+  const countryNameFontSize = useMemo(() => {
+    const len = countryName.length;
+    if (len <= 6) return 42;
+    if (len <= 10) return 36;
+    if (len <= 14) return 30;
+    if (len <= 18) return 26;
+    return 22;
+  }, [countryName]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -125,40 +134,27 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
         style={styles.backgroundImage}
         resizeMode="cover"
       >
-        {/* Dark overlay for better text readability */}
-        <View style={styles.darkOverlay} />
-
-        {/* Traveler Type Badge - Top */}
-        <View style={styles.topBadgeContainer}>
-          <BlurView intensity={60} tint="dark" style={styles.travelerTypeBadge}>
-            <Text style={styles.travelerTypeLabel}>I&apos;m a</Text>
-            <Text style={styles.travelerTypeText}>{travelerType}</Text>
-          </BlurView>
+        {/* Top content area - Country info */}
+        <View style={styles.topContent}>
+          <Text style={styles.signatureLabel}>Your Signature Country</Text>
+          <Text
+            style={[styles.countryName, { fontSize: countryNameFontSize, lineHeight: countryNameFontSize + 8 }]}
+            numberOfLines={1}
+          >
+            {countryName.toUpperCase()}
+          </Text>
         </View>
 
-        {/* Bottom Content Overlay */}
-        <View style={styles.bottomOverlay}>
-          <BlurView intensity={80} tint="dark" style={styles.bottomBlurContainer}>
-            {/* Country Name + Flag */}
-            <View style={styles.countryRow}>
-              <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-              <Text style={styles.countryName} numberOfLines={1}>
-                {countryName.toUpperCase()}
-              </Text>
-            </View>
-
-            {/* Country Count */}
-            <View style={styles.countRow}>
-              <Text style={styles.countNumber}>{totalCountries}</Text>
-              <Text style={styles.countLabel}>COUNTRIES</Text>
-            </View>
-
-            {/* Logo + Tagline */}
-            <View style={styles.logoRow}>
-              <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-              <Text style={styles.tagline}>What&apos;s your country count?</Text>
-            </View>
-          </BlurView>
+        {/* Footer with traveler type + logo */}
+        <View style={styles.footer}>
+          <Text style={styles.travelerTypeText}>
+            I&apos;m a {travelerType}
+          </Text>
+          <View style={styles.logoRow}>
+            <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+            <Text style={styles.tagline}>What&apos;s your country count?</Text>
+            <Text style={styles.countNumber}>#{totalCountries}</Text>
+          </View>
         </View>
       </ImageBackground>
     </View>
@@ -187,119 +183,72 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  darkOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.3),
-  },
-  // Top Badge
-  topBadgeContainer: {
+  // Top content area - country info
+  topContent: {
     position: 'absolute',
-    top: 60 * SCALE,
+    top: 32,
     left: 0,
     right: 0,
     alignItems: 'center',
+    paddingHorizontal: 16,
   },
-  travelerTypeBadge: {
-    paddingHorizontal: 24 * SCALE,
-    paddingVertical: 12 * SCALE,
-    borderRadius: 16 * SCALE,
-    overflow: 'hidden',
-    backgroundColor: withAlpha(colors.midnightNavy, 0.4),
-    borderWidth: 1,
-    borderColor: withAlpha(colors.white, 0.2),
-  },
-  travelerTypeLabel: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 12 * SCALE,
-    color: withAlpha(colors.white, 0.8),
+  signatureLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    color: colors.midnightNavy,
     textAlign: 'center',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
+    marginBottom: 2,
   },
-  travelerTypeText: {
+  countryName: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 28 * SCALE,
-    color: colors.white,
+    fontSize: 32,
+    color: colors.midnightNavy,
     textAlign: 'center',
-    letterSpacing: 1,
-    marginTop: 2,
-    textShadowColor: withAlpha(colors.midnightNavy, 0.5),
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    letterSpacing: 2,
   },
-  // Bottom Overlay
-  bottomOverlay: {
+  // Footer - warm cream background
+  footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-  },
-  bottomBlurContainer: {
-    paddingTop: 24 * SCALE,
-    paddingBottom: 40 * SCALE,
-    paddingHorizontal: 24 * SCALE,
-    overflow: 'hidden',
-    backgroundColor: withAlpha(colors.midnightNavy, 0.5),
-    borderTopWidth: 1,
-    borderTopColor: withAlpha(colors.white, 0.1),
-  },
-  // Country Row
-  countryRow: {
-    flexDirection: 'row',
+    backgroundColor: withAlpha(colors.warmCream, 0.98),
+    paddingTop: 14,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12 * SCALE,
-    marginBottom: 16 * SCALE,
   },
-  flagEmoji: {
-    fontSize: 32 * SCALE,
-  },
-  countryName: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 28 * SCALE,
-    color: colors.white,
-    letterSpacing: 2,
-    textShadowColor: withAlpha(colors.midnightNavy, 0.5),
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  // Count Row
-  countRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    gap: 8 * SCALE,
-    marginBottom: 20 * SCALE,
+  travelerTypeText: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 16,
+    color: colors.midnightNavy,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   countNumber: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 48 * SCALE,
-    color: colors.sunsetGold,
-    lineHeight: 52 * SCALE,
+    fontSize: 28,
+    lineHeight: 32,
+    color: colors.midnightNavy,
+    marginLeft: 8,
   },
-  countLabel: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14 * SCALE,
-    color: withAlpha(colors.white, 0.7),
-    letterSpacing: 2,
-  },
-  // Logo Row
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8 * SCALE,
+    gap: 6,
   },
   logo: {
-    width: 80 * SCALE,
-    height: 24 * SCALE,
-    tintColor: colors.white,
-    opacity: 0.9,
+    width: 80,
+    height: 24,
   },
   tagline: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 12 * SCALE,
-    color: withAlpha(colors.white, 0.8),
+    fontSize: 12,
+    color: colors.midnightNavy,
     letterSpacing: 0.5,
   },
 });

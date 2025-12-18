@@ -28,6 +28,26 @@ export const StatsVariant = memo(function StatsVariant({ context }: VariantProps
     return Math.round((totalCountries / totalWorldCountries) * 100);
   }, [totalCountries]);
 
+  // Filter to only show continents with visits
+  const visitedContinents = useMemo(
+    () => continentStats.filter((c) => c.visitedCount > 0),
+    [continentStats]
+  );
+
+  // Calculate scaling based on number of visited continents
+  const { stampSize, fontSize, itemWidth } = useMemo(() => {
+    const count = visitedContinents.length;
+    if (count <= 2) {
+      return { stampSize: 110, fontSize: 34, itemWidth: '45%' as const };
+    } else if (count <= 4) {
+      return { stampSize: 100, fontSize: 32, itemWidth: '45%' as const };
+    } else {
+      return { stampSize: 70, fontSize: 28, itemWidth: '45%' as const };
+    }
+  }, [visitedContinents.length]);
+
+  const isOddCount = visitedContinents.length % 2 === 1;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.warmCream }]}>
       {/* Percentile Header */}
@@ -39,30 +59,34 @@ export const StatsVariant = memo(function StatsVariant({ context }: VariantProps
 
       {/* Continent Breakdown - 2 column grid */}
       <View style={styles.continentGrid}>
-        {continentStats.map((continent) => {
+        {visitedContinents.map((continent, index) => {
           const stampImage = continent.rarestCountryCode
             ? getStampImage(continent.rarestCountryCode)
             : null;
+          const isLastOdd = isOddCount && index === visitedContinents.length - 1;
 
           return (
-            <View key={continent.name} style={styles.continentGridItem}>
-              {/* Stamp or placeholder */}
-              <View style={styles.continentStampContainerLarge}>
-                {stampImage ? (
+            <View
+              key={continent.name}
+              style={[styles.continentGridItem, { width: itemWidth }, isLastOdd && styles.centeredItem]}
+            >
+              {/* Stamp */}
+              <View style={[styles.continentStampContainerLarge, { width: stampSize, height: stampSize }]}>
+                {stampImage && (
                   <Image
                     source={stampImage}
-                    style={styles.continentStampLarge}
+                    style={{ width: stampSize, height: stampSize }}
                     resizeMode="contain"
                   />
-                ) : (
-                  <View style={styles.continentStampPlaceholderLarge} />
                 )}
               </View>
 
               {/* Continent name and count */}
               <Text style={styles.continentNameGrid}>{continent.name}</Text>
               <View style={styles.continentCountRow}>
-                <Text style={styles.continentCountVisited}>{continent.visitedCount}</Text>
+                <Text style={[styles.continentCountVisited, { fontSize, lineHeight: fontSize + 4 }]}>
+                  {continent.visitedCount}
+                </Text>
                 <Text style={styles.continentCountTotal}>/{continent.totalCount}</Text>
               </View>
             </View>
@@ -129,36 +153,32 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   continentGrid: {
-    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: 20,
     justifyContent: 'center',
     alignItems: 'center',
     alignContent: 'center',
-    gap: 12,
+    gap: 4,
   },
   continentGridItem: {
     width: '45%',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 2,
+  },
+  centeredItem: {
+    width: '100%',
   },
   continentStampContainerLarge: {
-    width: 90,
-    height: 90,
-    marginBottom: 8,
+    width: 70,
+    height: 70,
+    marginBottom: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
   continentStampLarge: {
-    width: 90,
-    height: 90,
-  },
-  continentStampPlaceholderLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
+    width: 70,
+    height: 70,
   },
   continentNameGrid: {
     fontFamily: fonts.openSans.semiBold,
@@ -174,7 +194,8 @@ const styles = StyleSheet.create({
   },
   continentCountVisited: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 32,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.midnightNavy,
   },
   continentCountTotal: {
@@ -218,7 +239,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingBottom: 30,
-    paddingTop: 12,
+    paddingTop: 8,
     gap: 8,
   },
   footerLogoNatural: {

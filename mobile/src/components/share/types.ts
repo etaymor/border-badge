@@ -1,6 +1,6 @@
 import type { TravelTier } from '@utils/travelTier';
 
-export type OnboardingShareVariant = 'stamps' | 'stats' | 'map';
+export type OnboardingShareVariant = 'stamps' | 'stats' | 'vibe';
 
 export interface ContinentStats {
   name: string;

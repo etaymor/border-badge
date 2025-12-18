@@ -1,6 +1,6 @@
 /**
  * Share card component for onboarding completion.
- * Three variants: stamps, stats, and map - all optimized for 9:16 social sharing.
+ * Three variants: stamps, stats, and vibe - all optimized for 9:16 social sharing.
  */
 
 import { memo, useMemo } from 'react';
@@ -32,7 +32,7 @@ function OnboardingShareCardComponent({ variant, context }: OnboardingShareCardP
         return StampsVariant;
       case 'stats':
         return StatsVariant;
-      case 'map':
+      case 'vibe':
         return MapVariant;
     }
   }, [variant]);
