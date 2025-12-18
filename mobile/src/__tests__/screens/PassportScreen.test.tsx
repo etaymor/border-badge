@@ -25,6 +25,12 @@ const mockNavigation = {
   navigate: mockNavigate,
 } as unknown as PassportStackScreenProps<'PassportHome'>['navigation'];
 
+// Create mock route
+const mockRoute = {
+  key: 'test',
+  name: 'PassportHome',
+} as PassportStackScreenProps<'PassportHome'>['route'];
+
 // Helper factory for visited UserCountry
 function createMockUserCountryVisited(code: string): UserCountry {
   return createMockUserCountry({ country_code: code, status: 'visited' });
@@ -127,7 +133,7 @@ describe('PassportScreen', () => {
       ];
 
       mockHooksWithData({ countries, userCountries });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Stats should show the count (may appear multiple times)
       expect(screen.getAllByText('8').length).toBeGreaterThanOrEqual(1);
@@ -141,7 +147,7 @@ describe('PassportScreen', () => {
       ]; // 2 visited
 
       mockHooksWithData({ countries, userCountries });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // 2 out of 8 = 25% (may appear multiple times)
       expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1);
@@ -156,7 +162,7 @@ describe('PassportScreen', () => {
       ];
 
       mockHooksWithData({ countries, userCountries });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // 3 unique regions (may appear multiple times)
       expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1);
@@ -166,7 +172,7 @@ describe('PassportScreen', () => {
   describe('Error Cases', () => {
     it('shows skeleton loader when loading', () => {
       mockHooksWithData({ isLoading: true });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Skeleton should be visible during loading
       // The PassportSkeleton component should be rendered
@@ -175,7 +181,7 @@ describe('PassportScreen', () => {
 
     it('handles empty countries list gracefully', () => {
       mockHooksWithData({ countries: [], userCountries: [] });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Should show 0 for stats (may appear multiple times)
       expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
@@ -184,7 +190,7 @@ describe('PassportScreen', () => {
     it('handles no visited countries', () => {
       const countries = createMockCountriesForRegions();
       mockHooksWithData({ countries, userCountries: [] });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Should show 0 stamps (may appear multiple times)
       expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
@@ -197,7 +203,7 @@ describe('PassportScreen', () => {
       const userCountries = [createMockUserCountryVisited('JP')];
 
       mockHooksWithData({ countries, userCountries });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Should show at least the visited count (may appear multiple times)
       expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(1);
@@ -211,7 +217,7 @@ describe('PassportScreen', () => {
       ];
 
       mockHooksWithData({ countries, userCountries });
-      render(<PassportScreen navigation={mockNavigation} />);
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
       // Should have both visited (1) and dreams (1)
       expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(1);

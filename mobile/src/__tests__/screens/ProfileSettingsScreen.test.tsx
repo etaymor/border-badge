@@ -20,8 +20,7 @@ import * as Clipboard from 'expo-clipboard';
 import type { Country } from '@hooks/useCountries';
 import type { UserCountry } from '@hooks/useUserCountries';
 
-// Enable fake timers for timeout testing
-jest.useFakeTimers();
+// Fake timers are set up in beforeEach for proper isolation
 
 // Mock Clipboard
 jest.mock('expo-clipboard', () => ({
@@ -45,7 +44,6 @@ const mockNavigation = {
 const mockRoute = {
   key: 'test',
   name: 'ProfileSettings',
-  params: {},
 } as PassportStackScreenProps<'ProfileSettings'>['route'];
 
 // Helper factory for visited UserCountry
@@ -124,11 +122,12 @@ function mockHooksWithData({
 describe('ProfileSettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.clearAllTimers();
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
     jest.runOnlyPendingTimers();
+    jest.useRealTimers();
   });
 
   describe('Export Modal', () => {
