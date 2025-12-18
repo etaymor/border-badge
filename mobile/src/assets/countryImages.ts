@@ -151,7 +151,7 @@ const countryImages: Record<string, ImageSourcePropType> = {
   MY: require('../../assets/country-images/processed/MY.webp'),
   MZ: require('../../assets/country-images/processed/MZ.webp'),
   NA: require('../../assets/country-images/processed/NA.webp'),
-  NC: require('../../assets/country-images/processed/NC.webp'),
+  XN: require('../../assets/country-images/processed/XN.webp'),
   NE: require('../../assets/country-images/processed/NE.webp'),
   NG: require('../../assets/country-images/processed/NG.webp'),
   NI: require('../../assets/country-images/processed/NI.webp'),

@@ -134,7 +134,10 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
         <View style={styles.topContent}>
           <Text style={styles.signatureLabel}>Your Signature Country</Text>
           <Text
-            style={[styles.countryName, { fontSize: countryNameFontSize, lineHeight: countryNameFontSize + 8 }]}
+            style={[
+              styles.countryName,
+              { fontSize: countryNameFontSize, lineHeight: countryNameFontSize + 8 },
+            ]}
             numberOfLines={1}
           >
             {countryName.toUpperCase()}
@@ -143,9 +146,7 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
 
         {/* Footer with traveler type + logo */}
         <View style={styles.footer}>
-          <Text style={styles.travelerTypeText}>
-            I&apos;m a {travelerType}
-          </Text>
+          <Text style={styles.travelerTypeText}>I&apos;m a {travelerType}</Text>
           <View style={styles.logoRow}>
             <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             <Text style={styles.tagline}>What&apos;s your country count?</Text>

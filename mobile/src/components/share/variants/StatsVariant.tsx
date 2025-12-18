@@ -68,10 +68,19 @@ export const StatsVariant = memo(function StatsVariant({ context }: VariantProps
           return (
             <View
               key={continent.name}
-              style={[styles.continentGridItem, { width: itemWidth }, isLastOdd && styles.centeredItem]}
+              style={[
+                styles.continentGridItem,
+                { width: itemWidth },
+                isLastOdd && styles.centeredItem,
+              ]}
             >
               {/* Stamp */}
-              <View style={[styles.continentStampContainerLarge, { width: stampSize, height: stampSize }]}>
+              <View
+                style={[
+                  styles.continentStampContainerLarge,
+                  { width: stampSize, height: stampSize },
+                ]}
+              >
                 {stampImage && (
                   <Image
                     source={stampImage}
@@ -84,7 +93,9 @@ export const StatsVariant = memo(function StatsVariant({ context }: VariantProps
               {/* Continent name and count */}
               <Text style={styles.continentNameGrid}>{continent.name}</Text>
               <View style={styles.continentCountRow}>
-                <Text style={[styles.continentCountVisited, { fontSize, lineHeight: fontSize + 4 }]}>
+                <Text
+                  style={[styles.continentCountVisited, { fontSize, lineHeight: fontSize + 4 }]}
+                >
                   {continent.visitedCount}
                 </Text>
                 <Text style={styles.continentCountTotal}>/{continent.totalCount}</Text>
