@@ -12,6 +12,7 @@ from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_vie
 from app.core.config import get_settings
 from app.core.media import extract_media_urls
 from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
+from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
 from app.schemas.lists import PublicListEntry, PublicListView
@@ -23,7 +24,11 @@ router = APIRouter(tags=["public"])
 
 
 def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
-    """Pull google_photo_url out of place.extra_data if present."""
+    """Pull google_photo_url out of place.extra_data if present and validate it.
+
+    Uses safe_google_photo_url() to validate URLs against a whitelist of
+    known Google photo-serving domains for SSRF protection.
+    """
     if not place:
         return None
     extra_data = place.get("extra_data")
@@ -32,10 +37,8 @@ def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
     photo_url = extra_data.get("google_photo_url")
     if not isinstance(photo_url, str) or not photo_url:
         return None
-    # Validate URL scheme to prevent injection
-    if not photo_url.startswith(("https://", "http://")):
-        return None
-    return photo_url
+    # Validate URL with Google domain whitelist for SSRF protection
+    return safe_google_photo_url(photo_url)
 
 
 @router.get("/", response_class=HTMLResponse)

@@ -62,7 +62,7 @@ function calculateStampPositions(count: number, containerWidth: number) {
 
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
-  const { selectedCountries, homeCountry } = useOnboardingStore();
+  const { selectedCountries, homeCountry, motivationTags, personaTags } = useOnboardingStore();
   const { data: allCountriesData } = useCountries();
 
   // Animation refs
@@ -130,8 +130,10 @@ export function ProgressSummaryScreen({ navigation }: Props) {
       subregionCount: subregions.length,
       travelTier,
       continentStats,
+      motivationTags,
+      personaTags,
     };
-  }, [allCountriesData, allVisitedCountries]);
+  }, [allCountriesData, allVisitedCountries, motivationTags, personaTags]);
 
   // Handle share button press
   const handleShare = useCallback(() => {

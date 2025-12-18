@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -5,12 +7,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingInput } from '@components/onboarding';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -135,27 +137,49 @@ export function NameEntryScreen({ navigation }: Props) {
             ~ your adventure awaits ~
           </Animated.Text>
 
-          {/* Input section */}
+          {/* Input section - Liquid Glass Style */}
           <Animated.View
             style={{
               opacity: contentAnim,
               transform: [{ translateY: contentTranslateY }],
             }}
           >
-            <OnboardingInput
-              value={name}
-              onChangeText={(text) => {
-                setName(text);
-                if (error) setError('');
-              }}
-              placeholder="Your Name"
-              autoCapitalize="words"
-              autoComplete="name"
-              autoFocus
-              error={error}
-              containerStyle={styles.input}
-              testID="name-entry-input"
-            />
+            <View style={styles.inputGlassWrapper}>
+              <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                <View style={[styles.inputWrapper, error && styles.inputWrapperError]}>
+                  <TextInput
+                    style={styles.glassInput}
+                    value={name}
+                    onChangeText={(text) => {
+                      setName(text);
+                      if (error) setError('');
+                    }}
+                    placeholder="Your Name"
+                    placeholderTextColor={colors.stormGray}
+                    autoCapitalize="words"
+                    autoComplete="name"
+                    autoFocus
+                    testID="name-entry-input"
+                  />
+                  {name.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setName('');
+                        if (error) setError('');
+                      }}
+                      style={styles.clearButton}
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.stormGray} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </BlurView>
+            </View>
+            {error && (
+              <Text variant="caption" style={styles.errorText}>
+                {error}
+              </Text>
+            )}
             <Text variant="caption" style={styles.helperText}>
               This is how you&apos;ll appear to friends
             </Text>
@@ -222,8 +246,48 @@ const styles = StyleSheet.create({
     color: colors.adobeBrick,
     marginBottom: 32,
   },
-  input: {
+  inputGlassWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
     marginBottom: 12,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  inputGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
+  },
+  inputWrapperError: {
+    borderColor: colors.error,
+  },
+  glassInput: {
+    flex: 1,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  errorText: {
+    color: colors.error,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   helperText: {
     color: colors.textSecondary,

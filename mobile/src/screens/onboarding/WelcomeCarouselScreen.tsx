@@ -129,6 +129,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 36,
+    lineHeight: 44,
     color: colors.midnightNavy,
     textAlign: 'center',
     marginBottom: 12,

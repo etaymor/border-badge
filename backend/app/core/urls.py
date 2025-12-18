@@ -7,6 +7,18 @@ MAX_URL_LENGTH = 2048
 MAX_QUERY_PARAM_LENGTH = 1024
 MAX_QUERY_PARAMS = 50
 
+# Google Places Photo API domains (for SSRF protection)
+GOOGLE_PHOTO_DOMAINS = frozenset(
+    {
+        "maps.googleapis.com",
+        "lh3.googleusercontent.com",
+        "geo0.ggpht.com",
+        "geo1.ggpht.com",
+        "geo2.ggpht.com",
+        "geo3.ggpht.com",
+    }
+)
+
 
 class URLValidationError(ValueError):
     """Raised when URL validation fails."""
@@ -51,6 +63,29 @@ def safe_external_url(url: str | None) -> str | None:
     # Use public API for replacement (ParseResult is a namedtuple)
     sanitized = parsed._replace(scheme=scheme)
     return urlunparse(sanitized)
+
+
+def safe_google_photo_url(url: str | None) -> str | None:
+    """Validate Google Places photo URLs with domain whitelist.
+
+    Adds SSRF protection by ensuring URLs come from known Google photo
+    serving domains. Uses safe_external_url() for base validation.
+
+    Args:
+        url: URL string to validate
+
+    Returns:
+        Validated URL or None if invalid
+    """
+    validated = safe_external_url(url)
+    if not validated:
+        return None
+
+    parsed = urlparse(validated)
+    if parsed.netloc not in GOOGLE_PHOTO_DOMAINS:
+        return None
+
+    return validated
 
 
 def _validate_query_params(query_string: str) -> bool:

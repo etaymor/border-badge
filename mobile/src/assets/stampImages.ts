@@ -151,7 +151,7 @@ const stampImages: Record<string, ImageSourcePropType> = {
   MY: require('../../assets/stamps/processed/MY.webp'),
   MZ: require('../../assets/stamps/processed/MZ.webp'),
   NA: require('../../assets/stamps/processed/NA.webp'),
-  NC: require('../../assets/stamps/processed/NC.webp'),
+  XN: require('../../assets/stamps/processed/XN.webp'),
   NE: require('../../assets/stamps/processed/NE.webp'),
   NG: require('../../assets/stamps/processed/NG.webp'),
   NI: require('../../assets/stamps/processed/NI.webp'),
