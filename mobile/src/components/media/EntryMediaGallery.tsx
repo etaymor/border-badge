@@ -77,6 +77,7 @@ export function EntryMediaGallery({
   // Track last progress update time per file to throttle re-renders
   const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
   const PROGRESS_UPDATE_INTERVAL = 150; // ms - throttle progress updates
+  const STALE_THRESHOLD = 70000; // 70s - prune entries older than upload timeout + buffer
 
   // Clean up progress tracking on unmount to prevent memory leaks
   useEffect(() => {
@@ -150,6 +151,12 @@ export function EntryMediaGallery({
                 now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100; // Always update on completion
 
               if (shouldUpdate) {
+                // Prune stale entries to prevent unbounded Map growth
+                for (const [uri, timestamp] of lastProgressUpdateRef.current) {
+                  if (now - timestamp > STALE_THRESHOLD) {
+                    lastProgressUpdateRef.current.delete(uri);
+                  }
+                }
                 lastProgressUpdateRef.current.set(file.uri, now);
                 setLocalMedia((prev) =>
                   prev.map((item) =>
@@ -234,13 +241,22 @@ export function EntryMediaGallery({
           tripId: isPendingMode ? tripId : undefined,
           file: localItem.file,
           onProgress: (progress) => {
-            setLocalMedia((prev) =>
-              prev.map((item) =>
-                item.localUri === localItem.localUri
-                  ? { ...item, progress: progress.percentage }
-                  : item
-              )
-            );
+            // Throttle progress updates to reduce re-renders (consistent with handlePickImages)
+            const now = Date.now();
+            const lastUpdate = lastProgressUpdateRef.current.get(localItem.localUri) ?? 0;
+            const shouldUpdate =
+              now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100;
+
+            if (shouldUpdate) {
+              lastProgressUpdateRef.current.set(localItem.localUri, now);
+              setLocalMedia((prev) =>
+                prev.map((item) =>
+                  item.localUri === localItem.localUri
+                    ? { ...item, progress: progress.percentage }
+                    : item
+                )
+              );
+            }
           },
         });
 
