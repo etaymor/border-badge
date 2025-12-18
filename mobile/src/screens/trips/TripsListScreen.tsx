@@ -74,6 +74,12 @@ export function TripsListScreen({ navigation }: Props) {
     );
   }, [userCountries]);
 
+  // Create a Map for O(1) country lookup by code
+  const countriesMap = useMemo(() => {
+    if (!countries) return new Map<string, (typeof countries)[0]>();
+    return new Map(countries.map((c) => [c.code, c]));
+  }, [countries]);
+
   // Separate trips into sections based on whether the country has been visited
   const sections = useMemo((): TripSection[] => {
     if (!trips?.length) return [];
@@ -81,7 +87,7 @@ export function TripsListScreen({ navigation }: Props) {
     const query = searchQuery.toLowerCase().trim();
     const filteredTrips = trips.filter((trip) => {
       if (!query) return true;
-      const country = countries?.find((c) => c.code === trip.country_code);
+      const country = countriesMap.get(trip.country_code); // O(1) Map lookup instead of O(n) find
       const countryName = country?.name.toLowerCase() || '';
       return trip.name.toLowerCase().includes(query) || countryName.includes(query);
     });
@@ -107,7 +113,7 @@ export function TripsListScreen({ navigation }: Props) {
       result.push({ title: 'Upcoming Plans', data: plannedTrips });
     }
     return result;
-  }, [trips, visitedCountryCodes, searchQuery, countries]);
+  }, [trips, visitedCountryCodes, searchQuery, countriesMap]);
 
   const handleAddTrip = useCallback(() => {
     navigation.navigate('TripForm', {});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -74,6 +74,10 @@ export function EntryMediaGallery({
   const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  // Track last progress update time per file to throttle re-renders
+  const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
+  const PROGRESS_UPDATE_INTERVAL = 150; // ms - throttle progress updates
+
   // Track pending media IDs for parent component
   useEffect(() => {
     if (isPendingMode && onPendingMediaChange) {
@@ -131,11 +135,21 @@ export function EntryMediaGallery({
             tripId: isPendingMode ? tripId : undefined,
             file,
             onProgress: (progress) => {
-              setLocalMedia((prev) =>
-                prev.map((item) =>
-                  item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
-                )
-              );
+              // Throttle progress updates to reduce re-renders
+              const now = Date.now();
+              const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
+              const shouldUpdate =
+                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL ||
+                progress.percentage === 100; // Always update on completion
+
+              if (shouldUpdate) {
+                lastProgressUpdateRef.current.set(file.uri, now);
+                setLocalMedia((prev) =>
+                  prev.map((item) =>
+                    item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
+                  )
+                );
+              }
             },
           });
 

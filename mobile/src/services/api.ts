@@ -9,6 +9,9 @@ const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
+// In-memory token cache to avoid SecureStore I/O on every request
+let cachedToken: string | null = null;
+
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
 
@@ -43,7 +46,12 @@ export const api: AxiosInstance = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    // Use cached token if available, otherwise fetch from SecureStore
+    let token = cachedToken;
+    if (!token) {
+      token = await SecureStore.getItemAsync(TOKEN_KEY);
+      cachedToken = token;
+    }
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -73,12 +81,14 @@ api.interceptors.response.use(
 
 // Helper to store tokens after login/signup
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
+  cachedToken = accessToken; // Update in-memory cache
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
 }
 
 // Helper to clear tokens on logout
 export async function clearTokens(): Promise<void> {
+  cachedToken = null; // Clear in-memory cache
   await SecureStore.deleteItemAsync(TOKEN_KEY);
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
 }

@@ -30,6 +30,12 @@ _country_code_cache: dict[str, tuple[str, datetime]] = {}
 _country_code_lock = asyncio.Lock()
 CACHE_TTL = timedelta(hours=24)
 
+# Cached regions and subregions (static reference data)
+_regions_cache: tuple[list[str], datetime] | None = None
+_subregions_cache: tuple[list[str], datetime] | None = None
+_regions_lock = asyncio.Lock()
+_subregions_lock = asyncio.Lock()
+
 
 async def get_country_id_by_code(country_code: str) -> str | None:
     """Resolve a country code to its UUID using an in-memory cache."""
@@ -135,22 +141,58 @@ async def list_countries(
 
 @router.get("/regions", response_model=list[str])
 async def list_regions() -> list[str]:
-    """List all unique regions."""
-    db = get_supabase_client()
-    params = {"select": "region", "order": "region.asc"}
-    rows = await db.get("country", params)
-    # Deduplicate
-    return list(dict.fromkeys(row["region"] for row in rows))
+    """List all unique regions (cached for 24 hours)."""
+    global _regions_cache
+
+    # Check cache
+    if _regions_cache:
+        regions, expiry = _regions_cache
+        if datetime.now(UTC) < expiry:
+            return regions
+
+    async with _regions_lock:
+        # Re-check inside lock
+        if _regions_cache:
+            regions, expiry = _regions_cache
+            if datetime.now(UTC) < expiry:
+                return regions
+
+        db = get_supabase_client()
+        params = {"select": "region", "order": "region.asc"}
+        rows = await db.get("country", params)
+        # Deduplicate
+        regions = list(dict.fromkeys(row["region"] for row in rows))
+        _regions_cache = (regions, datetime.now(UTC) + CACHE_TTL)
+        return regions
 
 
 @router.get("/subregions", response_model=list[str])
 async def list_subregions() -> list[str]:
-    """List all unique subregions."""
-    db = get_supabase_client()
-    params = {"select": "subregion", "order": "subregion.asc"}
-    rows = await db.get("country", params)
-    # Deduplicate and filter out None values
-    return list(dict.fromkeys(row["subregion"] for row in rows if row.get("subregion")))
+    """List all unique subregions (cached for 24 hours)."""
+    global _subregions_cache
+
+    # Check cache
+    if _subregions_cache:
+        subregions, expiry = _subregions_cache
+        if datetime.now(UTC) < expiry:
+            return subregions
+
+    async with _subregions_lock:
+        # Re-check inside lock
+        if _subregions_cache:
+            subregions, expiry = _subregions_cache
+            if datetime.now(UTC) < expiry:
+                return subregions
+
+        db = get_supabase_client()
+        params = {"select": "subregion", "order": "subregion.asc"}
+        rows = await db.get("country", params)
+        # Deduplicate and filter out None values
+        subregions = list(
+            dict.fromkeys(row["subregion"] for row in rows if row.get("subregion"))
+        )
+        _subregions_cache = (subregions, datetime.now(UTC) + CACHE_TTL)
+        return subregions
 
 
 @router.get("/user", response_model=list[UserCountry])

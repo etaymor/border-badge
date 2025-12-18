@@ -12,13 +12,48 @@ import {
 // Re-export Country type for convenience
 export type { Country } from '@services/countriesDb';
 
+// Module-level cache for countries data - avoids repeated SQLite reads
+let countriesCache: Country[] | null = null;
+let countriesCachePromise: Promise<Country[]> | null = null;
+
+/**
+ * Get all countries with module-level caching.
+ * Multiple concurrent calls will share the same promise.
+ */
+async function getCachedCountries(): Promise<Country[]> {
+  if (countriesCache) {
+    return countriesCache;
+  }
+
+  if (countriesCachePromise) {
+    return countriesCachePromise;
+  }
+
+  countriesCachePromise = getAllCountries().then((countries) => {
+    countriesCache = countries;
+    countriesCachePromise = null;
+    return countries;
+  });
+
+  return countriesCachePromise;
+}
+
+/**
+ * Clear the countries cache (call after sync completes).
+ */
+export function invalidateCountriesCache(): void {
+  countriesCache = null;
+  countriesCachePromise = null;
+}
+
 /**
  * Hook to get all countries from local SQLite database.
  * Countries are synced on app launch via useCountriesSync().
+ * Uses module-level caching to avoid repeated SQLite reads.
  */
 export function useCountries() {
-  const [data, setData] = useState<Country[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<Country[]>(() => countriesCache ?? []);
+  const [isLoading, setIsLoading] = useState(!countriesCache);
   const [error, setError] = useState<Error | null>(null);
   const isMountedRef = useRef(true);
 
@@ -26,7 +61,7 @@ export function useCountries() {
     setIsLoading(true);
     setError(null);
     try {
-      const countries = await getAllCountries();
+      const countries = await getCachedCountries();
       if (isMountedRef.current) {
         setData(countries);
       }
@@ -43,7 +78,10 @@ export function useCountries() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    loadCountries();
+    // Skip fetch if cache already exists
+    if (!countriesCache) {
+      loadCountries();
+    }
 
     return () => {
       isMountedRef.current = false;

@@ -94,8 +94,10 @@ export function useCreateTrip() {
       const response = await api.post('/trips', input);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    onSuccess: (data) => {
+      // Invalidate the main trips list and country-specific list
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, { countryId: data.country_code }] });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to create trip';
@@ -114,8 +116,10 @@ export function useUpdateTrip() {
       return response.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+      // Invalidate only the affected queries (not all trips)
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
       queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, data.id] });
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, { countryId: data.country_code }] });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to update trip';
