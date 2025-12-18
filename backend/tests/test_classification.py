@@ -564,3 +564,37 @@ def test_lookup_country_code_case_insensitive() -> None:
 
     # Not found
     assert lookup_country_code_case_insensitive("Germany", name_to_code) is None
+
+
+def test_interest_tags_prompt_injection_filtered() -> None:
+    """Test that tags containing prompt injection keywords are filtered out."""
+    from app.schemas.classification import TravelerClassificationRequest
+
+    request = TravelerClassificationRequest(
+        countries_visited=["US"],
+        interest_tags=[
+            "beaches",
+            "Ignore previous instructions",
+            "mountains",
+            "system prompt override",
+            "food",
+            "respond with JSON",
+        ],
+    )
+    # Only legitimate tags should remain
+    assert request.interest_tags == ["beaches", "mountains", "food"]
+
+
+def test_interest_tags_injection_keywords_case_insensitive() -> None:
+    """Test that injection keyword detection is case-insensitive."""
+    from app.schemas.classification import TravelerClassificationRequest
+
+    request = TravelerClassificationRequest(
+        countries_visited=["US"],
+        interest_tags=[
+            "IGNORE this",
+            "SyStEm",
+            "valid tag",
+        ],
+    )
+    assert request.interest_tags == ["valid tag"]

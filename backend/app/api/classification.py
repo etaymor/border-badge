@@ -8,7 +8,6 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
-from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
@@ -250,9 +249,6 @@ async def classify_traveler(
     Uses an LLM to analyze travel patterns and assign a creative traveler type
     along with a signature country that best represents their travel identity.
     """
-    # Get token for DB access
-    _token = get_token_from_request(request)
-
     # Normalize country codes
     country_codes = [c.upper() for c in data.countries_visited]
 

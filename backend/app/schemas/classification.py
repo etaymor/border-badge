@@ -9,6 +9,34 @@ MAX_COUNTRIES = 227
 MAX_INTEREST_TAGS = 10
 MAX_TAG_LENGTH = 50
 
+# Phrases that suggest prompt injection attempts (case-insensitive)
+# These are checked as substrings to catch common injection patterns
+PROMPT_INJECTION_PHRASES = frozenset(
+    [
+        "ignore",
+        "disregard",
+        "forget",
+        "instruction",
+        "previous",
+        "system",
+        "prompt",
+        "override",
+        "bypass",
+        "assistant",
+        "claude",
+        "gpt",
+        "json",
+        "output",
+        "respond",
+    ]
+)
+
+
+def _contains_injection_keywords(text: str) -> bool:
+    """Check if text contains potential prompt injection keywords."""
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in PROMPT_INJECTION_PHRASES)
+
 
 class TravelerClassificationRequest(BaseModel):
     """Request to classify a traveler based on their visited countries."""
@@ -36,8 +64,12 @@ class TravelerClassificationRequest(BaseModel):
                 tag = tag[:MAX_TAG_LENGTH]
             # Strip whitespace and skip empty tags
             tag = tag.strip()
-            if tag:
-                sanitized.append(tag)
+            if not tag:
+                continue
+            # Skip tags that contain prompt injection keywords
+            if _contains_injection_keywords(tag):
+                continue
+            sanitized.append(tag)
         return sanitized
 
 
