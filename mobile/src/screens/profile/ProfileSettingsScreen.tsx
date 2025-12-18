@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -163,6 +163,16 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   // Export modal state
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleGoBack = useCallback(() => {
     navigation.goBack();
@@ -285,7 +295,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   // Build export text for country list
   const exportText = useMemo(() => {
-    if (!userCountries || !allCountries.length) return '';
+    if (!userCountries || !allCountries?.length) return '';
 
     // Get visited country codes
     const visitedCodes = new Set(
@@ -355,8 +365,12 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await Clipboard.setStringAsync(exportText);
     setCopyFeedback(true);
+    // Clear any existing timeout
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
+    }
     // Reset feedback after 2 seconds
-    setTimeout(() => setCopyFeedback(false), 2000);
+    copyTimeoutRef.current = setTimeout(() => setCopyFeedback(false), 2000);
   }, [exportText]);
 
   if (profileLoading) {

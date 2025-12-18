@@ -76,26 +76,6 @@ type ListItem =
   | { type: 'unvisited-row'; data: UnvisitedCountry[]; key: string }
   | { type: 'empty-state'; key: string };
 
-/** Travel status tiers based on number of countries visited */
-const TRAVEL_STATUS_TIERS = [
-  { threshold: 5, status: 'Tourist' },
-  { threshold: 15, status: 'Pathfinder' },
-  { threshold: 30, status: 'Border Breaker' },
-  { threshold: 50, status: 'Roving Explorer' },
-  { threshold: 80, status: 'Globe Trotter' },
-  { threshold: 120, status: 'World Seeker' },
-  { threshold: 160, status: 'Continental Master' },
-  { threshold: Infinity, status: 'Global Elite' },
-] as const;
-
-/**
- * Get travel status based on number of countries visited.
- */
-function getTravelStatus(visitedCount: number): string {
-  const tier = TRAVEL_STATUS_TIERS.find((t) => visitedCount <= t.threshold);
-  return tier?.status ?? 'Global Elite';
-}
-
 interface StatBoxProps {
   value: string | number;
   label: string;
@@ -353,7 +333,7 @@ export function PassportScreen({ navigation }: Props) {
     const uniqueRegions = new Set(visitedCountryDetails.map((c) => c.region));
     const regionsCount = uniqueRegions.size;
 
-    const travelStatus = getTravelStatus(stampedCount);
+    const travelStatus = getTravelTier(stampedCount).status;
 
     return {
       stampedCount,
