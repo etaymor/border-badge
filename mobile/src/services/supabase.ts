@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 
 import { env } from '@config/env';
+import { updateCachedToken } from './api';
 
 const ExpoSecureStoreAdapter = {
   getItem: async (key: string): Promise<string | null> => {
@@ -37,4 +38,13 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+});
+
+// Keep API token cache in sync with Supabase auth state
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'TOKEN_REFRESHED' && session) {
+    updateCachedToken(session.access_token);
+  } else if (event === 'SIGNED_OUT') {
+    updateCachedToken(null);
+  }
 });

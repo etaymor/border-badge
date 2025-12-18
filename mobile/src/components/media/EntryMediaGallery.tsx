@@ -153,6 +153,9 @@ export function EntryMediaGallery({
             },
           });
 
+          // Clean up progress tracking for this file
+          lastProgressUpdateRef.current.delete(file.uri);
+
           // In pending mode, keep the local placeholder with the new media ID until server fetch
           if (isPendingMode) {
             setLocalMedia((prev) =>
@@ -167,6 +170,9 @@ export function EntryMediaGallery({
             setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
           }
         } catch {
+          // Clean up progress tracking for this file
+          lastProgressUpdateRef.current.delete(file.uri);
+
           // Mark as failed
           setLocalMedia((prev) =>
             prev.map((item) =>
@@ -231,6 +237,9 @@ export function EntryMediaGallery({
           },
         });
 
+        // Clean up progress tracking for this file
+        lastProgressUpdateRef.current.delete(localItem.localUri);
+
         if (isPendingMode) {
           setLocalMedia((prev) =>
             prev.map((item) =>
@@ -243,6 +252,9 @@ export function EntryMediaGallery({
           setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
         }
       } catch {
+        // Clean up progress tracking for this file
+        lastProgressUpdateRef.current.delete(localItem.localUri);
+
         setLocalMedia((prev) =>
           prev.map((item) =>
             item.localUri === localItem.localUri

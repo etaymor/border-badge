@@ -35,6 +35,13 @@ export function setSuppressAutoSignOut(suppress: boolean): void {
   suppressAutoSignOut = suppress;
 }
 
+/**
+ * Update the cached token. Called when Supabase refreshes the token.
+ */
+export function updateCachedToken(token: string | null): void {
+  cachedToken = token;
+}
+
 export const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   headers: {

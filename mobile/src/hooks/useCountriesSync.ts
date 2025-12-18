@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 
 import { supabase } from '@services/supabase';
 import { needsSync, saveCountries, getCountriesCount, type Country } from '@services/countriesDb';
+import { invalidateCountriesCache } from './useCountries';
 
 interface SyncState {
   isLoading: boolean;
@@ -69,6 +70,7 @@ export function useCountriesSync(): SyncState {
 
           // Save to local SQLite
           await saveCountries(countries);
+          invalidateCountriesCache();
 
           if (!isMounted) return;
 
@@ -127,6 +129,7 @@ export async function forceCountriesSync(): Promise<{ success: boolean; error?: 
     }
 
     await saveCountries(countries);
+    invalidateCountriesCache();
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to sync countries';
