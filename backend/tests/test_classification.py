@@ -476,3 +476,91 @@ def test_classify_traveler_handles_code_fenced_llm_response(
         assert data["signature_country"] == "FR"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_classify_traveler_too_many_countries(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test validation error when too many countries are provided."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        # Create a list with more than 227 countries
+        countries = [f"X{i:03d}" for i in range(250)]
+        response = client.post(
+            "/classify/traveler",
+            headers=auth_headers,
+            json={"countries_visited": countries, "interest_tags": []},
+        )
+        # Should fail Pydantic validation (max_length=227)
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_classify_traveler_too_many_interest_tags(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test validation error when too many interest tags are provided."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        # Create a list with more than 10 interest tags
+        tags = [f"tag{i}" for i in range(15)]
+        response = client.post(
+            "/classify/traveler",
+            headers=auth_headers,
+            json={"countries_visited": ["US"], "interest_tags": tags},
+        )
+        # Should fail Pydantic validation (max_length=10)
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_interest_tags_truncated() -> None:
+    """Test that overly long interest tags are truncated."""
+    from app.schemas.classification import TravelerClassificationRequest
+
+    long_tag = "a" * 100  # 100 characters, exceeds MAX_TAG_LENGTH of 50
+    request = TravelerClassificationRequest(
+        countries_visited=["US"],
+        interest_tags=[long_tag],
+    )
+    # Tag should be truncated to 50 characters
+    assert len(request.interest_tags[0]) == 50
+
+
+def test_interest_tags_empty_stripped() -> None:
+    """Test that empty/whitespace tags are stripped."""
+    from app.schemas.classification import TravelerClassificationRequest
+
+    request = TravelerClassificationRequest(
+        countries_visited=["US"],
+        interest_tags=["valid", "   ", "", "  also valid  "],
+    )
+    # Empty tags should be removed, whitespace should be stripped
+    assert request.interest_tags == ["valid", "also valid"]
+
+
+def test_lookup_country_code_case_insensitive() -> None:
+    """Test the case-insensitive country code lookup helper."""
+    from app.api.classification import lookup_country_code_case_insensitive
+
+    name_to_code = {"Japan": "JP", "France": "FR", "United States": "US"}
+
+    # Direct match
+    assert lookup_country_code_case_insensitive("Japan", name_to_code) == "JP"
+
+    # Case-insensitive name match
+    assert lookup_country_code_case_insensitive("JAPAN", name_to_code) == "JP"
+    assert lookup_country_code_case_insensitive("japan", name_to_code) == "JP"
+
+    # Case-insensitive code match
+    assert lookup_country_code_case_insensitive("jp", name_to_code) == "JP"
+    assert lookup_country_code_case_insensitive("JP", name_to_code) == "JP"
+
+    # Not found
+    assert lookup_country_code_case_insensitive("Germany", name_to_code) is None

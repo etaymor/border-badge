@@ -67,6 +67,8 @@ Output ONLY this JSON:
 
 async def get_country_names_by_codes(codes: list[str]) -> dict[str, str]:
     """Fetch country names for a list of codes. Returns {code: name} mapping."""
+    if not codes:
+        return {}
     db = get_supabase_client()
     rows = await db.get(
         "country",
@@ -76,6 +78,26 @@ async def get_country_names_by_codes(codes: list[str]) -> dict[str, str]:
         },
     )
     return {row["code"]: row["name"] for row in rows}
+
+
+def lookup_country_code_case_insensitive(
+    name_or_code: str, name_to_code: dict[str, str]
+) -> str | None:
+    """
+    Look up a country code from a name or code, case-insensitively.
+    Returns the uppercase code if found, None otherwise.
+    """
+    # Direct lookup first
+    if name_or_code in name_to_code:
+        return name_to_code[name_or_code]
+
+    # Case-insensitive lookup
+    upper_key = name_or_code.upper()
+    for name, code in name_to_code.items():
+        if name.upper() == upper_key or code.upper() == upper_key:
+            return code
+
+    return None
 
 
 async def get_rarest_country_code(codes: list[str]) -> str:
@@ -258,20 +280,12 @@ async def classify_traveler(
         # Validate the response
         validated = validate_llm_response(llm_result, country_names)
         if validated:
-            # Convert country name back to code
+            # Convert country name back to code using case-insensitive lookup
             sig_name = validated["signature_country"]
-            sig_code = name_to_code.get(sig_name, sig_name)
-
-            # If the LLM returned a name, look it up
-            if sig_code == sig_name:
-                # Try case-insensitive lookup
-                for name, code in name_to_code.items():
-                    if name.upper() == sig_name.upper():
-                        sig_code = code
-                        break
+            sig_code = lookup_country_code_case_insensitive(sig_name, name_to_code)
 
             # Final validation: ensure sig_code is in our valid codes
-            if sig_code.upper() in valid_codes:
+            if sig_code and sig_code.upper() in valid_codes:
                 return TravelerClassificationResponse(
                     traveler_type=validated["traveler_type"],
                     signature_country=sig_code.upper(),

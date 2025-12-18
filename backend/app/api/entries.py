@@ -312,7 +312,7 @@ async def update_entry(
         },
     )
 
-    if not result or len(result) == 0:
+    if result is None or len(result) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Entry not found or not authorized to update",
