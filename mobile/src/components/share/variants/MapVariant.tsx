@@ -6,11 +6,10 @@ import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountryByCode } from '@hooks/useCountries';
 import { classifyTraveler, type TravelerClassificationResponse } from '@services/api';
-import { getFlagEmoji } from '@utils/flags';
 
 import { getCountryImage } from '../../../assets/countryImages';
 import atlasLogo from '../../../../assets/atlasi-logo.png';
-import { CARD_HEIGHT, CARD_WIDTH, SCALE } from '../constants';
+import { CARD_HEIGHT, CARD_WIDTH } from '../constants';
 import type { VariantProps } from '../types';
 
 /**
@@ -99,9 +98,6 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
 
   // Traveler type text
   const travelerType = classification?.traveler_type || 'Global Explorer';
-
-  // Flag emoji
-  const flagEmoji = getFlagEmoji(signatureCountryCode);
 
   // Country name
   const countryName = countryData?.name || signatureCountryCode;
