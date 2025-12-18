@@ -356,8 +356,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await Share.share({ message: exportText });
-    } catch {
-      // User cancelled or share failed silently
+    } catch (error) {
+      // User cancelled or share failed
+      if (__DEV__ && error instanceof Error && error.message !== 'User cancelled') {
+        console.warn('Share failed:', error);
+      }
     }
   }, [exportText]);
 
@@ -365,12 +368,17 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await Clipboard.setStringAsync(exportText);
     setCopyFeedback(true);
+
     // Clear any existing timeout
     if (copyTimeoutRef.current) {
       clearTimeout(copyTimeoutRef.current);
     }
-    // Reset feedback after 2 seconds
-    copyTimeoutRef.current = setTimeout(() => setCopyFeedback(false), 2000);
+
+    // Set timeout reference synchronously before async gap
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopyFeedback(false);
+      copyTimeoutRef.current = null;
+    }, 2000);
   }, [exportText]);
 
   if (profileLoading) {

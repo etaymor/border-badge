@@ -347,7 +347,7 @@ export function PassportScreen({ navigation }: Props) {
 
   // Build share context for passport share overlay
   const passportShareContext: OnboardingShareContext | null = useMemo(() => {
-    if (!countries?.length || !visitedCountries.length) return null;
+    if (!countries?.length || !visitedCountries?.length) return null;
 
     const visitedCodes = visitedCountries.map((uc) => uc.country_code);
     const visitedCountryData = countries.filter((c) => visitedCodes.includes(c.code));
