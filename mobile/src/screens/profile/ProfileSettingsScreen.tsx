@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, GlassBackButton, GlassInput } from '@components/ui';
 import { colors } from '@constants/colors';
+import { ALL_REGIONS } from '@constants/regions';
 import {
   TRACKING_PRESETS,
   TRACKING_PRESET_ORDER,
@@ -23,8 +26,9 @@ import {
 } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useSignOut } from '@hooks/useAuth';
-import { useCountryByCode } from '@hooks/useCountries';
+import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useProfile, useUpdateProfile } from '@hooks/useProfile';
+import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
@@ -142,6 +146,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const { session } = useAuthStore();
   const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: homeCountry } = useCountryByCode(profile?.home_country_code);
+  const { data: userCountries } = useUserCountries();
+  const { data: allCountries } = useCountries();
   const updateDisplayName = useUpdateDisplayName();
   const updateProfile = useUpdateProfile();
   const signOut = useSignOut();
@@ -153,6 +159,20 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   // Tracking preference modal state
   const [trackingModalVisible, setTrackingModalVisible] = useState(false);
+
+  // Export modal state
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleGoBack = useCallback(() => {
     navigation.goBack();
@@ -238,6 +258,17 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     [profile?.tracking_preference, updateProfile]
   );
 
+  // Export modal handlers
+  const handleOpenExportModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setExportModalVisible(true);
+  }, []);
+
+  const handleCloseExportModal = useCallback(() => {
+    setExportModalVisible(false);
+    setCopyFeedback(false);
+  }, []);
+
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
   const formattedPhone = useMemo(
@@ -261,6 +292,94 @@ export function ProfileSettingsScreen({ navigation }: Props) {
       count: presetData.count,
     };
   }, [profile?.tracking_preference]);
+
+  // Build export text for country list
+  const exportText = useMemo(() => {
+    if (!userCountries || !allCountries?.length) return '';
+
+    // Get visited country codes
+    const visitedCodes = new Set(
+      userCountries.filter((uc) => uc.status === 'visited').map((uc) => uc.country_code)
+    );
+
+    // Get full country data for visited countries
+    const visitedCountryData = allCountries.filter((c) => visitedCodes.has(c.code));
+
+    // Group by continent
+    const byContinent: Record<string, string[]> = {};
+    for (const country of visitedCountryData) {
+      const region = country.region;
+      if (!byContinent[region]) {
+        byContinent[region] = [];
+      }
+      byContinent[region].push(country.name);
+    }
+
+    // Sort countries within each continent
+    for (const region of Object.keys(byContinent)) {
+      byContinent[region].sort((a, b) => a.localeCompare(b));
+    }
+
+    // Build text output
+    const lines: string[] = ['My Travel Atlas', ''];
+
+    let continentCount = 0;
+    for (const region of ALL_REGIONS) {
+      const countries = byContinent[region];
+      if (countries && countries.length > 0) {
+        continentCount++;
+        lines.push(`${region.toUpperCase()} (${countries.length})`);
+        for (const name of countries) {
+          lines.push(`- ${name}`);
+        }
+        lines.push('');
+      }
+    }
+
+    // Add summary
+    const totalCountries = visitedCountryData.length;
+    lines.push(
+      `Total: ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'} across ${continentCount} ${continentCount === 1 ? 'continent' : 'continents'}`
+    );
+
+    return lines.join('\n');
+  }, [userCountries, allCountries]);
+
+  // Count of visited countries for display
+  const visitedCount = useMemo(() => {
+    if (!userCountries) return 0;
+    return userCountries.filter((uc) => uc.status === 'visited').length;
+  }, [userCountries]);
+
+  // Export handlers (must be after exportText is defined)
+  const handleShareExport = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await Share.share({ message: exportText });
+    } catch (error) {
+      // User cancelled or share failed
+      if (__DEV__ && error instanceof Error && error.message !== 'User cancelled') {
+        console.warn('Share failed:', error);
+      }
+    }
+  }, [exportText]);
+
+  const handleCopyExport = useCallback(async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await Clipboard.setStringAsync(exportText);
+    setCopyFeedback(true);
+
+    // Clear any existing timeout
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
+    }
+
+    // Set timeout reference synchronously before async gap
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopyFeedback(false);
+      copyTimeoutRef.current = null;
+    }, 2000);
+  }, [exportText]);
 
   if (profileLoading) {
     return (
@@ -394,6 +513,31 @@ export function ProfileSettingsScreen({ navigation }: Props) {
             <Text style={styles.infoLabel}>MEMBER SINCE</Text>
             <Text style={styles.infoValue}>{memberSince}</Text>
           </View>
+
+          {/* Export Countries */}
+          {visitedCount > 0 && (
+            <Pressable
+              onPress={handleOpenExportModal}
+              style={styles.infoRowPressable}
+              accessibilityRole="button"
+              accessibilityLabel="Export your country list"
+            >
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>EXPORT COUNTRIES</Text>
+                <View style={styles.trackingValueRow}>
+                  <Text style={styles.infoValue}>
+                    {visitedCount} {visitedCount === 1 ? 'country' : 'countries'}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.stormGray}
+                    style={styles.chevronIcon}
+                  />
+                </View>
+              </View>
+            </Pressable>
+          )}
         </View>
 
         {/* Divider */}
@@ -460,6 +604,60 @@ export function ProfileSettingsScreen({ navigation }: Props) {
             </ScrollView>
 
             <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseTrackingModal}>
+              <Text style={styles.modalCloseButtonText}>Done</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Export Countries Modal */}
+      <Modal
+        visible={exportModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseExportModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={handleCloseExportModal}>
+          <Pressable style={styles.exportModalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Export Countries</Text>
+            <Text style={styles.modalSubtitle}>Share or copy your country list</Text>
+
+            {/* Text Preview */}
+            <ScrollView style={styles.exportPreviewScroll} showsVerticalScrollIndicator={false}>
+              <Text style={styles.exportPreviewText}>{exportText}</Text>
+            </ScrollView>
+
+            {/* Action Buttons */}
+            <View style={styles.exportActions}>
+              <TouchableOpacity
+                style={styles.exportActionButton}
+                onPress={handleShareExport}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={24} color={colors.midnightNavy} />
+                <Text style={styles.exportActionText}>Share</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.exportActionButton}
+                onPress={handleCopyExport}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={copyFeedback ? 'checkmark-circle' : 'copy-outline'}
+                  size={24}
+                  color={copyFeedback ? colors.mossGreen : colors.midnightNavy}
+                />
+                <Text
+                  style={[styles.exportActionText, copyFeedback && styles.exportActionTextSuccess]}
+                >
+                  {copyFeedback ? 'Copied!' : 'Copy'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseExportModal}>
               <Text style={styles.modalCloseButtonText}>Done</Text>
             </TouchableOpacity>
           </Pressable>
@@ -750,5 +948,48 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.cloudWhite,
+  },
+  // Export modal specific styles
+  exportModalContent: {
+    backgroundColor: colors.warmCream,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: 34,
+    maxHeight: '75%',
+  },
+  exportPreviewScroll: {
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    maxHeight: 280,
+  },
+  exportPreviewText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    lineHeight: 22,
+  },
+  exportActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 48,
+    marginBottom: 16,
+  },
+  exportActionButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  exportActionText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    marginTop: 8,
+  },
+  exportActionTextSuccess: {
+    color: colors.mossGreen,
   },
 });
