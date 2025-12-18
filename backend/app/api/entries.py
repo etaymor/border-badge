@@ -223,9 +223,7 @@ async def get_entry(
     db = get_supabase_client(user_token=token)
 
     # Fetch entry with embedded place in single query
-    entries = await db.get(
-        "entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"}
-    )
+    entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
     if not entries:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

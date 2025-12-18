@@ -45,7 +45,8 @@ supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_OUT') {
     updateCachedToken(null);
   } else if (session?.access_token) {
-    // Handle SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED, and any future events
+    // Explicitly handles: SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED
+    // This also safely handles any future auth events that include a session
     updateCachedToken(session.access_token);
   }
 });

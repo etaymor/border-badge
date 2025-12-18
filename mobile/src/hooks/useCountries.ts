@@ -78,7 +78,8 @@ export function useCountries() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    // Skip fetch if cache already exists
+    // Safe to call even if multiple components mount simultaneously -
+    // getCachedCountries() uses promise deduplication to prevent duplicate SQLite reads
     if (!countriesCache) {
       loadCountries();
     }

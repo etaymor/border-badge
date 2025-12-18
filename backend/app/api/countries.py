@@ -144,14 +144,9 @@ async def list_regions() -> list[str]:
     """List all unique regions (cached for 24 hours)."""
     global _regions_cache
 
-    # Check cache
-    if _regions_cache:
-        regions, expiry = _regions_cache
-        if datetime.now(UTC) < expiry:
-            return regions
-
     async with _regions_lock:
-        # Re-check inside lock
+        # Check cache inside lock to avoid race condition where cache could expire
+        # between the check and acquiring the lock
         if _regions_cache:
             regions, expiry = _regions_cache
             if datetime.now(UTC) < expiry:
@@ -171,14 +166,9 @@ async def list_subregions() -> list[str]:
     """List all unique subregions (cached for 24 hours)."""
     global _subregions_cache
 
-    # Check cache
-    if _subregions_cache:
-        subregions, expiry = _subregions_cache
-        if datetime.now(UTC) < expiry:
-            return subregions
-
     async with _subregions_lock:
-        # Re-check inside lock
+        # Check cache inside lock to avoid race condition where cache could expire
+        # between the check and acquiring the lock
         if _subregions_cache:
             subregions, expiry = _subregions_cache
             if datetime.now(UTC) < expiry:
