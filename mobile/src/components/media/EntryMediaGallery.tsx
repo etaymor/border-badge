@@ -147,8 +147,7 @@ export function EntryMediaGallery({
               const now = Date.now();
               const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
               const shouldUpdate =
-                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL ||
-                progress.percentage === 100; // Always update on completion
+                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100; // Always update on completion
 
               if (shouldUpdate) {
                 lastProgressUpdateRef.current.set(file.uri, now);

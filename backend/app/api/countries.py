@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 # Module-level country code cache to avoid repeated lookups for static reference data.
 # Country table is ~200 rows, so unbounded in-memory caching is acceptable and small.
+#
+# NOTE: These caches are per-process and not shared across instances. In multi-instance
+# deployments (e.g., Kubernetes), each instance maintains its own cache. This is acceptable
+# for static reference data with a 24-hour TTL. For truly dynamic data, consider Redis or
+# HTTP caching headers.
 _country_code_cache: dict[str, tuple[str, datetime]] = {}
 _country_code_lock = asyncio.Lock()
 CACHE_TTL = timedelta(hours=24)
