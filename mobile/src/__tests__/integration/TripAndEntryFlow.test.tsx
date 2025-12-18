@@ -158,7 +158,8 @@ describe('TripAndEntryFlow Integration', () => {
         });
       });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'], exact: true });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips', { countryId: 'JP' }] });
     });
 
     it('handles creation failure gracefully', async () => {
@@ -252,8 +253,9 @@ describe('TripAndEntryFlow Integration', () => {
         });
       });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'], exact: true });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips', 'trip-123'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips', { countryId: 'JP' }] });
     });
 
     it('handles update failure gracefully', async () => {

@@ -126,3 +126,15 @@ export const useOnboardingStore = create<OnboardingState>()(
     }
   )
 );
+
+// Selectors - use these to prevent re-renders when unrelated state changes
+export const selectMotivationTags = (state: OnboardingState) => state.motivationTags;
+export const selectSelectedCountries = (state: OnboardingState) => state.selectedCountries;
+export const selectCurrentStep = (state: OnboardingState) => state.currentStep;
+export const selectPersonaTags = (state: OnboardingState) => state.personaTags;
+export const selectHomeCountry = (state: OnboardingState) => state.homeCountry;
+export const selectDreamDestination = (state: OnboardingState) => state.dreamDestination;
+export const selectBucketListCountries = (state: OnboardingState) => state.bucketListCountries;
+export const selectVisitedContinents = (state: OnboardingState) => state.visitedContinents;
+export const selectDisplayName = (state: OnboardingState) => state.displayName;
+export const selectTrackingPreference = (state: OnboardingState) => state.trackingPreference;

@@ -46,6 +46,7 @@ export interface UpdateTripInput {
   id: string;
   name?: string;
   cover_image_url?: string;
+  previousCountryCode?: string; // For cache invalidation when country changes
 }
 
 const TRIPS_QUERY_KEY = ['trips'];
@@ -94,8 +95,12 @@ export function useCreateTrip() {
       const response = await api.post('/trips', input);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    onSuccess: (data) => {
+      // Invalidate the main trips list and country-specific list
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
+      queryClient.invalidateQueries({
+        queryKey: [...TRIPS_QUERY_KEY, { countryId: data.country_code }],
+      });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to create trip';
@@ -109,13 +114,28 @@ export function useUpdateTrip() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, ...input }: UpdateTripInput): Promise<Trip> => {
+    mutationFn: async ({
+      id,
+      previousCountryCode: _,
+      ...input
+    }: UpdateTripInput): Promise<Trip> => {
       const response = await api.patch(`/trips/${id}`, input);
       return response.data;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    onSuccess: (data, variables) => {
+      // Invalidate only the affected queries (not all trips)
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
       queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, data.id] });
+      queryClient.invalidateQueries({
+        queryKey: [...TRIPS_QUERY_KEY, { countryId: data.country_code }],
+      });
+
+      // Invalidate old country's cache if country was changed
+      if (variables.previousCountryCode && variables.previousCountryCode !== data.country_code) {
+        queryClient.invalidateQueries({
+          queryKey: [...TRIPS_QUERY_KEY, { countryId: variables.previousCountryCode }],
+        });
+      }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to update trip';

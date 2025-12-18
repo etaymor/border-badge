@@ -233,6 +233,9 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           getItemLayout={getItemLayout}
           contentContainerStyle={styles.gridContent}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={12}
+          windowSize={10}
           testID="country-grid"
         />
       </Animated.View>

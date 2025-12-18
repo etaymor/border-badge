@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import type { TrackingPreset } from '@constants/trackingPreferences';
+import { STALE_TIMES } from '../queryClient';
 import { api } from '@services/api';
 
 export interface Profile {
@@ -36,6 +37,7 @@ export function useProfile() {
       const response = await api.get('/profile');
       return response.data;
     },
+    staleTime: STALE_TIMES.PROFILE, // 30 minutes - profile changes infrequently
   });
 }
 

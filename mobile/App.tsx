@@ -62,8 +62,6 @@ export default function App() {
     // Wire up API sign-out callback
     setSignOutCallback(signOut);
 
-    // TODO: [Memory] Use ref to track mounted state - if component unmounts before
-    // initAuth completes, subscription callback can fire on unmounted component
     let subscription: { unsubscribe: () => void } | null = null;
     let isMounted = true;
 

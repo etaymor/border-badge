@@ -293,11 +293,10 @@ export function PassportScreen({ navigation }: Props) {
   const displayItems = useMemo((): CountryDisplayItem[] => {
     if (!visitedCountries.length || !filteredCountries.length) return [];
 
-    const visitedCodesArray = visitedCountries.map((uc) => uc.country_code);
     const query = searchQuery.toLowerCase().trim();
 
     return filteredCountries
-      .filter((c) => visitedCodesArray.includes(c.code))
+      .filter((c) => visitedCodes.has(c.code)) // O(1) Set lookup instead of O(n) array includes
       .filter((c) => !query || c.searchName.includes(query))
       .map((c) => ({
         code: c.code,
@@ -307,7 +306,7 @@ export function PassportScreen({ navigation }: Props) {
         hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips]);
+  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips, visitedCodes]);
 
   // Compute all stats (filtered by tracking preference)
   const stats = useMemo(() => {
@@ -349,8 +348,9 @@ export function PassportScreen({ navigation }: Props) {
   const passportShareContext: OnboardingShareContext | null = useMemo(() => {
     if (!countries?.length || !visitedCountries?.length) return null;
 
-    const visitedCodes = visitedCountries.map((uc) => uc.country_code);
-    const visitedCountryData = countries.filter((c) => visitedCodes.includes(c.code));
+    // Use the pre-computed visitedCodes Set for O(1) lookups
+    const visitedCodesArray = visitedCountries.map((uc) => uc.country_code);
+    const visitedCountryData = countries.filter((c) => visitedCodes.has(c.code)); // O(1) Set lookup
 
     // Calculate unique regions and subregions
     const regions = [...new Set(visitedCountryData.map((c) => c.region))];
@@ -380,18 +380,18 @@ export function PassportScreen({ navigation }: Props) {
     });
 
     return {
-      visitedCountries: visitedCodes,
-      totalCountries: visitedCodes.length,
+      visitedCountries: visitedCodesArray,
+      totalCountries: visitedCodesArray.length,
       regions,
       regionCount: regions.length,
       subregions,
       subregionCount: subregions.length,
-      travelTier: getTravelTier(visitedCodes.length),
+      travelTier: getTravelTier(visitedCodesArray.length),
       continentStats,
       motivationTags: profile?.travel_motives ?? [],
       personaTags: profile?.persona_tags ?? [],
     };
-  }, [countries, visitedCountries, profile]);
+  }, [countries, visitedCountries, visitedCodes, profile]);
 
   // Compute unvisited countries for the Explore section (filtered by search and explore filters)
   const unvisitedCountries = useMemo((): UnvisitedCountry[] => {

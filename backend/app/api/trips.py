@@ -172,13 +172,17 @@ async def get_trip(
     trip_id: UUID,
     user: CurrentUser,
 ) -> TripWithTags:
-    """Get trip details with tags."""
+    """Get trip details with tags (single query with embedded data)."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch trip with country code (RLS ensures access control)
+    # Fetch trip with country code and tags in single query
     trips = await db.get(
-        "trip", {"id": f"eq.{trip_id}", "select": "*, country:country_id(code)"}
+        "trip",
+        {
+            "id": f"eq.{trip_id}",
+            "select": "*, country:country_id(code), trip_tags(*)",
+        },
     )
     if not trips:
         raise HTTPException(
@@ -188,13 +192,16 @@ async def get_trip(
 
     row = trips[0]
     country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
+
+    # Extract embedded trip_tags
+    tag_data = row.pop("trip_tags", None)
+    tags = []
+    if tag_data and isinstance(tag_data, list):
+        tags = [TripTag(**tag) for tag in tag_data]
+
     trip = Trip(
         **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
     )
-
-    # Fetch tags
-    tag_rows = await db.get("trip_tags", {"trip_id": f"eq.{trip_id}"})
-    tags = [TripTag(**row) for row in tag_rows]
 
     return TripWithTags(**trip.model_dump(), tags=tags)
 

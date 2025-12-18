@@ -27,3 +27,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   setIsMigrating: (migrating) => set({ isMigrating: migrating }),
   signOut: () => set({ session: null, hasCompletedOnboarding: false, isMigrating: false }),
 }));
+
+// Selectors - use these to prevent re-renders when unrelated state changes
+// Note: Currently unused but kept for future optimization. Usage example:
+// const session = useAuthStore(selectSession);
+export const selectSession = (state: AuthState) => state.session;
+export const selectHasCompletedOnboarding = (state: AuthState) => state.hasCompletedOnboarding;
+export const selectIsLoading = (state: AuthState) => state.isLoading;
+export const selectIsMigrating = (state: AuthState) => state.isMigrating;

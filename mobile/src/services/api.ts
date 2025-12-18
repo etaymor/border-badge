@@ -9,6 +9,11 @@ const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
+// In-memory token cache to avoid SecureStore I/O on every request
+let cachedToken: string | null = null;
+// Promise to deduplicate concurrent token fetches
+let tokenFetchPromise: Promise<string | null> | null = null;
+
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
 
@@ -32,6 +37,13 @@ export function setSuppressAutoSignOut(suppress: boolean): void {
   suppressAutoSignOut = suppress;
 }
 
+/**
+ * Update the cached token. Called when Supabase refreshes the token.
+ */
+export function updateCachedToken(token: string | null): void {
+  cachedToken = token;
+}
+
 export const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   headers: {
@@ -43,7 +55,19 @@ export const api: AxiosInstance = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    // Use cached token if available, otherwise fetch from SecureStore
+    let token = cachedToken;
+    if (!token) {
+      // Deduplicate concurrent token fetches - only one SecureStore read at a time
+      if (!tokenFetchPromise) {
+        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY).then((t) => {
+          cachedToken = t;
+          tokenFetchPromise = null;
+          return t;
+        });
+      }
+      token = await tokenFetchPromise;
+    }
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -73,12 +97,14 @@ api.interceptors.response.use(
 
 // Helper to store tokens after login/signup
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
+  cachedToken = accessToken; // Update in-memory cache
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
 }
 
 // Helper to clear tokens on logout
 export async function clearTokens(): Promise<void> {
+  cachedToken = null; // Clear in-memory cache
   await SecureStore.deleteItemAsync(TOKEN_KEY);
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
 }
