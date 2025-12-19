@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 
 // Trip tag status enum matching backend
 export type TripTagStatus = 'pending' | 'approved' | 'declined';
@@ -96,6 +97,9 @@ export function useCreateTrip() {
       return response.data;
     },
     onSuccess: (data) => {
+      // Track trip creation
+      Analytics.createTrip(data.country_code);
+
       // Invalidate the main trips list and country-specific list
       queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
       queryClient.invalidateQueries({

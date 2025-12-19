@@ -20,6 +20,7 @@ import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { getTravelStatus } from '@utils/travelTier';
 
@@ -64,6 +65,14 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const { selectedCountries, homeCountry, motivationTags, personaTags } = useOnboardingStore();
   const { data: allCountriesData } = useCountries();
+
+  // Track screen view with countries count
+  useEffect(() => {
+    // Include home country in the count for tracking
+    const countriesCount = new Set([...selectedCountries, ...(homeCountry ? [homeCountry] : [])])
+      .size;
+    Analytics.viewOnboardingProgress(countriesCount);
+  }, [selectedCountries, homeCountry]);
 
   // Animation refs
   const contentOpacity = useRef(new Animated.Value(0)).current;

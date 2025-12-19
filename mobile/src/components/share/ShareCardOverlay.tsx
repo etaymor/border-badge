@@ -25,6 +25,7 @@ import ViewShot from 'react-native-view-shot';
 import { ErrorBoundary, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
 import type { MilestoneContext } from '@utils/milestones';
 
@@ -176,6 +177,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
       const uri = await viewShotRef.current?.capture?.();
       if (uri) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        Analytics.sharePassport();
         await Share.share({ url: uri });
       }
     } catch (error) {

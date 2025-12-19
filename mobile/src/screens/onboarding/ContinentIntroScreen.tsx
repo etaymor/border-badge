@@ -13,6 +13,7 @@ import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { DEFAULT_CONTINENT_VIDEO, getContinentVideo } from '../../assets/continentVideos';
 
@@ -58,6 +59,11 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
       player.pause();
     }
   }, [hasVideoSource, player]);
+
+  // Track screen view (fires when region changes)
+  useEffect(() => {
+    Analytics.viewOnboardingContinent(region);
+  }, [region]);
 
   // Staggered entrance animations
   useEffect(() => {
@@ -127,6 +133,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   };
 
   const handleLogin = () => {
+    Analytics.skipToLogin(`ContinentIntro_${region}`);
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 

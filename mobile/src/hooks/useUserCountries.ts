@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
@@ -67,7 +68,14 @@ export function useAddUserCountry() {
       const response = await api.post('/countries/user', { country_code, status });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      // Track country addition
+      if (variables.status === 'visited') {
+        Analytics.addCountryVisited(variables.country_code);
+      } else {
+        Analytics.addCountryWishlist(variables.country_code);
+      }
+
       // Invalidate all user-countries queries (any session)
       queryClient.invalidateQueries({ queryKey: ['user-countries'] });
     },

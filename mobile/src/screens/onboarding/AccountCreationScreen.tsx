@@ -20,6 +20,7 @@ import { fonts } from '@constants/typography';
 import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { storeOnboardingComplete } from '@services/api';
+import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import {
@@ -46,7 +47,12 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
 
   const { setHasCompletedOnboarding } = useAuthStore();
-  const { homeCountry, displayName } = useOnboardingStore();
+  const { homeCountry, displayName, selectedCountries, trackingPreference } = useOnboardingStore();
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingAccount();
+  }, []);
 
   const sendOTP = useSendOTP();
   const verifyOTP = useVerifyOTP({
@@ -58,6 +64,17 @@ export function AccountCreationScreen({ navigation }: Props) {
       }
 
       if (result.success) {
+        // Track successful onboarding completion
+        const countriesCount = new Set([
+          ...selectedCountries,
+          ...(homeCountry ? [homeCountry] : []),
+        ]).size;
+        Analytics.completeOnboarding({
+          countriesCount,
+          homeCountry,
+          trackingPreference,
+        });
+
         setHasCompletedOnboarding(true);
         storeOnboardingComplete();
       } else {
@@ -188,6 +205,7 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle navigation to login for existing users
   const handleAlreadyHaveAccount = () => {
+    Analytics.skipToLogin('AccountCreation');
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 

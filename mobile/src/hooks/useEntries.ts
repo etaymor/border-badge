@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 
 // Entry type enum matching backend
 export type EntryType = 'place' | 'food' | 'stay' | 'experience';
@@ -165,7 +166,15 @@ export function useCreateEntry() {
       const response = await api.post(`/trips/${input.trip_id}/entries`, backendInput);
       return transformEntry(response.data as Record<string, unknown>);
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      // Track entry creation
+      Analytics.createEntry({
+        entryType: data.entry_type,
+        hasPlace: !!data.place,
+        hasMedia:
+          (data.media_files?.length ?? 0) > 0 || (variables.pending_media_ids?.length ?? 0) > 0,
+      });
+
       // Invalidate entries for this trip
       queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, data.trip_id] });
       // Invalidate pending media query so photos don't appear on next entry creation

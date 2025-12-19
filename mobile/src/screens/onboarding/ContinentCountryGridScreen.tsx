@@ -28,6 +28,7 @@ import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
@@ -55,6 +56,11 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const gridOpacity = useRef(new Animated.Value(0)).current;
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
+
+  // Track screen view (fires when region changes)
+  useEffect(() => {
+    Analytics.viewOnboardingCountries(region);
+  }, [region]);
 
   // Staggered entrance animations
   useEffect(() => {

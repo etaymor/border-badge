@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEffect } from 'react';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const welcomeVideo = require('../../../assets/country-images/wonders-world/Atlantis.mp4');
@@ -20,11 +22,17 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     player.play();
   });
 
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingWelcome();
+  }, []);
+
   const handleNext = () => {
     navigation.navigate('OnboardingSlider');
   };
 
   const handleLogin = () => {
+    Analytics.skipToLogin('WelcomeCarousel');
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 

@@ -19,6 +19,7 @@ import { ListSuccessView } from '@components/lists';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
 import {
   useList,
@@ -135,6 +136,7 @@ export function ListEditScreen({ route, navigation }: Props) {
   const handleShare = useCallback(async () => {
     if (!list) return;
     try {
+      Analytics.shareList(list.id);
       await Share.share({
         message: `Check out my list "${list.name}": ${shareUrl}`,
         url: shareUrl,
