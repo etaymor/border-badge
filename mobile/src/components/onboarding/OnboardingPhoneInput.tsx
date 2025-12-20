@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { isValidPhoneNumber } from 'libphonenumber-js';
+import { AsYouType, isValidPhoneNumber, type CountryCode } from 'libphonenumber-js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -131,50 +131,37 @@ export default function OnboardingPhoneInput({
     onValidationChangeRef.current?.(isCurrentNumberValid);
   }, [isCurrentNumberValid]);
 
-  // Format phone number for display based on country
+  // Format phone number for display using libphonenumber-js AsYouType
+  // This automatically handles formatting for all countries
   const formatForDisplay = useCallback(
     (number: string): string => {
       if (!number) return '';
-
-      // US/Canada formatting: (XXX) XXX-XXXX
-      if (selectedCountry.code === 'US' || selectedCountry.code === 'CA') {
-        if (number.length <= 3) return number;
-        if (number.length <= 6) return `(${number.slice(0, 3)}) ${number.slice(3)}`;
-        return `(${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}`;
-      }
-
-      // UK formatting: XXXX XXX XXXX
-      if (selectedCountry.code === 'GB') {
-        if (number.length <= 4) return number;
-        if (number.length <= 7) return `${number.slice(0, 4)} ${number.slice(4)}`;
-        return `${number.slice(0, 4)} ${number.slice(4, 7)} ${number.slice(7)}`;
-      }
-
-      // Default: group in threes with spaces
-      if (number.length <= 3) return number;
-      if (number.length <= 6) return `${number.slice(0, 3)} ${number.slice(3)}`;
-      return `${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
+      const formatter = new AsYouType(selectedCountry.code as CountryCode);
+      return formatter.input(number);
     },
     [selectedCountry.code]
   );
 
-  // Get max digits for national number based on country
-  const getMaxDigits = useCallback((): number => {
-    // US/Canada: 10 digits
-    if (selectedCountry.code === 'US' || selectedCountry.code === 'CA') return 10;
-    // UK: 10-11 digits (use 11 as max)
-    if (selectedCountry.code === 'GB') return 11;
-    // Default: 15 (E.164 max minus country code)
-    return 15;
-  }, [selectedCountry.code]);
+  // Max digits for E.164 national number (library handles country-specific validation)
+  const maxDigits = 15;
 
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
     // Only allow digits
     const digitsOnly = text.replace(/\D/g, '');
-    // Enforce max digits for the selected country
-    const maxDigits = getMaxDigits();
-    const truncated = digitsOnly.slice(0, maxDigits);
+
+    // Handle backspace on formatting characters:
+    // If the new digit count equals the old digit count, the user deleted a formatting
+    // character (like parenthesis, dash, or space). In this case, delete the last digit.
+    let newDigits = digitsOnly;
+    if (digitsOnly.length === localNumber.length && digitsOnly.length > 0) {
+      // User pressed backspace but only removed a formatting character
+      // Remove the last actual digit to match expected behavior
+      newDigits = digitsOnly.slice(0, -1);
+    }
+
+    // Enforce max digits (E.164 allows up to 15 digits for national number)
+    const truncated = newDigits.slice(0, maxDigits);
     setLocalNumber(truncated);
 
     // Construct E.164 format

@@ -7,13 +7,28 @@ jest.mock('@utils/flags', () => ({
   getFlagEmoji: jest.fn((code: string) => `[${code}]`),
 }));
 
-// Mock libphonenumber-js for predictable validation
+// Mock libphonenumber-js for predictable validation and formatting
 jest.mock('libphonenumber-js', () => ({
   isValidPhoneNumber: jest.fn((phone: string) => {
     // Simple mock: valid if 10+ digits after dial code
     const digitsOnly = phone.replace(/\D/g, '');
     return digitsOnly.length >= 10;
   }),
+  AsYouType: jest.fn().mockImplementation((countryCode: string) => ({
+    input: jest.fn((number: string) => {
+      // Mock formatting based on country
+      if (countryCode === 'GB') {
+        // UK format: XXXX XXX XXXX
+        if (number.length <= 4) return number;
+        if (number.length <= 7) return `${number.slice(0, 4)} ${number.slice(4)}`;
+        return `${number.slice(0, 4)} ${number.slice(4, 7)} ${number.slice(7)}`;
+      }
+      // US/CA format: (XXX) XXX-XXXX
+      if (number.length <= 3) return number;
+      if (number.length <= 6) return `(${number.slice(0, 3)}) ${number.slice(3)}`;
+      return `(${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6, 10)}`;
+    }),
+  })),
 }));
 
 describe('OnboardingPhoneInput', () => {
@@ -59,15 +74,15 @@ describe('OnboardingPhoneInput', () => {
       expect(onChangeText).toHaveBeenCalledWith('');
     });
 
-    it('truncates input to max digits for country (10 for US)', () => {
+    it('truncates input to max digits (15 per E.164 standard)', () => {
       const onChangeText = jest.fn();
       render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
 
       const input = screen.getByTestId('phone');
       fireEvent.changeText(input, '123456789012345678901234567890');
 
-      // Should truncate to 10 digits for US
-      expect(onChangeText).toHaveBeenCalledWith('+11234567890');
+      // Should truncate to 15 digits (E.164 max for national number)
+      expect(onChangeText).toHaveBeenCalledWith('+1123456789012345');
     });
   });
 

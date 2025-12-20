@@ -1,28 +1,21 @@
-import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
-  Modal,
-  Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, GlassBackButton, GlassInput } from '@components/ui';
+import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
 import {
   TRACKING_PRESETS,
-  TRACKING_PRESET_ORDER,
   type TrackingPreset,
 } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
@@ -34,29 +27,30 @@ import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 import { getFlagEmoji } from '@utils/flags';
+import { Share } from '@utils/share';
 import type { PassportStackScreenProps } from '@navigation/types';
+
+import { ProfileAvatar } from './components/ProfileAvatar';
+import { ProfileNameSection } from './components/ProfileNameSection';
+import { ProfileInfoSection } from './components/ProfileInfoSection';
+import { SignOutSection } from './components/SignOutSection';
+import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
+import { ExportCountriesModal } from './components/ExportCountriesModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
 /**
  * Format E.164 phone number to readable format.
- * +12025551234 → +1 (202) 555-1234
- * 15555555555 → +1 (555) 555-5555
- * +447911123456 → +44 7911 123 456
- * +33612345678 → +33 6 12 34 56 78
  */
 function formatPhoneNumber(phone: string | undefined): string {
   if (!phone) return 'Not set';
 
-  // Remove any non-digit characters except leading +
   let cleaned = phone.replace(/[^\d+]/g, '');
 
-  // Normalize: if starts with 1 and is 11 digits (US without +), add +
   if (!cleaned.startsWith('+') && cleaned.startsWith('1') && cleaned.length === 11) {
     cleaned = '+' + cleaned;
   }
 
-  // Handle US/Canada numbers (+1XXXXXXXXXX)
   if (cleaned.startsWith('+1') && cleaned.length === 12) {
     const area = cleaned.slice(2, 5);
     const first = cleaned.slice(5, 8);
@@ -64,38 +58,28 @@ function formatPhoneNumber(phone: string | undefined): string {
     return `+1 (${area}) ${first}-${last}`;
   }
 
-  // Handle UK numbers (+44...)
   if (cleaned.startsWith('+44') && cleaned.length >= 12) {
     const rest = cleaned.slice(3);
-    // Format as +44 XXXX XXX XXX
     const formatted = rest.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
     return `+44 ${formatted}`;
   }
 
-  // Handle French numbers (+33...)
   if (cleaned.startsWith('+33') && cleaned.length === 12) {
     const rest = cleaned.slice(3);
-    // Format as +33 X XX XX XX XX
     const formatted = rest.replace(/(\d)(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5');
     return `+33 ${formatted}`;
   }
 
-  // Handle German numbers (+49...)
   if (cleaned.startsWith('+49') && cleaned.length >= 12) {
     const rest = cleaned.slice(3);
-    // Format as +49 XXX XXXXXXX
     const formatted = rest.replace(/(\d{3})(\d+)/, '$1 $2');
     return `+49 ${formatted}`;
   }
 
-  // For other international numbers, detect country code and format nicely
   if (cleaned.startsWith('+')) {
-    // Common country code lengths: 1-3 digits after +
-    // Try to detect based on known patterns
     let countryCodeLen = 1;
     const digits = cleaned.slice(1);
 
-    // 3-digit country codes (e.g., +355 Albania, +852 Hong Kong)
     if (digits.length > 10) {
       countryCodeLen = 3;
     } else if (digits.length > 9) {
@@ -105,7 +89,6 @@ function formatPhoneNumber(phone: string | undefined): string {
     const countryCode = cleaned.slice(0, countryCodeLen + 1);
     const rest = cleaned.slice(countryCodeLen + 1);
 
-    // Group remaining digits in chunks of 3-4 for readability
     const formatted = rest.replace(/(\d{3,4})(?=\d)/g, '$1 ').trim();
     return `${countryCode} ${formatted}`;
   }
@@ -115,7 +98,6 @@ function formatPhoneNumber(phone: string | undefined): string {
 
 /**
  * Format date to readable format.
- * 2025-01-15T12:00:00Z → January 2025
  */
 function formatMemberSince(dateString: string | undefined): string {
   if (!dateString) return 'Unknown';
@@ -130,8 +112,6 @@ function formatMemberSince(dateString: string | undefined): string {
 
 /**
  * Get initials from display name.
- * "John Doe" → "JD"
- * "Jane" → "J"
  */
 function getInitials(name: string | undefined): string {
   if (!name) return '?';
@@ -407,274 +387,55 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           <View style={styles.headerSpacer} />
         </View>
 
-        {/* Avatar Section */}
-        <View style={styles.avatarSection}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{initials}</Text>
-          </View>
-        </View>
+        <ProfileAvatar initials={initials} />
 
-        {/* Display Name Section */}
-        <View style={styles.nameSection}>
-          {isEditing ? (
-            <View style={styles.nameEditContainer}>
-              <GlassInput
-                value={editedName}
-                onChangeText={handleNameChange}
-                placeholder="Enter your name"
-                autoFocus
-                error={nameError}
-                maxLength={50}
-                returnKeyType="done"
-                onSubmitEditing={handleSaveName}
-                containerStyle={styles.nameInput}
-              />
-              <View style={styles.editButtons}>
-                <Pressable
-                  onPress={handleCancelEditing}
-                  style={styles.cancelButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Cancel editing"
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </Pressable>
-                <Button
-                  title={updateDisplayName.isPending ? 'Saving...' : 'Save'}
-                  onPress={handleSaveName}
-                  disabled={updateDisplayName.isPending}
-                  style={styles.saveButton}
-                />
-              </View>
-            </View>
-          ) : (
-            <Pressable
-              onPress={handleStartEditing}
-              style={styles.nameDisplay}
-              accessibilityRole="button"
-              accessibilityLabel="Edit display name"
-              accessibilityHint="Double tap to edit your display name"
-            >
-              <Text style={styles.displayName}>{profile?.display_name ?? 'Set your name'}</Text>
-              <Ionicons
-                name="pencil-outline"
-                size={20}
-                color={colors.stormGray}
-                style={styles.editIcon}
-              />
-            </Pressable>
-          )}
-        </View>
+        <ProfileNameSection
+          isEditing={isEditing}
+          editedName={editedName}
+          displayName={profile?.display_name ?? 'Set your name'}
+          nameError={nameError}
+          isSaving={updateDisplayName.isPending}
+          onStartEditing={handleStartEditing}
+          onCancelEditing={handleCancelEditing}
+          onSaveName={handleSaveName}
+          onNameChange={handleNameChange}
+        />
 
-        {/* Divider */}
         <View style={styles.divider} />
 
-        {/* Info Sections */}
-        <View style={styles.infoSection}>
-          {/* Phone */}
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>PHONE</Text>
-            <Text style={styles.infoValue}>{formattedPhone}</Text>
-          </View>
+        <ProfileInfoSection
+          formattedPhone={formattedPhone}
+          homeCountryDisplay={homeCountryDisplay}
+          memberSince={memberSince}
+          trackingPreferenceDisplay={trackingPreferenceDisplay}
+          visitedCount={visitedCount}
+          onOpenTrackingModal={handleOpenTrackingModal}
+          onOpenExportModal={handleOpenExportModal}
+        />
 
-          {/* Home Country */}
-          {homeCountryDisplay && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>HOME COUNTRY</Text>
-              <Text style={styles.infoValue}>
-                {homeCountryDisplay.flag} {homeCountryDisplay.name}
-              </Text>
-            </View>
-          )}
-
-          {/* Country Tracking */}
-          <Pressable
-            onPress={handleOpenTrackingModal}
-            style={styles.infoRowPressable}
-            accessibilityRole="button"
-            accessibilityLabel="Change country tracking preference"
-          >
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>COUNTRY TRACKING</Text>
-              <View style={styles.trackingValueRow}>
-                <Text style={styles.infoValue}>
-                  {trackingPreferenceDisplay.name} ({trackingPreferenceDisplay.count})
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.stormGray}
-                  style={styles.chevronIcon}
-                />
-              </View>
-            </View>
-          </Pressable>
-
-          {/* Member Since */}
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>MEMBER SINCE</Text>
-            <Text style={styles.infoValue}>{memberSince}</Text>
-          </View>
-
-          {/* Export Countries */}
-          {visitedCount > 0 && (
-            <Pressable
-              onPress={handleOpenExportModal}
-              style={styles.infoRowPressable}
-              accessibilityRole="button"
-              accessibilityLabel="Export your country list"
-            >
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>EXPORT COUNTRIES</Text>
-                <View style={styles.trackingValueRow}>
-                  <Text style={styles.infoValue}>
-                    {visitedCount} {visitedCount === 1 ? 'country' : 'countries'}
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={18}
-                    color={colors.stormGray}
-                    style={styles.chevronIcon}
-                  />
-                </View>
-              </View>
-            </Pressable>
-          )}
-        </View>
-
-        {/* Divider */}
         <View style={styles.divider} />
 
-        {/* Sign Out */}
-        <View style={styles.signOutSection}>
-          <Pressable
-            onPress={handleSignOut}
-            disabled={signOut.isPending}
-            style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-            testID="sign-out-button"
-          >
-            {signOut.isPending ? (
-              <ActivityIndicator size="small" color={colors.adobeBrick} />
-            ) : (
-              <Text style={styles.signOutText}>Sign Out</Text>
-            )}
-          </Pressable>
-        </View>
+        <SignOutSection
+          onSignOut={handleSignOut}
+          isPending={signOut.isPending}
+        />
       </ScrollView>
 
-      {/* Tracking Preference Modal */}
-      <Modal
+      <TrackingPreferenceModal
         visible={trackingModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCloseTrackingModal}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={handleCloseTrackingModal}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Country Tracking</Text>
-            <Text style={styles.modalSubtitle}>
-              Choose what counts as a country in your passport
-            </Text>
+        onClose={handleCloseTrackingModal}
+        onSelect={handleSelectTrackingPreference}
+        currentPreference={profile?.tracking_preference}
+      />
 
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {TRACKING_PRESET_ORDER.map((preset) => {
-                const presetData = TRACKING_PRESETS[preset];
-                const isSelected = profile?.tracking_preference === preset;
-                return (
-                  <TouchableOpacity
-                    key={preset}
-                    style={[styles.presetOption, isSelected && styles.presetOptionSelected]}
-                    onPress={() => handleSelectTrackingPreference(preset)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
-                      {isSelected && <View style={styles.radioInner} />}
-                    </View>
-                    <View style={styles.presetOptionContent}>
-                      <View style={styles.presetOptionHeader}>
-                        <Text style={styles.presetOptionName}>{presetData.name}</Text>
-                        <Text style={styles.presetOptionCount}>{presetData.count}</Text>
-                      </View>
-                      <Text style={styles.presetOptionDescription}>{presetData.description}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseTrackingModal}>
-              <Text style={styles.modalCloseButtonText}>Done</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Export Countries Modal */}
-      <Modal
+      <ExportCountriesModal
         visible={exportModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCloseExportModal}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={handleCloseExportModal}>
-          <Pressable style={styles.exportModalContent} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Export Countries</Text>
-            <Text style={styles.modalSubtitle}>Share or copy your country list</Text>
-
-            {/* Text Preview */}
-            <View style={styles.exportPreviewContainer}>
-              <BlurView intensity={30} tint="light" style={styles.exportPreviewGlass}>
-                <ScrollView
-                  style={styles.exportPreviewScroll}
-                  contentContainerStyle={styles.exportPreviewContent}
-                  showsVerticalScrollIndicator={true}
-                  indicatorStyle="black"
-                >
-                  <Text style={styles.exportPreviewText} selectable>
-                    {exportText}
-                  </Text>
-                </ScrollView>
-              </BlurView>
-            </View>
-
-            {/* Action Buttons */}
-            <View style={styles.exportActions}>
-              <TouchableOpacity
-                style={styles.exportActionButton}
-                onPress={handleShareExport}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="share-outline" size={24} color={colors.midnightNavy} />
-                <Text style={styles.exportActionText}>Share</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.exportActionButton}
-                onPress={handleCopyExport}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={copyFeedback ? 'checkmark-circle' : 'copy-outline'}
-                  size={24}
-                  color={copyFeedback ? colors.mossGreen : colors.midnightNavy}
-                />
-                <Text
-                  style={[styles.exportActionText, copyFeedback && styles.exportActionTextSuccess]}
-                >
-                  {copyFeedback ? 'Copied!' : 'Copy'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseExportModal}>
-              <Text style={styles.modalCloseButtonText}>Done</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={handleCloseExportModal}
+        exportText={exportText}
+        onShare={handleShareExport}
+        onCopy={handleCopyExport}
+        copyFeedback={copyFeedback}
+      />
     </SafeAreaView>
   );
 }
@@ -695,7 +456,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -706,319 +466,18 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 28,
     color: colors.midnightNavy,
+    fontStyle: 'italic',
+    letterSpacing: -0.5,
   },
   headerSpacer: {
     width: 44, // Match back button width for centering
   },
-  // Avatar
-  avatarSection: {
-    alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.adobeBrick,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  avatarText: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 32,
-    color: colors.cloudWhite,
-  },
-  // Name Section
-  nameSection: {
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 24,
-  },
-  nameDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-  },
-  displayName: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 24,
-    color: colors.midnightNavy,
-  },
-  editIcon: {
-    marginLeft: 8,
-    opacity: 0.6,
-  },
-  nameEditContainer: {
-    width: '100%',
-  },
-  nameInput: {
-    marginBottom: 12,
-  },
-  editButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-  },
-  cancelButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.stormGray,
-  },
-  saveButton: {
-    minWidth: 100,
-  },
-  // Divider
   divider: {
     height: 1,
     backgroundColor: colors.paperBeige,
     marginHorizontal: 24,
     marginVertical: 8,
-  },
-  // Info Section
-  infoSection: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-  },
-  infoRow: {
-    marginBottom: 20,
-  },
-  infoLabel: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 12,
-    color: colors.stormGray,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.midnightNavy,
-  },
-  // Sign Out
-  signOutSection: {
-    alignItems: 'center',
-    paddingTop: 24,
-    paddingHorizontal: 24,
-  },
-  signOutButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.adobeBrick,
-    minWidth: 140,
-    alignItems: 'center',
-  },
-  signOutButtonPressed: {
-    opacity: 0.7,
-    backgroundColor: 'rgba(193, 84, 62, 0.05)',
-  },
-  signOutText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.adobeBrick,
-  },
-  // Pressable info row
-  infoRowPressable: {
-    marginHorizontal: -8,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-  },
-  trackingValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  chevronIcon: {
-    marginLeft: 4,
-  },
-  // Modal
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(23, 42, 58, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    paddingHorizontal: 24,
-    paddingBottom: 34,
-    maxHeight: '80%',
-  },
-  modalHandle: {
-    width: 36,
-    height: 4,
-    backgroundColor: colors.stormGray,
-    opacity: 0.4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 22,
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  modalSubtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalScroll: {
-    flexGrow: 0,
-  },
-  presetOption: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.cloudWhite,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  presetOptionSelected: {
-    borderColor: colors.mossGreen,
-    backgroundColor: 'rgba(87, 120, 90, 0.08)',
-  },
-  radioCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: colors.stormGray,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    marginTop: 2,
-  },
-  radioCircleSelected: {
-    borderColor: colors.mossGreen,
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.mossGreen,
-  },
-  presetOptionContent: {
-    flex: 1,
-  },
-  presetOptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  presetOptionName: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.midnightNavy,
-  },
-  presetOptionCount: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 14,
-    color: colors.stormGray,
-  },
-  presetOptionDescription: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.stormGray,
-    lineHeight: 18,
-  },
-  modalCloseButton: {
-    backgroundColor: colors.mossGreen,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  modalCloseButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.cloudWhite,
-  },
-  // Export modal specific styles
-  exportModalContent: {
-    backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    paddingHorizontal: 24,
-    paddingBottom: 34,
-    maxHeight: '85%',
-  },
-  exportPreviewContainer: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    maxHeight: 320,
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  exportPreviewGlass: {
-    width: '100%',
-    height: '100%',
-  },
-  exportPreviewScroll: {
-    flex: 1,
-  },
-  exportPreviewContent: {
-    padding: 20,
-  },
-  exportPreviewText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    lineHeight: 22,
-  },
-  exportActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 48,
-    marginBottom: 16,
-  },
-  exportActionButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  exportActionText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    marginTop: 8,
-  },
-  exportActionTextSuccess: {
-    color: colors.mossGreen,
   },
 });

@@ -4,6 +4,7 @@
  */
 
 import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
+// Removed broken mock
 import {
   createMockCountry,
   createMockUserCountry,
@@ -17,6 +18,7 @@ import * as useProfileModule from '@hooks/useProfile';
 import * as useUpdateDisplayNameModule from '@hooks/useUpdateDisplayName';
 import * as useAuthModule from '@hooks/useAuth';
 import * as Clipboard from 'expo-clipboard';
+import * as ShareModule from '@utils/share';
 import type { Country } from '@hooks/useCountries';
 import type { UserCountry } from '@hooks/useUserCountries';
 
@@ -26,6 +28,9 @@ import type { UserCountry } from '@hooks/useUserCountries';
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn().mockResolvedValue(undefined),
 }));
+
+// Mock Share wrapper
+jest.spyOn(ShareModule.Share, 'share').mockResolvedValue({ action: 'sharedAction', activityType: null });
 
 // Mock useSignOut hook
 jest.spyOn(useAuthModule, 'useSignOut').mockReturnValue({
@@ -126,7 +131,7 @@ describe('ProfileSettingsScreen', () => {
   });
 
   afterEach(() => {
-    jest.runOnlyPendingTimers();
+    jest.clearAllMocks();
     jest.useRealTimers();
   });
 
@@ -142,9 +147,9 @@ describe('ProfileSettingsScreen', () => {
       const exportButton = screen.getByLabelText('Export your country list');
       fireEvent.press(exportButton);
 
-      // Modal should be visible
+      // Modal should be visible - check for modal-specific subtitle text
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
     });
 
@@ -163,7 +168,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // The modal should show the export text preview
@@ -181,7 +186,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press copy button
@@ -210,7 +215,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press copy button
@@ -245,7 +250,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press copy button twice rapidly
@@ -295,7 +300,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press share button - Share.share is mocked globally in jest.setup.js
@@ -305,7 +310,8 @@ describe('ProfileSettingsScreen', () => {
       });
 
       // If we get here without error, the share action completed
-      expect(screen.getByText('Export Countries')).toBeTruthy();
+      // Modal should still be visible
+      expect(screen.getByText('Share or copy your country list')).toBeTruthy();
     });
   });
 
@@ -343,7 +349,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press share button - should not crash even with mocked share
@@ -353,7 +359,7 @@ describe('ProfileSettingsScreen', () => {
       });
 
       // Modal should still be visible (no crash)
-      expect(screen.getByText('Export Countries')).toBeTruthy();
+      expect(screen.getByText('Share or copy your country list')).toBeTruthy();
     });
   });
 
@@ -371,7 +377,7 @@ describe('ProfileSettingsScreen', () => {
       fireEvent.press(screen.getByLabelText('Export your country list'));
 
       await waitFor(() => {
-        expect(screen.getByText('Export Countries')).toBeTruthy();
+        expect(screen.getByText('Share or copy your country list')).toBeTruthy();
       });
 
       // Press copy button to start timeout
