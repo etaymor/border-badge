@@ -55,6 +55,7 @@ async def landing_page(request: Request) -> HTMLResponse:
         name="landing.html",
         context={
             "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,
@@ -159,6 +160,7 @@ async def view_public_list(
         context={
             "list": list_view,
             "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,
@@ -255,6 +257,7 @@ async def view_public_trip(
         context={
             "trip": trip_view,
             "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
             "og_description": seo.og_description,
             "og_url": seo.canonical_url,

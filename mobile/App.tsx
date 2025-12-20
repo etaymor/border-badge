@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
+import * as Crypto from 'expo-crypto';
 
 import {
   useFonts,
@@ -24,17 +26,26 @@ import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
+import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
+// Generate a cryptographically secure session ID for app_opened events
+function generateSessionId(): string {
+  return Crypto.randomUUID();
+}
+
 export default function App() {
-  const { signOut, setSession, setIsLoading, setHasCompletedOnboarding } = useAuthStore();
+  const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
   const nativeSplashHiddenRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const sessionIdRef = useRef(generateSessionId());
+  const hasTrackedInitialOpenRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -58,6 +69,46 @@ export default function App() {
     }
   }, [syncState.error]);
 
+  // Initialize analytics
+  useEffect(() => {
+    void initAnalytics();
+  }, []);
+
+  // Track app_opened when app comes to foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      // Track when app comes to foreground (only if user is authenticated)
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active' &&
+        session?.user?.id
+      ) {
+        // Generate new session ID for this foreground event
+        sessionIdRef.current = generateSessionId();
+        Analytics.appOpened(sessionIdRef.current);
+      }
+      appStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    // Reset tracking ref on sign out so next sign-in can track initial open
+    if (!session?.user?.id) {
+      hasTrackedInitialOpenRef.current = false;
+      sessionIdRef.current = generateSessionId();
+    }
+
+    // Track initial app open if authenticated (only once to prevent double-tracking)
+    if (session?.user?.id && !hasTrackedInitialOpenRef.current) {
+      hasTrackedInitialOpenRef.current = true;
+      Analytics.appOpened(sessionIdRef.current);
+    }
+
+    return () => {
+      subscription.remove();
+    };
+  }, [session?.user?.id]);
+
   useEffect(() => {
     // Wire up API sign-out callback
     setSignOutCallback(signOut);
@@ -74,6 +125,8 @@ export default function App() {
         if (session) {
           setSession(session);
           await storeTokens(session.access_token, session.refresh_token ?? '');
+          // Identify user in analytics
+          identifyUser(session.user.id);
           // Restore onboarding state for returning users
           const onboardingComplete = await getOnboardingComplete();
           if (onboardingComplete) {
@@ -101,10 +154,14 @@ export default function App() {
         setSession(session);
         if (session) {
           await storeTokens(session.access_token, session.refresh_token ?? '');
+          // Identify user in analytics
+          identifyUser(session.user.id);
         } else {
           // User signed out - clear tokens first, then reset onboarding state
           await clearTokens();
           setHasCompletedOnboarding(false);
+          // Reset analytics user
+          resetUser();
         }
       });
       subscription = sub;

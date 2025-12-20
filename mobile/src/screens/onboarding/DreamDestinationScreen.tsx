@@ -1,8 +1,11 @@
+import { useEffect } from 'react';
+
 import { CountrySelectionScreen, type CountrySelectionConfig } from '@components/onboarding';
 import { colors } from '@constants/colors';
 import { REGIONS } from '@constants/regions';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'DreamDestination'>;
@@ -10,6 +13,11 @@ type Props = OnboardingStackScreenProps<'DreamDestination'>;
 export function DreamDestinationScreen({ navigation }: Props) {
   const { dreamDestination, setDreamDestination, toggleBucketListCountry, bucketListCountries } =
     useOnboardingStore();
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingDream();
+  }, []);
 
   const handleCountrySelect = (country: Country) => {
     setDreamDestination(country.code);
@@ -38,7 +46,10 @@ export function DreamDestinationScreen({ navigation }: Props) {
     onNavigateNext: () =>
       navigation.navigate('ContinentIntro', { region: REGIONS[0], regionIndex: 0 }),
     onNavigateBack: () => navigation.goBack(),
-    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'Auth' }),
+    onNavigateLogin: () => {
+      Analytics.skipToLogin('DreamDestination');
+      navigation.navigate('Auth', { screen: 'Auth' });
+    },
     testIdPrefix: 'dream-destination',
   };
 

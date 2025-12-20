@@ -102,6 +102,8 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 EXPO_PUBLIC_APP_ENV=development
 EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=<google-places-key>
 EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000
+EXPO_PUBLIC_POSTHOG_API_KEY=<posthog-api-key>  # Optional: for production analytics
+EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
 ```
 
 ### Backend (`backend/.env`)
@@ -113,6 +115,7 @@ SUPABASE_URL=<supabase-url>
 SUPABASE_ANON_KEY=<anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 SUPABASE_JWT_SECRET=<jwt-secret>
+GOOGLE_ANALYTICS_ID=<ga4-measurement-id>  # Optional: GA4 ID for public pages (e.g., G-XXXXXXXXXX)
 ```
 
 ## Key Architecture Patterns

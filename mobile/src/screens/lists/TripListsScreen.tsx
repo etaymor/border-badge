@@ -18,6 +18,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ListSummary, getPublicListUrl, useDeleteList, useTripLists } from '@hooks/useLists';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 type Props = TripsStackScreenProps<'TripLists'>;
 
@@ -101,6 +102,7 @@ export function TripListsScreen({ route, navigation }: Props) {
   const handleShare = useCallback(async (list: ListSummary) => {
     const shareUrl = getPublicListUrl(list.slug);
     try {
+      Analytics.shareList(list.id);
       await Share.share({
         message: `Check out my list "${list.name}": ${shareUrl}`,
         url: shareUrl,

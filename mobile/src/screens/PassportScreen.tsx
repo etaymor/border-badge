@@ -17,6 +17,7 @@ import {
 import atlastLogo from '../../assets/atlasi-logo.png';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Analytics } from '@services/analytics';
 import {
   OnboardingShareOverlay,
   ShareCardOverlay,
@@ -173,6 +174,20 @@ export function PassportScreen({ navigation }: Props) {
 
   // Get tracking preference from profile (default to full_atlas)
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
+
+  // Track passport view only when visited count changes.
+  // Using a ref prevents duplicate tracking on re-renders when other
+  // userCountries properties change (e.g., wishlist updates).
+  const lastTrackedCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!loadingUserCountries && userCountries) {
+      const visitedCount = userCountries.filter((uc) => uc.status === 'visited').length;
+      if (lastTrackedCountRef.current !== visitedCount) {
+        lastTrackedCountRef.current = visitedCount;
+        Analytics.viewPassport(visitedCount);
+      }
+    }
+  }, [loadingUserCountries, userCountries]);
 
   // Sync recognitionGroups filter when tracking preference changes
   // Remove any recognition groups that are no longer valid for the new preference
@@ -681,9 +696,6 @@ export function PassportScreen({ navigation }: Props) {
         {/* Travel Status Card */}
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            {/* Square Icon Placeholder */}
-            <View style={styles.statusIcon} />
-
             <View style={styles.statusContent}>
               <View style={styles.statusRow}>
                 <Text style={styles.statusTitle}>{stats.travelStatus.toUpperCase()}</Text>
@@ -892,13 +904,6 @@ const styles = StyleSheet.create({
   statusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  statusIcon: {
-    width: 48,
-    height: 48,
-    backgroundColor: '#D9D9D9', // Placeholder grey from screenshot
-    borderRadius: 4,
-    marginRight: 12,
   },
   statusContent: {
     flex: 1,

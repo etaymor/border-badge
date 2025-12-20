@@ -7,6 +7,7 @@ import atlasLogo from '../../../assets/atlasi-logo.png';
 import { Chip, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'Motivation'>;
@@ -29,6 +30,11 @@ export function MotivationScreen({ navigation }: Props) {
   const section2Opacity = useRef(new Animated.Value(0)).current;
   const section2Translate = useRef(new Animated.Value(20)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingMotivation();
+  }, []);
 
   useEffect(() => {
     // Staggered entrance animations
@@ -90,6 +96,7 @@ export function MotivationScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
+    Analytics.skipToLogin('Motivation');
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 

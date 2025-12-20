@@ -22,6 +22,7 @@ import {
 } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'TrackingPreference'>;
@@ -113,6 +114,11 @@ const PresetCard = memo(function PresetCard({
 export function TrackingPreferenceScreen({ navigation }: Props) {
   const { trackingPreference, setTrackingPreference } = useOnboardingStore();
 
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingTracking();
+  }, []);
+
   // Staggered fade-in animations
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslate = useRef(new Animated.Value(20)).current;
@@ -191,6 +197,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
   }, [navigation]);
 
   const handleLogin = useCallback(() => {
+    Analytics.skipToLogin('TrackingPreference');
     navigation.navigate('Auth', { screen: 'Auth' });
   }, [navigation]);
 

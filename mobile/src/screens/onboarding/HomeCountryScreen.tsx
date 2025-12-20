@@ -1,13 +1,21 @@
+import { useEffect } from 'react';
+
 import { CountrySelectionScreen, type CountrySelectionConfig } from '@components/onboarding';
 import { colors } from '@constants/colors';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'HomeCountry'>;
 
 export function HomeCountryScreen({ navigation }: Props) {
   const { homeCountry, setHomeCountry, toggleCountry, selectedCountries } = useOnboardingStore();
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingHomeCountry();
+  }, []);
 
   const handleCountrySelect = (country: Country) => {
     setHomeCountry(country.code);
@@ -32,7 +40,10 @@ export function HomeCountryScreen({ navigation }: Props) {
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
     onNavigateNext: () => navigation.navigate('TrackingPreference'),
-    onNavigateLogin: () => navigation.navigate('Auth', { screen: 'Auth' }),
+    onNavigateLogin: () => {
+      Analytics.skipToLogin('HomeCountry');
+      navigation.navigate('Auth', { screen: 'Auth' });
+    },
     testIdPrefix: 'home-country',
   };
 

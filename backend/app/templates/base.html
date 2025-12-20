@@ -66,6 +66,17 @@
       href="{{ url_for('static', path='css/styles.css') }}"
     />
     {% endif %}
+
+    <!-- Google Analytics 4 -->
+    {% if google_analytics_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ google_analytics_id }}');
+    </script>
+    {% endif %}
   </head>
   <body{% if has_hero %} class="has-hero"{% endif %}>
     <header class="header">
@@ -76,6 +87,7 @@
         <a
           href="{{ app_store_url | safe_external_url or '#download' }}"
           class="cta-button cta-button--header"
+          onclick="typeof gtag !== 'undefined' && gtag('event', 'click_app_store', {'location': 'header'})"
           >Download App</a
         >
       </div>
@@ -89,6 +101,7 @@
         <div class="footer-cta">
           <p class="footer-tagline">Start tracking your travels today</p>
           <a href="{{ app_store_url | safe_external_url or '#download' }}" class="cta-button"
+            onclick="typeof gtag !== 'undefined' && gtag('event', 'click_app_store', {'location': 'footer'})"
             >Get Atlasi</a
           >
         </div>

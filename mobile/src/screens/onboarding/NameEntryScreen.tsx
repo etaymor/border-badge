@@ -17,6 +17,7 @@ import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 
@@ -36,6 +37,11 @@ export function NameEntryScreen({ navigation }: Props) {
   const accentAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
   const buttonAnim = useRef(new Animated.Value(0)).current;
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingName();
+  }, []);
 
   // Run entrance animations
   useEffect(() => {

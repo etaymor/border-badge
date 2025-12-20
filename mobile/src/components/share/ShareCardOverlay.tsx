@@ -25,6 +25,7 @@ import ViewShot from 'react-native-view-shot';
 import { ErrorBoundary, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
 import type { MilestoneContext } from '@utils/milestones';
 
@@ -172,17 +173,28 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
 
   // Share card as image
   const handleShare = useCallback(async () => {
+    if (!context) {
+      return;
+    }
+
     try {
       const uri = await viewShotRef.current?.capture?.();
       if (uri) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        Analytics.shareMilestone({
+          countryCode: context.countryCode,
+          countryRegion: context.countryRegion,
+          countrySubregion: context.countrySubregion,
+          totalCount: context.newTotalCount,
+          milestoneTypes: context.milestones.map((milestone) => milestone.type),
+        });
         await Share.share({ url: uri });
       }
     } catch (error) {
       console.error('Share failed:', error);
       Alert.alert('Error', 'Failed to share. Please try again.');
     }
-  }, []);
+  }, [context]);
 
   // Save card to photos
   const handleSave = useCallback(async () => {

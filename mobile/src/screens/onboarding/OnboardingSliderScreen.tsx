@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
@@ -57,6 +58,11 @@ type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 export function OnboardingSliderScreen({ navigation }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingSlider();
+  }, []);
 
   // Create video players for each slide
   const player0 = useVideoPlayer(SLIDES[0].video, (p) => {
@@ -103,6 +109,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
+    Analytics.skipToLogin('OnboardingSlider');
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 

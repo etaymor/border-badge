@@ -17,6 +17,7 @@ import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
@@ -38,6 +39,11 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
   const imageScale = useRef(new Animated.Value(0.95)).current;
   const buttonsTranslate = useRef(new Animated.Value(30)).current;
   const dotsOpacity = useRef(new Animated.Value(0)).current;
+
+  // Track screen view
+  useEffect(() => {
+    Analytics.viewOnboardingAntarctica();
+  }, []);
 
   // Staggered entrance animations
   useEffect(() => {
@@ -93,6 +99,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
+    Analytics.skipToLogin('AntarcticaPrompt');
     navigation.navigate('Auth', { screen: 'Auth' });
   };
 
