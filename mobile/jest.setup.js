@@ -4,6 +4,41 @@
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 
+// Mock react-native-reanimated
+jest.mock(
+  'react-native-reanimated',
+  () => {
+    const mockReact = require('react');
+    return {
+      default: {
+        View: mockReact.forwardRef(({ children, style }, ref) =>
+          mockReact.createElement('View', { ref, style }, children)
+        ),
+      },
+      View: mockReact.forwardRef(({ children, style }, ref) =>
+        mockReact.createElement('View', { ref, style }, children)
+      ),
+      FadeInUp: {
+        duration: () => ({
+          springify: () => ({}),
+        }),
+      },
+      FadeOutUp: {
+        duration: () => ({}),
+      },
+      useSharedValue: jest.fn((initial) => ({ value: initial })),
+      useAnimatedStyle: jest.fn(() => ({})),
+      withTiming: jest.fn((value) => value),
+      withSpring: jest.fn((value) => value),
+      Easing: {
+        linear: jest.fn(),
+        ease: jest.fn(),
+      },
+    };
+  },
+  { virtual: true }
+);
+
 // Mock react-native-safe-area-context
 jest.mock('react-native-safe-area-context', () => {
   const mockReact = require('react');

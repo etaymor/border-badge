@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     skimlinks_api_key: str = ""  # Skimlinks API key for link monetization
     skimlinks_publisher_id: str = ""  # Skimlinks publisher ID
 
+    # Social ingest
+    instagram_oembed_token: str = ""  # Meta app token for Instagram oEmbed API
+    google_places_api_key: str = ""  # Google Places API key for place resolution
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

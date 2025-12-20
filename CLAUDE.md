@@ -250,19 +250,20 @@ user_profile     - Extended user data
 
 ## Important Files
 
-| File                                      | Purpose                 |
-| ----------------------------------------- | ----------------------- |
-| `mobile/src/services/api.ts`              | Axios API client setup  |
-| `mobile/src/services/supabase.ts`         | Supabase client init    |
-| `mobile/src/stores/authStore.ts`          | Auth state management   |
-| `mobile/src/navigation/RootNavigator.tsx` | App navigation          |
-| `backend/app/main.py`                     | FastAPI app setup       |
-| `backend/app/core/config.py`              | Environment config      |
-| `backend/app/core/security.py`            | JWT validation          |
-| `backend/app/db/session.py`               | Supabase client         |
-| `STYLEGUIDE.md`                           | Design system reference |
-| `docs/travel-prd.md`                      | Product requirements    |
-| `docs/travel-technical-design.md`         | Technical design        |
+| File                                      | Purpose                       |
+| ----------------------------------------- | ----------------------------- |
+| `mobile/src/services/api.ts`              | Axios API client setup        |
+| `mobile/src/services/supabase.ts`         | Supabase client init          |
+| `mobile/src/stores/authStore.ts`          | Auth state management         |
+| `mobile/src/navigation/RootNavigator.tsx` | App navigation                |
+| `backend/app/main.py`                     | FastAPI app setup             |
+| `backend/app/core/config.py`              | Environment config            |
+| `backend/app/core/security.py`            | JWT validation                |
+| `backend/app/db/session.py`               | Supabase client               |
+| `STYLEGUIDE.md`                           | Design system reference       |
+| `docs/travel-prd.md`                      | Product requirements          |
+| `docs/travel-technical-design.md`         | Technical design              |
+| `docs/ios-share-extension.md`             | iOS Share Extension build doc |
 
 ## Launch Simplification (IMPORTANT)
 

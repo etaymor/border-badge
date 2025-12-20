@@ -37,7 +37,13 @@ export default {
     web: {
       favicon: './assets/favicon.png',
     },
-    plugins: ['expo-sqlite', 'expo-font', 'expo-video', 'expo-apple-authentication'],
+    plugins: [
+      'expo-sqlite',
+      'expo-font',
+      'expo-video',
+      'expo-apple-authentication',
+      './plugins/withShareExtension',
+    ],
     extra: {
       EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
     },

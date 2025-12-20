@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
 import { PassportScreen } from '@screens/PassportScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
+import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
 import { TripsNavigator } from './TripsNavigator';
 
@@ -37,6 +38,15 @@ export function PassportNavigator() {
         component={TripsNavigator}
         options={{
           headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="ShareCapture"
+        component={ShareCaptureScreen}
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+          animation: 'slide_from_bottom',
         }}
       />
     </Stack.Navigator>
