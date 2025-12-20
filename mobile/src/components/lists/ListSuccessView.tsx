@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View, Image } from 'react-native';
+import { Platform, Pressable, Share, StyleSheet, Text, View, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,10 +50,14 @@ export function ListSuccessView({
 
   const handleShare = useCallback(async () => {
     try {
-      await Share.share({
-        message: `Check out my list "${list.name}": ${shareUrl}`,
-        url: shareUrl,
-      });
+      // On iOS, only pass URL so "Copy" action copies just the link
+      // Messaging apps will still receive the URL and users can add their own text
+      // On Android, we need to use message since url is not well-supported
+      await Share.share(
+        Platform.OS === 'ios'
+          ? { url: shareUrl }
+          : { message: `Check out my list "${list.name}": ${shareUrl}` }
+      );
     } catch (error) {
       console.error('Share error:', error);
     }
