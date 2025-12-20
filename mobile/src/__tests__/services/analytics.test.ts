@@ -11,7 +11,7 @@ jest.mock('@config/env', () => ({
   isProduction: false,
 }));
 
-// Mock PostHog SDK
+// Mock PostHog SDK - mock the class constructor
 const mockPostHogInstance = {
   identify: jest.fn(),
   reset: jest.fn(),
@@ -20,9 +20,7 @@ const mockPostHogInstance = {
 
 jest.mock('posthog-react-native', () => ({
   __esModule: true,
-  default: {
-    initAsync: jest.fn().mockResolvedValue(mockPostHogInstance),
-  },
+  default: jest.fn().mockImplementation(() => mockPostHogInstance),
 }));
 
 describe('Analytics Service', () => {

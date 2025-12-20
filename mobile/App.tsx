@@ -71,7 +71,7 @@ export default function App() {
 
   // Initialize analytics
   useEffect(() => {
-    initAnalytics();
+    void initAnalytics();
   }, []);
 
   // Track app_opened when app comes to foreground
@@ -91,6 +91,12 @@ export default function App() {
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    // Reset tracking ref on sign out so next sign-in can track initial open
+    if (!session?.user?.id) {
+      hasTrackedInitialOpenRef.current = false;
+      sessionIdRef.current = generateSessionId();
+    }
 
     // Track initial app open if authenticated (only once to prevent double-tracking)
     if (session?.user?.id && !hasTrackedInitialOpenRef.current) {
