@@ -134,7 +134,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
 
   const handleLogin = () => {
     Analytics.skipToLogin(`ContinentIntro_${region}`);
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   return (

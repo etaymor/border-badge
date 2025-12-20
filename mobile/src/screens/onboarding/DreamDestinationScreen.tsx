@@ -48,7 +48,7 @@ export function DreamDestinationScreen({ navigation }: Props) {
     onNavigateBack: () => navigation.goBack(),
     onNavigateLogin: () => {
       Analytics.skipToLogin('DreamDestination');
-      navigation.navigate('Auth', { screen: 'Auth' });
+      navigation.navigate('Auth', { screen: 'Login' });
     },
     testIdPrefix: 'dream-destination',
   };

@@ -131,12 +131,50 @@ export default function OnboardingPhoneInput({
     onValidationChangeRef.current?.(isCurrentNumberValid);
   }, [isCurrentNumberValid]);
 
+  // Format phone number for display based on country
+  const formatForDisplay = useCallback(
+    (number: string): string => {
+      if (!number) return '';
+
+      // US/Canada formatting: (XXX) XXX-XXXX
+      if (selectedCountry.code === 'US' || selectedCountry.code === 'CA') {
+        if (number.length <= 3) return number;
+        if (number.length <= 6) return `(${number.slice(0, 3)}) ${number.slice(3)}`;
+        return `(${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}`;
+      }
+
+      // UK formatting: XXXX XXX XXXX
+      if (selectedCountry.code === 'GB') {
+        if (number.length <= 4) return number;
+        if (number.length <= 7) return `${number.slice(0, 4)} ${number.slice(4)}`;
+        return `${number.slice(0, 4)} ${number.slice(4, 7)} ${number.slice(7)}`;
+      }
+
+      // Default: group in threes with spaces
+      if (number.length <= 3) return number;
+      if (number.length <= 6) return `${number.slice(0, 3)} ${number.slice(3)}`;
+      return `${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
+    },
+    [selectedCountry.code]
+  );
+
+  // Get max digits for national number based on country
+  const getMaxDigits = useCallback((): number => {
+    // US/Canada: 10 digits
+    if (selectedCountry.code === 'US' || selectedCountry.code === 'CA') return 10;
+    // UK: 10-11 digits (use 11 as max)
+    if (selectedCountry.code === 'GB') return 11;
+    // Default: 15 (E.164 max minus country code)
+    return 15;
+  }, [selectedCountry.code]);
+
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
     // Only allow digits
     const digitsOnly = text.replace(/\D/g, '');
-    // E.164 max is 15 digits total; enforce reasonable max for local number
-    const truncated = digitsOnly.slice(0, 15);
+    // Enforce max digits for the selected country
+    const maxDigits = getMaxDigits();
+    const truncated = digitsOnly.slice(0, maxDigits);
     setLocalNumber(truncated);
 
     // Construct E.164 format
@@ -213,7 +251,7 @@ export default function OnboardingPhoneInput({
         {/* Phone Number Input */}
         <TextInput
           style={styles.phoneInput}
-          value={localNumber}
+          value={formatForDisplay(localNumber)}
           onChangeText={handleLocalNumberChange}
           placeholder={placeholder}
           placeholderTextColor={colors.midnightNavyMuted}
@@ -341,9 +379,9 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 14,
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: fonts.openSans.regular,
     color: colors.midnightNavy,
   },

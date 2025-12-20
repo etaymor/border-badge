@@ -33,7 +33,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
 
   const handleLogin = () => {
     Analytics.skipToLogin('WelcomeCarousel');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   return (

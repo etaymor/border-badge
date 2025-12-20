@@ -206,7 +206,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   // Handle navigation to login for existing users
   const handleAlreadyHaveAccount = () => {
     Analytics.skipToLogin('AccountCreation');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   // Animation interpolations

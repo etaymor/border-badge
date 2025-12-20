@@ -14,11 +14,11 @@ export function AuthNavigator() {
       screenOptions={{
         headerShown: false,
       }}
-      initialRouteName="Auth"
+      initialRouteName="Login"
     >
       {/* LAUNCH_SIMPLIFICATION: WelcomeScreen skipped for cleaner sign-out flow */}
       {/* <Stack.Screen name="Welcome" component={WelcomeScreen} /> */}
-      <Stack.Screen name="Auth" component={AuthScreen} />
+      <Stack.Screen name="Login" component={AuthScreen} />
     </Stack.Navigator>
   );
 }

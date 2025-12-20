@@ -100,7 +100,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
 
   const handleLogin = () => {
     Analytics.skipToLogin('AntarcticaPrompt');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   return (

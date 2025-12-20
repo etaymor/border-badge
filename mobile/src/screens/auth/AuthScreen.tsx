@@ -26,7 +26,7 @@ import {
   validatePhone,
 } from '@utils/phoneValidation';
 
-type Props = AuthStackScreenProps<'Auth'>;
+type Props = AuthStackScreenProps<'Login'>;
 
 type AuthStep = 'phone' | 'otp';
 
@@ -51,8 +51,8 @@ export function AuthScreen({ navigation }: Props) {
   const contentAnim = useRef(new Animated.Value(0)).current;
   const buttonAnim = useRef(new Animated.Value(0)).current;
 
-  // Animation values for OTP step
-  const otpContainerAnim = useRef(new Animated.Value(0)).current;
+  // Animation values for OTP step - start at 1 to ensure visibility
+  const otpContainerAnim = useRef(new Animated.Value(1)).current;
 
   // Run entrance animations
   useEffect(() => {
@@ -87,8 +87,7 @@ export function AuthScreen({ navigation }: Props) {
         }),
       ]).start();
     } else {
-      // OTP step - minimal fade in
-      otpContainerAnim.setValue(0);
+      // OTP step - fade in from current value
       Animated.timing(otpContainerAnim, {
         toValue: 1,
         duration: 200,

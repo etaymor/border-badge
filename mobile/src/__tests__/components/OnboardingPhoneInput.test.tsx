@@ -59,15 +59,15 @@ describe('OnboardingPhoneInput', () => {
       expect(onChangeText).toHaveBeenCalledWith('');
     });
 
-    it('truncates input to 15 digits maximum (E.164 limit)', () => {
+    it('truncates input to max digits for country (10 for US)', () => {
       const onChangeText = jest.fn();
       render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
 
       const input = screen.getByTestId('phone');
       fireEvent.changeText(input, '123456789012345678901234567890');
 
-      // Should truncate to 15 digits
-      expect(onChangeText).toHaveBeenCalledWith('+1123456789012345');
+      // Should truncate to 10 digits for US
+      expect(onChangeText).toHaveBeenCalledWith('+11234567890');
     });
   });
 
@@ -311,8 +311,8 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />
       );
 
-      // The input should now display the local number (without dial code)
-      expect(input.props.value).toBe('5551234567');
+      // The input should now display the formatted local number (US format)
+      expect(input.props.value).toBe('(555) 123-4567');
       // Dial code should be US (+1)
       expect(screen.getByText('+1')).toBeTruthy();
     });
@@ -323,10 +323,10 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+447911123456" onChangeText={onChangeText} testID="phone" />
       );
 
-      // Should detect UK country code and display correctly
+      // Should detect UK country code and display formatted (UK format)
       expect(screen.getByText('+44')).toBeTruthy();
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('7911123456');
+      expect(input.props.value).toBe('7911 123 456');
     });
 
     it('uses defaultCountryCode as tiebreaker for ambiguous dial codes', () => {
@@ -353,9 +353,9 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />
       );
 
-      // Input should have value
+      // Input should have formatted value (US format)
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('5551234567');
+      expect(input.props.value).toBe('(555) 123-4567');
 
       // Clear the value prop
       rerender(<OnboardingPhoneInput value="" onChangeText={onChangeText} testID="phone" />);
@@ -375,7 +375,7 @@ describe('OnboardingPhoneInput', () => {
       // Should detect UK (+44)
       expect(screen.getByText('+44')).toBeTruthy();
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('7911123456');
+      expect(input.props.value).toBe('7911 123 456');
     });
   });
 

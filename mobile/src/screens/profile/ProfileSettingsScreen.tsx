@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -624,9 +625,20 @@ export function ProfileSettingsScreen({ navigation }: Props) {
             <Text style={styles.modalSubtitle}>Share or copy your country list</Text>
 
             {/* Text Preview */}
-            <ScrollView style={styles.exportPreviewScroll} showsVerticalScrollIndicator={false}>
-              <Text style={styles.exportPreviewText}>{exportText}</Text>
-            </ScrollView>
+            <View style={styles.exportPreviewContainer}>
+              <BlurView intensity={30} tint="light" style={styles.exportPreviewGlass}>
+                <ScrollView
+                  style={styles.exportPreviewScroll}
+                  contentContainerStyle={styles.exportPreviewContent}
+                  showsVerticalScrollIndicator={true}
+                  indicatorStyle="black"
+                >
+                  <Text style={styles.exportPreviewText} selectable>
+                    {exportText}
+                  </Text>
+                </ScrollView>
+              </BlurView>
+            </View>
 
             {/* Action Buttons */}
             <View style={styles.exportActions}>
@@ -957,14 +969,31 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingHorizontal: 24,
     paddingBottom: 34,
-    maxHeight: '75%',
+    maxHeight: '85%',
+  },
+  exportPreviewContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    maxHeight: 320,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  exportPreviewGlass: {
+    width: '100%',
+    height: '100%',
   },
   exportPreviewScroll: {
-    backgroundColor: colors.cloudWhite,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    maxHeight: 280,
+    flex: 1,
+  },
+  exportPreviewContent: {
+    padding: 20,
   },
   exportPreviewText: {
     fontFamily: fonts.openSans.regular,

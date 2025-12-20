@@ -198,7 +198,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
 
   const handleLogin = useCallback(() => {
     Analytics.skipToLogin('TrackingPreference');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   }, [navigation]);
 
   const handleSelectPreset = useCallback(

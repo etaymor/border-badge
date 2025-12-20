@@ -12,7 +12,7 @@ export type RootStackParamList = {
 // Auth stack screens
 export type AuthStackParamList = {
   Welcome: undefined;
-  Auth: undefined;
+  Login: undefined;
 };
 
 // Onboarding stack screens
