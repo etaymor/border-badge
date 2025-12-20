@@ -139,7 +139,10 @@ async def list_links(
     click_counts: dict[str, int] = {}
 
     if link_ids:
-        # Single query with IN clause to get all clicks for these links
+        # Single query with IN clause to get all clicks for these links.
+        # Note: Supabase REST API doesn't support GROUP BY, so we count in Python.
+        # For high-traffic scenarios, consider adding an RPC function for aggregation.
+        # With default pagination (50 links), memory usage is bounded and acceptable.
         all_clicks = await db.get(
             "outbound_click",
             {

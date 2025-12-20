@@ -394,7 +394,14 @@ async def log_click(data: OutboundClickCreate) -> OutboundClick:
         )
     except Exception as e:
         # Log but don't fail the redirect on click logging errors
-        logger.error(f"Failed to log click for link {data.link_id}: {e}")
+        logger.error(
+            "click_log_failed",
+            extra={
+                "event": "click_log_failed",
+                "link_id": str(data.link_id),
+                "error": str(e),
+            },
+        )
         raise
 
 
@@ -523,7 +530,14 @@ async def resolve_destination_url_async(
             )
         except Exception as e:
             # Log but don't fail - caching is best-effort
-            logger.warning(f"failed_to_cache_skimlinks: link_id={link.id} error={e}")
+            logger.warning(
+                "skimlinks_cache_failed",
+                extra={
+                    "event": "skimlinks_cache_failed",
+                    "link_id": str(link.id),
+                    "error": str(e),
+                },
+            )
 
     return wrapped_url, resolution_path
 
@@ -782,7 +796,10 @@ async def delete_partner_mapping(mapping_id: str | UUID) -> bool:
 
     deleted = len(rows) > 0
     if deleted:
-        logger.info(f"partner_mapping_deleted: id={mapping_id}")
+        logger.info(
+            "partner_mapping_deleted",
+            extra={"event": "partner_mapping_deleted", "mapping_id": str(mapping_id)},
+        )
 
     return deleted
 
@@ -805,6 +822,13 @@ async def delete_mappings_for_entry(entry_id: str | UUID) -> int:
 
     count = len(rows)
     if count > 0:
-        logger.info(f"partner_mappings_deleted: entry_id={entry_id} count={count}")
+        logger.info(
+            "partner_mappings_deleted",
+            extra={
+                "event": "partner_mappings_deleted",
+                "entry_id": str(entry_id),
+                "count": count,
+            },
+        )
 
     return count
