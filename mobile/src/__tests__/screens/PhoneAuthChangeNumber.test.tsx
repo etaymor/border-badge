@@ -47,11 +47,11 @@ describe('Change number flow', () => {
 
   it('clears phone input when changing number on AuthScreen', async () => {
     const navigation =
-      createMockNavigation() as unknown as AuthStackScreenProps<'Auth'>['navigation'];
+      createMockNavigation() as unknown as AuthStackScreenProps<'Login'>['navigation'];
     const route = {
       key: 'test-auth',
-      name: 'Auth',
-    } as AuthStackScreenProps<'Auth'>['route'];
+      name: 'Login',
+    } as AuthStackScreenProps<'Login'>['route'];
 
     const { getByTestId, getByText } = render(<AuthScreen navigation={navigation} route={route} />);
 

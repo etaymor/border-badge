@@ -7,14 +7,46 @@ jest.mock('@utils/flags', () => ({
   getFlagEmoji: jest.fn((code: string) => `[${code}]`),
 }));
 
-// Mock libphonenumber-js for predictable validation
+// Mock country-specific max digits (national number lengths from libphonenumber-js examples)
+const mockExampleNumbers: Record<string, string> = {
+  US: '2015550123', // 10 digits
+  CA: '5062345678', // 10 digits
+  GB: '7400123456', // 10 digits
+  DE: '15123456789', // 11 digits
+  AU: '412345678', // 9 digits
+};
+
+// Mock libphonenumber-js for predictable validation and formatting
 jest.mock('libphonenumber-js', () => ({
   isValidPhoneNumber: jest.fn((phone: string) => {
     // Simple mock: valid if 10+ digits after dial code
     const digitsOnly = phone.replace(/\D/g, '');
     return digitsOnly.length >= 10;
   }),
+  AsYouType: jest.fn().mockImplementation((countryCode: string) => ({
+    input: jest.fn((number: string) => {
+      // Mock formatting based on country
+      if (countryCode === 'GB') {
+        // UK format: XXXX XXX XXXX
+        if (number.length <= 4) return number;
+        if (number.length <= 7) return `${number.slice(0, 4)} ${number.slice(4)}`;
+        return `${number.slice(0, 4)} ${number.slice(4, 7)} ${number.slice(7)}`;
+      }
+      // US/CA format: (XXX) XXX-XXXX
+      if (number.length <= 3) return number;
+      if (number.length <= 6) return `(${number.slice(0, 3)}) ${number.slice(3)}`;
+      return `(${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6, 10)}`;
+    }),
+  })),
+  getExampleNumber: jest.fn((countryCode: string) => {
+    const example = mockExampleNumbers[countryCode];
+    if (!example) return undefined;
+    return { nationalNumber: example };
+  }),
 }));
+
+// Mock the examples import
+jest.mock('libphonenumber-js/mobile/examples', () => ({}));
 
 describe('OnboardingPhoneInput', () => {
   const defaultProps = {
@@ -59,15 +91,42 @@ describe('OnboardingPhoneInput', () => {
       expect(onChangeText).toHaveBeenCalledWith('');
     });
 
-    it('truncates input to 15 digits maximum (E.164 limit)', () => {
+    it('truncates input to country-specific max digits (US = 10)', () => {
       const onChangeText = jest.fn();
       render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
 
       const input = screen.getByTestId('phone');
       fireEvent.changeText(input, '123456789012345678901234567890');
 
-      // Should truncate to 15 digits
-      expect(onChangeText).toHaveBeenCalledWith('+1123456789012345');
+      // Should truncate to 10 digits for US (based on example number length)
+      expect(onChangeText).toHaveBeenCalledWith('+11234567890');
+    });
+
+    it('handles character-by-character input without cursor issues', () => {
+      const onChangeText = jest.fn();
+      render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
+
+      const input = screen.getByTestId('phone');
+
+      // Simulate typing one character at a time
+      fireEvent.changeText(input, '5');
+      expect(onChangeText).toHaveBeenLastCalledWith('+15');
+
+      fireEvent.changeText(input, '55');
+      expect(onChangeText).toHaveBeenLastCalledWith('+155');
+
+      fireEvent.changeText(input, '555');
+      expect(onChangeText).toHaveBeenLastCalledWith('+1555');
+
+      fireEvent.changeText(input, '5551');
+      expect(onChangeText).toHaveBeenLastCalledWith('+15551');
+
+      fireEvent.changeText(input, '55512');
+      expect(onChangeText).toHaveBeenLastCalledWith('+155512');
+
+      // Continue to full 10-digit number
+      fireEvent.changeText(input, '5551234567');
+      expect(onChangeText).toHaveBeenLastCalledWith('+15551234567');
     });
   });
 
@@ -231,6 +290,70 @@ describe('OnboardingPhoneInput', () => {
 
       expect(screen.getByText('Invalid phone number')).toBeTruthy();
     });
+
+    it('falls back to unformatted number when AsYouType throws', () => {
+      // Override AsYouType to throw an error
+      const { AsYouType } = jest.requireMock('libphonenumber-js') as {
+        AsYouType: jest.Mock;
+      };
+      AsYouType.mockImplementationOnce(() => {
+        throw new Error('Invalid country code');
+      });
+
+      const onChangeText = jest.fn();
+      render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
+
+      const input = screen.getByTestId('phone');
+      fireEvent.changeText(input, '5551234567');
+
+      // Should still emit E.164 format even if formatting fails
+      expect(onChangeText).toHaveBeenCalledWith('+15551234567');
+    });
+
+    it('falls back to 15 max digits when getExampleNumber returns undefined', async () => {
+      // This is tested implicitly - unknown country codes return undefined
+      // and component falls back to 15 digits
+      const { getExampleNumber } = jest.requireMock('libphonenumber-js') as {
+        getExampleNumber: jest.Mock;
+      };
+      getExampleNumber.mockReturnValueOnce(undefined);
+
+      const onChangeText = jest.fn();
+      render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
+
+      const input = screen.getByTestId('phone');
+      // With fallback to 15 digits, all 15 should be allowed
+      fireEvent.changeText(input, '123456789012345');
+
+      expect(onChangeText).toHaveBeenCalledWith('+1123456789012345');
+    });
+  });
+
+  describe('country-specific max digits', () => {
+    it('uses country-specific max digits when country changes', async () => {
+      const onChangeText = jest.fn();
+      render(<OnboardingPhoneInput {...defaultProps} onChangeText={onChangeText} testID="phone" />);
+
+      // Enter a long number (should be truncated to 10 for US)
+      const input = screen.getByTestId('phone');
+      fireEvent.changeText(input, '12345678901234567890');
+      expect(onChangeText).toHaveBeenLastCalledWith('+11234567890'); // 10 digits for US
+
+      // Open country picker and select Germany (11 digits max)
+      fireEvent.press(screen.getByTestId('phone-country-picker'));
+      await waitFor(() => {
+        expect(screen.getByText('Select Country')).toBeTruthy();
+      });
+
+      // Search for Germany
+      const searchInput = screen.getByPlaceholderText('Search countries...');
+      fireEvent.changeText(searchInput, 'Germany');
+      fireEvent.press(screen.getByText('Germany'));
+
+      // Now enter a long number again - should use Germany's 11 digit max
+      fireEvent.changeText(input, '12345678901234567890');
+      expect(onChangeText).toHaveBeenLastCalledWith('+4912345678901'); // 11 digits for DE
+    });
   });
 
   describe('validation callback', () => {
@@ -311,8 +434,8 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />
       );
 
-      // The input should now display the local number (without dial code)
-      expect(input.props.value).toBe('5551234567');
+      // The input should now display the formatted local number (US format)
+      expect(input.props.value).toBe('(555) 123-4567');
       // Dial code should be US (+1)
       expect(screen.getByText('+1')).toBeTruthy();
     });
@@ -323,10 +446,10 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+447911123456" onChangeText={onChangeText} testID="phone" />
       );
 
-      // Should detect UK country code and display correctly
+      // Should detect UK country code and display formatted (UK format)
       expect(screen.getByText('+44')).toBeTruthy();
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('7911123456');
+      expect(input.props.value).toBe('7911 123 456');
     });
 
     it('uses defaultCountryCode as tiebreaker for ambiguous dial codes', () => {
@@ -353,9 +476,9 @@ describe('OnboardingPhoneInput', () => {
         <OnboardingPhoneInput value="+15551234567" onChangeText={onChangeText} testID="phone" />
       );
 
-      // Input should have value
+      // Input should have formatted value (US format)
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('5551234567');
+      expect(input.props.value).toBe('(555) 123-4567');
 
       // Clear the value prop
       rerender(<OnboardingPhoneInput value="" onChangeText={onChangeText} testID="phone" />);
@@ -375,7 +498,7 @@ describe('OnboardingPhoneInput', () => {
       // Should detect UK (+44)
       expect(screen.getByText('+44')).toBeTruthy();
       const input = screen.getByTestId('phone');
-      expect(input.props.value).toBe('7911123456');
+      expect(input.props.value).toBe('7911 123 456');
     });
   });
 

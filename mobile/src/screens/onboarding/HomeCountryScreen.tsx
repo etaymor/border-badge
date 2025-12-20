@@ -42,7 +42,7 @@ export function HomeCountryScreen({ navigation }: Props) {
     onNavigateNext: () => navigation.navigate('TrackingPreference'),
     onNavigateLogin: () => {
       Analytics.skipToLogin('HomeCountry');
-      navigation.navigate('Auth', { screen: 'Auth' });
+      navigation.navigate('Auth', { screen: 'Login' });
     },
     testIdPrefix: 'home-country',
   };

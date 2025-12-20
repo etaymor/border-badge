@@ -110,7 +110,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
 
   const handleLogin = () => {
     Analytics.skipToLogin('OnboardingSlider');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   const goToNext = () => {

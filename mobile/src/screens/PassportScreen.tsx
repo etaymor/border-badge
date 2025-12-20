@@ -1063,14 +1063,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.midnightNavy,
     marginHorizontal: 16,
-    marginTop: 24,
+    marginTop: 12,
     marginBottom: 12,
   },
   scriptTitle: {
     fontFamily: fonts.dawning.regular,
     fontSize: 32,
     color: colors.adobeBrick,
-    marginTop: 24,
+    marginTop: 12,
     marginBottom: 8,
   },
   // Section header row with share button
@@ -1079,7 +1079,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginHorizontal: 16,
-    marginTop: 24,
+    marginTop: 12,
     marginBottom: 8,
   },
   sectionShareButton: {

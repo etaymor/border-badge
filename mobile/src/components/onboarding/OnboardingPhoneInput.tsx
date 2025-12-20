@@ -1,5 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { isValidPhoneNumber } from 'libphonenumber-js';
+import {
+  AsYouType,
+  getExampleNumber,
+  isValidPhoneNumber,
+  type CountryCode,
+} from 'libphonenumber-js';
+import examples from 'libphonenumber-js/mobile/examples';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -131,12 +137,51 @@ export default function OnboardingPhoneInput({
     onValidationChangeRef.current?.(isCurrentNumberValid);
   }, [isCurrentNumberValid]);
 
+  // Format phone number for display using libphonenumber-js AsYouType
+  // This automatically handles formatting for all countries
+  const formatForDisplay = useCallback(
+    (number: string): string => {
+      if (!number) return '';
+      try {
+        const formatter = new AsYouType(selectedCountry.code as CountryCode);
+        return formatter.input(number);
+      } catch {
+        // Fallback to unformatted number on error (e.g., invalid country code)
+        return number;
+      }
+    },
+    [selectedCountry.code]
+  );
+
+  // Country-specific max digits based on example phone numbers from libphonenumber-js
+  // Uses getExampleNumber to get the expected national number length for each country
+  const maxDigits = useMemo(() => {
+    try {
+      const example = getExampleNumber(selectedCountry.code as CountryCode, examples);
+      // Use example number length, fallback to 15 (E.164 max) if not found
+      return example?.nationalNumber?.length ?? 15;
+    } catch {
+      return 15;
+    }
+  }, [selectedCountry.code]);
+
   // Update parent with E.164 format whenever local number or country changes
   const handleLocalNumberChange = (text: string) => {
     // Only allow digits
     const digitsOnly = text.replace(/\D/g, '');
-    // E.164 max is 15 digits total; enforce reasonable max for local number
-    const truncated = digitsOnly.slice(0, 15);
+
+    // Handle backspace on formatting characters:
+    // If the new digit count equals the old digit count, the user deleted a formatting
+    // character (like parenthesis, dash, or space). In this case, delete the last digit.
+    let newDigits = digitsOnly;
+    if (digitsOnly.length === localNumber.length && digitsOnly.length > 0) {
+      // User pressed backspace but only removed a formatting character
+      // Remove the last actual digit to match expected behavior
+      newDigits = digitsOnly.slice(0, -1);
+    }
+
+    // Enforce max digits for the selected country
+    const truncated = newDigits.slice(0, maxDigits);
     setLocalNumber(truncated);
 
     // Construct E.164 format
@@ -213,7 +258,7 @@ export default function OnboardingPhoneInput({
         {/* Phone Number Input */}
         <TextInput
           style={styles.phoneInput}
-          value={localNumber}
+          value={formatForDisplay(localNumber)}
           onChangeText={handleLocalNumberChange}
           placeholder={placeholder}
           placeholderTextColor={colors.midnightNavyMuted}
@@ -341,9 +386,9 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 14,
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: fonts.openSans.regular,
     color: colors.midnightNavy,
   },

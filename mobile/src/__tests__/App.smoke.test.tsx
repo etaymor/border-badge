@@ -10,9 +10,9 @@ const mockNavigation = {
   goBack: jest.fn(),
   setOptions: jest.fn(),
   canGoBack: jest.fn().mockReturnValue(false),
-} as unknown as AuthStackScreenProps<'Auth'>['navigation'];
+} as unknown as AuthStackScreenProps<'Login'>['navigation'];
 
-const mockRoute = {} as AuthStackScreenProps<'Auth'>['route'];
+const mockRoute = {} as AuthStackScreenProps<'Login'>['route'];
 
 describe('AuthScreen', () => {
   beforeEach(() => {

@@ -97,7 +97,7 @@ export function MotivationScreen({ navigation }: Props) {
 
   const handleLogin = () => {
     Analytics.skipToLogin('Motivation');
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   return (

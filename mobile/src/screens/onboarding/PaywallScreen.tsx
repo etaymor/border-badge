@@ -187,7 +187,7 @@ export function PaywallScreen({ navigation }: Props) {
   };
 
   const handleLogin = () => {
-    navigation.navigate('Auth', { screen: 'Auth' });
+    navigation.navigate('Auth', { screen: 'Login' });
   };
 
   const ctaShadowOpacity = ctaGlow.interpolate({
