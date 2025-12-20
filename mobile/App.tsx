@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import * as Crypto from 'expo-crypto';
 
 import {
   useFonts,
@@ -32,9 +33,9 @@ import { useAuthStore } from '@stores/authStore';
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
-// Generate a simple session ID for app_opened events
+// Generate a cryptographically secure session ID for app_opened events
 function generateSessionId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  return Crypto.randomUUID();
 }
 
 export default function App() {

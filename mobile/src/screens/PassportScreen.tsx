@@ -175,11 +175,16 @@ export function PassportScreen({ navigation }: Props) {
   // Get tracking preference from profile (default to full_atlas)
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
 
-  // Track passport view when data loads
+  // Track passport view when data loads (only when visited count changes)
+  const lastTrackedCountRef = useRef<number | null>(null);
   useEffect(() => {
     if (!loadingUserCountries && userCountries) {
       const visitedCount = userCountries.filter((uc) => uc.status === 'visited').length;
-      Analytics.viewPassport(visitedCount);
+      // Only track if count changed from last tracked value
+      if (lastTrackedCountRef.current !== visitedCount) {
+        lastTrackedCountRef.current = visitedCount;
+        Analytics.viewPassport(visitedCount);
+      }
     }
   }, [loadingUserCountries, userCountries]);
 
