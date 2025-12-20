@@ -52,9 +52,7 @@ def normalize_name(name: str) -> str:
     normalized = unicodedata.normalize("NFKD", name)
 
     # Remove combining diacritical marks (accents)
-    normalized = "".join(
-        char for char in normalized if not unicodedata.combining(char)
-    )
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
 
     # Lowercase
     normalized = normalized.lower()

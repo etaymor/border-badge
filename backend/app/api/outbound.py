@@ -18,7 +18,7 @@ from app.schemas.affiliate import (
 )
 from app.services.affiliate_links import (
     get_link_by_id,
-    log_click_async,
+    log_click_fire_and_forget,
     resolve_destination_url_async,
     verify_signature,
 )
@@ -26,6 +26,26 @@ from app.services.affiliate_links import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["outbound"])
+
+
+def _anonymize_ip(ip: str | None) -> str | None:
+    """Mask IP address for privacy compliance (GDPR).
+
+    Zeroes the last octet for IPv4 (e.g., 192.168.1.42 -> 192.168.1.0)
+    and the last 80 bits for IPv6.
+    """
+    if not ip:
+        return None
+    if ":" in ip:  # IPv6
+        parts = ip.split(":")
+        if len(parts) >= 4:
+            return ":".join(parts[:4]) + ":0:0:0:0"
+        return ip
+    else:  # IPv4
+        parts = ip.split(".")
+        if len(parts) == 4:
+            return ".".join(parts[:3]) + ".0"
+        return ip
 
 
 @router.get("/o/{link_id}")
@@ -109,7 +129,7 @@ async def redirect_outbound(
             extra={
                 "event": "invalid_signature",
                 "link_id": link_id_str,
-                "client_ip": client_ip,
+                "client_ip": _anonymize_ip(client_ip),
                 "source": src,
                 "is_bot": is_known_bot(user_agent),
             },
@@ -209,8 +229,8 @@ async def redirect_outbound(
         referer=referer[:2048] if referer else None,  # Truncate long referers
     )
 
-    # Fire-and-forget click logging
-    await log_click_async(click_data)
+    # Fire-and-forget click logging (truly non-blocking via asyncio.create_task)
+    log_click_fire_and_forget(click_data)
 
     # Calculate latency and log structured redirect event
     # Analytics data logged (see privacy policy):

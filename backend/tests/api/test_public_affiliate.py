@@ -224,7 +224,9 @@ class TestDestinationUrlBuilding:
         if entry_link:
             destination_url = entry_link
         elif lat and lng:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
         elif google_place_id:
             destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
         else:
@@ -242,7 +244,9 @@ class TestDestinationUrlBuilding:
         if entry_link:
             destination_url = entry_link
         elif lat and lng:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
         elif google_place_id:
             destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
         else:
@@ -260,13 +264,18 @@ class TestDestinationUrlBuilding:
         if entry_link:
             destination_url = entry_link
         elif lat and lng:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
         elif google_place_id:
             destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
         else:
             destination_url = None
 
-        assert destination_url == f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
+        assert (
+            destination_url
+            == f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
+        )
 
     def test_none_when_no_location_data(self) -> None:
         """Test that None is returned when no location data available."""
@@ -278,7 +287,9 @@ class TestDestinationUrlBuilding:
         if entry_link:
             destination_url = entry_link
         elif lat and lng:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
         elif google_place_id:
             destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
         else:

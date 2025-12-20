@@ -419,9 +419,7 @@ class TestWrapUrlWithCache:
         """Test cache error doesn't fail the wrap."""
         with (
             patch("app.services.skimlinks.get_cached_url", return_value=None),
-            patch(
-                "app.services.skimlinks.wrap_url", return_value=TEST_WRAPPED_URL
-            ),
+            patch("app.services.skimlinks.wrap_url", return_value=TEST_WRAPPED_URL),
             patch(
                 "app.services.skimlinks.cache_url",
                 side_effect=Exception("DB error"),

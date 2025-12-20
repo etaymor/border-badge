@@ -1,5 +1,6 @@
 """Affiliate links service for outbound redirect management."""
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -235,7 +236,9 @@ async def create_link(data: OutboundLinkCreate) -> OutboundLink:
     )
 
 
-async def update_link(link_id: str | UUID, data: OutboundLinkUpdate) -> OutboundLink | None:
+async def update_link(
+    link_id: str | UUID, data: OutboundLinkUpdate
+) -> OutboundLink | None:
     """Update an outbound link.
 
     Args:
@@ -289,6 +292,10 @@ async def get_or_create_link_for_entry(
 ) -> OutboundLink:
     """Get existing link for entry or create a new one.
 
+    Handles race conditions where concurrent callers may both try to create
+    a link for the same entry. If a duplicate key error occurs, re-fetches
+    the existing link created by another caller.
+
     Args:
         entry_id: UUID of the entry
         destination_url: Destination URL for the link
@@ -301,19 +308,41 @@ async def get_or_create_link_for_entry(
     if existing:
         # Update destination if changed
         if existing.destination_url != destination_url:
-            return await update_link(
+            updated = await update_link(
                 existing.id,
                 OutboundLinkUpdate(destination_url=destination_url),
             )
-        return existing
+            # Handle case where link was deleted between read and update
+            if updated is None:
+                existing = await get_link_by_entry_id(entry_id)
+                if existing:
+                    return existing
+                # Link truly deleted, fall through to create
+            else:
+                return updated
+        else:
+            return existing
 
-    return await create_link(
-        OutboundLinkCreate(
-            entry_id=UUID(str(entry_id)),
-            destination_url=destination_url,
-            partner_slug=partner_slug,
+    try:
+        return await create_link(
+            OutboundLinkCreate(
+                entry_id=UUID(str(entry_id)),
+                destination_url=destination_url,
+                partner_slug=partner_slug,
+            )
         )
-    )
+    except Exception as e:
+        # Handle race condition: another caller created the link concurrently
+        error_msg = str(e).lower()
+        if "duplicate" in error_msg or "unique" in error_msg or "conflict" in error_msg:
+            logger.debug(
+                f"Race condition on link creation for entry {entry_id}, re-fetching"
+            )
+            existing = await get_link_by_entry_id(entry_id)
+            if existing:
+                return existing
+        # Re-raise if not a duplicate key error or if re-fetch failed
+        raise
 
 
 async def log_click(data: OutboundClickCreate) -> OutboundClick:
@@ -369,8 +398,32 @@ async def log_click(data: OutboundClickCreate) -> OutboundClick:
         raise
 
 
+async def _log_click_wrapper(data: OutboundClickCreate) -> None:
+    """Internal wrapper that catches and logs exceptions for background task."""
+    try:
+        await log_click(data)
+    except Exception as e:
+        logger.error(f"Background click logging failed: {e}")
+
+
+def log_click_fire_and_forget(data: OutboundClickCreate) -> None:
+    """Schedule click logging as a background task (true fire-and-forget).
+
+    Uses asyncio.create_task to run the click logging in the background
+    without blocking the caller. This ensures redirects are not delayed
+    by database writes.
+
+    Args:
+        data: Click data to log
+    """
+    asyncio.create_task(_log_click_wrapper(data))
+
+
 async def log_click_async(data: OutboundClickCreate) -> None:
     """Log click without waiting for result (fire-and-forget for redirects).
+
+    DEPRECATED: Use log_click_fire_and_forget() instead for true non-blocking.
+    This function still awaits internally for backwards compatibility.
 
     Args:
         data: Click data to log

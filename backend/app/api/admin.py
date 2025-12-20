@@ -132,21 +132,23 @@ async def list_links(
     )
     total = len(count_rows)
 
-    # Get click counts for these links
+    # Get click counts for these links (single query instead of N+1)
     link_ids = [row["id"] for row in links_rows]
     click_counts: dict[str, int] = {}
 
     if link_ids:
-        # Get click counts grouped by link_id
-        for link_id in link_ids:
-            clicks = await db.get(
-                "outbound_click",
-                {
-                    "link_id": f"eq.{link_id}",
-                    "select": "id",
-                },
-            )
-            click_counts[link_id] = len(clicks)
+        # Single query with IN clause to get all clicks for these links
+        all_clicks = await db.get(
+            "outbound_click",
+            {
+                "link_id": f"in.({','.join(link_ids)})",
+                "select": "link_id",
+            },
+        )
+        # Count clicks per link in Python
+        for click in all_clicks:
+            lid = click["link_id"]
+            click_counts[lid] = click_counts.get(lid, 0) + 1
 
     # Build response
     links = [
@@ -196,56 +198,40 @@ async def get_stats_summary(
     - Clicks by source (trip_share, list_share, etc.)
     - Clicks by resolution path (partner, skimlinks, original)
     - Top destinations by click count
+
+    Uses database-level aggregation (RPC) to avoid loading all clicks into memory.
     """
     db = get_supabase_client()
 
     # Calculate date range
     since = datetime.now(UTC) - timedelta(days=days)
 
-    # Get all clicks in the period
-    clicks = await db.get(
-        "outbound_click",
-        {
-            "created_at": f"gte.{since.isoformat()}",
-            "select": "id,link_id,source,resolution,destination_url",
-        },
-    )
+    # Use RPC for database-level aggregation (avoids loading millions of rows)
+    stats = await db.rpc("get_click_stats", {"since_date": since.isoformat()})
 
-    # Calculate statistics
-    total_clicks = len(clicks)
-    unique_links = len({c["link_id"] for c in clicks})
+    # Handle empty result or null stats
+    if not stats:
+        stats = {
+            "total_clicks": 0,
+            "unique_links": 0,
+            "by_source": {},
+            "by_resolution": {},
+            "top_domains": [],
+        }
 
-    # Clicks by source
-    clicks_by_source: dict[str, int] = {}
-    for click in clicks:
-        source = click.get("source", "unknown")
-        clicks_by_source[source] = clicks_by_source.get(source, 0) + 1
+    # Map RPC result to response model
+    total_clicks = stats.get("total_clicks", 0) or 0
+    unique_links = stats.get("unique_links", 0) or 0
+    clicks_by_source = stats.get("by_source") or {}
+    clicks_by_resolution = stats.get("by_resolution") or {}
 
-    # Clicks by resolution path
-    clicks_by_resolution: dict[str, int] = {}
-    for click in clicks:
-        resolution = click.get("resolution", "unknown")
-        clicks_by_resolution[resolution] = clicks_by_resolution.get(resolution, 0) + 1
-
-    # Top destinations
-    dest_counts: dict[str, int] = {}
-    for click in clicks:
-        dest = click.get("destination_url", "")
-        # Extract domain for grouping
-        if dest:
-            try:
-                from urllib.parse import urlparse
-
-                domain = urlparse(dest).netloc
-                dest_counts[domain] = dest_counts.get(domain, 0) + 1
-            except Exception:
-                pass
-
-    top_destinations = sorted(
-        [{"domain": k, "clicks": v} for k, v in dest_counts.items()],
-        key=lambda x: x["clicks"],
-        reverse=True,
-    )[:10]
+    # Transform top_domains to expected format
+    top_domains_raw = stats.get("top_domains") or []
+    top_destinations = [
+        {"domain": d.get("domain", "unknown"), "clicks": d.get("clicks", 0)}
+        for d in top_domains_raw
+        if d and d.get("domain")
+    ]
 
     logger.info(
         "admin_stats_summary",

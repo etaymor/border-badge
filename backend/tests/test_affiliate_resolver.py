@@ -165,9 +165,7 @@ class TestGenerateSearchUrl:
     def test_address_extraction(self) -> None:
         """Test address is used in search query."""
         url = generate_search_url(
-            "booking",
-            "Hotel California",
-            "123 Main St, Beverly Hills, California, USA"
+            "booking", "Hotel California", "123 Main St, Beverly Hills, California, USA"
         )
         # Should include city name from address
         assert "California" in url or "california" in url.lower()

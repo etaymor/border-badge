@@ -170,7 +170,9 @@ async def view_public_list(
             if entry_link:
                 destination_url = entry_link
             elif lat and lng:
-                destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+                destination_url = (
+                    f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+                )
             elif google_place_id:
                 destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
             else:
@@ -302,7 +304,9 @@ async def view_public_trip(
         if entry_link:
             destination_url = entry_link
         elif lat and lng:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
         elif google_place_id:
             destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
         else:

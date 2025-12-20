@@ -46,13 +46,11 @@ def test_redirect_success_with_valid_signature(client: TestClient) -> None:
     signature = generate_signature(TEST_LINK_ID, None, None, "list_share")
 
     with (
-        patch(
-            "app.api.outbound.verify_signature", return_value=True
-        ) as mock_verify,
+        patch("app.api.outbound.verify_signature", return_value=True) as mock_verify,
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch("app.api.outbound.log_click_async", new_callable=AsyncMock),
+        patch("app.api.outbound.log_click_fire_and_forget"),
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig={signature}",
@@ -67,16 +65,16 @@ def test_redirect_success_with_valid_signature(client: TestClient) -> None:
 def test_redirect_success_with_trip_and_entry_context(client: TestClient) -> None:
     """Test successful redirect with trip_id and entry_id context."""
     link = make_test_link()
-    signature = generate_signature(TEST_LINK_ID, TEST_TRIP_ID, TEST_ENTRY_ID, "trip_share")
+    signature = generate_signature(
+        TEST_LINK_ID, TEST_TRIP_ID, TEST_ENTRY_ID, "trip_share"
+    )
 
     with (
         patch("app.api.outbound.verify_signature", return_value=True),
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=trip_share&sig={signature}&trip_id={TEST_TRIP_ID}&entry_id={TEST_ENTRY_ID}",
@@ -104,7 +102,7 @@ def test_redirect_uses_affiliate_url_when_available(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch("app.api.outbound.log_click_async", new_callable=AsyncMock),
+        patch("app.api.outbound.log_click_fire_and_forget"),
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig={signature}",
@@ -125,9 +123,7 @@ def test_redirect_logs_click_with_metadata(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=in_app&sig={signature}",
@@ -309,9 +305,7 @@ def test_redirect_resolution_path_original(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -335,9 +329,7 @@ def test_redirect_resolution_path_direct_partner(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -361,9 +353,7 @@ def test_redirect_resolution_path_skimlinks(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -419,9 +409,7 @@ def test_redirect_truncates_long_user_agent(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -444,9 +432,7 @@ def test_redirect_truncates_long_referer(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -468,9 +454,7 @@ def test_redirect_handles_vercel_ip_country_header(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
@@ -492,9 +476,7 @@ def test_redirect_prefers_cf_ipcountry_over_vercel(client: TestClient) -> None:
         patch(
             "app.api.outbound.get_link_by_id", new_callable=AsyncMock, return_value=link
         ),
-        patch(
-            "app.api.outbound.log_click_async", new_callable=AsyncMock
-        ) as mock_log,
+        patch("app.api.outbound.log_click_fire_and_forget") as mock_log,
     ):
         response = client.get(
             f"/o/{TEST_LINK_ID}?src=list_share&sig=valid",
