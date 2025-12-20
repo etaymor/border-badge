@@ -45,6 +45,7 @@ export default function App() {
   const nativeSplashHiddenRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const sessionIdRef = useRef(generateSessionId());
+  const hasTrackedInitialOpenRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -91,8 +92,9 @@ export default function App() {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
-    // Track initial app open if authenticated
-    if (session?.user?.id) {
+    // Track initial app open if authenticated (only once to prevent double-tracking)
+    if (session?.user?.id && !hasTrackedInitialOpenRef.current) {
+      hasTrackedInitialOpenRef.current = true;
       Analytics.appOpened(sessionIdRef.current);
     }
 

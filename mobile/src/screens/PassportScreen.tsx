@@ -175,12 +175,13 @@ export function PassportScreen({ navigation }: Props) {
   // Get tracking preference from profile (default to full_atlas)
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
 
-  // Track passport view when data loads (only when visited count changes)
+  // Track passport view only when visited count changes.
+  // Using a ref prevents duplicate tracking on re-renders when other
+  // userCountries properties change (e.g., wishlist updates).
   const lastTrackedCountRef = useRef<number | null>(null);
   useEffect(() => {
     if (!loadingUserCountries && userCountries) {
       const visitedCount = userCountries.filter((uc) => uc.status === 'visited').length;
-      // Only track if count changed from last tracked value
       if (lastTrackedCountRef.current !== visitedCount) {
         lastTrackedCountRef.current = visitedCount;
         Analytics.viewPassport(visitedCount);

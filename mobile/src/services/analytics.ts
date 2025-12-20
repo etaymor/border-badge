@@ -36,10 +36,9 @@ export async function initAnalytics(): Promise<void> {
   }
 
   try {
-    posthog = await PostHog.initAsync(apiKey, {
+    // PostHog React Native uses constructor with apiKey and options
+    posthog = new PostHog(apiKey, {
       host,
-      // Disable automatic capture - we track explicitly
-      autocapture: false,
     });
     isInitialized = true;
     console.log('[Analytics] PostHog initialized');
@@ -77,7 +76,10 @@ export function resetUser(): void {
 /**
  * Track a custom event.
  */
-export function track(event: string, properties?: Record<string, unknown>): void {
+export function track(
+  event: string,
+  properties?: Record<string, string | number | boolean | null>
+): void {
   if (!isProduction) {
     console.log('[Analytics] Track:', event, properties ?? {});
     return;
