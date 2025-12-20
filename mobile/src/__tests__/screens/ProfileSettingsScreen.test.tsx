@@ -30,7 +30,9 @@ jest.mock('expo-clipboard', () => ({
 }));
 
 // Mock Share wrapper
-jest.spyOn(ShareModule.Share, 'share').mockResolvedValue({ action: 'sharedAction', activityType: null });
+jest
+  .spyOn(ShareModule.Share, 'share')
+  .mockResolvedValue({ action: 'sharedAction', activityType: null });
 
 // Mock useSignOut hook
 jest.spyOn(useAuthModule, 'useSignOut').mockReturnValue({

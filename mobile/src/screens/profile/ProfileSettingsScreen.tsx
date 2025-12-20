@@ -1,23 +1,13 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Keyboard,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Keyboard, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
-import {
-  TRACKING_PRESETS,
-  type TrackingPreset,
-} from '@constants/trackingPreferences';
+import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
@@ -415,10 +405,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
         <View style={styles.divider} />
 
-        <SignOutSection
-          onSignOut={handleSignOut}
-          isPending={signOut.isPending}
-        />
+        <SignOutSection onSignOut={handleSignOut} isPending={signOut.isPending} />
       </ScrollView>
 
       <TrackingPreferenceModal
