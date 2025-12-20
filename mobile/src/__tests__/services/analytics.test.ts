@@ -209,6 +209,25 @@ describe('Analytics Service', () => {
           list_id: 'list-789',
         });
       });
+
+      it('tracks shareMilestone with milestone metadata', () => {
+        Analytics.shareMilestone({
+          countryCode: 'US',
+          countryRegion: 'North America',
+          countrySubregion: 'Northern America',
+          totalCount: 10,
+          milestoneTypes: ['round_number', 'new_continent'],
+        });
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('[Analytics] Track:', 'share_milestone', {
+          country_code: 'US',
+          country_region: 'North America',
+          country_subregion: 'Northern America',
+          total_count: 10,
+          milestone_types: 'round_number,new_continent',
+          milestone_count: 2,
+        });
+      });
     });
 
     describe('Skip events', () => {

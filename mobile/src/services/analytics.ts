@@ -146,4 +146,19 @@ export const Analytics = {
   sharePassport: () => track('share_passport'),
   shareTrip: (tripId: string) => track('share_trip', { trip_id: tripId }),
   shareList: (listId: string) => track('share_list', { list_id: listId }),
+  shareMilestone: (props: {
+    countryCode: string;
+    countryRegion: string;
+    countrySubregion: string | null;
+    totalCount: number;
+    milestoneTypes: string[];
+  }) =>
+    track('share_milestone', {
+      country_code: props.countryCode,
+      country_region: props.countryRegion,
+      country_subregion: props.countrySubregion ?? null,
+      total_count: props.totalCount,
+      milestone_types: props.milestoneTypes.join(',') || null,
+      milestone_count: props.milestoneTypes.length,
+    }),
 };

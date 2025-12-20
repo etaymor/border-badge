@@ -173,18 +173,28 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
 
   // Share card as image
   const handleShare = useCallback(async () => {
+    if (!context) {
+      return;
+    }
+
     try {
       const uri = await viewShotRef.current?.capture?.();
       if (uri) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        Analytics.sharePassport();
+        Analytics.shareMilestone({
+          countryCode: context.countryCode,
+          countryRegion: context.countryRegion,
+          countrySubregion: context.countrySubregion,
+          totalCount: context.newTotalCount,
+          milestoneTypes: context.milestones.map((milestone) => milestone.type),
+        });
         await Share.share({ url: uri });
       }
     } catch (error) {
       console.error('Share failed:', error);
       Alert.alert('Error', 'Failed to share. Please try again.');
     }
-  }, []);
+  }, [context]);
 
   // Save card to photos
   const handleSave = useCallback(async () => {
