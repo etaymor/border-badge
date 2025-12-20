@@ -361,7 +361,7 @@ async def update_link(
         update_data["affiliate_url"] = update.affiliate_url
 
     # Perform update
-    updated = await db.update(
+    updated = await db.patch(
         "outbound_link",
         update_data,
         {"id": f"eq.{link_id}"},

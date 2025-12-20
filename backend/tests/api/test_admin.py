@@ -97,12 +97,12 @@ class TestListLinks:
         }
 
         with patch("app.api.admin.get_supabase_client") as mock_db:
-            # First call for links, second for count, third+ for click counts
+            # First call for links, second for count, third for click counts
             mock_db.return_value.get = AsyncMock(
                 side_effect=[
                     [mock_link],  # links query
                     [mock_link],  # count query
-                    [{"id": "click1"}, {"id": "click2"}],  # click count for link
+                    [{"link_id": link_id}, {"link_id": link_id}],  # clicks for link
                 ]
             )
 
@@ -261,7 +261,7 @@ class TestUpdateLink:
                     [],  # click count
                 ]
             )
-            mock_db.return_value.update = AsyncMock(return_value=[updated_link])
+            mock_db.return_value.patch = AsyncMock(return_value=[updated_link])
 
             client = TestClient(app)
             response = client.patch(
@@ -300,7 +300,7 @@ class TestUpdateLink:
                     [],  # click count
                 ]
             )
-            mock_db.return_value.update = AsyncMock(return_value=[updated_link])
+            mock_db.return_value.patch = AsyncMock(return_value=[updated_link])
 
             client = TestClient(app)
             response = client.patch(
@@ -322,7 +322,8 @@ class TestStatsSummary:
     ) -> None:
         """Test that empty stats are returned when no clicks."""
         with patch("app.api.admin.get_supabase_client") as mock_db:
-            mock_db.return_value.get = AsyncMock(return_value=[])
+            # RPC returns None or empty dict when no clicks
+            mock_db.return_value.rpc = AsyncMock(return_value=None)
 
             client = TestClient(app)
             response = client.get(
@@ -343,35 +344,20 @@ class TestStatsSummary:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that stats are calculated correctly."""
-        link_id1 = str(uuid4())
-        link_id2 = str(uuid4())
-
-        mock_clicks = [
-            {
-                "id": str(uuid4()),
-                "link_id": link_id1,
-                "source": "list_share",
-                "resolution": "skimlinks",
-                "destination_url": "https://booking.com/hotel1",
-            },
-            {
-                "id": str(uuid4()),
-                "link_id": link_id1,
-                "source": "list_share",
-                "resolution": "skimlinks",
-                "destination_url": "https://booking.com/hotel2",
-            },
-            {
-                "id": str(uuid4()),
-                "link_id": link_id2,
-                "source": "trip_share",
-                "resolution": "original",
-                "destination_url": "https://tripadvisor.com/place1",
-            },
-        ]
+        # RPC returns pre-aggregated stats from the database
+        mock_rpc_result = {
+            "total_clicks": 3,
+            "unique_links": 2,
+            "by_source": {"list_share": 2, "trip_share": 1},
+            "by_resolution": {"skimlinks": 2, "original": 1},
+            "top_domains": [
+                {"domain": "booking.com", "clicks": 2},
+                {"domain": "tripadvisor.com", "clicks": 1},
+            ],
+        }
 
         with patch("app.api.admin.get_supabase_client") as mock_db:
-            mock_db.return_value.get = AsyncMock(return_value=mock_clicks)
+            mock_db.return_value.rpc = AsyncMock(return_value=mock_rpc_result)
 
             client = TestClient(app)
             response = client.get(
