@@ -403,7 +403,16 @@ async def _log_click_wrapper(data: OutboundClickCreate) -> None:
     try:
         await log_click(data)
     except Exception as e:
-        logger.error(f"Background click logging failed: {e}")
+        # Structured logging for alerting - filter on event=click_log_error
+        logger.error(
+            "click_log_error",
+            extra={
+                "event": "click_log_error",
+                "link_id": str(data.link_id),
+                "source": data.source,
+                "error": str(e),
+            },
+        )
 
 
 def log_click_fire_and_forget(data: OutboundClickCreate) -> None:
@@ -700,7 +709,7 @@ async def upsert_partner_mapping(data: PartnerMappingCreate) -> PartnerMapping:
 
     rows = await db.upsert(
         "partner_mapping",
-        upsert_data,
+        [upsert_data],
         on_conflict="entry_id,partner_slug",
     )
     row = rows[0]

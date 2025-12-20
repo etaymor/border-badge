@@ -3,10 +3,14 @@
 --          millions of rows into memory for high-traffic periods.
 
 -- Function to get aggregated click statistics for a given time period
+-- Uses SECURITY DEFINER to bypass RLS since this is admin-only access
+-- (admin routes authenticate via service role key, not user JWT)
 CREATE OR REPLACE FUNCTION get_click_stats(since_date timestamptz)
 RETURNS JSON
 LANGUAGE SQL
 STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 SELECT json_build_object(
     'total_clicks', COALESCE(COUNT(*), 0),

@@ -58,6 +58,7 @@ CREATE INDEX idx_outbound_click_link ON outbound_click(link_id);
 CREATE INDEX idx_outbound_click_date ON outbound_click(clicked_at DESC);
 CREATE INDEX idx_outbound_click_trip ON outbound_click(trip_id) WHERE trip_id IS NOT NULL;
 CREATE INDEX idx_outbound_click_resolution ON outbound_click(resolution);
+CREATE INDEX idx_outbound_click_source ON outbound_click(source);
 
 COMMENT ON TABLE outbound_click IS 'Click log for affiliate redirect analytics';
 COMMENT ON COLUMN outbound_click.source IS 'Click source context (trip_share, list_share, in_app)';

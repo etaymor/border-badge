@@ -133,6 +133,8 @@ async def list_links(
     total = len(count_rows)
 
     # Get click counts for these links (single query instead of N+1)
+    # Note: This is a separate query from links, so counts may be slightly
+    # stale under high write load. Acceptable for admin analytics dashboard.
     link_ids = [row["id"] for row in links_rows]
     click_counts: dict[str, int] = {}
 
@@ -147,8 +149,9 @@ async def list_links(
         )
         # Count clicks per link in Python
         for click in all_clicks:
-            lid = click["link_id"]
-            click_counts[lid] = click_counts.get(lid, 0) + 1
+            lid = click.get("link_id")
+            if lid:
+                click_counts[lid] = click_counts.get(lid, 0) + 1
 
     # Build response
     links = [

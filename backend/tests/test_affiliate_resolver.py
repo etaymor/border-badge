@@ -213,7 +213,7 @@ class TestBuildPartnerPropertyUrl:
 class TestPartnerMappingCrud:
     """Tests for partner mapping CRUD operations."""
 
-    def test_create_partner_mapping(self) -> None:
+    async def test_create_partner_mapping(self) -> None:
         """Test creating a partner mapping."""
         with patch(
             "app.services.affiliate_links.get_supabase_client"
@@ -234,8 +234,6 @@ class TestPartnerMappingCrud:
                 }
             ]
 
-            import asyncio
-
             from app.services.affiliate_links import create_partner_mapping
 
             data = PartnerMappingCreate(
@@ -246,9 +244,7 @@ class TestPartnerMappingCrud:
                 confidence=0.95,
             )
 
-            result = asyncio.get_event_loop().run_until_complete(
-                create_partner_mapping(data)
-            )
+            result = await create_partner_mapping(data)
 
             assert result.partner_slug == "booking"
             assert result.partner_property_id == "hotel-123"
