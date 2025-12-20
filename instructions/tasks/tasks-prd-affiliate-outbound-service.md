@@ -32,6 +32,7 @@
 ## Tasks
 
 - [x] 1.0 Implement outbound redirect endpoint and click logging pipeline
+
   - [x] 1.1 Create Supabase migration (0023) with outbound_link, outbound_click, partner_mapping tables + indexes
   - [x] 1.2 Create Pydantic schemas in `backend/app/schemas/affiliate.py` for all affiliate entities
   - [x] 1.3 Implement affiliate_links service with link CRUD, click logging, HMAC signature gen/verify
@@ -39,28 +40,35 @@
   - [x] 1.5 Add pytest coverage for endpoint (success, invalid sig, missing link, disabled link)
 
 - [x] 2.0 Build link definition storage plus resolver pipeline for Stays and Experiences
+
   - [x] 2.1 Extend DB repository for partner mappings (partner_slug, property_id, confidence, status)
   - [x] 2.2 Implement affiliate_resolver service with name/address/coordinate matching
   - [x] 2.3 Add background refresh hook or entry-save trigger for partner mapping updates
   - [x] 2.4 Write resolver tests (exact match, fuzzy match, no match → search URL fallback)
 
 - [x] 3.0 Integrate Skimlinks fallback and partner-priority selection
+
   - [x] 3.1 Implement SkimlinksClient with auth, 2-3s timeout, subid tagging, error handling
   - [x] 3.2 Add priority resolution: direct partner → Skimlinks → original URL; log resolution path
   - [x] 3.3 Implement URL caching in DB (24-48h TTL) with invalidation on URL change
   - [x] 3.4 Write tests for Skimlinks wrap, cache hit/miss, API failure fallback
 
 - [x] 4.0 Update public web pages to route links through redirect service
+
   - [x] 4.1 Update list_public.html and trip_public.html to use generated redirect URLs
   - [x] 4.2 Update public.py to generate link_id + signed context for each entry
   - [x] 4.3 Add `_generate_entry_redirect_url()` helper to public.py (no separate file needed)
   - [x] 4.4 Add pytest tests verifying template URLs use redirect service with valid signatures
 
 - [x] 5.0 Add observability, admin tooling, and legal/compliance guardrails
+
   - [x] 5.1 Add structured logging for redirect latency, partner, resolution_path, errors
   - [x] 5.2 Create admin endpoints to list/inspect/pause links and override mappings
   - [x] 5.3 Configure rate limiting on /o/{link_id} and add bot detection patterns
   - [x] 5.4 Create docs/legal/affiliate-disclosure.md with placeholder text
+
+- [x] 6.0 Hotfix admin link update bug
+  - [x] 6.1 Replace `db.update()` with `db.patch()` in `backend/app/api/admin.py`
 
 ## Deferred to v2 (Mobile Integration)
 

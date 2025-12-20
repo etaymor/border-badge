@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 ALLOWED_IMAGE_SCHEMES = {"https"}
 ALLOWED_LINK_SCHEMES = {"http", "https"}
+# Explicitly blocked schemes for defense-in-depth (redundant with allowlist but explicit)
+BLOCKED_SCHEMES = {"javascript", "data", "vbscript", "file"}
 
 
 def validate_link(url: str | None) -> str | None:
@@ -22,6 +24,10 @@ def validate_link(url: str | None) -> str | None:
         return None
 
     parsed = urlparse(url)
+
+    # Explicit block of dangerous schemes (defense-in-depth)
+    if parsed.scheme.lower() in BLOCKED_SCHEMES:
+        raise ValueError(f"Scheme '{parsed.scheme}' is not allowed")
 
     # Require valid scheme
     if parsed.scheme.lower() not in ALLOWED_LINK_SCHEMES:

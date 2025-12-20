@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from fastapi.responses import RedirectResponse
 
 from app.core.bot_detection import is_known_bot
+from app.core.urls import safe_external_url
 from app.main import limiter
 from app.schemas.affiliate import (
     OutboundClickCreate,
@@ -28,6 +29,8 @@ router = APIRouter(tags=["outbound"])
 
 
 @router.get("/o/{link_id}")
+# Rate limit: 120 req/min per IP (via get_remote_address in main.py)
+# Higher than other endpoints for legitimate link sharing traffic
 @limiter.limit("120/minute")
 async def redirect_outbound(
     request: Request,
@@ -98,6 +101,8 @@ async def redirect_outbound(
     client_ip = request.client.host if request.client else None
 
     # 1. Verify HMAC signature
+    # verify_signature uses hmac.compare_digest() for constant-time comparison
+    # preventing timing attacks on signature validation
     if not verify_signature(link_id_str, trip_id_str, entry_id_str, src, sig):
         logger.warning(
             "affiliate_redirect_invalid_sig",
@@ -165,6 +170,23 @@ async def redirect_outbound(
         entry_id=entry_id_str,
     )
 
+    # Defense-in-depth: Validate destination URL before redirect
+    # This catches any issues with URLs that made it into the database
+    if not safe_external_url(destination_url):
+        logger.error(
+            "affiliate_redirect_invalid_destination",
+            extra={
+                "event": "invalid_destination",
+                "link_id": link_id_str,
+                "destination_url": destination_url[:100] if destination_url else None,
+                "resolution_path": resolution_path.value,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid redirect destination",
+        )
+
     # 5. Log click asynchronously (fire-and-forget to avoid blocking redirect)
     # Extract additional request metadata for analytics
     referer = request.headers.get("referer")
@@ -191,6 +213,10 @@ async def redirect_outbound(
     await log_click_async(click_data)
 
     # Calculate latency and log structured redirect event
+    # Analytics data logged (see privacy policy):
+    # - user_agent: 100 chars in log, 500 in DB (bot detection, device stats)
+    # - ip_country: 2-char code from CDN headers (geo analytics)
+    # Click records: stored indefinitely for analytics
     latency_ms = (time.perf_counter() - start_time) * 1000
     logger.info(
         "affiliate_redirect",
