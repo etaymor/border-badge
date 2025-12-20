@@ -17,10 +17,54 @@ from app.db.session import get_supabase_client
 from app.main import limiter, templates
 from app.schemas.lists import PublicListEntry, PublicListView
 from app.schemas.public import PublicTripEntry, PublicTripView
+from app.services.affiliate_links import (
+    build_redirect_url,
+    get_or_create_link_for_entry,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["public"])
+
+
+async def _generate_entry_redirect_url(
+    entry_id: str,
+    destination_url: str | None,
+    trip_id: str | None,
+    source: str,
+) -> str | None:
+    """Generate a signed redirect URL for an entry.
+
+    Creates an outbound_link if needed, then builds signed redirect URL.
+    Returns None if no valid destination URL.
+
+    Args:
+        entry_id: UUID of the entry
+        destination_url: The destination URL (entry.link or Google Maps fallback)
+        trip_id: Optional trip UUID for analytics context
+        source: Click source ("list_share" or "trip_share")
+
+    Returns:
+        Signed redirect URL, or None if no destination URL provided
+    """
+    if not destination_url:
+        return None
+
+    try:
+        link = await get_or_create_link_for_entry(entry_id, destination_url)
+        base_url = get_settings().base_url
+
+        return build_redirect_url(
+            base_url=base_url,
+            link_id=str(link.id),
+            trip_id=trip_id,
+            entry_id=entry_id,
+            source=source,
+        )
+    except Exception as e:
+        # Log but don't fail - graceful degradation to original URL
+        logger.warning(f"Failed to generate redirect URL for entry {entry_id}: {e}")
+        return None
 
 
 def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
@@ -107,25 +151,56 @@ async def view_public_list(
         },
     )
 
+    # Get trip_id for redirect URLs (if list is associated with a trip)
+    trip_id = lst.get("trip_id")
+
     entries: list[PublicListEntry] = []
     for row in entry_rows:
         entry = row.get("entry", {})
         if entry:
             place = entry.get("place", {}) if entry.get("place") else {}
+            entry_id = entry.get("id")
+
+            # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id
+            entry_link = entry.get("link")
+            lat = place.get("lat")
+            lng = place.get("lng")
+            google_place_id = place.get("google_place_id")
+
+            if entry_link:
+                destination_url = entry_link
+            elif lat and lng:
+                destination_url = (
+                    f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+                )
+            elif google_place_id:
+                destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
+            else:
+                destination_url = None
+
+            # Generate signed redirect URL for affiliate tracking
+            redirect_url = await _generate_entry_redirect_url(
+                entry_id=str(entry_id),
+                destination_url=destination_url,
+                trip_id=str(trip_id) if trip_id else None,
+                source="list_share",
+            )
+
             entries.append(
                 PublicListEntry(
-                    id=entry.get("id"),
+                    id=entry_id,
                     title=entry.get("title"),
                     type=entry.get("type"),
                     notes=entry.get("notes"),
-                    link=entry.get("link"),
+                    link=entry_link,
                     place_name=place.get("place_name"),
                     address=place.get("address"),
-                    google_place_id=place.get("google_place_id"),
-                    latitude=place.get("lat"),
-                    longitude=place.get("lng"),
+                    google_place_id=google_place_id,
+                    latitude=lat,
+                    longitude=lng,
                     media_urls=extract_media_urls(entry.get("media_files")),
                     place_photo_url=_extract_place_photo_url(place),
+                    redirect_url=redirect_url,
                 )
             )
 
@@ -202,23 +277,52 @@ async def view_public_trip(
     trip = trips[0]
     log_trip_viewed(slug)
 
-    # Fetch entries with details including media
+    # Fetch entries with details including media and link/place data for redirects
     entry_rows = await db.get(
         "entry",
         {
             "trip_id": f"eq.{trip['id']}",
             "deleted_at": "is.null",
-            "select": "id, title, type, notes, place:place(place_name, address, extra_data), media_files(file_path, thumbnail_path, status)",
+            "select": "id, title, type, notes, link, place:place(place_name, address, google_place_id, lat, lng, extra_data), media_files(file_path, thumbnail_path, status)",
             "order": "created_at.desc",
         },
     )
 
+    trip_id = trip["id"]
+
     entries: list[PublicTripEntry] = []
     for entry in entry_rows:
         place = entry.get("place", {}) if entry.get("place") else {}
+        entry_id = entry.get("id")
+
+        # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id
+        entry_link = entry.get("link")
+        lat = place.get("lat")
+        lng = place.get("lng")
+        google_place_id = place.get("google_place_id")
+
+        if entry_link:
+            destination_url = entry_link
+        elif lat and lng:
+            destination_url = (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+            )
+        elif google_place_id:
+            destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
+        else:
+            destination_url = None
+
+        # Generate signed redirect URL for affiliate tracking
+        redirect_url = await _generate_entry_redirect_url(
+            entry_id=str(entry_id),
+            destination_url=destination_url,
+            trip_id=str(trip_id),
+            source="trip_share",
+        )
+
         entries.append(
             PublicTripEntry(
-                id=entry.get("id"),
+                id=entry_id,
                 type=entry.get("type"),
                 title=entry.get("title"),
                 notes=entry.get("notes"),
@@ -226,6 +330,7 @@ async def view_public_trip(
                 address=place.get("address"),
                 media_urls=extract_media_urls(entry.get("media_files")),
                 place_photo_url=_extract_place_photo_url(place),
+                redirect_url=redirect_url,
             )
         )
 

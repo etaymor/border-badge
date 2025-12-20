@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -137,10 +138,14 @@ export function ListEditScreen({ route, navigation }: Props) {
     if (!list) return;
     try {
       Analytics.shareList(list.id);
-      await Share.share({
-        message: `Check out my list "${list.name}": ${shareUrl}`,
-        url: shareUrl,
-      });
+      // On iOS, only pass URL so "Copy" action copies just the link
+      // Messaging apps will still receive the URL and users can add their own text
+      // On Android, we need to use message since url is not well-supported
+      await Share.share(
+        Platform.OS === 'ios'
+          ? { url: shareUrl }
+          : { message: `Check out my list "${list.name}": ${shareUrl}` }
+      );
     } catch (error) {
       console.error('Share error:', error);
     }

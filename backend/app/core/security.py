@@ -1,10 +1,11 @@
 """JWT verification and authentication utilities."""
 
 import logging
+import secrets
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
@@ -84,3 +85,34 @@ async def get_current_user(
 
 # Type alias for dependency injection
 CurrentUser = Annotated[AuthUser, Depends(get_current_user)]
+
+
+async def require_service_role(
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """Verify request uses service role key (for admin endpoints).
+
+    This dependency checks that the Authorization header contains the
+    Supabase service role key, which should only be used by admin tools
+    and internal services.
+
+    Raises:
+        HTTPException 401: If Authorization header is missing
+        HTTPException 403: If the key doesn't match the service role key
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization required",
+        )
+
+    settings = get_settings()
+    expected = f"Bearer {settings.supabase_service_role_key}"
+
+    # Use secrets.compare_digest to prevent timing attacks
+    if not secrets.compare_digest(authorization, expected):
+        logger.warning("admin_auth_failed: invalid service role key")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
