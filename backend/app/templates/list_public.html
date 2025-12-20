@@ -94,7 +94,8 @@
         {% set primary_image = entry.media_urls[0] if entry.media_urls and entry.media_urls|length > 0 else entry.place_photo_url %}
         {% set sanitized_image = primary_image | safe_external_url if primary_image else None %}
         {% set fallback_url = 'https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '') %}
-        {% set entry_url = sanitized_link if sanitized_link else fallback_url %}
+        {# Prefer redirect_url for affiliate tracking, fall back to direct URL #}
+        {% set entry_url = entry.redirect_url if entry.redirect_url else (sanitized_link if sanitized_link else fallback_url) %}
         
         {% if entry_url %}
         <a href="{{ entry_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">

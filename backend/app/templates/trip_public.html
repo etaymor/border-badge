@@ -51,6 +51,12 @@
         {% for entry in trip.entries %}
         {% set primary_image = entry.media_urls[0] if entry.media_urls and entry.media_urls|length > 0 else entry.place_photo_url %}
         {% set sanitized_image = primary_image | safe_external_url if primary_image else None %}
+
+        {# Wrap entry in link if redirect_url is available #}
+        {% if entry.redirect_url %}
+        <a href="{{ entry.redirect_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
+        {% endif %}
+
         <article class="entry-card">
             <div class="entry-image-wrapper">
                 {% if sanitized_image %}
@@ -64,18 +70,18 @@
                 </div>
                 {% endif %}
             </div>
-            
+
             <div class="entry-content">
                 <span class="entry-category">{{ entry.type }}</span>
                 <h3 class="entry-title">{{ entry.title }}</h3>
-                
+
                 {% if entry.place_name %}
                 <div class="entry-location">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
                     {{ entry.place_name }}
                 </div>
                 {% endif %}
-                
+
                 {% if entry.notes %}
                 <div class="entry-notes">
                     "{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}"
@@ -83,6 +89,10 @@
                 {% endif %}
             </div>
         </article>
+
+        {% if entry.redirect_url %}
+        </a>
+        {% endif %}
         {% endfor %}
     </div>
     {% else %}

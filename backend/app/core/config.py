@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Analytics
     google_analytics_id: str = ""  # GA4 Measurement ID (e.g., G-XXXXXXXXXX)
 
+    # Affiliate service
+    affiliate_signing_secret: str = ""  # HMAC secret for signing redirect URLs
+    skimlinks_api_key: str = ""  # Skimlinks API key for link monetization
+    skimlinks_publisher_id: str = ""  # Skimlinks publisher ID
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

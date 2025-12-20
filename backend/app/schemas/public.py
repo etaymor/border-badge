@@ -19,6 +19,7 @@ class PublicTripEntry(BaseModel):
     address: str | None = None
     media_urls: list[str] = []
     place_photo_url: str | None = None
+    redirect_url: str | None = None
 
 
 class PublicTripView(BaseModel):
