@@ -150,18 +150,8 @@ export default function OnboardingPhoneInput({
     // Only allow digits
     const digitsOnly = text.replace(/\D/g, '');
 
-    // Handle backspace on formatting characters:
-    // If the new digit count equals the old digit count, the user deleted a formatting
-    // character (like parenthesis, dash, or space). In this case, delete the last digit.
-    let newDigits = digitsOnly;
-    if (digitsOnly.length === localNumber.length && digitsOnly.length > 0) {
-      // User pressed backspace but only removed a formatting character
-      // Remove the last actual digit to match expected behavior
-      newDigits = digitsOnly.slice(0, -1);
-    }
-
     // Enforce max digits (E.164 allows up to 15 digits for national number)
-    const truncated = newDigits.slice(0, maxDigits);
+    const truncated = digitsOnly.slice(0, maxDigits);
     setLocalNumber(truncated);
 
     // Construct E.164 format

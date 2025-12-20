@@ -16,6 +16,7 @@ import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
+import { formatPhoneForDisplay } from '@utils/phoneValidation';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -28,63 +29,6 @@ import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
-
-/**
- * Format E.164 phone number to readable format.
- */
-function formatPhoneNumber(phone: string | undefined): string {
-  if (!phone) return 'Not set';
-
-  let cleaned = phone.replace(/[^\d+]/g, '');
-
-  if (!cleaned.startsWith('+') && cleaned.startsWith('1') && cleaned.length === 11) {
-    cleaned = '+' + cleaned;
-  }
-
-  if (cleaned.startsWith('+1') && cleaned.length === 12) {
-    const area = cleaned.slice(2, 5);
-    const first = cleaned.slice(5, 8);
-    const last = cleaned.slice(8, 12);
-    return `+1 (${area}) ${first}-${last}`;
-  }
-
-  if (cleaned.startsWith('+44') && cleaned.length >= 12) {
-    const rest = cleaned.slice(3);
-    const formatted = rest.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
-    return `+44 ${formatted}`;
-  }
-
-  if (cleaned.startsWith('+33') && cleaned.length === 12) {
-    const rest = cleaned.slice(3);
-    const formatted = rest.replace(/(\d)(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5');
-    return `+33 ${formatted}`;
-  }
-
-  if (cleaned.startsWith('+49') && cleaned.length >= 12) {
-    const rest = cleaned.slice(3);
-    const formatted = rest.replace(/(\d{3})(\d+)/, '$1 $2');
-    return `+49 ${formatted}`;
-  }
-
-  if (cleaned.startsWith('+')) {
-    let countryCodeLen = 1;
-    const digits = cleaned.slice(1);
-
-    if (digits.length > 10) {
-      countryCodeLen = 3;
-    } else if (digits.length > 9) {
-      countryCodeLen = 2;
-    }
-
-    const countryCode = cleaned.slice(0, countryCodeLen + 1);
-    const rest = cleaned.slice(countryCodeLen + 1);
-
-    const formatted = rest.replace(/(\d{3,4})(?=\d)/g, '$1 ').trim();
-    return `${countryCode} ${formatted}`;
-  }
-
-  return phone;
-}
 
 /**
  * Format date to readable format.
@@ -243,7 +187,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
   const formattedPhone = useMemo(
-    () => formatPhoneNumber(session?.user.phone),
+    () => formatPhoneForDisplay(session?.user.phone ?? '') || 'Not set',
     [session?.user.phone]
   );
   const memberSince = useMemo(() => formatMemberSince(profile?.created_at), [profile?.created_at]);
