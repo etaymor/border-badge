@@ -510,7 +510,7 @@ async def _try_candidate(candidate: str) -> DetectedPlace | None:
     # Take the first result
     first_result = results[0]
     place_id = first_result.get("place_id")
-    logger.info(f"_try_candidate: first_result={first_result}, place_id={place_id!r}")
+    logger.debug(f"_try_candidate: first_result place_id={place_id!r}")
 
     if not place_id:
         logger.info(f"_try_candidate: no place_id in result for {candidate!r}")
@@ -518,7 +518,7 @@ async def _try_candidate(candidate: str) -> DetectedPlace | None:
 
     # Fetch full details
     details = await get_place_details(place_id)
-    logger.info(f"_try_candidate: details={details}")
+    logger.debug(f"_try_candidate: got details for place_id={place_id!r}")
 
     if not details:
         logger.info(f"_try_candidate: get_place_details failed for {place_id!r}")
@@ -561,18 +561,17 @@ async def _try_candidate(candidate: str) -> DetectedPlace | None:
 
 
 # Maximum candidates to try in parallel (limits API calls)
-MAX_PARALLEL_CANDIDATES = 3
+MAX_PARALLEL_CANDIDATES = 5
+
+# Overall timeout for place extraction (seconds)
+PLACE_EXTRACTION_TIMEOUT = 10.0
 
 
-async def extract_place(
+async def _extract_place_impl(
     oembed: OEmbedResponse | None,
     caption: str | None = None,
 ) -> DetectedPlace | None:
-    """Extract a place from social media content.
-
-    Attempts to identify and resolve a place from the oEmbed metadata
-    and user caption using Google Places API. Tries top candidates in
-    parallel for better performance.
+    """Internal implementation of place extraction.
 
     Args:
         oembed: oEmbed response from the social media provider
@@ -610,7 +609,7 @@ async def extract_place(
     # Debug level for full content (only visible in development with DEBUG logging)
     logger.debug(f"PLACE EXTRACTION candidates: {candidates}")
 
-    # Try top candidates in parallel for better performance
+    # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
     top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]
     tasks = [_try_candidate(c) for c in top_candidates]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -620,19 +619,47 @@ async def extract_place(
         if result is not None and not isinstance(result, Exception):
             return result
 
-    # If parallel batch failed, try remaining candidates sequentially
-    for candidate in candidates[MAX_PARALLEL_CANDIDATES:]:
-        result = await _try_candidate(candidate)
-        if result is not None:
-            return result
-
     logger.info(
         "place_extraction_no_match",
         extra={
             "event": "place_extraction",
             "result": "no_match",
-            "candidates_tried": len(candidates),
+            "candidates_tried": len(top_candidates),
         },
     )
 
     return None
+
+
+async def extract_place(
+    oembed: OEmbedResponse | None,
+    caption: str | None = None,
+) -> DetectedPlace | None:
+    """Extract a place from social media content.
+
+    Attempts to identify and resolve a place from the oEmbed metadata
+    and user caption using Google Places API. Tries top candidates in
+    parallel for better performance.
+
+    Args:
+        oembed: oEmbed response from the social media provider
+        caption: Optional user-provided caption
+
+    Returns:
+        DetectedPlace if a place was found, None otherwise
+    """
+    try:
+        return await asyncio.wait_for(
+            _extract_place_impl(oembed, caption),
+            timeout=PLACE_EXTRACTION_TIMEOUT,
+        )
+    except TimeoutError:
+        logger.warning(
+            "place_extraction_timeout",
+            extra={
+                "event": "place_extraction",
+                "result": "timeout",
+                "timeout_seconds": PLACE_EXTRACTION_TIMEOUT,
+            },
+        )
+        return None

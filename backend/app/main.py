@@ -1,5 +1,7 @@
 """FastAPI application entry point."""
 
+import asyncio
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -49,15 +51,22 @@ limiter = Limiter(key_func=get_remote_address)
 from app.api import router as api_router  # noqa: E402, I001
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _background_cache_cleanup() -> None:
+    """Run cache cleanup in background, logging any errors."""
+    try:
+        await cleanup_expired_cache()
+    except Exception as e:
+        logger.warning(f"Background cache cleanup failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
-    # Startup - clean up expired oEmbed cache entries
-    try:
-        await cleanup_expired_cache()
-    except Exception:
-        # Don't fail startup if cache cleanup fails
-        pass
+    # Startup - schedule cache cleanup in background (non-blocking)
+    asyncio.create_task(_background_cache_cleanup())
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

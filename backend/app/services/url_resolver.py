@@ -22,6 +22,25 @@ BLOCKED_HOSTNAMES = {
 }
 
 
+def _is_trusted_domain(hostname: str) -> bool:
+    """Check if a hostname is in the trusted domains list.
+
+    Args:
+        hostname: The hostname to check
+
+    Returns:
+        True if the hostname is trusted for redirect following
+    """
+    if not hostname:
+        return False
+    hostname_lower = hostname.lower()
+    # Check exact match or if it's a subdomain of a trusted domain
+    for domain in TRUSTED_DOMAINS:
+        if hostname_lower == domain or hostname_lower.endswith(f".{domain}"):
+            return True
+    return False
+
+
 def _is_private_ip(hostname: str) -> bool:
     """Check if a hostname resolves to a private/internal IP address.
 
@@ -57,6 +76,20 @@ def _is_private_ip(hostname: str) -> bool:
 
 # Timeout for redirect resolution
 REDIRECT_TIMEOUT_SECONDS = 5.0
+
+# Trusted domains for redirect validation
+# Only redirects to these domains are allowed after following redirects
+TRUSTED_DOMAINS = {
+    # TikTok
+    "tiktok.com",
+    "www.tiktok.com",
+    "vm.tiktok.com",
+    "m.tiktok.com",
+    # Instagram
+    "instagram.com",
+    "www.instagram.com",
+    "l.instagram.com",
+}
 
 # URL patterns for provider detection
 TIKTOK_PATTERNS = [
@@ -229,6 +262,20 @@ async def follow_redirect(url: str) -> str:
                             },
                         )
                         return url  # Return original URL, don't follow to internal
+
+                    # Open redirect protection: verify redirect target is trusted
+                    if not _is_trusted_domain(parsed_loc.hostname or ""):
+                        logger.warning(
+                            "untrusted_redirect_blocked",
+                            extra={
+                                "event": "url_resolve_error",
+                                "error_type": "untrusted_redirect",
+                                "original_url": url[:200],
+                                "redirect_url": location[:200],
+                                "hostname": parsed_loc.hostname,
+                            },
+                        )
+                        return url  # Return original URL, don't follow to untrusted
 
                     logger.info(
                         "url_redirect_followed",

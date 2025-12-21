@@ -2,6 +2,10 @@ import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import type { EntryType } from '../types/shared';
+
+export type { EntryType };
+
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
@@ -57,9 +61,6 @@ export type PassportStackParamList = {
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
 };
-
-// Entry type for navigation
-export type EntryType = 'place' | 'food' | 'stay' | 'experience';
 
 // Trips stack (nested in tab)
 export type TripsStackParamList = {

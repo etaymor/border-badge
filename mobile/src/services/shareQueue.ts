@@ -16,6 +16,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
+import type { EntryType } from '../types/shared';
+
+export type { EntryType };
+
 // Storage key
 const SHARE_QUEUE_KEY = 'share_queue';
 
@@ -63,11 +67,6 @@ class QueueLock {
 }
 
 const queueLock = new QueueLock();
-
-/**
- * Entry type for saved places
- */
-export type EntryType = 'place' | 'food' | 'stay' | 'experience';
 
 /**
  * Source of the shared URL

@@ -355,6 +355,8 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     country: null,
     country_code: null,
     confidence: 1.0, // User confirmed
+    primary_type: null,
+    types: [],
   });
 
   const handleTypeSelect = useCallback(
