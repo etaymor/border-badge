@@ -108,12 +108,26 @@ class SupabaseClient:
         Returns:
             List of records matching the query
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
         try:
             client = get_http_client()
+            url = f"{self.rest_url}/{table}"
+            logger.debug(
+                "SupabaseClient.get: url=%s, params=%s",
+                url,
+                params,
+            )
             response = await client.get(
-                f"{self.rest_url}/{table}",
+                url,
                 headers=self.headers,
                 params=params or {},
+            )
+            logger.debug(
+                "SupabaseClient.get: request_url=%s, status=%s",
+                response.request.url,
+                response.status_code,
             )
             response.raise_for_status()
             return response.json()

@@ -75,6 +75,7 @@ export interface PlaceResult {
   };
   photos?: PlacePhoto[];
   website_uri?: string;
+  country_code?: string;
 }
 
 export interface SelectedPlace {
@@ -85,6 +86,7 @@ export interface SelectedPlace {
   longitude: number | null;
   google_photo_url: string | null;
   website_url: string | null;
+  country_code?: string | null;
 }
 
 export interface Prediction {
@@ -258,7 +260,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
     const response = await fetch(url, {
       headers: {
         'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,photos,websiteUri',
+        'X-Goog-FieldMask':
+          'id,displayName,formattedAddress,location,photos,websiteUri,addressComponents',
       },
     });
 
@@ -278,6 +281,13 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
       })
     );
 
+    // Extract country code from address components
+    const countryComponent = data.addressComponents?.find(
+      (c: { types: string[] }) =>
+        c.types?.includes('country') || c.types?.includes('COUNTRY')
+    );
+    const countryCode = countryComponent?.shortText ?? undefined;
+
     return {
       place_id: data.id,
       name: data.displayName?.text ?? '',
@@ -292,6 +302,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
         : undefined,
       photos,
       website_uri: data.websiteUri ?? undefined,
+      country_code: countryCode,
     };
   } catch (error) {
     logger.error('Place details error:', error);

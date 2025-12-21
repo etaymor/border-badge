@@ -166,6 +166,7 @@ export function PlacesAutocomplete({
             longitude: details.geometry?.location.lng ?? null,
             google_photo_url: googlePhotoUrl,
             website_url: details.website_uri ?? null,
+            country_code: details.country_code ?? null,
           };
 
           setQuery(details.name);
@@ -179,6 +180,7 @@ export function PlacesAutocomplete({
             longitude: null,
             google_photo_url: null,
             website_url: null,
+            country_code: null,
           };
 
           setQuery(prediction.structured_formatting.main_text);
@@ -198,6 +200,7 @@ export function PlacesAutocomplete({
           longitude: null,
           google_photo_url: null,
           website_url: null,
+          country_code: null,
         };
 
         setQuery(prediction.structured_formatting.main_text);
@@ -245,14 +248,33 @@ export function PlacesAutocomplete({
     };
   }, []);
 
-  // Sync value prop changes
+  // Sync value prop changes - use functional update to avoid stale closure issues
   useEffect(() => {
-    if (value?.name !== query) {
-      setQuery(value?.name ?? '');
-    }
+    console.log('[PlacesAutocomplete] Sync effect triggered', {
+      value,
+      valueName: value?.name,
+      valueGooglePlaceId: value?.google_place_id,
+    });
+
+    const newQuery = value?.name ?? '';
+    // Use functional update to get current query value and avoid stale closure
+    setQuery((currentQuery) => {
+      console.log('[PlacesAutocomplete] setQuery comparison', {
+        newQuery,
+        currentQuery,
+        willUpdate: newQuery !== currentQuery,
+      });
+      if (newQuery !== currentQuery) {
+        return newQuery;
+      }
+      return currentQuery;
+    });
     hasSelectedRef.current = !!value;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value?.name]);
+    // Close dropdown when a value is set externally
+    if (value) {
+      setShowDropdown(false);
+    }
+  }, [value]);
 
   // Manual entry form
   if (manualEntry.show) {

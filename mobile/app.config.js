@@ -11,9 +11,9 @@ export default {
     scheme: 'borderbadge',
     newArchEnabled: true,
     splash: {
-      image: './assets/splash-icon.png',
-      resizeMode: 'contain',
-      backgroundColor: '#FDF6ED', // warmCream - app default background
+      image: './assets/splash-atlantis.png',
+      resizeMode: 'cover',
+      backgroundColor: '#F5F0E8', // matches the sky color in the Atlantis image
     },
     ios: {
       supportsTablet: true,

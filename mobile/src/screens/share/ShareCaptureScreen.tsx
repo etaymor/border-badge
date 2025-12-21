@@ -9,7 +9,7 @@
  * 5. Save to trip via /ingest/save-to-trip
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -264,6 +264,10 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   // Trips data for auto-selection
   const { data: trips = [] } = useTrips();
 
+  // Refs
+  const scrollViewRef = useRef<ScrollView>(null);
+  const locationSectionY = useRef<number>(0);
+
   // Screen state
   const [ingestResult, setIngestResult] = useState<SocialIngestResponse | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
@@ -340,8 +344,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     address: place.address,
     latitude: place.latitude,
     longitude: place.longitude,
-    google_photo_url: null,
+    google_photo_url: place.google_photo_url ?? null,
     website_url: null,
+    country_code: place.country_code ?? null,
   });
 
   // Convert mobile SelectedPlace back to DetectedPlace for API
@@ -353,10 +358,11 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     longitude: place.longitude,
     city: null,
     country: null,
-    country_code: null,
+    country_code: place.country_code ?? null,
     confidence: 1.0, // User confirmed
     primary_type: null,
     types: [],
+    google_photo_url: place.google_photo_url ?? null,
   });
 
   const handleTypeSelect = useCallback(
@@ -372,6 +378,28 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   const handleChangeType = useCallback(() => {
     setHasSelectedType(false);
   }, []);
+
+  // Handle place selection from autocomplete - also auto-selects matching trip
+  const handlePlaceSelect = useCallback(
+    (place: SelectedPlace | null) => {
+      setSelectedPlace(place);
+
+      // If place has a country code and no trip is selected, auto-select a matching trip
+      if (place?.country_code && trips.length > 0) {
+        const matchingTrips = trips
+          .filter((t) => t.country_code === place.country_code)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        if (matchingTrips.length > 0) {
+          setSelectedTripId(matchingTrips[0].id);
+        } else {
+          // No matching trip - clear selection so user creates/selects one
+          setSelectedTripId(null);
+        }
+      }
+    },
+    [trips]
+  );
 
   const handleCreateTrip = useCallback(
     async (name: string, countryCode: string): Promise<string> => {
@@ -570,11 +598,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   // Main content
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Fixed Back Button */}
+      <View style={styles.backButtonContainer}>
         <GlassBackButton onPress={() => navigation.goBack()} />
-        <Text style={styles.headerTitle}>Save Place</Text>
-        <View style={styles.headerSpacer} />
       </View>
 
       <KeyboardAvoidingView
@@ -583,12 +609,16 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
       >
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           scrollEnabled={scrollEnabled}
         >
+          {/* Header Title - scrolls with content */}
+          <Text style={styles.scrollHeaderTitle}>Save Place</Text>
+
           {/* Pending Shares Banner */}
           <PendingSharesBanner retryFn={handleQueueRetry} />
 
@@ -654,14 +684,31 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           )}
 
           {/* Location Section */}
-          <View style={[styles.section, { zIndex: 2000 }]}>
-            <Text style={styles.sectionLabel}>CONFIRM LOCATION</Text>
+          <View
+            style={[styles.section, styles.locationSection]}
+            onLayout={(event) => {
+              locationSectionY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={styles.sectionLabel}>
+              {ingestResult?.detected_place ? 'CONFIRM LOCATION' : 'SELECT LOCATION'}
+            </Text>
             <PlacesAutocomplete
               value={selectedPlace}
-              onSelect={setSelectedPlace}
+              onSelect={handlePlaceSelect}
               placeholder="Search for a place..."
               countryCode={ingestResult?.detected_place?.country_code ?? undefined}
-              onDropdownOpen={(isOpen) => setScrollEnabled(!isOpen)}
+              onDropdownOpen={(isOpen) => {
+                setScrollEnabled(!isOpen);
+                if (isOpen) {
+                  // Scroll up so the search field and dropdown are visible above keyboard
+                  // Scroll to position the location section near the top with some padding
+                  scrollViewRef.current?.scrollTo({
+                    y: locationSectionY.current - 20,
+                    animated: true,
+                  });
+                }
+              }}
             />
           </View>
 
@@ -671,7 +718,11 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             <TripSelector
               selectedTripId={selectedTripId}
               onSelectTrip={setSelectedTripId}
-              countryCode={ingestResult?.detected_place?.country_code ?? undefined}
+              countryCode={
+                selectedPlace?.country_code ??
+                ingestResult?.detected_place?.country_code ??
+                undefined
+              }
               onCreateTrip={handleCreateTrip}
               isCreatingTrip={isCreatingTrip}
             />
@@ -770,24 +821,19 @@ const styles = StyleSheet.create({
   },
 
   // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
+  backButtonContainer: {
+    position: 'absolute',
+    top: 8,
+    left: 16,
     zIndex: 3000,
   },
-  headerTitle: {
-    flex: 1,
+  scrollHeaderTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 24,
     color: colors.midnightNavy,
     textAlign: 'center',
-    lineHeight: 44,
-  },
-  headerSpacer: {
-    width: 44,
+    marginBottom: 16,
+    marginTop: 8,
   },
 
   // Scroll
@@ -796,10 +842,12 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    overflow: 'visible',
   },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
+    overflow: 'visible',
   },
 
   // Thumbnail Card
@@ -883,6 +931,10 @@ const styles = StyleSheet.create({
   // Sections
   section: {
     marginBottom: 24,
+  },
+  locationSection: {
+    zIndex: 2000,
+    overflow: 'visible',
   },
   sectionLabel: {
     fontFamily: fonts.oswald.medium,

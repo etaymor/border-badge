@@ -146,6 +146,12 @@ async def create_entry(
 
     # Create place if provided
     if data.place:
+        logger.info(
+            "Creating place for entry %s: place_name=%s, google_place_id=%s",
+            entry.id,
+            data.place.place_name,
+            data.place.google_place_id,
+        )
         place_data = {
             "entry_id": str(entry.id),
             "google_place_id": data.place.google_place_id,
@@ -156,6 +162,7 @@ async def create_entry(
             "extra_data": data.place.extra_data,
         }
         place_rows = await db.post("place", place_data)
+        logger.info("Place creation result for entry %s: %s", entry.id, place_rows)
         if not place_rows:
             # Rollback: delete the entry we just created
             # If cleanup fails, log the orphaned entry for manual resolution
@@ -224,6 +231,12 @@ async def get_entry(
 
     # Fetch entry with embedded place in single query
     entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
+    logger.info(
+        "get_entry raw result: entry_id=%s, entries=%s",
+        entry_id,
+        entries,
+    )
+
     if not entries:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -232,6 +245,12 @@ async def get_entry(
 
     entry_row = entries[0]
     place_data = entry_row.pop("place", None)
+    logger.info(
+        "get_entry place_data from embedded query: entry_id=%s, place_data=%s, type=%s",
+        entry_id,
+        place_data,
+        type(place_data).__name__,
+    )
     entry = Entry(**entry_row)
 
     # Parse place if it exists (place is an array from PostgREST)
@@ -242,6 +261,18 @@ async def get_entry(
             place = Place(**first_place)
         else:
             logger.warning("Unexpected place data type: %s", type(first_place))
+
+    # Fallback: if embedded query returned no place, try fetching directly
+    # This works around potential PostgREST embedding issues
+    if place is None:
+        places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+        logger.info(
+            "get_entry fallback place query: entry_id=%s, places=%s",
+            entry_id,
+            places,
+        )
+        if places and len(places) > 0:
+            place = Place(**places[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

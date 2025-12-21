@@ -369,6 +369,94 @@ class TestSaveToTrip:
                                 "lat": -8.409518,
                                 "lng": 115.188919,
                                 "address": "Bali, Indonesia",
+                                "extra_data": {
+                                    "google_photo_url": "https://maps.googleapis.com/photo.jpg"
+                                },
+                            },
+                        }
+                    ]
+                )
+
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-to-trip",
+                        json={
+                            "saved_source_id": TEST_SAVED_SOURCE_ID,
+                            "trip_id": TEST_TRIP_ID,
+                            "place": {
+                                "google_place_id": "ChIJ123",
+                                "name": "Beach Restaurant",
+                                "address": "Bali, Indonesia",
+                                "latitude": -8.409518,
+                                "longitude": 115.188919,
+                                "country": "Indonesia",
+                                "country_code": "ID",
+                                "confidence": 0.85,
+                                "google_photo_url": "https://maps.googleapis.com/photo.jpg",
+                            },
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 201
+                    data = response.json()
+                    assert data["id"] == TEST_ENTRY_ID
+                    assert data["place"]["place_name"] == "Beach Restaurant"
+                    assert (
+                        data["place"]["extra_data"]["google_photo_url"]
+                        == "https://maps.googleapis.com/photo.jpg"
+                    )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_saves_to_trip_strips_invalid_google_photo_url(self, client, auth_override):
+        app.dependency_overrides[get_current_user] = auth_override
+
+        source_data = {
+            "id": TEST_SAVED_SOURCE_ID,
+            "user_id": TEST_USER_ID,
+            "provider": "tiktok",
+            "original_url": "https://www.tiktok.com/@user/video/123",
+            "canonical_url": "https://www.tiktok.com/@user/video/123",
+            "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
+            "author_handle": "foodie123",
+            "title": "Amazing restaurant",
+        }
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(
+                    side_effect=[
+                        [source_data],
+                        [{"id": TEST_TRIP_ID}],
+                    ]
+                )
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Beach Restaurant",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": {
+                                "id": "550e8400-e29b-41d4-a716-446655440011",
+                                "entry_id": TEST_ENTRY_ID,
+                                "google_place_id": "ChIJ123",
+                                "place_name": "Beach Restaurant",
+                                "lat": -8.409518,
+                                "lng": 115.188919,
+                                "address": "Bali, Indonesia",
                                 "extra_data": {},
                             },
                         }
@@ -392,15 +480,16 @@ class TestSaveToTrip:
                                 "country": "Indonesia",
                                 "country_code": "ID",
                                 "confidence": 0.85,
+                                "google_photo_url": "https://evil.com/photo.jpg",
                             },
                         },
                         headers={"Authorization": "Bearer test-token"},
                     )
 
                     assert response.status_code == 201
-                    data = response.json()
-                    assert data["id"] == TEST_ENTRY_ID
-                    assert data["place"]["place_name"] == "Beach Restaurant"
+                    args, kwargs = mock_client.rpc.await_args
+                    payload = args[1]
+                    assert "google_photo_url" not in payload["p_place_data"]["extra_data"]
         finally:
             app.dependency_overrides.clear()
 

@@ -1,9 +1,10 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
+import { getPhotoUrl } from '@services/placesApi';
 
 // Entry type icons and colors
 const ENTRY_TYPE_CONFIG: Record<
@@ -31,16 +32,56 @@ function formatDate(dateString: string | null): string {
   });
 }
 
+function normalizeGooglePhotoUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    // Legacy domains already load fine inside <Image />
+    const legacyHosts = ['maps.googleapis.com', 'lh3.googleusercontent.com', 'ggpht.com'];
+    if (legacyHosts.some((host) => parsed.hostname === host || parsed.hostname.endsWith(host))) {
+      return url;
+    }
+
+    if (!parsed.hostname.endsWith('places.googleapis.com')) {
+      return url;
+    }
+
+    if (!parsed.pathname.includes('/photos/')) {
+      return url;
+    }
+
+    // Convert /v1/places/{placeId}/photos/{photoId}/media → places/{placeId}/photos/{photoId}
+    const trimmedPath = parsed.pathname.replace(/^\/?v1\//, '').replace(/\/media\/?$/, '');
+    if (!trimmedPath.startsWith('places/')) {
+      return url;
+    }
+
+    const maxWidthParam = parsed.searchParams.get('maxWidthPx') ?? parsed.searchParams.get('maxwidth');
+    const maxWidth = maxWidthParam ? Number(maxWidthParam) : undefined;
+    return getPhotoUrl(trimmedPath, Number.isFinite(maxWidth) ? maxWidth : undefined) ?? url;
+  } catch {
+    return url;
+  }
+}
+
 function EntryCardComponent({ entry, onPress }: EntryCardProps) {
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
   const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
   const [imageError, setImageError] = useState(false);
+  const placePhotoUrl = useMemo(
+    () => normalizeGooglePhotoUrl(entry.place?.google_photo_url ?? null),
+    [entry.place?.google_photo_url]
+  );
 
   // Use user-uploaded media first, fall back to Google Places photo
   const firstMediaUrl = hasUserMedia
     ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
-    : entry.place?.google_photo_url;
+    : placePhotoUrl;
 
   const hasMedia = !!firstMediaUrl;
   const shouldShowImage = hasMedia && !imageError;

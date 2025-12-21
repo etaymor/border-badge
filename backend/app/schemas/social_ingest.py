@@ -49,6 +49,7 @@ class DetectedPlace(BaseModel):
     # Google Places type information for category inference
     primary_type: str | None = None  # e.g., "restaurant", "hotel", "tourist_attraction"
     types: list[str] = Field(default_factory=list)  # All place types
+    google_photo_url: str | None = None
 
 
 class SocialIngestResponse(BaseModel):

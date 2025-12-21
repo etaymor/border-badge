@@ -202,12 +202,14 @@ export function useClipboardListener(): ClipboardListenerResult {
   }, []);
 
   /**
-   * Clear the detected URL after user acts on it.
-   * Also clears lastCheckedUrlRef so fresh detection can occur.
+   * Clear the detected URL after user acts on it (e.g., taps "Save").
+   * Keeps lastCheckedUrlRef so the same URL won't trigger the banner again.
    */
   const clear = useCallback(() => {
     setDetectedUrl(null);
-    lastCheckedUrlRef.current = null;
+    // Note: We intentionally do NOT clear lastCheckedUrlRef here.
+    // This prevents the banner from appearing again for the same URL
+    // if it's still in the clipboard after the user saves.
   }, []);
 
   /**

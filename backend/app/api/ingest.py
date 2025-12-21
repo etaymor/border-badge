@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
+from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import Entry, EntryWithPlace, Place
@@ -237,20 +238,26 @@ async def save_to_trip(
     # Build place data for atomic operation
     place_data = None
     if data.place:
+        extra_data = {
+            "city": data.place.city,
+            "country": data.place.country,
+            "country_code": data.place.country_code,
+            "confidence": data.place.confidence,
+            "source": source["provider"],
+            "source_url": source["canonical_url"],
+        }
+
+        photo_url = safe_google_photo_url(data.place.google_photo_url)
+        if photo_url:
+            extra_data["google_photo_url"] = photo_url
+
         place_data = {
             "google_place_id": data.place.google_place_id,
             "place_name": data.place.name,
             "lat": data.place.latitude,
             "lng": data.place.longitude,
             "address": data.place.address,
-            "extra_data": {
-                "city": data.place.city,
-                "country": data.place.country,
-                "country_code": data.place.country_code,
-                "confidence": data.place.confidence,
-                "source": source["provider"],
-                "source_url": source["canonical_url"],
-            },
+            "extra_data": extra_data,
         }
 
     # Determine entry title

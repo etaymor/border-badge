@@ -5,13 +5,10 @@
 
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, StyleSheet, View } from 'react-native';
-
-import { colors } from '@constants/colors';
+import { Animated, StyleSheet } from 'react-native';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const splashVideo = require('../../../assets/country-images/wonders-world/Atlantis2.mp4');
-const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 interface AnimatedSplashProps {
@@ -30,8 +27,6 @@ function AnimatedSplashComponent({
 }: AnimatedSplashProps) {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const logoScale = useRef(new Animated.Value(0.8)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
   const hasStartedFadeOut = useRef(false);
   const hasNotifiedVisible = useRef(false);
 
@@ -59,25 +54,6 @@ function AnimatedSplashComponent({
 
     return () => clearTimeout(fallbackTimeout);
   }, [isVideoReady]);
-
-  // Animate logo entrance when video is ready
-  useEffect(() => {
-    if (isVideoReady) {
-      Animated.parallel([
-        Animated.timing(logoOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.spring(logoScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [isVideoReady, logoOpacity, logoScale]);
 
   // Notify parent that the splash is now visible (video ready)
   useEffect(() => {
@@ -108,7 +84,6 @@ function AnimatedSplashComponent({
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* Video background */}
       <VideoView
         player={player}
         style={styles.video}
@@ -116,22 +91,6 @@ function AnimatedSplashComponent({
         nativeControls={false}
         onFirstFrameRender={handleFirstFrameRender}
       />
-
-      {/* Dark overlay for better logo visibility */}
-      <View style={styles.overlay} />
-
-      {/* Logo */}
-      <Animated.View
-        style={[
-          styles.logoContainer,
-          {
-            opacity: logoOpacity,
-            transform: [{ scale: logoScale }],
-          },
-        ]}
-      >
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-      </Animated.View>
     </Animated.View>
   );
 }
@@ -141,24 +100,10 @@ export const AnimatedSplash = memo(AnimatedSplashComponent);
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.warmCream,
+    backgroundColor: '#F5F0E8', // matches native splash background
     zIndex: 1000,
   },
   video: {
     ...StyleSheet.absoluteFillObject,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(23, 42, 58, 0.3)', // midnightNavy with opacity for logo contrast
-  },
-  logoContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  logo: {
-    width: 240,
-    height: 70,
   },
 });

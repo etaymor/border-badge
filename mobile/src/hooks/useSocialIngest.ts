@@ -26,6 +26,7 @@ export interface DetectedPlace {
   // Google Places type information for category inference
   primary_type: string | null;
   types: string[];
+  google_photo_url?: string | null;
 }
 
 // Request to ingest a social URL
