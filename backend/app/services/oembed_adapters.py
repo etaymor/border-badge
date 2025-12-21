@@ -1,5 +1,6 @@
 """oEmbed adapters for TikTok and Instagram with caching."""
 
+import html
 import logging
 import re
 import time
@@ -446,15 +447,15 @@ async def fetch_opengraph_fallback(url: str) -> OEmbedResponse | None:
         return None
 
 
-def _extract_meta_content(html: str, property_name: str) -> str | None:
+def _extract_meta_content(html_content: str, property_name: str) -> str | None:
     """Extract content from an OpenGraph meta tag.
 
     Args:
-        html: The HTML content
+        html_content: The HTML content
         property_name: The og: property name (e.g., "og:title")
 
     Returns:
-        The content value, or None if not found
+        The content value (with HTML entities decoded), or None if not found
     """
     # Match <meta property="og:title" content="..." /> or <meta content="..." property="og:title" />
     patterns = [
@@ -463,9 +464,10 @@ def _extract_meta_content(html: str, property_name: str) -> str | None:
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, html, re.IGNORECASE)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            # Decode HTML entities (e.g., &amp; -> &, &quot; -> ")
+            return html.unescape(match.group(1).strip())
 
     return None
 

@@ -77,6 +77,9 @@ def _is_private_ip(hostname: str) -> bool:
 # Timeout for redirect resolution
 REDIRECT_TIMEOUT_SECONDS = 5.0
 
+# Maximum URL length (matches SocialIngestRequest validation)
+MAX_URL_LENGTH = 2048
+
 # Trusted domains for redirect validation
 # Only redirects to these domains are allowed after following redirects
 TRUSTED_DOMAINS = {
@@ -262,6 +265,21 @@ async def follow_redirect(url: str) -> str:
                             },
                         )
                         return url  # Return original URL, don't follow to internal
+
+                    # URL length protection: reject extremely long redirect URLs
+                    if len(location) > MAX_URL_LENGTH:
+                        logger.warning(
+                            "redirect_url_too_long",
+                            extra={
+                                "event": "url_resolve_error",
+                                "error_type": "url_too_long",
+                                "original_url": url[:200],
+                                "redirect_url_length": len(location),
+                            },
+                        )
+                        return (
+                            url  # Return original URL, don't follow oversized redirect
+                        )
 
                     # Open redirect protection: verify redirect target is trusted
                     if not _is_trusted_domain(parsed_loc.hostname or ""):

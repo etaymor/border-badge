@@ -27,11 +27,13 @@ const PROVIDER_CONFIG = {
     icon: 'musical-notes' as const,
     label: 'TikTok',
     color: '#000000',
+    subtitle: 'We detected a TikTok link',
   },
   instagram: {
     icon: 'camera' as const,
     label: 'Instagram',
     color: '#E1306C',
+    subtitle: 'We detected an Instagram link',
   },
 };
 
@@ -105,7 +107,7 @@ export function ClipboardBanner({ provider, onSave, onDismiss }: ClipboardBanner
         <View style={styles.content}>
           <Text style={styles.title}>Save {config.label} place?</Text>
           <Text style={styles.subtitle} numberOfLines={1}>
-            We detected a link on your clipboard
+            {config.subtitle}
           </Text>
         </View>
 

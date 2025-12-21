@@ -12,6 +12,7 @@ import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 import { Text } from './Text';
 
 type FocusEvent = NativeSyntheticEvent<TargetedEvent>;
@@ -55,8 +56,8 @@ export function GlassInput({
         style={[styles.wrapper, isFocused && styles.wrapperFocused, error && styles.wrapperError]}
       >
         <BlurView
-          intensity={40}
-          tint="light"
+          intensity={GLASS_CONFIG.intensity.medium}
+          tint={GLASS_CONFIG.tint}
           style={[
             styles.glass,
             multiline && styles.glassMultiline,
@@ -95,21 +96,11 @@ const styles = StyleSheet.create({
   wrapper: {
     borderRadius: 12,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    // Default shadow
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    ...liquidGlass.input,
   },
   wrapperFocused: {
-    // Enhanced glow on focus (Option A - glow only, no border change)
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    ...liquidGlass.floatingCard, // Apply elevated styles on focus
+    transform: [{ scale: 1.01 }], // Subtle scale effect on focus
   },
   wrapperError: {
     borderColor: colors.adobeBrick,
@@ -117,13 +108,13 @@ const styles = StyleSheet.create({
   },
   glass: {
     minHeight: 48,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    // Background color handled by wrapper/liquidGlass style to allow blur
   },
   glassMultiline: {
     minHeight: 100,
   },
   glassFocused: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Subtle highlight
   },
   input: {
     flex: 1,

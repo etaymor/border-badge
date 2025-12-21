@@ -10,6 +10,7 @@ import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 
 interface PlacesSearchInputProps {
   value: string;
@@ -51,8 +52,8 @@ export const PlacesSearchInput = memo(
     return (
       <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
         <BlurView
-          intensity={40}
-          tint="light"
+          intensity={GLASS_CONFIG.intensity.medium}
+          tint={GLASS_CONFIG.tint}
           style={[styles.inputBlur, isFocused && styles.inputBlurFocused]}
         >
           <View style={styles.inputContainer}>
@@ -88,26 +89,18 @@ const styles = StyleSheet.create({
   inputWrapper: {
     borderRadius: 12,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    ...liquidGlass.input,
   },
   inputWrapperFocused: {
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    ...liquidGlass.floatingCard, // Apply elevated styles on focus
+    transform: [{ scale: 1.01 }], // Subtle scale effect on focus
   },
   inputBlur: {
     minHeight: 48,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    // Background color handled by wrapper/liquidGlass style to allow blur
   },
   inputBlurFocused: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Subtle highlight
   },
   inputContainer: {
     flexDirection: 'row',

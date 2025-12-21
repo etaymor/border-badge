@@ -6,9 +6,11 @@
 import { memo, useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 import type { Prediction } from '@services/placesApi';
 
 interface PredictionItemProps {
@@ -55,24 +57,30 @@ export const PredictionsDropdown = memo(function PredictionsDropdown({
   testID = 'places-search',
 }: PredictionsDropdownProps) {
   return (
-    <View style={styles.dropdown} testID={`${testID}-dropdown`}>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-        style={styles.predictionsList}
+    <View style={styles.dropdownContainer} testID={`${testID}-dropdown`}>
+      <BlurView
+        intensity={GLASS_CONFIG.intensity.high}
+        tint={GLASS_CONFIG.tint}
+        style={styles.dropdownBlur}
       >
-        {predictions.map((item) => (
-          <PredictionItem key={item.place_id} prediction={item} onSelect={onSelectPrediction} />
-        ))}
-      </ScrollView>
-      <Pressable
-        style={styles.manualEntryButton}
-        testID="manual-entry-button"
-        onPress={onManualEntry}
-      >
-        <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
-        <Text style={styles.manualEntryText}>Enter manually instead</Text>
-      </Pressable>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          style={styles.predictionsList}
+        >
+          {predictions.map((item) => (
+            <PredictionItem key={item.place_id} prediction={item} onSelect={onSelectPrediction} />
+          ))}
+        </ScrollView>
+        <Pressable
+          style={styles.manualEntryButton}
+          testID="manual-entry-button"
+          onPress={onManualEntry}
+        >
+          <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
+          <Text style={styles.manualEntryText}>Enter manually instead</Text>
+        </Pressable>
+      </BlurView>
     </View>
   );
 });
@@ -85,39 +93,49 @@ export const NoResultsDropdown = memo(function NoResultsDropdown({
   onManualEntry,
 }: NoResultsDropdownProps) {
   return (
-    <View style={styles.dropdown}>
-      <View style={styles.noResults}>
-        <Text style={styles.noResultsText}>No places found</Text>
-      </View>
-      <Pressable
-        style={styles.manualEntryButton}
-        testID="manual-entry-button"
-        onPress={onManualEntry}
+    <View style={styles.dropdownContainer}>
+      <BlurView
+        intensity={GLASS_CONFIG.intensity.high}
+        tint={GLASS_CONFIG.tint}
+        style={styles.dropdownBlur}
       >
-        <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
-        <Text style={styles.manualEntryText}>Enter manually</Text>
-      </Pressable>
+        <View style={styles.noResults}>
+          <Text style={styles.noResultsText}>No places found</Text>
+        </View>
+        <Pressable
+          style={styles.manualEntryButton}
+          testID="manual-entry-button"
+          onPress={onManualEntry}
+        >
+          <Ionicons name="create-outline" size={18} color={colors.adobeBrick} />
+          <Text style={styles.manualEntryText}>Enter manually</Text>
+        </Pressable>
+      </BlurView>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  dropdown: {
+  dropdownContainer: {
     position: 'absolute',
     top: 56, // Input height (48) + margin (8)
     left: 0,
     right: 0,
     zIndex: 9999, // Super high z-index
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-    maxHeight: 300,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    // Use liquidGlass properties for shadow/elevation/border-radius container
+    borderRadius: 20,
+    ...liquidGlass.floatingCard,
+    // Reset background and border to let BlurView handle visual fill
+    backgroundColor: 'transparent', 
+    borderWidth: 0,
+  },
+  dropdownBlur: {
+    // Re-apply border and radius to the inner blur view to ensure glass effect is contained
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
+    width: '100%',
   },
   predictionsList: {
     maxHeight: 250,
@@ -128,7 +146,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomColor: liquidGlass.separator.backgroundColor,
   },
   predictionIcon: {
     marginRight: 12,
@@ -153,7 +171,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    borderTopColor: liquidGlass.separator.backgroundColor,
     gap: 6,
   },
   manualEntryText: {

@@ -5,7 +5,9 @@
 
 import { useCallback, useState } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,10 +17,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
 
 import { useTrips, Trip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 
 import { InlineTripForm } from './InlineTripForm';
 
@@ -97,109 +101,133 @@ export function TripSelector({
   return (
     <View>
       {/* Dropdown Button */}
-      <TouchableOpacity style={styles.dropdownButton} onPress={handleOpenModal} activeOpacity={0.7}>
-        <View style={styles.dropdownContent}>
-          {selectedTrip ? (
-            <>
-              <Text style={styles.selectedTripName} numberOfLines={1}>
-                {selectedTrip.name}
-              </Text>
-              <Text style={styles.selectedTripCountry} numberOfLines={1}>
-                {selectedTrip.country_code}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.placeholderText}>Select a trip...</Text>
-          )}
-        </View>
-        <Ionicons name="chevron-down" size={20} color={colors.stormGray} />
-      </TouchableOpacity>
+      <Pressable onPress={handleOpenModal} style={styles.dropdownButtonContainer}>
+        <BlurView
+          intensity={GLASS_CONFIG.intensity.medium}
+          tint={GLASS_CONFIG.tint}
+          style={styles.dropdownButton}
+        >
+          <View style={styles.dropdownContent}>
+            {selectedTrip ? (
+              <>
+                <Text style={styles.selectedTripName} numberOfLines={1}>
+                  {selectedTrip.name}
+                </Text>
+                <Text style={styles.selectedTripCountry} numberOfLines={1}>
+                  {selectedTrip.country_code}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.placeholderText}>Select a trip...</Text>
+            )}
+          </View>
+          <Ionicons name="chevron-down" size={20} color={colors.stormGray} />
+        </BlurView>
+      </Pressable>
 
       {/* Selection Modal */}
       <Modal
         visible={showModal}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={handleCloseModal}
       >
-        <Pressable style={styles.modalBackdrop} onPress={handleCloseModal}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHandle} />
-
-            {showCreateForm ? (
-              <InlineTripForm
-                defaultCountryCode={countryCode}
-                onSubmit={handleCreateTrip}
-                onCancel={handleCancelCreate}
-                isSubmitting={isCreatingTrip}
-              />
-            ) : (
-              <>
-                <Text style={styles.modalTitle}>Select Trip</Text>
-
-                <ScrollView
-                  style={styles.tripsList}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.tripsListContent}
+        <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoidingView}
+          >
+            <Pressable style={styles.modalBackdrop} onPress={handleCloseModal}>
+              <View style={styles.modalContainer}>
+                <BlurView
+                  intensity={GLASS_CONFIG.intensity.high}
+                  tint={GLASS_CONFIG.tint}
+                  style={styles.modalBlur}
                 >
-                  {isLoading ? (
-                    <Text style={styles.loadingText}>Loading trips...</Text>
-                  ) : filteredTrips.length === 0 ? (
-                    <Text style={styles.emptyText}>
-                      {countryCode
-                        ? 'No trips for this country yet. Create one below!'
-                        : 'No trips yet. Create one below!'}
-                    </Text>
-                  ) : (
-                    filteredTrips.map((trip) => (
+                  <Pressable
+                    onPress={(e) => e.stopPropagation()}
+                    style={styles.modalContentContainer}
+                  >
+                    <View style={styles.modalHandle} />
+
+                    {showCreateForm ? (
+                      <InlineTripForm
+                        defaultCountryCode={countryCode}
+                        onSubmit={handleCreateTrip}
+                        onCancel={handleCancelCreate}
+                        isSubmitting={isCreatingTrip}
+                      />
+                    ) : (
+                    <>
+                      <Text style={styles.modalTitle}>Select Trip</Text>
+
+                      <ScrollView
+                        style={styles.tripsList}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.tripsListContent}
+                      >
+                        {isLoading ? (
+                          <Text style={styles.loadingText}>Loading trips...</Text>
+                        ) : filteredTrips.length === 0 ? (
+                          <Text style={styles.emptyText}>
+                            {countryCode
+                              ? 'No trips for this country yet. Create one below!'
+                              : 'No trips yet. Create one below!'}
+                          </Text>
+                        ) : (
+                          filteredTrips.map((trip) => (
+                            <TouchableOpacity
+                              key={trip.id}
+                              style={[
+                                styles.tripItem,
+                                selectedTripId === trip.id && styles.tripItemSelected,
+                              ]}
+                              onPress={() => handleSelectTrip(trip)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.tripItemContent}>
+                                <Text
+                                  style={[
+                                    styles.tripItemName,
+                                    selectedTripId === trip.id && styles.tripItemNameSelected,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {trip.name}
+                                </Text>
+                                <Text style={styles.tripItemCountry}>{trip.country_code}</Text>
+                              </View>
+                              {selectedTripId === trip.id && (
+                                <Ionicons name="checkmark-circle" size={22} color={colors.mossGreen} />
+                              )}
+                            </TouchableOpacity>
+                          ))
+                        )}
+                      </ScrollView>
+
+                      {/* Create New Trip Button */}
                       <TouchableOpacity
-                        key={trip.id}
-                        style={[
-                          styles.tripItem,
-                          selectedTripId === trip.id && styles.tripItemSelected,
-                        ]}
-                        onPress={() => handleSelectTrip(trip)}
+                        style={styles.createButton}
+                        onPress={handleShowCreateForm}
                         activeOpacity={0.7}
                       >
-                        <View style={styles.tripItemContent}>
-                          <Text
-                            style={[
-                              styles.tripItemName,
-                              selectedTripId === trip.id && styles.tripItemNameSelected,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {trip.name}
-                          </Text>
-                          <Text style={styles.tripItemCountry}>{trip.country_code}</Text>
+                        <View style={styles.createButtonIcon}>
+                          <Ionicons name="add" size={20} color={colors.white} />
                         </View>
-                        {selectedTripId === trip.id && (
-                          <Ionicons name="checkmark-circle" size={22} color={colors.mossGreen} />
-                        )}
+                        <Text style={styles.createButtonText}>Create New Trip</Text>
                       </TouchableOpacity>
-                    ))
+
+                      <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </>
                   )}
-                </ScrollView>
-
-                {/* Create New Trip Button */}
-                <TouchableOpacity
-                  style={styles.createButton}
-                  onPress={handleShowCreateForm}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.createButtonIcon}>
-                    <Ionicons name="add" size={20} color={colors.white} />
-                  </View>
-                  <Text style={styles.createButtonText}>Create New Trip</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </Pressable>
-        </Pressable>
+                  </Pressable>
+                </BlurView>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </BlurView>
       </Modal>
     </View>
   );
@@ -207,13 +235,15 @@ export function TripSelector({
 
 const styles = StyleSheet.create({
   // Dropdown Button
+  dropdownButtonContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    ...liquidGlass.container,
+    borderWidth: 0, // Handled by container style
+  },
   dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
     paddingHorizontal: 16,
     paddingVertical: 14,
     minHeight: 52,
@@ -242,25 +272,40 @@ const styles = StyleSheet.create({
   },
 
   // Modal
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(23, 42, 58, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  modalContent: {
-    backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+  modalContainer: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 24,
+    overflow: 'hidden',
+    ...liquidGlass.floatingCard,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  modalBlur: {
     paddingTop: 12,
     paddingHorizontal: 24,
-    paddingBottom: 34,
-    maxHeight: '75%',
+    paddingBottom: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  modalContentContainer: {
+    width: '100%',
+  },
+  modalContent: {
+    // Deprecated
   },
   modalHandle: {
     width: 36,
     height: 4,
-    backgroundColor: colors.stormGray,
-    opacity: 0.4,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 16,
@@ -300,7 +345,7 @@ const styles = StyleSheet.create({
   tripItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -308,7 +353,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   tripItemSelected: {
-    backgroundColor: 'rgba(84, 122, 95, 0.1)',
+    backgroundColor: 'rgba(84, 122, 95, 0.15)',
     borderColor: colors.mossGreen,
   },
   tripItemContent: {
@@ -342,6 +387,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginBottom: 12,
     gap: 8,
+    shadowColor: colors.sunsetGold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   createButtonIcon: {
     width: 24,

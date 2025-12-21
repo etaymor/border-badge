@@ -14,11 +14,13 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
 import { useCountries } from '@hooks/useCountries';
 import { GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 import { getFlagEmoji } from '@utils/flags';
 
 interface InlineTripFormProps {
@@ -47,6 +49,9 @@ export function InlineTripForm({
     () => countries.find((c) => c.code === countryCode),
     [countries, countryCode]
   );
+
+  // If defaultCountryCode is provided, the country is locked (from place detection)
+  const isCountryLocked = Boolean(defaultCountryCode);
 
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
@@ -155,25 +160,45 @@ export function InlineTripForm({
         />
       </View>
 
-      {/* Country Selector */}
-      <View style={styles.field}>
-        <Text style={styles.label}>COUNTRY</Text>
-        <Pressable
-          style={[styles.countryButton, errors.country && styles.countryButtonError]}
-          onPress={() => setShowCountryPicker(true)}
-        >
-          {selectedCountry ? (
-            <View style={styles.selectedCountry}>
-              <Text style={styles.countryFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
-              <Text style={styles.selectedCountryName}>{selectedCountry.name}</Text>
-            </View>
-          ) : (
-            <Text style={styles.countryPlaceholder}>Select a country...</Text>
-          )}
-          <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
-        </Pressable>
-        {errors.country && <Text style={styles.errorText}>{errors.country}</Text>}
-      </View>
+      {/* Country Selector - only show if country is not locked */}
+      {!isCountryLocked ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>COUNTRY</Text>
+          <Pressable
+            style={[styles.countryButtonContainer, errors.country && styles.countryButtonError]}
+            onPress={() => setShowCountryPicker(true)}
+          >
+            <BlurView
+              intensity={GLASS_CONFIG.intensity.medium}
+              tint={GLASS_CONFIG.tint}
+              style={styles.countryButton}
+            >
+              {selectedCountry ? (
+                <View style={styles.selectedCountry}>
+                  <Text style={styles.countryFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
+                  <Text style={styles.selectedCountryName}>{selectedCountry.name}</Text>
+                </View>
+              ) : (
+                <Text style={styles.countryPlaceholder}>Select a country...</Text>
+              )}
+              <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
+            </BlurView>
+          </Pressable>
+          {errors.country && <Text style={styles.errorText}>{errors.country}</Text>}
+        </View>
+      ) : (
+        <View style={styles.field}>
+          <Text style={styles.label}>COUNTRY</Text>
+          <View style={styles.lockedCountry}>
+            {selectedCountry && (
+              <>
+                <Text style={styles.countryFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
+                <Text style={styles.lockedCountryName}>{selectedCountry.name}</Text>
+              </>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Actions */}
       <View style={styles.actions}>
@@ -193,7 +218,7 @@ export function InlineTripForm({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    width: '100%',
   },
   header: {
     flexDirection: 'row',
@@ -222,19 +247,22 @@ const styles = StyleSheet.create({
   },
 
   // Country Button
+  countryButtonContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    ...liquidGlass.container,
+    borderWidth: 0, // Handled by container style
+  },
   countryButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
     paddingHorizontal: 16,
     paddingVertical: 14,
     minHeight: 52,
   },
   countryButtonError: {
     borderColor: colors.adobeBrick,
+    borderWidth: 1.5,
   },
   selectedCountry: {
     flex: 1,
@@ -246,6 +274,17 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   selectedCountryName: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  lockedCountry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  lockedCountryName: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.midnightNavy,

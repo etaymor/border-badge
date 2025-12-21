@@ -268,7 +268,10 @@ async def save_to_trip(
     entry = Entry(**entry_rows[0])
     place = None
 
-    # Create place if provided, with cleanup on failure
+    # Create place if provided, with cleanup on failure.
+    # Note: This is not a true database transaction. If place creation fails,
+    # we attempt to delete the orphaned entry. If cleanup also fails, we log
+    # it for manual investigation (the entry would have no associated place).
     if place_data:
         place_insert = {
             "entry_id": str(entry.id),

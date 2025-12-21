@@ -601,13 +601,17 @@ async def _extract_place_impl(
         )
         return None
 
-    # Log candidate count without exposing full title content (privacy)
+    # Log candidate count without exposing content (privacy)
     logger.info(
         f"PLACE EXTRACTION: {len(candidates)} candidates from title_len="
         f"{len(title) if title else 0}"
     )
-    # Debug level for full content (only visible in development with DEBUG logging)
-    logger.debug(f"PLACE EXTRACTION candidates: {candidates}")
+    # Log first candidate only (truncated) for debugging - avoid exposing full user content
+    if candidates:
+        first_candidate = (
+            candidates[0][:30] + "..." if len(candidates[0]) > 30 else candidates[0]
+        )
+        logger.debug(f"PLACE EXTRACTION first candidate: {first_candidate!r}")
 
     # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
     top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]

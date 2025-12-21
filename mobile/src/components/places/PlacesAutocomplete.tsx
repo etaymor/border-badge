@@ -312,7 +312,9 @@ export function PlacesAutocomplete({
 }
 
 const styles = StyleSheet.create({
-  container: {},
+  container: {
+    zIndex: 2000, // Ensure dropdown appears above other content
+  },
   errorText: {
     fontSize: 13,
     color: colors.adobeBrick,
