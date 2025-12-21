@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
 from app.services.oembed_adapters import cleanup_expired_cache
@@ -31,6 +32,9 @@ STATIC_DIR = APP_DIR / "static"
 
 # Get settings first so we can use them in template globals
 settings = get_settings()
+
+# Setup logging early
+setup_logging(debug=settings.debug)
 
 # Jinja2 templates instance (shared across the application)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)

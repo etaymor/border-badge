@@ -26,6 +26,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_user_scoped_client(request: Request):
+    """Return a Supabase client scoped to the requesting user.
+
+    Raises:
+        HTTPException: If the Authorization header/token is missing.
+    """
+    token = get_token_from_request(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization token",
+        )
+    return get_supabase_client(user_token=token)
+
+
 @router.post(
     "/ingest/social",
     response_model=SocialIngestResponse,
@@ -45,8 +60,6 @@ async def ingest_social_url(
     The detected place is returned for user confirmation - it is NOT
     automatically saved to a trip.
     """
-    token = get_token_from_request(request)
-
     # Step 1: Canonicalize URL and detect provider
     canonical_url, provider = await canonicalize_url(data.url)
 
@@ -79,11 +92,22 @@ async def ingest_social_url(
     title = oembed.title if oembed else None
     oembed_data = oembed.raw if oembed else None
 
+    logger.info(
+        f"INGEST oEmbed result: title={title!r}, author={author_handle!r}, "
+        f"has_thumbnail={bool(thumbnail_url)}, caption={data.caption!r}"
+    )
+
     # Step 3: Extract place from content
     detected_place = await extract_place(oembed, data.caption)
 
+    logger.info(
+        f"INGEST place extraction result: "
+        f"detected={detected_place.name if detected_place else None}, "
+        f"confidence={detected_place.confidence if detected_place else None}"
+    )
+
     # Step 4: Persist saved source
-    db = get_supabase_client(user_token=token)
+    db = _get_user_scoped_client(request)
 
     saved_source_data = {
         "user_id": str(user.id),
@@ -156,8 +180,7 @@ async def save_to_trip(
     Takes a saved_source_id and confirmed place data, creates an entry
     in the specified trip, and links the saved source to the entry.
     """
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
+    db = _get_user_scoped_client(request)
 
     # Verify saved source and trip in parallel to reduce latency
     source_task = db.get(
@@ -172,6 +195,7 @@ async def save_to_trip(
         "trip",
         {
             "id": f"eq.{data.trip_id}",
+            "user_id": f"eq.{user.id}",
             "select": "id",
         },
     )
@@ -321,8 +345,7 @@ async def list_saved_sources(
         offset: Pagination offset
         unlinked_only: If true, only return sources not yet saved to an entry
     """
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
+    db = _get_user_scoped_client(request)
 
     params: dict = {
         "user_id": f"eq.{user.id}",
@@ -353,8 +376,7 @@ async def delete_saved_source(
 
     Only deletes the saved source record, not any associated entry.
     """
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
+    db = _get_user_scoped_client(request)
 
     rows = await db.delete(
         "saved_source",

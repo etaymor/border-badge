@@ -74,3 +74,8 @@
   - [x] 6.2 Add error states to ShareCaptureScreen (provider outage, offline, retry)
   - [x] 6.3 Add analytics events for share flow (started, completed, failed, place detection, trip selection)
   - [x] 6.4 Write tests for retry queue persistence and flush behavior
+
+- [ ] 7.0 Share Ingest Bug Fixes
+  - [x] 7.1 Validate Supabase token usage in ingest endpoints
+  - [x] 7.2 Restrict save-to-trip verification to owner trips
+  - [x] 7.3 Prevent authenticated shares from being stored as pending when navigation isn't ready

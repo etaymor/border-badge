@@ -252,9 +252,10 @@ async def search_places(
 
     settings = get_settings()
 
+    # Don't restrict types - we want to find any kind of place
+    # (landmarks, parks, buildings, establishments, etc.)
     body: dict = {
         "input": query,
-        "includedPrimaryTypes": ["establishment"],
     }
 
     if country_code:
@@ -309,14 +310,10 @@ async def search_places(
                         }
                     )
 
+            # Log the actual results for debugging
+            result_names = [r.get("name", "?") for r in results[:3]]
             logger.info(
-                "places_autocomplete_success",
-                extra={
-                    "event": "places_search",
-                    "query": query[:50],
-                    "result_count": len(results),
-                    "elapsed_ms": round(elapsed_ms, 2),
-                },
+                f"PLACES AUTOCOMPLETE query={query!r} -> {len(results)} results: {result_names}"
             )
 
             return results
@@ -363,6 +360,7 @@ async def get_place_details(place_id: str) -> dict | None:
 
     settings = get_settings()
     url = f"{PLACES_DETAILS_URL}/{place_id}"
+    logger.info(f"PLACES DETAILS: fetching {url}")
 
     start_time = time.monotonic()
 
@@ -372,7 +370,7 @@ async def get_place_details(place_id: str) -> dict | None:
                 url,
                 headers={
                     "X-Goog-Api-Key": settings.google_places_api_key,
-                    "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri",
+                    "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri,primaryType,types",
                 },
             )
 
@@ -380,13 +378,8 @@ async def get_place_details(place_id: str) -> dict | None:
 
             if response.status_code != 200:
                 logger.warning(
-                    "places_details_error",
-                    extra={
-                        "event": "places_error",
-                        "place_id": place_id,
-                        "status_code": response.status_code,
-                        "elapsed_ms": round(elapsed_ms, 2),
-                    },
+                    f"PLACES DETAILS ERROR: status={response.status_code}, "
+                    f"place_id={place_id}, response={response.text[:500]}"
                 )
                 return None
 
@@ -407,6 +400,10 @@ async def get_place_details(place_id: str) -> dict | None:
 
             location = data.get("location", {})
 
+            # Get primary type for category inference
+            primary_type = data.get("primaryType")
+            types = data.get("types", [])
+
             result = {
                 "place_id": data.get("id"),
                 "name": data.get("displayName", {}).get("text", ""),
@@ -418,17 +415,12 @@ async def get_place_details(place_id: str) -> dict | None:
                 "country_code": country_code,
                 "website": data.get("websiteUri"),
                 "photos": data.get("photos", []),
+                "primary_type": primary_type,
+                "types": types,
             }
 
             logger.info(
-                "places_details_success",
-                extra={
-                    "event": "places_details",
-                    "place_id": place_id,
-                    "name": result["name"][:50] if result["name"] else None,
-                    "country_code": country_code,
-                    "elapsed_ms": round(elapsed_ms, 2),
-                },
+                f"PLACES DETAILS SUCCESS: {result['name']}, country={country_code}, primary_type={primary_type}"
             )
 
             return result
@@ -449,14 +441,12 @@ async def get_place_details(place_id: str) -> dict | None:
     except (httpx.RequestError, ValueError) as e:
         elapsed_ms = (time.monotonic() - start_time) * 1000
         logger.error(
-            "places_details_error",
-            extra={
-                "event": "places_error",
-                "error_type": type(e).__name__,
-                "place_id": place_id,
-                "error": str(e)[:200],
-                "elapsed_ms": round(elapsed_ms, 2),
-            },
+            f"PLACES DETAILS EXCEPTION: {type(e).__name__}: {e}"
+        )
+        return None
+    except Exception as e:
+        logger.error(
+            f"PLACES DETAILS UNEXPECTED EXCEPTION: {type(e).__name__}: {e}"
         )
         return None
 
@@ -517,19 +507,24 @@ async def _try_candidate(candidate: str) -> DetectedPlace | None:
     results = await search_places(candidate)
 
     if not results:
+        logger.info(f"_try_candidate: no results for {candidate!r}")
         return None
 
     # Take the first result
     first_result = results[0]
     place_id = first_result.get("place_id")
+    logger.info(f"_try_candidate: first_result={first_result}, place_id={place_id!r}")
 
     if not place_id:
+        logger.info(f"_try_candidate: no place_id in result for {candidate!r}")
         return None
 
     # Fetch full details
     details = await get_place_details(place_id)
+    logger.info(f"_try_candidate: details={details}")
 
     if not details:
+        logger.info(f"_try_candidate: get_place_details failed for {place_id!r}")
         return None
 
     # Calculate confidence
@@ -549,6 +544,8 @@ async def _try_candidate(candidate: str) -> DetectedPlace | None:
         country=details.get("country"),
         country_code=details.get("country_code"),
         confidence=confidence,
+        primary_type=details.get("primary_type"),
+        types=details.get("types", []),
     )
 
     logger.info(
@@ -608,7 +605,8 @@ async def extract_place(
         )
         return None
 
-    logger.debug(f"place_extraction_candidates: {candidates[:5]}")
+    # Use INFO level so it's visible in development
+    logger.info(f"PLACE EXTRACTION candidates from title={title!r}: {candidates}")
 
     # Try top candidates in parallel for better performance
     top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]

@@ -26,6 +26,9 @@ export interface DetectedPlace {
   country: string | null;
   country_code: string | null;
   confidence: number;
+  // Google Places type information for category inference
+  primary_type: string | null;
+  types: string[];
 }
 
 // Request to ingest a social URL

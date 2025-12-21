@@ -1,4 +1,5 @@
 export { ClipboardBanner } from './ClipboardBanner';
+export { ClipboardBannerOverlay, ClipboardBannerProvider } from './ClipboardBannerProvider';
 export { InlineTripForm } from './InlineTripForm';
 export { MilestoneBadge } from './MilestoneBadge';
 export {

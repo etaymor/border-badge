@@ -34,7 +34,7 @@ import {
   SocialIngestResponse,
   SocialProvider,
 } from '@hooks/useSocialIngest';
-import { useCreateTrip } from '@hooks/useTrips';
+import { useCreateTrip, useTrips } from '@hooks/useTrips';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
@@ -71,6 +71,89 @@ function getProviderDisplayName(provider: SocialProvider | null): string {
   if (provider === 'tiktok') return 'TikTok';
   if (provider === 'instagram') return 'Instagram';
   return 'the link';
+}
+
+// Infer entry type from Google Places type
+// See: https://developers.google.com/maps/documentation/places/web-service/place-types
+function inferEntryTypeFromPlaceTypes(
+  primaryType: string | null,
+  types: string[]
+): EntryType {
+  const allTypes = primaryType ? [primaryType, ...types] : types;
+  const typesLower = allTypes.map((t) => t.toLowerCase());
+
+  // Food-related types
+  const foodTypes = [
+    'restaurant',
+    'cafe',
+    'bakery',
+    'bar',
+    'coffee_shop',
+    'fast_food_restaurant',
+    'ice_cream_shop',
+    'meal_takeaway',
+    'meal_delivery',
+    'food',
+    'pizza_restaurant',
+    'steak_house',
+    'sushi_restaurant',
+    'seafood_restaurant',
+    'brunch_restaurant',
+    'breakfast_restaurant',
+    'sandwich_shop',
+    'hamburger_restaurant',
+    'ramen_restaurant',
+  ];
+  if (typesLower.some((t) => foodTypes.some((ft) => t.includes(ft)))) {
+    return 'food';
+  }
+
+  // Stay-related types
+  const stayTypes = [
+    'hotel',
+    'lodging',
+    'motel',
+    'hostel',
+    'resort_hotel',
+    'bed_and_breakfast',
+    'guest_house',
+    'campground',
+    'rv_park',
+    'extended_stay_hotel',
+  ];
+  if (typesLower.some((t) => stayTypes.some((st) => t.includes(st)))) {
+    return 'stay';
+  }
+
+  // Experience-related types (activities, attractions, entertainment)
+  const experienceTypes = [
+    'tourist_attraction',
+    'amusement_park',
+    'aquarium',
+    'art_gallery',
+    'museum',
+    'zoo',
+    'night_club',
+    'bowling_alley',
+    'casino',
+    'movie_theater',
+    'spa',
+    'gym',
+    'stadium',
+    'concert_hall',
+    'performing_arts_theater',
+    'hiking_area',
+    'ski_resort',
+    'golf_course',
+    'marina',
+    'adventure_sports_center',
+  ];
+  if (typesLower.some((t) => experienceTypes.some((et) => t.includes(et)))) {
+    return 'experience';
+  }
+
+  // Default to 'place' for general locations (landmarks, parks, etc.)
+  return 'place';
 }
 
 // Error details helper for user-friendly messages
@@ -179,6 +262,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   const saveToTrip = useSaveToTrip();
   const createTrip = useCreateTrip();
 
+  // Trips data for auto-selection
+  const { data: trips = [] } = useTrips();
+
   // Screen state
   const [ingestResult, setIngestResult] = useState<SocialIngestResponse | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
@@ -206,6 +292,13 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           // Pre-fill place if detected
           if (result.detected_place) {
             setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
+
+            // Auto-select entry type based on place type
+            const inferredType = inferEntryTypeFromPlaceTypes(
+              result.detected_place.primary_type,
+              result.detected_place.types ?? []
+            );
+            setEntryType(inferredType);
           }
         },
         onError: (err) => {
@@ -218,6 +311,28 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-select matching trip when ingest result or trips change
+  useEffect(() => {
+    // Skip if user already selected a trip or no trips available
+    if (selectedTripId || trips.length === 0) return;
+
+    const detectedCountryCode = ingestResult?.detected_place?.country_code;
+
+    // Only auto-select if we have a detected country
+    if (detectedCountryCode) {
+      // Find trips matching the detected country, sorted by most recent
+      const matchingTrips = trips
+        .filter((t) => t.country_code === detectedCountryCode)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      if (matchingTrips.length > 0) {
+        setSelectedTripId(matchingTrips[0].id);
+      }
+      // If no matching trips, don't select anything - user will need to create one
+    }
+    // If no detected country, don't auto-select - let user choose
+  }, [ingestResult?.detected_place?.country_code, trips, selectedTripId]);
 
   // Convert backend DetectedPlace to mobile SelectedPlace format
   const detectedPlaceToSelectedPlace = (place: DetectedPlace): SelectedPlace => ({
@@ -479,17 +594,6 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* Place Detection Status */}
-          {ingestResult?.detected_place && (
-            <View style={styles.detectionBanner}>
-              <Ionicons name="sparkles" size={16} color={colors.mossGreen} />
-              <Text style={styles.detectionText}>
-                Place detected:{' '}
-                <Text style={styles.detectionPlace}>{ingestResult.detected_place.name}</Text>
-              </Text>
-            </View>
-          )}
-
           {/* Manual Entry Mode Banner */}
           {isManualEntryMode && !ingestResult?.detected_place && (
             <View style={styles.manualEntryBanner}>
@@ -518,11 +622,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             <TripSelector
               selectedTripId={selectedTripId}
               onSelectTrip={setSelectedTripId}
-              countryCode={
-                selectedPlace
-                  ? undefined // We'd need to extract country from place
-                  : (ingestResult?.detected_place?.country_code ?? undefined)
-              }
+              countryCode={ingestResult?.detected_place?.country_code ?? undefined}
               onCreateTrip={handleCreateTrip}
               isCreatingTrip={isCreatingTrip}
             />
@@ -709,27 +809,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 13,
     color: colors.stormGray,
-  },
-
-  // Detection Banner
-  detectionBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(84, 122, 95, 0.1)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    marginBottom: 20,
-    gap: 8,
-  },
-  detectionText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.midnightNavy,
-    flex: 1,
-  },
-  detectionPlace: {
-    fontFamily: fonts.openSans.semiBold,
   },
 
   // Manual Entry Banner

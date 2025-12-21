@@ -25,7 +25,7 @@ import { InlineTripForm } from './InlineTripForm';
 interface TripSelectorProps {
   selectedTripId: string | null;
   onSelectTrip: (tripId: string) => void;
-  countryCode?: string; // Filter/prioritize trips by country
+  countryCode?: string; // When set, ONLY shows trips matching this country
   onCreateTrip: (name: string, countryCode: string) => Promise<string>; // Returns new trip ID
   isCreatingTrip?: boolean;
 }
@@ -42,25 +42,25 @@ export function TripSelector({
 
   const { data: trips = [], isLoading } = useTrips();
 
-  // Sort trips: matching country first, then by created_at desc
-  const sortedTrips = [...trips].sort((a, b) => {
-    // If we have a country code, prioritize trips from that country
-    if (countryCode) {
-      const aMatch = a.country_code === countryCode;
-      const bMatch = b.country_code === countryCode;
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
-    }
-    // Then sort by created_at descending (most recent first)
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
+  // When countryCode is set, ONLY show trips matching that country
+  // Sort by created_at desc (most recent first)
+  const filteredTrips = [...trips]
+    .filter((trip) => (countryCode ? trip.country_code === countryCode : true))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId);
 
+  // Auto-show create form when modal opens and no matching trips exist
+  const hasNoMatchingTrips = countryCode && filteredTrips.length === 0;
+
   const handleOpenModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Auto-show create form if no matching trips for this country
+    if (hasNoMatchingTrips) {
+      setShowCreateForm(true);
+    }
     setShowModal(true);
-  }, []);
+  }, [hasNoMatchingTrips]);
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false);
@@ -144,10 +144,14 @@ export function TripSelector({
                 >
                   {isLoading ? (
                     <Text style={styles.loadingText}>Loading trips...</Text>
-                  ) : sortedTrips.length === 0 ? (
-                    <Text style={styles.emptyText}>No trips yet. Create one below!</Text>
+                  ) : filteredTrips.length === 0 ? (
+                    <Text style={styles.emptyText}>
+                      {countryCode
+                        ? 'No trips for this country yet. Create one below!'
+                        : 'No trips yet. Create one below!'}
+                    </Text>
                   ) : (
-                    sortedTrips.map((trip) => (
+                    filteredTrips.map((trip) => (
                       <TouchableOpacity
                         key={trip.id}
                         style={[
@@ -171,11 +175,6 @@ export function TripSelector({
                         </View>
                         {selectedTripId === trip.id && (
                           <Ionicons name="checkmark-circle" size={22} color={colors.mossGreen} />
-                        )}
-                        {countryCode && trip.country_code === countryCode && (
-                          <View style={styles.matchBadge}>
-                            <Text style={styles.matchBadgeText}>Match</Text>
-                          </View>
                         )}
                       </TouchableOpacity>
                     ))
@@ -331,20 +330,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 13,
     color: colors.stormGray,
-  },
-  matchBadge: {
-    backgroundColor: colors.sunsetGold,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 8,
-  },
-  matchBadgeText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 10,
-    color: colors.midnightNavy,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 
   // Create Button

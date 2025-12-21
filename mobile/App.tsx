@@ -24,6 +24,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplash } from '@components/splash';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
+import type { ShareCaptureSource } from '@navigation/types';
 // Note: RootStackParamList would be imported here for type-safe navigation,
 // but during LAUNCH_SIMPLIFICATION the navigation structure doesn't match types
 import { queryClient } from './src/queryClient';
@@ -70,6 +71,12 @@ const linking = {
   },
 };
 
+type ShareCaptureNavigationParams = {
+  url: string;
+  caption?: string;
+  source: ShareCaptureSource;
+};
+
 export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
   const [showSplash, setShowSplash] = useState(true);
@@ -80,6 +87,8 @@ export default function App() {
   const sessionIdRef = useRef(generateSessionId());
   const hasTrackedInitialOpenRef = useRef(false);
   const hasProcessedInitialShareRef = useRef(false);
+  const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
+  const shouldClearPendingShareRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -107,6 +116,80 @@ export default function App() {
   useEffect(() => {
     void initAnalytics();
   }, []);
+
+  // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
+  const tryNavigateToShareCapture = useCallback(
+    (
+      params: ShareCaptureNavigationParams
+    ): 'navigated' | 'queued' | 'unauthenticated' => {
+      if (!session?.user?.id) {
+        return 'unauthenticated';
+      }
+
+      if (!navigationRef.isReady()) {
+        pendingAuthedShareRef.current = params;
+        return 'queued';
+      }
+
+      navigationRef.navigate('Main', {
+        screen: 'ShareCapture',
+        params,
+      });
+      pendingAuthedShareRef.current = null;
+      return 'navigated';
+    },
+    [session?.user?.id]
+  );
+
+  const flushPendingAuthedShare = useCallback(() => {
+    if (!pendingAuthedShareRef.current) return;
+
+    const result = tryNavigateToShareCapture(pendingAuthedShareRef.current);
+    if (result === 'navigated' && shouldClearPendingShareRef.current) {
+      shouldClearPendingShareRef.current = false;
+      void clearPendingShare();
+    }
+  }, [tryNavigateToShareCapture]);
+
+  const processPendingShare = useCallback(async () => {
+    if (!session?.user?.id) return;
+
+    const pendingShare = await getPendingShare();
+    if (pendingShare) {
+      const result = tryNavigateToShareCapture({
+        url: pendingShare.url,
+        source: 'share_extension',
+      });
+
+      if (result === 'navigated') {
+        await clearPendingShare();
+      } else if (result === 'queued') {
+        shouldClearPendingShareRef.current = true;
+      }
+    }
+  }, [session?.user?.id, tryNavigateToShareCapture]);
+
+  const handleNavigationReady = useCallback(() => {
+    flushPendingAuthedShare();
+    void processPendingShare();
+  }, [flushPendingAuthedShare, processPendingShare]);
+
+  // If user signs out before we could navigate, persist the queued share for later.
+  useEffect(() => {
+    if (session?.user?.id) {
+      flushPendingAuthedShare();
+      return;
+    }
+
+    if (pendingAuthedShareRef.current) {
+      const urlToPersist = pendingAuthedShareRef.current.url;
+      pendingAuthedShareRef.current = null;
+      shouldClearPendingShareRef.current = false;
+      void savePendingShare(urlToPersist);
+    } else {
+      shouldClearPendingShareRef.current = false;
+    }
+  }, [flushPendingAuthedShare, session?.user?.id]);
 
   // Track app_opened when app comes to foreground
   useEffect(() => {
@@ -141,7 +224,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id]);
+  }, [processPendingShare, tryNavigateToShareCapture]);
 
   // Handle Share Extension deep links and pending shares
   useEffect(() => {
@@ -161,38 +244,15 @@ export default function App() {
         // Clear the stored URL so we don't process it again
         await clearSharedURLFromAppGroup();
 
-        // If user is authenticated, navigate to ShareCapture
-        // LAUNCH_SIMPLIFICATION: Main uses PassportNavigator directly,
-        // so ShareCapture is a direct child screen
-        if (session?.user?.id && navigationRef.isReady()) {
-          navigationRef.navigate('Main', {
-            screen: 'ShareCapture',
-            params: {
-              url: sharedUrl,
-              source: 'share_extension',
-            },
-          });
-        } else {
+        const result = tryNavigateToShareCapture({
+          url: sharedUrl,
+          source: 'share_extension',
+        });
+
+        if (result === 'unauthenticated') {
           // User not authenticated - save for later
           await savePendingShare(sharedUrl);
         }
-      }
-    };
-
-    // Check for pending shares when user becomes authenticated
-    const processPendingShare = async () => {
-      if (!session?.user?.id) return;
-
-      const pendingShare = await getPendingShare();
-      if (pendingShare && navigationRef.isReady()) {
-        await clearPendingShare();
-        navigationRef.navigate('Main', {
-          screen: 'ShareCapture',
-          params: {
-            url: pendingShare.url,
-            source: 'share_extension',
-          },
-        });
       }
     };
 
@@ -217,7 +277,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id]);
+  }, [processPendingShare, tryNavigateToShareCapture]);
 
   useEffect(() => {
     // Wire up API sign-out callback
@@ -309,7 +369,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          <NavigationContainer ref={navigationRef} linking={linking}>
+          <NavigationContainer
+            ref={navigationRef}
+            linking={linking}
+            onReady={handleNavigationReady}
+          >
             <RootNavigator />
             <StatusBar style="auto" />
           </NavigationContainer>

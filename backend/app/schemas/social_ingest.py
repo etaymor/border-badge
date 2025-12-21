@@ -46,6 +46,9 @@ class DetectedPlace(BaseModel):
     country: str | None = None
     country_code: str | None = None
     confidence: float = Field(0.0, ge=0.0, le=1.0)
+    # Google Places type information for category inference
+    primary_type: str | None = None  # e.g., "restaurant", "hotel", "tourist_attraction"
+    types: list[str] = Field(default_factory=list)  # All place types
 
 
 class SocialIngestResponse(BaseModel):
