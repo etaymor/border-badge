@@ -345,11 +345,11 @@ class TestSaveToTrip:
                     ]
                 )
 
-                # Create entry
-                mock_client.post = AsyncMock(
-                    side_effect=[
-                        [
-                            {
+                # Atomic RPC call returns entry_row and place_row in JSONB format
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
                                 "id": TEST_ENTRY_ID,
                                 "trip_id": TEST_TRIP_ID,
                                 "type": "place",
@@ -360,10 +360,8 @@ class TestSaveToTrip:
                                 "date": None,
                                 "created_at": "2024-01-01T00:00:00Z",
                                 "deleted_at": None,
-                            }
-                        ],
-                        [
-                            {
+                            },
+                            "place_row": {
                                 "id": "550e8400-e29b-41d4-a716-446655440011",
                                 "entry_id": TEST_ENTRY_ID,
                                 "google_place_id": "ChIJ123",
@@ -372,14 +370,11 @@ class TestSaveToTrip:
                                 "lng": 115.188919,
                                 "address": "Bali, Indonesia",
                                 "extra_data": {},
-                            }
-                        ],
+                            },
+                        }
                     ]
                 )
 
-                mock_client.patch = AsyncMock(
-                    return_value=[{"entry_id": TEST_ENTRY_ID}]
-                )
                 mock_db.return_value = mock_client
 
                 with patch("app.api.ingest.get_token_from_request"):

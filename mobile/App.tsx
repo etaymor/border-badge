@@ -221,7 +221,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [processPendingShare, tryNavigateToShareCapture]);
+  }, [session?.user?.id]);
 
   // Handle Share Extension deep links and pending shares
   useEffect(() => {

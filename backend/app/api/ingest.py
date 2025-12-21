@@ -1,6 +1,7 @@
 """Social media ingest endpoints."""
 
 import asyncio
+import html
 import logging
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
-from app.schemas.entries import Entry, EntryWithPlace, Place, PlaceCreate
+from app.schemas.entries import Entry, EntryWithPlace, Place
 from app.schemas.social_ingest import (
     SavedSource,
     SaveToTripRequest,
@@ -22,6 +23,18 @@ from app.services.place_extractor import extract_place
 from app.services.url_resolver import canonicalize_url, detect_provider
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_caption(caption: str | None) -> str | None:
+    """Sanitize user-provided caption to prevent XSS in web contexts.
+
+    HTML-escapes special characters that could be used for XSS attacks
+    if the caption is ever rendered in a web view.
+    """
+    if caption is None:
+        return None
+    return html.escape(caption, quote=True)
+
 
 router = APIRouter()
 
@@ -111,6 +124,9 @@ async def ingest_social_url(
     # Step 4: Persist saved source
     db = _get_user_scoped_client(request)
 
+    # Sanitize user-provided caption to prevent XSS if rendered in web views
+    sanitized_caption = sanitize_caption(data.caption)
+
     saved_source_data = {
         "user_id": str(user.id),
         "provider": provider.value,
@@ -118,7 +134,7 @@ async def ingest_social_url(
         "canonical_url": canonical_url,
         "thumbnail_url": thumbnail_url,
         "author_handle": author_handle,
-        "caption": data.caption,
+        "caption": sanitized_caption,
         "title": title,
         "oembed_data": oembed_data,
     }
@@ -218,16 +234,16 @@ async def save_to_trip(
 
     source = sources[0]
 
-    # Create the entry
+    # Build place data for atomic operation
     place_data = None
     if data.place:
-        place_data = PlaceCreate(
-            google_place_id=data.place.google_place_id,
-            place_name=data.place.name,
-            lat=data.place.latitude,
-            lng=data.place.longitude,
-            address=data.place.address,
-            extra_data={
+        place_data = {
+            "google_place_id": data.place.google_place_id,
+            "place_name": data.place.name,
+            "lat": data.place.latitude,
+            "lng": data.place.longitude,
+            "address": data.place.address,
+            "extra_data": {
                 "city": data.place.city,
                 "country": data.place.country,
                 "country_code": data.place.country_code,
@@ -235,16 +251,15 @@ async def save_to_trip(
                 "source": source["provider"],
                 "source_url": source["canonical_url"],
             },
-        )
+        }
 
     # Determine entry title
     entry_title = (
         data.place.name if data.place else source.get("title") or "Saved from social"
     )
 
-    # Create entry
+    # Build entry data for atomic operation
     entry_data = {
-        "trip_id": str(data.trip_id),
         "type": data.entry_type,
         "title": entry_title,
         "notes": data.notes,
@@ -257,68 +272,35 @@ async def save_to_trip(
         },
     }
 
-    entry_rows = await db.post("entry", entry_data)
+    # Use atomic RPC function to create entry + place in a single transaction.
+    # This ensures no orphaned entries if place creation fails.
+    result = await db.rpc(
+        "atomic_create_entry_with_place",
+        {
+            "p_trip_id": str(data.trip_id),
+            "p_entry_data": entry_data,
+            "p_place_data": place_data,
+            "p_saved_source_id": str(data.saved_source_id),
+        },
+    )
 
-    if not entry_rows:
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create entry",
         )
 
-    entry = Entry(**entry_rows[0])
-    place = None
+    entry_row = result[0].get("entry_row") if result else None
+    place_row = result[0].get("place_row") if result else None
 
-    # Create place if provided, with cleanup on failure.
-    # Note: This is not a true database transaction. If place creation fails,
-    # we attempt to delete the orphaned entry. If cleanup also fails, we log
-    # it for manual investigation (the entry would have no associated place).
-    if place_data:
-        place_insert = {
-            "entry_id": str(entry.id),
-            "google_place_id": place_data.google_place_id,
-            "place_name": place_data.place_name,
-            "lat": place_data.lat,
-            "lng": place_data.lng,
-            "address": place_data.address,
-            "extra_data": place_data.extra_data,
-        }
-        try:
-            place_rows = await db.post("place", place_insert)
-            if place_rows:
-                place = Place(**place_rows[0])
-        except Exception as place_error:
-            # Clean up orphaned entry on place creation failure
-            logger.error(
-                "save_to_trip_place_failed",
-                extra={
-                    "event": "save_to_trip_error",
-                    "user_id": str(user.id),
-                    "entry_id": str(entry.id),
-                    "error": str(place_error)[:200],
-                },
-            )
-            try:
-                await db.delete("entry", {"id": f"eq.{entry.id}"})
-            except Exception as cleanup_error:
-                logger.error(
-                    "save_to_trip_cleanup_failed",
-                    extra={
-                        "event": "save_to_trip_cleanup_error",
-                        "entry_id": str(entry.id),
-                        "error": str(cleanup_error)[:200],
-                    },
-                )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create place for entry",
-            ) from place_error
+    if not entry_row:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create entry",
+        )
 
-    # Link saved source to entry
-    await db.patch(
-        "saved_source",
-        {"entry_id": str(entry.id)},
-        {"id": f"eq.{data.saved_source_id}"},
-    )
+    entry = Entry(**entry_row)
+    place = Place(**place_row) if place_row else None
 
     logger.info(
         "save_to_trip_completed",
