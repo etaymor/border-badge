@@ -1,5 +1,6 @@
 """URL canonicalization and provider detection for social media links."""
 
+import asyncio
 import ipaddress
 import logging
 import re
@@ -41,16 +42,10 @@ def _is_trusted_domain(hostname: str) -> bool:
     return False
 
 
-def _is_private_ip(hostname: str) -> bool:
-    """Check if a hostname resolves to a private/internal IP address.
+def _is_private_ip_sync(hostname: str) -> bool:
+    """Synchronous check if a hostname resolves to a private/internal IP address.
 
-    Protects against SSRF attacks targeting internal services.
-
-    Args:
-        hostname: The hostname to check
-
-    Returns:
-        True if the hostname is blocked or resolves to a private IP
+    This is a blocking call - use _is_private_ip for async contexts.
     """
     # Check explicit blocklist
     if hostname.lower() in BLOCKED_HOSTNAMES:
@@ -72,6 +67,33 @@ def _is_private_ip(hostname: str) -> bool:
         # Can't resolve - allow the request but log it
         logger.debug(f"ssrf_check_failed: could not resolve hostname {hostname}")
         return False
+
+
+# DNS resolution timeout in seconds
+DNS_TIMEOUT_SECONDS = 3.0
+
+
+async def _is_private_ip(hostname: str) -> bool:
+    """Check if a hostname resolves to a private/internal IP address.
+
+    Protects against SSRF attacks targeting internal services.
+    Uses asyncio.to_thread to avoid blocking the event loop during DNS resolution.
+
+    Args:
+        hostname: The hostname to check
+
+    Returns:
+        True if the hostname is blocked or resolves to a private IP
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_is_private_ip_sync, hostname),
+            timeout=DNS_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning(f"ssrf_dns_timeout: hostname={hostname}")
+        # Fail closed on timeout - treat as blocked for security
+        return True
 
 
 # Timeout for redirect resolution
@@ -218,7 +240,7 @@ async def follow_redirect(url: str) -> str:
     """
     # SSRF protection: check if URL points to internal/private addresses
     parsed = urlparse(url)
-    if _is_private_ip(parsed.hostname or ""):
+    if await _is_private_ip(parsed.hostname or ""):
         logger.warning(
             "ssrf_blocked",
             extra={
@@ -253,7 +275,7 @@ async def follow_redirect(url: str) -> str:
 
                     # SSRF protection: also check redirect target
                     parsed_loc = urlparse(location)
-                    if _is_private_ip(parsed_loc.hostname or ""):
+                    if await _is_private_ip(parsed_loc.hostname or ""):
                         logger.warning(
                             "ssrf_redirect_blocked",
                             extra={

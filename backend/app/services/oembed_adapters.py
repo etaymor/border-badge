@@ -131,11 +131,17 @@ async def cache_oembed(
     return _row_to_cache_entry(row)
 
 
-async def cleanup_expired_cache() -> int:
-    """Delete expired cache entries.
+async def cleanup_expired_cache(batch_size: int = 100) -> int:
+    """Delete expired cache entries in batches.
+
+    For high-volume usage, this limits the number of entries deleted per call
+    to avoid long-running transactions. Call repeatedly until it returns 0.
+
+    Args:
+        batch_size: Maximum number of entries to delete per call (default 100)
 
     Returns:
-        Number of entries deleted
+        Number of entries deleted in this batch
     """
     db = get_supabase_client()
 
@@ -143,12 +149,12 @@ async def cleanup_expired_cache() -> int:
 
     rows = await db.delete(
         "oembed_cache",
-        {"expires_at": f"lt.{now}"},
+        {"expires_at": f"lt.{now}", "limit": batch_size},
     )
 
     count = len(rows)
     if count > 0:
-        logger.info(f"oembed_cache_cleanup: deleted={count}")
+        logger.info(f"oembed_cache_cleanup: deleted={count} batch_size={batch_size}")
 
     return count
 

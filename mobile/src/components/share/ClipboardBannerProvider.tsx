@@ -14,7 +14,7 @@ import { StyleSheet, View } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 
 import { useClipboardListener } from '@hooks/useClipboardListener';
-import { ClipboardBanner } from './ClipboardBanner';
+import ClipboardBanner from './ClipboardBanner';
 
 /**
  * Standalone overlay component that can be rendered anywhere inside the navigation tree.

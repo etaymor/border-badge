@@ -50,9 +50,13 @@ class QueueLock {
   }
 
   release(): void {
-    // Defensive check: warn if release called when not locked and no waiters
-    if (!this.locked && this.waitQueue.length === 0) {
-      console.warn('QueueLock.release() called when not locked');
+    // Defensive check: handle invalid states
+    if (!this.locked) {
+      if (this.waitQueue.length === 0) {
+        console.warn('QueueLock.release() called when not locked');
+      } else {
+        console.error('QueueLock: Invalid state - not locked but has waiters');
+      }
       return;
     }
 

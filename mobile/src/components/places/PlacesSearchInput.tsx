@@ -87,7 +87,6 @@ export const PlacesSearchInput = memo(
 
 const styles = StyleSheet.create({
   inputWrapper: {
-    borderRadius: 12,
     overflow: 'hidden',
     ...liquidGlass.input,
   },

@@ -108,5 +108,3 @@ BEGIN
   RETURN QUERY SELECT v_entry_json, v_place_json;
 END;
 $$;
-
-COMMENT ON FUNCTION atomic_create_entry_with_place IS 'Atomically create an entry with optional place in a single transaction';

@@ -62,13 +62,25 @@ async def _background_cache_cleanup() -> None:
         logger.warning(f"Background cache cleanup failed: {e}")
 
 
+# Track background task for proper cleanup
+_cleanup_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
+    global _cleanup_task
     # Startup - schedule cache cleanup in background (non-blocking)
-    asyncio.create_task(_background_cache_cleanup())
+    _cleanup_task = asyncio.create_task(_background_cache_cleanup())
     yield
-    # Shutdown - close shared HTTP client
+    # Shutdown - cancel cleanup task if still running
+    if _cleanup_task and not _cleanup_task.done():
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+    # Close shared HTTP client
     await close_http_client()
 
 

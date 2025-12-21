@@ -77,7 +77,7 @@ function getProviderDisplayName(provider: SocialProvider | null): string {
 // Infer entry type from Google Places type
 // See: https://developers.google.com/maps/documentation/places/web-service/place-types
 function inferEntryTypeFromPlaceTypes(primaryType: string | null, types: string[]): EntryType {
-  const allTypes = primaryType ? [primaryType, ...types] : types;
+  const allTypes = primaryType ? [primaryType, ...(types || [])] : types || [];
   const typesLower = allTypes.map((t) => t.toLowerCase());
 
   // Food-related types

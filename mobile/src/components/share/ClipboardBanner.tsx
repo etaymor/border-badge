@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import type { SocialProvider } from '@hooks/useClipboardListener';
+import type { SocialProvider } from '../../types/shared';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
@@ -37,7 +37,7 @@ const PROVIDER_CONFIG = {
   },
 };
 
-export function ClipboardBanner({ provider, onSave, onDismiss }: ClipboardBannerProps) {
+function ClipboardBanner({ provider, onSave, onDismiss }: ClipboardBannerProps) {
   const insets = useSafeAreaInsets();
   const config = PROVIDER_CONFIG[provider];
 
@@ -201,3 +201,5 @@ const styles = StyleSheet.create({
     padding: 8,
   },
 });
+
+export default ClipboardBanner;

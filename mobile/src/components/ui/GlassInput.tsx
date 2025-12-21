@@ -94,7 +94,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   wrapper: {
-    borderRadius: 12,
     overflow: 'hidden',
     ...liquidGlass.input,
   },

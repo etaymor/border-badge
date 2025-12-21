@@ -8,12 +8,9 @@ import { Alert } from 'react-native';
 
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
-import type { EntryType } from '../types/shared';
+import type { EntryType, SocialProvider } from '../types/shared';
 
-export type { EntryType };
-
-// Social media provider types
-export type SocialProvider = 'tiktok' | 'instagram';
+export type { EntryType, SocialProvider };
 
 // Place detected from social media content
 export interface DetectedPlace {

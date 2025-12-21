@@ -5,7 +5,7 @@ import html
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -77,8 +77,8 @@ async def ingest_social_url(
     canonical_url, provider = await canonicalize_url(data.url)
 
     if not provider:
-        # Try detecting from original URL if redirect didn't help
-        provider = detect_provider(data.url)
+        # Try detecting from canonical URL first, then original URL
+        provider = detect_provider(canonical_url) or detect_provider(data.url)
 
     if not provider:
         raise HTTPException(
@@ -321,8 +321,8 @@ async def save_to_trip(
 async def list_saved_sources(
     request: Request,
     user: CurrentUser,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     unlinked_only: bool = False,
 ) -> list[SavedSource]:
     """List user's saved social sources.
@@ -338,7 +338,7 @@ async def list_saved_sources(
         "user_id": f"eq.{user.id}",
         "select": "*",
         "order": "created_at.desc",
-        "limit": min(limit, 100),
+        "limit": limit,
         "offset": offset,
     }
 

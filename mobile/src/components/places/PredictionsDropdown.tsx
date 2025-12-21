@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     ...liquidGlass.floatingCard,
     // Reset background and border to let BlurView handle visual fill
-    backgroundColor: 'transparent', 
+    backgroundColor: 'transparent',
     borderWidth: 0,
   },
   dropdownBlur: {

@@ -3,7 +3,7 @@
  * Used in ShareCaptureScreen to select or create a trip for saving entries.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -48,11 +48,18 @@ export function TripSelector({
 
   // When countryCode is set, ONLY show trips matching that country
   // Sort by created_at desc (most recent first)
-  const filteredTrips = [...trips]
-    .filter((trip) => (countryCode ? trip.country_code === countryCode : true))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const filteredTrips = useMemo(
+    () =>
+      [...trips]
+        .filter((trip) => (countryCode ? trip.country_code === countryCode : true))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [trips, countryCode]
+  );
 
-  const selectedTrip = trips.find((t) => t.id === selectedTripId);
+  const selectedTrip = useMemo(
+    () => trips.find((t) => t.id === selectedTripId),
+    [trips, selectedTripId]
+  );
 
   // Auto-show create form when modal opens and no matching trips exist
   const hasNoMatchingTrips = countryCode && filteredTrips.length === 0;
@@ -126,12 +133,7 @@ export function TripSelector({
       </Pressable>
 
       {/* Selection Modal */}
-      <Modal
-        visible={showModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCloseModal}
-      >
+      <Modal visible={showModal} transparent animationType="fade" onRequestClose={handleCloseModal}>
         <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -158,70 +160,74 @@ export function TripSelector({
                         isSubmitting={isCreatingTrip}
                       />
                     ) : (
-                    <>
-                      <Text style={styles.modalTitle}>Select Trip</Text>
+                      <>
+                        <Text style={styles.modalTitle}>Select Trip</Text>
 
-                      <ScrollView
-                        style={styles.tripsList}
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={styles.tripsListContent}
-                      >
-                        {isLoading ? (
-                          <Text style={styles.loadingText}>Loading trips...</Text>
-                        ) : filteredTrips.length === 0 ? (
-                          <Text style={styles.emptyText}>
-                            {countryCode
-                              ? 'No trips for this country yet. Create one below!'
-                              : 'No trips yet. Create one below!'}
-                          </Text>
-                        ) : (
-                          filteredTrips.map((trip) => (
-                            <TouchableOpacity
-                              key={trip.id}
-                              style={[
-                                styles.tripItem,
-                                selectedTripId === trip.id && styles.tripItemSelected,
-                              ]}
-                              onPress={() => handleSelectTrip(trip)}
-                              activeOpacity={0.7}
-                            >
-                              <View style={styles.tripItemContent}>
-                                <Text
-                                  style={[
-                                    styles.tripItemName,
-                                    selectedTripId === trip.id && styles.tripItemNameSelected,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {trip.name}
-                                </Text>
-                                <Text style={styles.tripItemCountry}>{trip.country_code}</Text>
-                              </View>
-                              {selectedTripId === trip.id && (
-                                <Ionicons name="checkmark-circle" size={22} color={colors.mossGreen} />
-                              )}
-                            </TouchableOpacity>
-                          ))
-                        )}
-                      </ScrollView>
+                        <ScrollView
+                          style={styles.tripsList}
+                          showsVerticalScrollIndicator={false}
+                          contentContainerStyle={styles.tripsListContent}
+                        >
+                          {isLoading ? (
+                            <Text style={styles.loadingText}>Loading trips...</Text>
+                          ) : filteredTrips.length === 0 ? (
+                            <Text style={styles.emptyText}>
+                              {countryCode
+                                ? 'No trips for this country yet. Create one below!'
+                                : 'No trips yet. Create one below!'}
+                            </Text>
+                          ) : (
+                            filteredTrips.map((trip) => (
+                              <TouchableOpacity
+                                key={trip.id}
+                                style={[
+                                  styles.tripItem,
+                                  selectedTripId === trip.id && styles.tripItemSelected,
+                                ]}
+                                onPress={() => handleSelectTrip(trip)}
+                                activeOpacity={0.7}
+                              >
+                                <View style={styles.tripItemContent}>
+                                  <Text
+                                    style={[
+                                      styles.tripItemName,
+                                      selectedTripId === trip.id && styles.tripItemNameSelected,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {trip.name}
+                                  </Text>
+                                  <Text style={styles.tripItemCountry}>{trip.country_code}</Text>
+                                </View>
+                                {selectedTripId === trip.id && (
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={22}
+                                    color={colors.mossGreen}
+                                  />
+                                )}
+                              </TouchableOpacity>
+                            ))
+                          )}
+                        </ScrollView>
 
-                      {/* Create New Trip Button */}
-                      <TouchableOpacity
-                        style={styles.createButton}
-                        onPress={handleShowCreateForm}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.createButtonIcon}>
-                          <Ionicons name="add" size={20} color={colors.white} />
-                        </View>
-                        <Text style={styles.createButtonText}>Create New Trip</Text>
-                      </TouchableOpacity>
+                        {/* Create New Trip Button */}
+                        <TouchableOpacity
+                          style={styles.createButton}
+                          onPress={handleShowCreateForm}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.createButtonIcon}>
+                            <Ionicons name="add" size={20} color={colors.white} />
+                          </View>
+                          <Text style={styles.createButtonText}>Create New Trip</Text>
+                        </TouchableOpacity>
 
-                      <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
+                        <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
+                          <Text style={styles.cancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
                   </Pressable>
                 </BlurView>
               </View>

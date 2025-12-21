@@ -16,6 +16,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useAuthStore } from '@stores/authStore';
+import type { SocialProvider } from '../types/shared';
+
+export type { SocialProvider };
 
 /** Key for tracking if user has been notified about clipboard permission issues */
 const CLIPBOARD_PERMISSION_NOTIFIED_KEY = 'clipboard_permission_notified';
@@ -33,8 +36,6 @@ const INSTAGRAM_PATTERNS = [
   /^https?:\/\/(www\.)?instagram\.com\/(p|reel|reels)\//i,
   /^https?:\/\/instagr\.am\//i,
 ];
-
-export type SocialProvider = 'tiktok' | 'instagram';
 
 export interface DetectedClipboardUrl {
   url: string;
