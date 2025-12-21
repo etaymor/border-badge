@@ -87,8 +87,8 @@ export const PlacesSearchInput = memo(
 
 const styles = StyleSheet.create({
   inputWrapper: {
-    overflow: 'hidden',
     ...liquidGlass.input,
+    overflow: 'hidden',
   },
   inputWrapperFocused: {
     ...liquidGlass.floatingCard, // Apply elevated styles on focus

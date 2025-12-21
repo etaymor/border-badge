@@ -94,8 +94,8 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   wrapper: {
-    overflow: 'hidden',
     ...liquidGlass.input,
+    overflow: 'hidden',
   },
   wrapperFocused: {
     ...liquidGlass.floatingCard, // Apply elevated styles on focus

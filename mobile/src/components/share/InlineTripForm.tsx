@@ -248,9 +248,9 @@ const styles = StyleSheet.create({
 
   // Country Button
   countryButtonContainer: {
+    ...liquidGlass.container,
     borderRadius: 12,
     overflow: 'hidden',
-    ...liquidGlass.container,
     borderWidth: 0, // Handled by container style
   },
   countryButton: {

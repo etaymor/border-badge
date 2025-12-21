@@ -242,9 +242,9 @@ export function TripSelector({
 const styles = StyleSheet.create({
   // Dropdown Button
   dropdownButtonContainer: {
+    ...liquidGlass.container,
     borderRadius: 16,
     overflow: 'hidden',
-    ...liquidGlass.container,
     borderWidth: 0, // Handled by container style
   },
   dropdownButton: {
@@ -288,11 +288,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContainer: {
+    ...liquidGlass.floatingCard,
     width: '100%',
     maxWidth: 400,
     borderRadius: 24,
     overflow: 'hidden',
-    ...liquidGlass.floatingCard,
     backgroundColor: 'transparent',
     borderWidth: 0,
   },

@@ -265,13 +265,10 @@ export default function App() {
       });
     }
 
-    // Process any pending share when auth state changes
-    void processPendingShare();
-
     return () => {
       subscription.remove();
     };
-  }, [processPendingShare, tryNavigateToShareCapture]);
+  }, [tryNavigateToShareCapture]);
 
   useEffect(() => {
     // Wire up API sign-out callback

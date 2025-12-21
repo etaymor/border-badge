@@ -117,14 +117,14 @@ export const NoResultsDropdown = memo(function NoResultsDropdown({
 
 const styles = StyleSheet.create({
   dropdownContainer: {
+    ...liquidGlass.floatingCard,
     position: 'absolute',
     top: 56, // Input height (48) + margin (8)
     left: 0,
     right: 0,
     zIndex: 9999, // Super high z-index
-    // Use liquidGlass properties for shadow/elevation/border-radius container
+    // Override liquidGlass defaults
     borderRadius: 20,
-    ...liquidGlass.floatingCard,
     // Reset background and border to let BlurView handle visual fill
     backgroundColor: 'transparent',
     borderWidth: 0,
