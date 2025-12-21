@@ -3,13 +3,15 @@
  *
  * This service provides the React Native side of the iOS Share Extension integration.
  * It handles:
- * 1. Reading shared URLs from App Group storage (when native module is available)
+ * 1. Parsing shared URLs from deep link query parameters
  * 2. Processing deep links from the share extension
  * 3. Tracking processed shares to prevent duplicates
  *
- * Note: Full App Group reading requires a native module. For the initial implementation,
- * we rely on deep links with the share extension opening the app via borderbadge://share.
- * The URL is stored in App Group and read when the app opens.
+ * The iOS Share Extension passes the shared URL as a query parameter in the deep link:
+ * borderbadge://share?url=<encoded_url>
+ *
+ * The URL is also stored in App Group UserDefaults as a backup, though reading it
+ * requires a native module that is not currently installed.
  */
 
 import { Platform, NativeModules, Linking } from 'react-native';

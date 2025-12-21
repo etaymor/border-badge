@@ -91,9 +91,10 @@ NOISE_WORDS = {
 
 
 def _is_configured() -> bool:
-    """Check if Google Places API is configured."""
+    """Check if Google Places API is configured with a non-empty key."""
     settings = get_settings()
-    return bool(settings.google_places_api_key)
+    key = settings.google_places_api_key
+    return bool(key and key.strip())
 
 
 def extract_place_candidates(
@@ -440,14 +441,10 @@ async def get_place_details(place_id: str) -> dict | None:
 
     except (httpx.RequestError, ValueError) as e:
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        logger.error(
-            f"PLACES DETAILS EXCEPTION: {type(e).__name__}: {e}"
-        )
+        logger.error(f"PLACES DETAILS EXCEPTION: {type(e).__name__}: {e}")
         return None
     except Exception as e:
-        logger.error(
-            f"PLACES DETAILS UNEXPECTED EXCEPTION: {type(e).__name__}: {e}"
-        )
+        logger.error(f"PLACES DETAILS UNEXPECTED EXCEPTION: {type(e).__name__}: {e}")
         return None
 
 
@@ -605,8 +602,13 @@ async def extract_place(
         )
         return None
 
-    # Use INFO level so it's visible in development
-    logger.info(f"PLACE EXTRACTION candidates from title={title!r}: {candidates}")
+    # Log candidate count without exposing full title content (privacy)
+    logger.info(
+        f"PLACE EXTRACTION: {len(candidates)} candidates from title_len="
+        f"{len(title) if title else 0}"
+    )
+    # Debug level for full content (only visible in development with DEBUG logging)
+    logger.debug(f"PLACE EXTRACTION candidates: {candidates}")
 
     # Try top candidates in parallel for better performance
     top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]

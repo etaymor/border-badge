@@ -32,11 +32,10 @@ import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } f
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
 import {
   isShareExtensionDeepLink,
+  parseDeepLinkParams,
   savePendingShare,
   getPendingShare,
   clearPendingShare,
-  getSharedURLFromAppGroup,
-  clearSharedURLFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -119,9 +118,7 @@ export default function App() {
 
   // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
   const tryNavigateToShareCapture = useCallback(
-    (
-      params: ShareCaptureNavigationParams
-    ): 'navigated' | 'queued' | 'unauthenticated' => {
+    (params: ShareCaptureNavigationParams): 'navigated' | 'queued' | 'unauthenticated' => {
       if (!session?.user?.id) {
         return 'unauthenticated';
       }
@@ -230,20 +227,17 @@ export default function App() {
   useEffect(() => {
     /**
      * Process a share extension deep link.
-     * Reads the actual URL from App Group storage (set by the iOS Share Extension)
-     * and navigates to ShareCaptureScreen.
+     * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
      */
     const handleShareDeepLink = async (deepLinkUrl: string) => {
       // Only process share extension deep links
       if (!isShareExtensionDeepLink(deepLinkUrl)) return;
 
-      // Try to read the actual shared URL from App Group
-      const sharedUrl = await getSharedURLFromAppGroup();
+      // Extract the shared URL from the deep link query parameter
+      const params = parseDeepLinkParams(deepLinkUrl);
+      const sharedUrl = params.url;
 
       if (sharedUrl) {
-        // Clear the stored URL so we don't process it again
-        await clearSharedURLFromAppGroup();
-
         const result = tryNavigateToShareCapture({
           url: sharedUrl,
           source: 'share_extension',

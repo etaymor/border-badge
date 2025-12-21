@@ -46,8 +46,14 @@ class QueueLock {
   }
 
   release(): void {
+    // Defensive check: warn if release called when not locked and no waiters
+    if (!this.locked && this.waitQueue.length === 0) {
+      console.warn('QueueLock.release() called when not locked');
+      return;
+    }
+
     if (this.waitQueue.length > 0) {
-      // Pass lock to next waiter
+      // Pass lock to next waiter (lock stays true)
       const next = this.waitQueue.shift();
       next?.();
     } else {

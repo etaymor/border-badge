@@ -46,11 +46,7 @@ export function ClipboardBannerOverlay() {
   if (!detectedUrl) return null;
 
   return (
-    <ClipboardBanner
-      provider={detectedUrl.provider}
-      onSave={handleSave}
-      onDismiss={dismiss}
-    />
+    <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />
   );
 }
 

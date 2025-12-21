@@ -92,9 +92,11 @@ async def ingest_social_url(
     title = oembed.title if oembed else None
     oembed_data = oembed.raw if oembed else None
 
+    # Log oEmbed result without sensitive content (truncate title/caption for privacy)
     logger.info(
-        f"INGEST oEmbed result: title={title!r}, author={author_handle!r}, "
-        f"has_thumbnail={bool(thumbnail_url)}, caption={data.caption!r}"
+        f"INGEST oEmbed result: title_len={len(title) if title else 0}, "
+        f"author={author_handle!r}, has_thumbnail={bool(thumbnail_url)}, "
+        f"caption_len={len(data.caption) if data.caption else 0}"
     )
 
     # Step 3: Extract place from content

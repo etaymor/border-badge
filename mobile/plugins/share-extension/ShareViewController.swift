@@ -28,8 +28,8 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
-    /// Deep link URL to open the main app
-    private let appDeepLink = "borderbadge://share"
+    /// Deep link URL base to open the main app (URL is appended as query parameter)
+    private let appDeepLinkBase = "borderbadge://share"
 
     // MARK: - Lifecycle
 
@@ -146,15 +146,15 @@ class ShareViewController: UIViewController {
 
     /// Save URL to App Group and open main app
     private func saveAndOpenApp(_ urlString: String) {
-        // Save to App Group UserDefaults
+        // Save to App Group UserDefaults (as backup/fallback)
         if let userDefaults = UserDefaults(suiteName: appGroupID) {
             userDefaults.set(urlString, forKey: sharedURLKey)
             userDefaults.set(Date().timeIntervalSince1970, forKey: timestampKey)
             userDefaults.synchronize()
         }
 
-        // Open main app via deep link
-        openMainApp()
+        // Open main app via deep link with URL as query parameter
+        openMainApp(with: urlString)
 
         // Complete extension after brief delay to allow app launch
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -164,9 +164,11 @@ class ShareViewController: UIViewController {
 
     // MARK: - App Opening
 
-    /// Open the main BorderBadge app via deep link
-    private func openMainApp() {
-        guard let url = URL(string: appDeepLink) else { return }
+    /// Open the main BorderBadge app via deep link with the shared URL
+    private func openMainApp(with sharedURL: String) {
+        // URL-encode the shared URL and pass it as a query parameter
+        guard let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(appDeepLinkBase)?url=\(encodedURL)") else { return }
 
         // Use responder chain to access UIApplication.shared.open
         // This is the approved way to open URLs from extensions

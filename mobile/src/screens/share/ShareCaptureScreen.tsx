@@ -35,6 +35,7 @@ import {
   SocialProvider,
 } from '@hooks/useSocialIngest';
 import { useCreateTrip, useTrips } from '@hooks/useTrips';
+import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
@@ -75,10 +76,7 @@ function getProviderDisplayName(provider: SocialProvider | null): string {
 
 // Infer entry type from Google Places type
 // See: https://developers.google.com/maps/documentation/places/web-service/place-types
-function inferEntryTypeFromPlaceTypes(
-  primaryType: string | null,
-  types: string[]
-): EntryType {
+function inferEntryTypeFromPlaceTypes(primaryType: string | null, types: string[]): EntryType {
   const allTypes = primaryType ? [primaryType, ...types] : types;
   const typesLower = allTypes.map((t) => t.toLowerCase());
 
@@ -261,6 +259,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   const socialIngest = useSocialIngest();
   const saveToTrip = useSaveToTrip();
   const createTrip = useCreateTrip();
+  const createEntry = useCreateEntry();
 
   // Trips data for auto-selection
   const { data: trips = [] } = useTrips();
@@ -395,8 +394,6 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   );
 
   const handleSave = useCallback(async () => {
-    if (!ingestResult) return;
-
     // Validation
     if (!selectedPlace) {
       Alert.alert('Location Required', 'Please select or search for a location.');
@@ -407,6 +404,44 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
       Alert.alert('Trip Required', 'Please select or create a trip.');
       return;
     }
+
+    // In manual entry mode, create entry directly without saved_source
+    if (isManualEntryMode) {
+      const placeInput: PlaceInput = {
+        google_place_id: selectedPlace.google_place_id,
+        name: selectedPlace.name,
+        address: selectedPlace.address,
+        latitude: selectedPlace.latitude,
+        longitude: selectedPlace.longitude,
+        google_photo_url: selectedPlace.google_photo_url,
+      };
+
+      createEntry.mutate(
+        {
+          trip_id: selectedTripId,
+          entry_type: entryType,
+          title: selectedPlace.name,
+          notes: notes.trim() || undefined,
+          link: url, // Keep the original URL as a reference
+          place: placeInput,
+        },
+        {
+          onSuccess: () => {
+            const detectedProvider = detectProviderFromUrl(url);
+            Analytics.shareCompleted({
+              provider: detectedProvider ?? 'tiktok',
+              entryType: entryType,
+              tripId: selectedTripId,
+            });
+            navigation.goBack();
+          },
+        }
+      );
+      return;
+    }
+
+    // Normal flow with saved_source
+    if (!ingestResult) return;
 
     saveToTrip.mutate(
       {
@@ -427,7 +462,18 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
         },
       }
     );
-  }, [ingestResult, selectedPlace, selectedTripId, entryType, notes, saveToTrip, navigation]);
+  }, [
+    selectedPlace,
+    selectedTripId,
+    isManualEntryMode,
+    createEntry,
+    entryType,
+    notes,
+    url,
+    navigation,
+    ingestResult,
+    saveToTrip,
+  ]);
 
   const handleRetry = useCallback(() => {
     setError(null);
@@ -435,10 +481,11 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   }, [socialIngest, url, caption]);
 
   const handleManualEntry = useCallback(() => {
-    // Create a minimal ingest result to allow manual entry
+    // Enable manual entry mode - we'll create an entry directly without saved_source
+    // Set a minimal ingest result just for UI display purposes (provider badge, etc.)
     const detectedProvider = detectProviderFromUrl(url);
     setIngestResult({
-      saved_source_id: `manual_${Date.now()}`, // Temporary ID for manual entries
+      saved_source_id: '', // Not used in manual mode - entry is created directly
       provider: detectedProvider ?? 'tiktok',
       canonical_url: url,
       thumbnail_url: null,
@@ -652,8 +699,10 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             <Button
               title="Save to Trip"
               onPress={handleSave}
-              loading={saveToTrip.isPending}
-              disabled={saveToTrip.isPending || !selectedPlace || !selectedTripId}
+              loading={saveToTrip.isPending || createEntry.isPending}
+              disabled={
+                saveToTrip.isPending || createEntry.isPending || !selectedPlace || !selectedTripId
+              }
             />
           </View>
         </ScrollView>
