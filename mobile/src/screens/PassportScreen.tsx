@@ -87,6 +87,46 @@ interface StatBoxProps {
   show: boolean;
 }
 
+// Animated row wrapper for scroll entrance animations
+// Uses fast, subtle fade + slide for polish without causing gaps during fast scroll
+interface AnimatedRowProps {
+  children: React.ReactNode;
+  style?: object;
+}
+
+function AnimatedRow({ children, style }: AnimatedRowProps) {
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: 1,
+      duration: 200, // Fast enough to not cause gaps
+      useNativeDriver: true,
+    }).start();
+  }, [animValue]);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: animValue,
+          transform: [
+            {
+              translateY: animValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [12, 0], // Subtle slide up
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 function StatBox({
   value,
   label,
@@ -561,7 +601,7 @@ export function PassportScreen({ navigation }: Props) {
 
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[]) => (
-      <View style={styles.stampRow}>
+      <AnimatedRow style={styles.stampRow}>
         {stamps.map((item) => (
           <StampCard
             key={item.code}
@@ -570,14 +610,14 @@ export function PassportScreen({ navigation }: Props) {
             onPress={() => handleCountryPress(item)}
           />
         ))}
-      </View>
+      </AnimatedRow>
     ),
     [handleCountryPress]
   );
 
   const renderUnvisitedRow = useCallback(
     (countries: UnvisitedCountry[]) => (
-      <View style={styles.unvisitedRow}>
+      <AnimatedRow style={styles.unvisitedRow}>
         {countries.map((country) => (
           <View key={country.code} style={styles.countryCardWrapper}>
             <CountryCard
@@ -592,7 +632,7 @@ export function PassportScreen({ navigation }: Props) {
             />
           </View>
         ))}
-      </View>
+      </AnimatedRow>
     ),
     [handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
   );
