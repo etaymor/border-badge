@@ -6,7 +6,8 @@
  * to the foreground or network connectivity is restored.
  *
  * Features:
- * - Exponential backoff retry logic (5s base, 1h max, 10 retries max)
+ * - Exponential backoff retry logic (5s base, 5min max, 3 retries max)
+ * - Auto-abandonment after 3 failed retries (shares are removed from queue)
  * - Automatic expiration of old shares (7 days)
  * - Deduplication by URL
  * - Silent error handling (logs but doesn't throw)
@@ -20,9 +21,42 @@ const SHARE_QUEUE_KEY = 'share_queue';
 
 // Retry configuration
 const BACKOFF_BASE_MS = 5000; // 5 seconds
-const BACKOFF_MAX_MS = 3600000; // 1 hour max
-const MAX_RETRIES = 10;
+const BACKOFF_MAX_MS = 300000; // 5 minutes max (reduced from 1 hour)
+const MAX_RETRIES = 3; // Reduced from 10 - auto-abandon after 3 failures
 const EXPIRY_DAYS = 7;
+
+/**
+ * Simple mutex lock for AsyncStorage operations to prevent race conditions.
+ * Ensures sequential access to the share queue.
+ */
+class QueueLock {
+  private locked = false;
+  private waitQueue: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true;
+      return;
+    }
+
+    // Wait for lock to be released
+    return new Promise((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      // Pass lock to next waiter
+      const next = this.waitQueue.shift();
+      next?.();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
+const queueLock = new QueueLock();
 
 /**
  * Entry type for saved places
@@ -134,10 +168,12 @@ function generateId(): string {
 
 /**
  * Add a failed share to the retry queue
+ * Uses locking to prevent race conditions with concurrent queue operations.
  *
  * @param share - The share data to queue
  */
 export async function enqueueFailedShare(share: EnqueueShareInput): Promise<void> {
+  await queueLock.acquire();
   try {
     const queue = await readQueue();
 
@@ -167,6 +203,8 @@ export async function enqueueFailedShare(share: EnqueueShareInput): Promise<void
     await writeQueue(queue);
   } catch (error) {
     console.error('Failed to enqueue share:', error);
+  } finally {
+    queueLock.release();
   }
 }
 
@@ -193,16 +231,20 @@ export async function getPendingShareCount(): Promise<number> {
 
 /**
  * Remove a share from the queue after successful processing
+ * Uses locking to prevent race conditions.
  *
  * @param id - The ID of the share to remove
  */
 export async function dequeueShare(id: string): Promise<void> {
+  await queueLock.acquire();
   try {
     const queue = await readQueue();
     const filtered = queue.filter((share) => share.id !== id);
     await writeQueue(filtered);
   } catch (error) {
     console.error('Failed to dequeue share:', error);
+  } finally {
+    queueLock.release();
   }
 }
 
@@ -226,35 +268,55 @@ export async function getNextRetryableShare(): Promise<QueuedShare | null> {
 
 /**
  * Mark a retry attempt for a share
- * Updates retryCount and lastRetryAt, optionally sets error message
+ * Updates retryCount and lastRetryAt, optionally sets error message.
+ * Auto-removes the share if it exceeds MAX_RETRIES.
+ * Uses locking to prevent race conditions.
  *
  * @param id - The ID of the share
  * @param error - Optional error message from the retry attempt
+ * @returns true if share was abandoned (removed after max retries)
  */
-export async function markRetryAttempt(id: string, error?: string): Promise<void> {
+export async function markRetryAttempt(id: string, error?: string): Promise<boolean> {
+  await queueLock.acquire();
   try {
     const queue = await readQueue();
     const index = queue.findIndex((share) => share.id === id);
 
     if (index !== -1) {
+      const newRetryCount = queue[index].retryCount + 1;
+
+      // Auto-abandon after MAX_RETRIES
+      if (newRetryCount >= MAX_RETRIES) {
+        queue.splice(index, 1);
+        await writeQueue(queue);
+        console.log(`Share ${id} abandoned after ${MAX_RETRIES} retries`);
+        return true;
+      }
+
       queue[index] = {
         ...queue[index],
-        retryCount: queue[index].retryCount + 1,
+        retryCount: newRetryCount,
         lastRetryAt: Date.now(),
         error: error,
       };
       await writeQueue(queue);
     }
+    return false;
   } catch (err) {
     console.error('Failed to mark retry attempt:', err);
+    return false;
+  } finally {
+    queueLock.release();
   }
 }
 
 /**
  * Clear all expired shares from the queue
  * Should be called periodically (e.g., on app foreground)
+ * Uses locking to prevent race conditions.
  */
 export async function clearExpiredShares(): Promise<void> {
+  await queueLock.acquire();
   try {
     const queue = await readQueue();
     const filtered = queue.filter((share) => !isExpired(share));
@@ -265,6 +327,8 @@ export async function clearExpiredShares(): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to clear expired shares:', error);
+  } finally {
+    queueLock.release();
   }
 }
 
@@ -341,6 +405,7 @@ export async function getShareById(id: string): Promise<QueuedShare | null> {
 
 /**
  * Update a share's data (e.g., after user selects trip or confirms place)
+ * Uses locking to prevent race conditions.
  *
  * @param id - The ID of the share to update
  * @param updates - Partial share data to merge
@@ -349,6 +414,7 @@ export async function updateShare(
   id: string,
   updates: Partial<Omit<QueuedShare, 'id' | 'createdAt'>>
 ): Promise<void> {
+  await queueLock.acquire();
   try {
     const queue = await readQueue();
     const index = queue.findIndex((share) => share.id === id);
@@ -362,5 +428,68 @@ export async function updateShare(
     }
   } catch (error) {
     console.error('Failed to update share:', error);
+  } finally {
+    queueLock.release();
+  }
+}
+
+/**
+ * Remove a share from the queue by ID
+ * Use this to manually clear a share without processing it.
+ *
+ * @param id - The ID of the share to remove
+ * @returns true if the share was found and removed
+ */
+export async function removeFromQueue(id: string): Promise<boolean> {
+  await queueLock.acquire();
+  try {
+    const queue = await readQueue();
+    const index = queue.findIndex((share) => share.id === id);
+
+    if (index !== -1) {
+      queue.splice(index, 1);
+      await writeQueue(queue);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Failed to remove share from queue:', error);
+    return false;
+  } finally {
+    queueLock.release();
+  }
+}
+
+/**
+ * Retry a single share immediately, bypassing backoff timing
+ *
+ * @param id - The ID of the share to retry
+ * @param retryFn - Function to process the share, returns true if successful
+ * @returns 'success' if processed successfully, 'failed' if retry failed, 'not_found' if share not in queue
+ */
+export async function retrySingleShare(
+  id: string,
+  retryFn: (share: QueuedShare) => Promise<boolean>
+): Promise<'success' | 'failed' | 'not_found'> {
+  const share = await getShareById(id);
+
+  if (!share) {
+    return 'not_found';
+  }
+
+  try {
+    const success = await retryFn(share);
+
+    if (success) {
+      await dequeueShare(id);
+      return 'success';
+    } else {
+      await markRetryAttempt(id, 'Manual retry failed');
+      return 'failed';
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await markRetryAttempt(id, errorMessage);
+    return 'failed';
   }
 }

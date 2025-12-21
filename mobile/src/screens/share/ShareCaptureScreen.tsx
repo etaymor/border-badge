@@ -32,16 +32,19 @@ import {
   useSaveToTrip,
   DetectedPlace,
   SocialIngestResponse,
+  SocialProvider,
 } from '@hooks/useSocialIngest';
 import { useCreateTrip } from '@hooks/useTrips';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { TripSelector } from '@components/share/TripSelector';
+import { PendingSharesBanner } from '@components/share/PendingSharesBanner';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { Analytics } from '@services/analytics';
-import { enqueueFailedShare } from '@services/shareQueue';
+import { enqueueFailedShare, QueuedShare } from '@services/shareQueue';
+import { api } from '@services/api';
 
 type Props = PassportStackScreenProps<'ShareCapture'>;
 
@@ -51,12 +54,32 @@ const PROVIDER_COLORS = {
   instagram: '#E1306C',
 };
 
+// Detect provider from URL for loading state
+function detectProviderFromUrl(url: string): SocialProvider | null {
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.includes('tiktok.com') || lowerUrl.includes('vm.tiktok')) {
+    return 'tiktok';
+  }
+  if (lowerUrl.includes('instagram.com')) {
+    return 'instagram';
+  }
+  return null;
+}
+
+// Get display name for provider
+function getProviderDisplayName(provider: SocialProvider | null): string {
+  if (provider === 'tiktok') return 'TikTok';
+  if (provider === 'instagram') return 'Instagram';
+  return 'the link';
+}
+
 // Error details helper for user-friendly messages
 interface ErrorDetails {
   title: string;
   message: string;
   canRetry: boolean;
   isOffline: boolean;
+  showManualEntry: boolean;
 }
 
 function getErrorDetails(error: string): ErrorDetails {
@@ -75,6 +98,7 @@ function getErrorDetails(error: string): ErrorDetails {
       message: 'Check your internet connection and try again, or save for later.',
       canRetry: true,
       isOffline: true,
+      showManualEntry: false,
     };
   }
 
@@ -89,16 +113,18 @@ function getErrorDetails(error: string): ErrorDetails {
       message: 'Please wait a moment before trying again.',
       canRetry: true,
       isOffline: false,
+      showManualEntry: false,
     };
   }
 
-  // Provider-specific errors
+  // Provider-specific errors - allow manual entry
   if (lowerError.includes('tiktok') && lowerError.includes('unavailable')) {
     return {
       title: 'TikTok Unavailable',
       message: "We couldn't fetch details from TikTok. You can still add the place manually.",
       canRetry: false,
       isOffline: false,
+      showManualEntry: true,
     };
   }
 
@@ -108,6 +134,7 @@ function getErrorDetails(error: string): ErrorDetails {
       message: "We couldn't fetch details from Instagram. You can still add the place manually.",
       canRetry: false,
       isOffline: false,
+      showManualEntry: true,
     };
   }
 
@@ -118,6 +145,7 @@ function getErrorDetails(error: string): ErrorDetails {
       message: 'This link format is not supported. Please share a TikTok or Instagram video URL.',
       canRetry: false,
       isOffline: false,
+      showManualEntry: false,
     };
   }
 
@@ -128,15 +156,17 @@ function getErrorDetails(error: string): ErrorDetails {
       message: 'Currently we only support TikTok and Instagram links.',
       canRetry: false,
       isOffline: false,
+      showManualEntry: false,
     };
   }
 
-  // Generic fallback
+  // Generic fallback - allow manual entry as a fallback option
   return {
     title: "Couldn't Process Link",
     message: error,
     canRetry: true,
     isOffline: false,
+    showManualEntry: true,
   };
 }
 
@@ -158,13 +188,14 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   const [notes, setNotes] = useState('');
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
+  const [isManualEntryMode, setIsManualEntryMode] = useState(false);
 
   // Error state
   const [error, setError] = useState<string | null>(null);
 
   // Process URL on mount
   useEffect(() => {
-    Analytics.shareStarted({ source: source ?? 'unknown', url: url.substring(0, 50) });
+    Analytics.shareStarted({ source: source ?? 'unknown', url });
 
     socialIngest.mutate(
       { url, caption },
@@ -232,11 +263,20 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
       try {
         const trip = await createTrip.mutateAsync({ name, country_code: countryCode });
         return trip.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create trip';
+        setError(message);
+        Analytics.shareFailed({
+          provider: ingestResult?.provider ?? 'unknown',
+          error: message,
+          stage: 'save',
+        });
+        throw err; // Re-throw so caller knows it failed
       } finally {
         setIsCreatingTrip(false);
       }
     },
-    [createTrip]
+    [createTrip, ingestResult?.provider]
   );
 
   const handleSave = useCallback(async () => {
@@ -279,26 +319,56 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     socialIngest.mutate({ url, caption });
   }, [socialIngest, url, caption]);
 
+  const handleManualEntry = useCallback(() => {
+    // Create a minimal ingest result to allow manual entry
+    const detectedProvider = detectProviderFromUrl(url);
+    setIngestResult({
+      saved_source_id: `manual_${Date.now()}`, // Temporary ID for manual entries
+      provider: detectedProvider ?? 'tiktok',
+      canonical_url: url,
+      thumbnail_url: null,
+      author_handle: null,
+      title: null,
+      detected_place: null,
+    });
+    setIsManualEntryMode(true);
+    setError(null);
+  }, [url]);
+
   const handleSaveForLater = useCallback(async () => {
+    // Map ShareCaptureSource to ShareSource (deep_link falls back to clipboard)
+    const queueSource = source === 'share_extension' ? 'share_extension' : 'clipboard';
     await enqueueFailedShare({
       url,
-      source: source ?? 'clipboard',
+      source: queueSource,
       createdAt: Date.now(),
       error: error ?? 'Saved for later',
     });
-    Analytics.shareQueued({ url: url.substring(0, 50), reason: 'offline' });
+    Analytics.shareQueued({ url, reason: 'offline' });
     Alert.alert('Saved for Later', "We'll process this link when you're back online.", [
       { text: 'OK', onPress: () => navigation.goBack() },
     ]);
   }, [url, source, error, navigation]);
 
+  // Retry function for pending shares banner
+  const handleQueueRetry = useCallback(async (share: QueuedShare): Promise<boolean> => {
+    try {
+      const response = await api.post('/ingest/social', { url: share.url });
+      // If successful, the share will be removed from queue by the banner
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Loading state
   if (socialIngest.isPending && !ingestResult) {
+    const detectedProvider = detectProviderFromUrl(url);
+    const providerName = getProviderDisplayName(detectedProvider);
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={colors.sunsetGold} />
-        <Text style={styles.loadingText}>Processing link...</Text>
-        <Text style={styles.loadingSubtext}>Fetching place details</Text>
+        <Text style={styles.loadingText}>Fetching details from {providerName}...</Text>
       </View>
     );
   }
@@ -318,6 +388,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           <Text style={styles.errorMessage}>{errorDetails.message}</Text>
           <View style={styles.errorActions}>
             {errorDetails.canRetry && <Button title="Try Again" onPress={handleRetry} />}
+            {errorDetails.showManualEntry && (
+              <Button title="Enter Manually" onPress={handleManualEntry} variant="secondary" />
+            )}
             {errorDetails.isOffline && (
               <Button title="Save for Later" onPress={handleSaveForLater} variant="secondary" />
             )}
@@ -352,6 +425,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           showsVerticalScrollIndicator={false}
           scrollEnabled={scrollEnabled}
         >
+          {/* Pending Shares Banner */}
+          <PendingSharesBanner retryFn={handleQueueRetry} />
+
           {/* Thumbnail Card */}
           {ingestResult && (
             <View style={styles.thumbnailCard}>
@@ -410,6 +486,16 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               <Text style={styles.detectionText}>
                 Place detected:{' '}
                 <Text style={styles.detectionPlace}>{ingestResult.detected_place.name}</Text>
+              </Text>
+            </View>
+          )}
+
+          {/* Manual Entry Mode Banner */}
+          {isManualEntryMode && !ingestResult?.detected_place && (
+            <View style={styles.manualEntryBanner}>
+              <Ionicons name="search-outline" size={16} color={colors.sunsetGold} />
+              <Text style={styles.manualEntryText}>
+                Search for the place below to save it to your trip.
               </Text>
             </View>
           )}
@@ -495,12 +581,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.midnightNavy,
     marginTop: 20,
-  },
-  loadingSubtext: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    marginTop: 8,
+    textAlign: 'center',
   },
 
   // Error
@@ -649,6 +730,24 @@ const styles = StyleSheet.create({
   },
   detectionPlace: {
     fontFamily: fonts.openSans.semiBold,
+  },
+
+  // Manual Entry Banner
+  manualEntryBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(218, 165, 32, 0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 20,
+    gap: 8,
+  },
+  manualEntryText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.midnightNavy,
+    flex: 1,
   },
 
   // Sections
