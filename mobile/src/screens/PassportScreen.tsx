@@ -98,12 +98,14 @@ function AnimatedRow({ children, style }: AnimatedRowProps) {
   const animValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(animValue, {
+    const anim = Animated.timing(animValue, {
       toValue: 1,
       duration: 200, // Fast enough to not cause gaps
       useNativeDriver: true,
-    }).start();
-  }, [animValue]);
+    });
+    anim.start();
+    return () => anim.stop(); // Cleanup on unmount
+  }, []); // Only run on mount - animValue is stable ref
 
   return (
     <Animated.View
