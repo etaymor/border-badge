@@ -19,6 +19,7 @@ from starlette.responses import Response
 from app.core.config import get_settings
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
+from app.services.oembed_adapters import cleanup_expired_cache
 
 # CSP nonce key for request state
 CSP_NONCE_KEY = "csp_nonce"
@@ -47,7 +48,12 @@ from app.api import router as api_router  # noqa: E402, I001
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
-    # Startup
+    # Startup - clean up expired oEmbed cache entries
+    try:
+        await cleanup_expired_cache()
+    except Exception:
+        # Don't fail startup if cache cleanup fails
+        pass
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

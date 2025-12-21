@@ -15,6 +15,9 @@ import * as Clipboard from 'expo-clipboard';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useAuthStore } from '@stores/authStore';
 
+/** Maximum URL length to prevent malicious clipboard hijacking */
+const MAX_URL_LENGTH = 2048;
+
 /** URL patterns for social media platforms we support */
 const TIKTOK_PATTERNS = [
   /^https?:\/\/(www\.|vm\.)?tiktok\.com\//i,
@@ -35,11 +38,17 @@ export interface DetectedClipboardUrl {
 
 /**
  * Check if a URL matches TikTok or Instagram patterns.
+ * Validates URL length to prevent malicious clipboard hijacking.
  */
 export function detectSocialUrl(text: string | null): DetectedClipboardUrl | null {
   if (!text) return null;
 
   const trimmed = text.trim();
+
+  // Validate URL length to prevent malicious clipboard content
+  if (trimmed.length > MAX_URL_LENGTH) {
+    return null;
+  }
 
   // Check TikTok patterns
   for (const pattern of TIKTOK_PATTERNS) {

@@ -1,5 +1,6 @@
 """Social media ingest endpoints."""
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
-from app.schemas.entries import EntryWithPlace, Place, PlaceCreate
+from app.schemas.entries import Entry, EntryWithPlace, Place, PlaceCreate
 from app.schemas.social_ingest import (
     SavedSource,
     SaveToTripRequest,
@@ -158,8 +159,8 @@ async def save_to_trip(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Verify saved source belongs to user and exists
-    sources = await db.get(
+    # Verify saved source and trip in parallel to reduce latency
+    source_task = db.get(
         "saved_source",
         {
             "id": f"eq.{data.saved_source_id}",
@@ -167,17 +168,7 @@ async def save_to_trip(
             "select": "*",
         },
     )
-
-    if not sources:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Saved source not found",
-        )
-
-    source = sources[0]
-
-    # Verify trip belongs to user
-    trips = await db.get(
+    trip_task = db.get(
         "trip",
         {
             "id": f"eq.{data.trip_id}",
@@ -185,11 +176,21 @@ async def save_to_trip(
         },
     )
 
+    sources, trips = await asyncio.gather(source_task, trip_task)
+
+    if not sources:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved source not found",
+        )
+
     if not trips:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trip not found",
         )
+
+    source = sources[0]
 
     # Create the entry
     place_data = None
@@ -238,12 +239,10 @@ async def save_to_trip(
             detail="Failed to create entry",
         )
 
-    from app.schemas.entries import Entry
-
     entry = Entry(**entry_rows[0])
     place = None
 
-    # Create place if provided
+    # Create place if provided, with cleanup on failure
     if place_data:
         place_insert = {
             "entry_id": str(entry.id),
@@ -254,9 +253,36 @@ async def save_to_trip(
             "address": place_data.address,
             "extra_data": place_data.extra_data,
         }
-        place_rows = await db.post("place", place_insert)
-        if place_rows:
-            place = Place(**place_rows[0])
+        try:
+            place_rows = await db.post("place", place_insert)
+            if place_rows:
+                place = Place(**place_rows[0])
+        except Exception as place_error:
+            # Clean up orphaned entry on place creation failure
+            logger.error(
+                "save_to_trip_place_failed",
+                extra={
+                    "event": "save_to_trip_error",
+                    "user_id": str(user.id),
+                    "entry_id": str(entry.id),
+                    "error": str(place_error)[:200],
+                },
+            )
+            try:
+                await db.delete("entry", {"id": f"eq.{entry.id}"})
+            except Exception as cleanup_error:
+                logger.error(
+                    "save_to_trip_cleanup_failed",
+                    extra={
+                        "event": "save_to_trip_cleanup_error",
+                        "entry_id": str(entry.id),
+                        "error": str(cleanup_error)[:200],
+                    },
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create place for entry",
+            ) from place_error
 
     # Link saved source to entry
     await db.patch(

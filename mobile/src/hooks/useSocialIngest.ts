@@ -70,11 +70,40 @@ export interface SaveToTripRequest {
   notes?: string;
 }
 
-// Response from saving to trip
-export interface SaveToTripResponse {
+// Place attached to an entry
+export interface EntryPlace {
+  id: string;
   entry_id: string;
+  google_place_id: string | null;
+  place_name: string;
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  extra_data: Record<string, unknown> | null;
+}
+
+// Media file attached to an entry
+export interface EntryMediaFile {
+  id: string;
+  url: string;
+  thumbnail_url: string | null;
+  status: string;
+}
+
+// Response from saving to trip - matches backend EntryWithPlace
+export interface SaveToTripResponse {
+  id: string;
   trip_id: string;
-  saved_source_id: string;
+  type: EntryType;
+  title: string;
+  notes: string | null;
+  link: string | null;
+  metadata: Record<string, unknown> | null;
+  date: string | null;
+  created_at: string;
+  deleted_at: string | null;
+  place: EntryPlace | null;
+  media_files: EntryMediaFile[];
 }
 
 const SAVED_SOURCES_QUERY_KEY = ['saved_sources'];
@@ -125,7 +154,7 @@ export function useSaveToTrip() {
     onSuccess: (data) => {
       // Track analytics
       Analytics.shareSaved({
-        entryId: data.entry_id,
+        entryId: data.id,
         tripId: data.trip_id,
       });
 

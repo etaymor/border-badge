@@ -1,5 +1,6 @@
 """Place extraction from social media content using Google Places API."""
 
+import asyncio
 import logging
 import re
 import time
@@ -17,6 +18,9 @@ PLACES_DETAILS_URL = "https://places.googleapis.com/v1/places"
 
 # API timeouts
 API_TIMEOUT_SECONDS = 5.0
+
+# Input length limits to prevent ReDoS attacks
+MAX_TEXT_LENGTH = 5000  # Maximum length of text to process for place extraction
 
 # Confidence thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.8
@@ -104,6 +108,8 @@ def extract_place_candidates(
     - User caption
     - Author name (sometimes contains location)
 
+    Input is truncated to prevent ReDoS attacks.
+
     Args:
         title: The video/post title from oEmbed
         caption: User-provided caption when sharing
@@ -113,6 +119,14 @@ def extract_place_candidates(
         List of potential place name candidates, ordered by likelihood
     """
     candidates: list[str] = []
+
+    # Truncate inputs to prevent ReDoS attacks
+    if title and len(title) > MAX_TEXT_LENGTH:
+        title = title[:MAX_TEXT_LENGTH]
+    if caption and len(caption) > MAX_TEXT_LENGTH:
+        caption = caption[:MAX_TEXT_LENGTH]
+    if author_name and len(author_name) > 500:  # Author names are shorter
+        author_name = author_name[:500]
 
     # Process title - often contains the best place info
     if title:
@@ -177,6 +191,7 @@ def _clean_text_for_search(text: str) -> str:
     """Clean text for use in place search.
 
     Removes hashtags, mentions, emojis, and other noise.
+    Truncates input to prevent ReDoS attacks.
 
     Args:
         text: Raw text to clean
@@ -184,6 +199,10 @@ def _clean_text_for_search(text: str) -> str:
     Returns:
         Cleaned text suitable for search
     """
+    # Truncate to prevent ReDoS attacks on regex operations
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
     # Remove hashtags and mentions
     cleaned = re.sub(r"[#@]\w+", " ", text)
 
@@ -486,6 +505,71 @@ def _calculate_confidence(
     return round(confidence, 2)
 
 
+async def _try_candidate(candidate: str) -> DetectedPlace | None:
+    """Try to resolve a single place candidate.
+
+    Args:
+        candidate: Place name candidate to search
+
+    Returns:
+        DetectedPlace if found, None otherwise
+    """
+    results = await search_places(candidate)
+
+    if not results:
+        return None
+
+    # Take the first result
+    first_result = results[0]
+    place_id = first_result.get("place_id")
+
+    if not place_id:
+        return None
+
+    # Fetch full details
+    details = await get_place_details(place_id)
+
+    if not details:
+        return None
+
+    # Calculate confidence
+    confidence = _calculate_confidence(
+        query=candidate,
+        place_name=details.get("name", ""),
+        is_first_result=True,
+    )
+
+    detected = DetectedPlace(
+        google_place_id=details.get("place_id"),
+        name=details.get("name", candidate),
+        address=details.get("address"),
+        latitude=details.get("latitude"),
+        longitude=details.get("longitude"),
+        city=details.get("city"),
+        country=details.get("country"),
+        country_code=details.get("country_code"),
+        confidence=confidence,
+    )
+
+    logger.info(
+        "place_extraction_success",
+        extra={
+            "event": "place_extraction",
+            "result": "found",
+            "query": candidate[:50],
+            "place_name": detected.name[:50] if detected.name else None,
+            "country_code": detected.country_code,
+            "confidence": confidence,
+        },
+    )
+
+    return detected
+
+
+# Maximum candidates to try in parallel (limits API calls)
+MAX_PARALLEL_CANDIDATES = 3
+
+
 async def extract_place(
     oembed: OEmbedResponse | None,
     caption: str | None = None,
@@ -493,7 +577,8 @@ async def extract_place(
     """Extract a place from social media content.
 
     Attempts to identify and resolve a place from the oEmbed metadata
-    and user caption using Google Places API.
+    and user caption using Google Places API. Tries top candidates in
+    parallel for better performance.
 
     Args:
         oembed: oEmbed response from the social media provider
@@ -525,58 +610,21 @@ async def extract_place(
 
     logger.debug(f"place_extraction_candidates: {candidates[:5]}")
 
-    # Try each candidate until we find a good match
-    for candidate in candidates:
-        results = await search_places(candidate)
+    # Try top candidates in parallel for better performance
+    top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]
+    tasks = [_try_candidate(c) for c in top_candidates]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        if not results:
-            continue
+    # Return first successful result (order preserved)
+    for result in results:
+        if result is not None and not isinstance(result, Exception):
+            return result
 
-        # Take the first result
-        first_result = results[0]
-        place_id = first_result.get("place_id")
-
-        if not place_id:
-            continue
-
-        # Fetch full details
-        details = await get_place_details(place_id)
-
-        if not details:
-            continue
-
-        # Calculate confidence
-        confidence = _calculate_confidence(
-            query=candidate,
-            place_name=details.get("name", ""),
-            is_first_result=True,
-        )
-
-        detected = DetectedPlace(
-            google_place_id=details.get("place_id"),
-            name=details.get("name", candidate),
-            address=details.get("address"),
-            latitude=details.get("latitude"),
-            longitude=details.get("longitude"),
-            city=details.get("city"),
-            country=details.get("country"),
-            country_code=details.get("country_code"),
-            confidence=confidence,
-        )
-
-        logger.info(
-            "place_extraction_success",
-            extra={
-                "event": "place_extraction",
-                "result": "found",
-                "query": candidate[:50],
-                "place_name": detected.name[:50] if detected.name else None,
-                "country_code": detected.country_code,
-                "confidence": confidence,
-            },
-        )
-
-        return detected
+    # If parallel batch failed, try remaining candidates sequentially
+    for candidate in candidates[MAX_PARALLEL_CANDIDATES:]:
+        result = await _try_candidate(candidate)
+        if result is not None:
+            return result
 
     logger.info(
         "place_extraction_no_match",

@@ -83,7 +83,9 @@ class TestNormalizeUrl:
         assert "utm_source" not in normalized
 
     def test_removes_utm_params(self):
-        url = "https://www.tiktok.com/@user/video/123?utm_campaign=test&utm_medium=email"
+        url = (
+            "https://www.tiktok.com/@user/video/123?utm_campaign=test&utm_medium=email"
+        )
         normalized = normalize_url(url)
         assert "utm_campaign" not in normalized
         assert "utm_medium" not in normalized
@@ -168,7 +170,9 @@ class TestFollowRedirect:
         with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
             mock_response = AsyncMock()
             mock_response.status_code = 302
-            mock_response.headers = {"location": "https://www.tiktok.com/@user/video/123"}
+            mock_response.headers = {
+                "location": "https://www.tiktok.com/@user/video/123"
+            }
 
             mock_client_instance = AsyncMock()
             mock_client_instance.head = AsyncMock(return_value=mock_response)
@@ -212,7 +216,9 @@ class TestFollowRedirect:
 
         with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
             mock_client_instance = AsyncMock()
-            mock_client_instance.head = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+            mock_client_instance.head = AsyncMock(
+                side_effect=httpx.TimeoutException("timeout")
+            )
             mock_client.return_value.__aenter__.return_value = mock_client_instance
 
             original_url = "https://vm.tiktok.com/short"
@@ -226,7 +232,9 @@ class TestCanonicalizeUrl:
     @pytest.mark.asyncio
     async def test_canonicalizes_tiktok_url(self):
         with patch("app.services.url_resolver.follow_redirect") as mock_redirect:
-            mock_redirect.return_value = "https://www.tiktok.com/@user/video/123?is_from_webapp=1"
+            mock_redirect.return_value = (
+                "https://www.tiktok.com/@user/video/123?is_from_webapp=1"
+            )
 
             canonical, provider = await canonicalize_url("https://vm.tiktok.com/short")
 
@@ -237,9 +245,13 @@ class TestCanonicalizeUrl:
     @pytest.mark.asyncio
     async def test_canonicalizes_instagram_url(self):
         with patch("app.services.url_resolver.follow_redirect") as mock_redirect:
-            mock_redirect.return_value = "https://www.instagram.com/p/ABC123/?igshid=xyz"
+            mock_redirect.return_value = (
+                "https://www.instagram.com/p/ABC123/?igshid=xyz"
+            )
 
-            canonical, provider = await canonicalize_url("https://www.instagram.com/p/ABC123/?igshid=xyz")
+            canonical, provider = await canonicalize_url(
+                "https://www.instagram.com/p/ABC123/?igshid=xyz"
+            )
 
             assert provider == SocialProvider.INSTAGRAM
             assert "igshid" not in canonical
@@ -249,6 +261,8 @@ class TestCanonicalizeUrl:
         with patch("app.services.url_resolver.follow_redirect") as mock_redirect:
             mock_redirect.return_value = "https://www.youtube.com/watch?v=123"
 
-            canonical, provider = await canonicalize_url("https://www.youtube.com/watch?v=123")
+            canonical, provider = await canonicalize_url(
+                "https://www.youtube.com/watch?v=123"
+            )
 
             assert provider is None

@@ -89,6 +89,31 @@ export function track(
 }
 
 // ============================================================================
+// URL Sanitization
+// ============================================================================
+
+/**
+ * Sanitize a URL for analytics by removing query params and fragments.
+ * Prevents PII or sensitive data from being tracked.
+ *
+ * @param url - The URL to sanitize
+ * @param maxLength - Maximum length of the sanitized URL (default 100)
+ * @returns Sanitized URL with only host and path
+ */
+function sanitizeUrlForAnalytics(url: string, maxLength = 100): string {
+  try {
+    const parsed = new URL(url);
+    // Only keep host and pathname, strip query and fragment
+    const sanitized = `${parsed.host}${parsed.pathname}`;
+    return sanitized.substring(0, maxLength);
+  } catch {
+    // If URL parsing fails, just truncate and remove obvious query strings
+    const withoutQuery = url.split('?')[0].split('#')[0];
+    return withoutQuery.substring(0, maxLength);
+  }
+}
+
+// ============================================================================
 // Typed Event Helpers
 // ============================================================================
 
@@ -164,7 +189,7 @@ export const Analytics = {
 
   // Social Share Ingest
   shareStarted: (props: { source: string; url: string }) =>
-    track('share_started', { source: props.source, url: props.url }),
+    track('share_started', { source: props.source, url: sanitizeUrlForAnalytics(props.url) }),
 
   shareIngested: (props: { provider: string; hasPlace: boolean; confidence: number }) =>
     track('share_ingested', {
@@ -193,7 +218,7 @@ export const Analytics = {
     }),
 
   shareQueued: (props: { url: string; reason: 'offline' | 'error' }) =>
-    track('share_queued', { url: props.url, reason: props.reason }),
+    track('share_queued', { url: sanitizeUrlForAnalytics(props.url), reason: props.reason }),
 
   shareRetried: (props: { shareId: string; attempt: number; success: boolean }) =>
     track('share_retried', {
@@ -220,11 +245,11 @@ export const Analytics = {
 
   // Clipboard events
   clipboardPromptShown: (props: { url: string }) =>
-    track('clipboard_prompt_shown', { url: props.url }),
+    track('clipboard_prompt_shown', { url: sanitizeUrlForAnalytics(props.url) }),
 
   clipboardPromptAccepted: (props: { url: string }) =>
-    track('clipboard_prompt_accepted', { url: props.url }),
+    track('clipboard_prompt_accepted', { url: sanitizeUrlForAnalytics(props.url) }),
 
   clipboardPromptDismissed: (props: { url: string }) =>
-    track('clipboard_prompt_dismissed', { url: props.url }),
+    track('clipboard_prompt_dismissed', { url: sanitizeUrlForAnalytics(props.url) }),
 };

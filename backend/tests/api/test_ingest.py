@@ -59,7 +59,10 @@ class TestIngestSocialUrl:
 
         try:
             with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = ("https://youtube.com/watch?v=123", None)
+                mock_canonicalize.return_value = (
+                    "https://youtube.com/watch?v=123",
+                    None,
+                )
 
                 with patch("app.api.ingest.detect_provider") as mock_detect:
                     mock_detect.return_value = None
@@ -121,7 +124,9 @@ class TestIngestSocialUrl:
                                         "author_handle": "foodie123",
                                         "caption": None,
                                         "title": "Amazing restaurant in Bali",
-                                        "oembed_data": {"title": "Amazing restaurant in Bali"},
+                                        "oembed_data": {
+                                            "title": "Amazing restaurant in Bali"
+                                        },
                                         "entry_id": None,
                                         "created_at": "2024-01-01T00:00:00Z",
                                         "updated_at": "2024-01-01T00:00:00Z",
@@ -140,8 +145,13 @@ class TestIngestSocialUrl:
                                 assert response.status_code == 201
                                 data = response.json()
                                 assert data["provider"] == "tiktok"
-                                assert data["thumbnail_url"] == "https://p16-sign.tiktokcdn.com/123.jpg"
-                                assert data["detected_place"]["name"] == "Beach Restaurant"
+                                assert (
+                                    data["thumbnail_url"]
+                                    == "https://p16-sign.tiktokcdn.com/123.jpg"
+                                )
+                                assert (
+                                    data["detected_place"]["name"] == "Beach Restaurant"
+                                )
                                 assert data["detected_place"]["country_code"] == "ID"
         finally:
             app.dependency_overrides.clear()
@@ -195,7 +205,9 @@ class TestIngestSocialUrl:
                             with patch("app.api.ingest.get_token_from_request"):
                                 response = client.post(
                                     "/ingest/social",
-                                    json={"url": "https://www.tiktok.com/@dancer99/video/456"},
+                                    json={
+                                        "url": "https://www.tiktok.com/@dancer99/video/456"
+                                    },
                                     headers={"Authorization": "Bearer test-token"},
                                 )
 
@@ -365,7 +377,9 @@ class TestSaveToTrip:
                     ]
                 )
 
-                mock_client.patch = AsyncMock(return_value=[{"entry_id": TEST_ENTRY_ID}])
+                mock_client.patch = AsyncMock(
+                    return_value=[{"entry_id": TEST_ENTRY_ID}]
+                )
                 mock_db.return_value = mock_client
 
                 with patch("app.api.ingest.get_token_from_request"):

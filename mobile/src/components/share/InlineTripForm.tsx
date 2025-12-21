@@ -25,6 +25,7 @@ interface InlineTripFormProps {
   defaultCountryCode?: string;
   onSubmit: (name: string, countryCode: string) => Promise<void>;
   onCancel: () => void;
+  onError?: (error: string) => void;
   isSubmitting: boolean;
 }
 
@@ -32,6 +33,7 @@ export function InlineTripForm({
   defaultCountryCode,
   onSubmit,
   onCancel,
+  onError,
   isSubmitting,
 }: InlineTripFormProps) {
   const [name, setName] = useState('');
@@ -64,8 +66,13 @@ export function InlineTripForm({
   const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
 
-    await onSubmit(name.trim(), countryCode);
-  }, [validateForm, onSubmit, name, countryCode]);
+    try {
+      await onSubmit(name.trim(), countryCode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create trip';
+      onError?.(message);
+    }
+  }, [validateForm, onSubmit, name, countryCode, onError]);
 
   const handleSelectCountry = useCallback(
     (code: string) => {

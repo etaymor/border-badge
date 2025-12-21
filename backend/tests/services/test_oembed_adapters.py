@@ -58,7 +58,9 @@ class TestFetchTiktokOembed:
             mock_client_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value.__aenter__.return_value = mock_client_instance
 
-            result = await fetch_tiktok_oembed("https://www.tiktok.com/@user/video/invalid")
+            result = await fetch_tiktok_oembed(
+                "https://www.tiktok.com/@user/video/invalid"
+            )
 
             assert result is None
 
@@ -68,7 +70,9 @@ class TestFetchTiktokOembed:
 
         with patch("app.services.oembed_adapters.httpx.AsyncClient") as mock_client:
             mock_client_instance = AsyncMock()
-            mock_client_instance.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+            mock_client_instance.get = AsyncMock(
+                side_effect=httpx.TimeoutException("timeout")
+            )
             mock_client.return_value.__aenter__.return_value = mock_client_instance
 
             result = await fetch_tiktok_oembed("https://www.tiktok.com/@user/video/123")
@@ -110,7 +114,9 @@ class TestFetchInstagramOembed:
                 mock_client_instance.get = AsyncMock(return_value=mock_response)
                 mock_client.return_value.__aenter__.return_value = mock_client_instance
 
-                result = await fetch_instagram_oembed("https://www.instagram.com/p/ABC123/")
+                result = await fetch_instagram_oembed(
+                    "https://www.instagram.com/p/ABC123/"
+                )
 
                 assert result is not None
                 assert result.title == "Amazing beach view"
@@ -142,7 +148,9 @@ class TestFetchOpengraphFallback:
             mock_client_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value.__aenter__.return_value = mock_client_instance
 
-            result = await fetch_opengraph_fallback("https://www.instagram.com/p/ABC123/")
+            result = await fetch_opengraph_fallback(
+                "https://www.instagram.com/p/ABC123/"
+            )
 
             assert result is not None
             assert result.title == "Beautiful Sunset at Beach Resort"
@@ -214,7 +222,9 @@ class TestFetchOembed:
         with patch("app.services.oembed_adapters.get_cached_oembed") as mock_cache:
             mock_cache.return_value = None
 
-            with patch("app.services.oembed_adapters.fetch_tiktok_oembed") as mock_fetch:
+            with patch(
+                "app.services.oembed_adapters.fetch_tiktok_oembed"
+            ) as mock_fetch:
                 mock_fetch.return_value = OEmbedResponse(
                     title="Fresh Title",
                     author_name="fresh_user",
@@ -235,10 +245,14 @@ class TestFetchOembed:
         with patch("app.services.oembed_adapters.get_cached_oembed") as mock_cache:
             mock_cache.return_value = None
 
-            with patch("app.services.oembed_adapters.fetch_instagram_oembed") as mock_insta:
+            with patch(
+                "app.services.oembed_adapters.fetch_instagram_oembed"
+            ) as mock_insta:
                 mock_insta.return_value = None  # Instagram oEmbed failed
 
-                with patch("app.services.oembed_adapters.fetch_opengraph_fallback") as mock_og:
+                with patch(
+                    "app.services.oembed_adapters.fetch_opengraph_fallback"
+                ) as mock_og:
                     mock_og.return_value = OEmbedResponse(
                         title="Fallback Title",
                         thumbnail_url="https://example.com/og.jpg",

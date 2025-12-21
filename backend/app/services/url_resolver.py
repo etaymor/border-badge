@@ -1,7 +1,9 @@
 """URL canonicalization and provider detection for social media links."""
 
+import ipaddress
 import logging
 import re
+import socket
 import time
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -10,6 +12,48 @@ import httpx
 from app.schemas.social_ingest import SocialProvider
 
 logger = logging.getLogger(__name__)
+
+# Blocked hostnames for SSRF protection
+BLOCKED_HOSTNAMES = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "0.0.0.0",
+}
+
+
+def _is_private_ip(hostname: str) -> bool:
+    """Check if a hostname resolves to a private/internal IP address.
+
+    Protects against SSRF attacks targeting internal services.
+
+    Args:
+        hostname: The hostname to check
+
+    Returns:
+        True if the hostname is blocked or resolves to a private IP
+    """
+    # Check explicit blocklist
+    if hostname.lower() in BLOCKED_HOSTNAMES:
+        return True
+
+    try:
+        # Try to parse as IP address directly
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except ValueError:
+        pass
+
+    try:
+        # Resolve hostname to IP
+        resolved = socket.gethostbyname(hostname)
+        ip = ipaddress.ip_address(resolved)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except (socket.gaierror, ValueError):
+        # Can't resolve - allow the request but log it
+        logger.debug(f"ssrf_check_failed: could not resolve hostname {hostname}")
+        return False
+
 
 # Timeout for redirect resolution
 REDIRECT_TIMEOUT_SECONDS = 5.0
@@ -128,12 +172,28 @@ async def follow_redirect(url: str) -> str:
     Only follows a single redirect to avoid redirect chains.
     Returns the original URL if no redirect or on error.
 
+    Includes SSRF protection to block requests to private/internal IPs.
+
     Args:
         url: The URL to resolve
 
     Returns:
         The resolved URL (or original if no redirect)
     """
+    # SSRF protection: check if URL points to internal/private addresses
+    parsed = urlparse(url)
+    if _is_private_ip(parsed.hostname or ""):
+        logger.warning(
+            "ssrf_blocked",
+            extra={
+                "event": "url_resolve_error",
+                "error_type": "ssrf_blocked",
+                "url": url[:200],
+                "hostname": parsed.hostname,
+            },
+        )
+        return url  # Return original URL without following
+
     start_time = time.monotonic()
 
     try:
@@ -150,8 +210,25 @@ async def follow_redirect(url: str) -> str:
                 if location:
                     # Handle relative redirects
                     if location.startswith("/"):
-                        parsed = urlparse(url)
-                        location = f"{parsed.scheme}://{parsed.netloc}{location}"
+                        parsed_orig = urlparse(url)
+                        location = (
+                            f"{parsed_orig.scheme}://{parsed_orig.netloc}{location}"
+                        )
+
+                    # SSRF protection: also check redirect target
+                    parsed_loc = urlparse(location)
+                    if _is_private_ip(parsed_loc.hostname or ""):
+                        logger.warning(
+                            "ssrf_redirect_blocked",
+                            extra={
+                                "event": "url_resolve_error",
+                                "error_type": "ssrf_redirect_blocked",
+                                "original_url": url[:200],
+                                "redirect_url": location[:200],
+                                "hostname": parsed_loc.hostname,
+                            },
+                        )
+                        return url  # Return original URL, don't follow to internal
 
                     logger.info(
                         "url_redirect_followed",
