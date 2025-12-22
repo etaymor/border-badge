@@ -37,7 +37,10 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
       )}
       <View style={styles.thumbnailOverlay}>
         <View
-          style={[styles.providerBadge, { backgroundColor: PROVIDER_COLORS[ingestResult.provider] }]}
+          style={[
+            styles.providerBadge,
+            { backgroundColor: PROVIDER_COLORS[ingestResult.provider] },
+          ]}
         >
           <Ionicons
             name={ingestResult.provider === 'tiktok' ? 'musical-notes' : 'camera'}

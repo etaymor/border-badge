@@ -52,7 +52,7 @@ export interface ShareCaptureHandlers {
   handleRetry: () => void;
   handleManualEntry: () => void;
   handleSaveForLater: () => Promise<void>;
-  handleQueueRetry: (share: QueuedShare) => Promise<boolean>;
+  checkShareConnectivity: (share: QueuedShare) => Promise<boolean>;
   setNotes: (notes: string) => void;
   setSelectedTripId: (id: string | null) => void;
 }
@@ -222,8 +222,6 @@ export function useShareCapture({
             Alert.alert('Save Failed', message);
             Analytics.shareFailed({
               provider: detectProviderFromUrl(url) ?? 'tiktok',
-              entryType,
-              tripId: selectedTripId,
               error: message,
               stage: 'save',
             });
@@ -262,8 +260,6 @@ export function useShareCapture({
           Alert.alert('Save Failed', message);
           Analytics.shareFailed({
             provider: ingestResult.provider,
-            entryType,
-            tripId: selectedTripId,
             error: message,
             stage: 'save',
           });
@@ -285,7 +281,28 @@ export function useShareCapture({
 
   const handleRetry = useCallback(() => {
     setError(null);
-    socialIngest.mutate({ url, caption });
+    socialIngest.mutate(
+      { url, caption },
+      {
+        onSuccess: (result) => {
+          setIngestResult(result);
+
+          if (result.detected_place) {
+            setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
+            const inferredType = inferEntryTypeFromPlaceTypes(
+              result.detected_place.primary_type,
+              result.detected_place.types ?? []
+            );
+            setEntryType(inferredType);
+          }
+        },
+        onError: (err) => {
+          const message = err instanceof Error ? err.message : 'Failed to process URL';
+          setError(message);
+          Analytics.shareFailed({ provider: 'unknown', error: message, stage: 'ingest' });
+        },
+      }
+    );
   }, [socialIngest, url, caption]);
 
   const handleManualEntry = useCallback(() => {
@@ -308,7 +325,7 @@ export function useShareCapture({
       url,
       source: queueSource,
       createdAt: Date.now(),
-      error: error ?? 'Saved for later',
+      error: error ?? 'User chose to save for later',
     });
     Analytics.shareQueued({ url, reason: 'offline' });
     Alert.alert('Saved for Later', "We'll process this link when you're back online.", [
@@ -316,7 +333,12 @@ export function useShareCapture({
     ]);
   }, [url, source, error, onComplete]);
 
-  const handleQueueRetry = useCallback(async (share: QueuedShare): Promise<boolean> => {
+  /**
+   * Check if a queued share can be processed by testing connectivity to the ingest API.
+   * This is only a connectivity check - actual queue processing and analytics are handled
+   * by the dedicated background queue processor in shareQueue.ts via flushQueue().
+   */
+  const checkShareConnectivity = useCallback(async (share: QueuedShare): Promise<boolean> => {
     try {
       const response = await api.post('/ingest/social', { url: share.url });
       return response.status === 200;
@@ -348,7 +370,7 @@ export function useShareCapture({
     handleRetry,
     handleManualEntry,
     handleSaveForLater,
-    handleQueueRetry,
+    checkShareConnectivity,
     setNotes,
     setSelectedTripId,
   };

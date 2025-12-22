@@ -10,14 +10,7 @@
  */
 
 import { useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -66,7 +59,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     handleRetry,
     handleManualEntry,
     handleSaveForLater,
-    handleQueueRetry,
+    checkShareConnectivity,
     setNotes,
     setSelectedTripId,
   } = useShareCapture({
@@ -115,7 +108,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
         >
           <Text style={styles.scrollHeaderTitle}>Save Place</Text>
 
-          <PendingSharesBanner retryFn={handleQueueRetry} />
+          <PendingSharesBanner retryFn={checkShareConnectivity} />
 
           {ingestResult && <ThumbnailCard ingestResult={ingestResult} />}
 
