@@ -229,8 +229,10 @@ async def save_to_trip(
             "extra_data": extra_data,
         }
 
-    # Determine entry title
-    entry_title = data.place.name if data.place else data.title or "Saved from social"
+    # Determine entry title (truncate to 200 chars to match SaveToTripRequest.title validation)
+    entry_title = (
+        data.place.name if data.place else data.title or "Saved from social"
+    )[:200]
 
     # Build entry data for atomic operation
     entry_data = {

@@ -38,7 +38,7 @@ class DetectedPlace(BaseModel):
     """Place candidate detected from social media content."""
 
     google_place_id: str | None = None
-    name: str
+    name: str = Field(..., max_length=200)
     address: str | None = None
     latitude: float | None = None
     longitude: float | None = None
