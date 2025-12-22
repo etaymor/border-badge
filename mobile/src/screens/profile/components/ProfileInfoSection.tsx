@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Switch, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -10,8 +10,10 @@ interface ProfileInfoSectionProps {
   memberSince: string;
   trackingPreferenceDisplay: { name: string; count: number };
   visitedCount: number;
+  clipboardDetectionEnabled: boolean;
   onOpenTrackingModal: () => void;
   onOpenExportModal: () => void;
+  onToggleClipboardDetection: (enabled: boolean) => void;
 }
 
 export function ProfileInfoSection({
@@ -20,8 +22,10 @@ export function ProfileInfoSection({
   memberSince,
   trackingPreferenceDisplay,
   visitedCount,
+  clipboardDetectionEnabled,
   onOpenTrackingModal,
   onOpenExportModal,
+  onToggleClipboardDetection,
 }: ProfileInfoSectionProps) {
   return (
     <View style={styles.container}>
@@ -85,28 +89,48 @@ export function ProfileInfoSection({
           <View style={styles.divider} />
 
           {visitedCount > 0 && (
-            <Pressable
-              onPress={onOpenExportModal}
-              style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressableActive]}
-              accessibilityRole="button"
-              accessibilityLabel="Export your country list"
-            >
-              <View style={styles.cardRow}>
-                <Text style={styles.rowLabel}>Export Countries</Text>
-                <View style={styles.rowValueContainer}>
-                  <Text style={styles.rowValue}>
-                    {visitedCount} {visitedCount === 1 ? 'country' : 'countries'}
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={16}
-                    color={colors.stormGray}
-                    style={styles.chevronIcon}
-                  />
+            <>
+              <Pressable
+                onPress={onOpenExportModal}
+                style={({ pressed }) => [
+                  styles.cardPressable,
+                  pressed && styles.cardPressableActive,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Export your country list"
+              >
+                <View style={styles.cardRow}>
+                  <Text style={styles.rowLabel}>Export Countries</Text>
+                  <View style={styles.rowValueContainer}>
+                    <Text style={styles.rowValue}>
+                      {visitedCount} {visitedCount === 1 ? 'country' : 'countries'}
+                    </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color={colors.stormGray}
+                      style={styles.chevronIcon}
+                    />
+                  </View>
                 </View>
-              </View>
-            </Pressable>
+              </Pressable>
+              <View style={styles.divider} />
+            </>
           )}
+
+          <View style={styles.cardRow}>
+            <View style={styles.toggleLabelContainer}>
+              <Text style={styles.rowLabel}>Clipboard Detection</Text>
+              <Text style={styles.toggleDescription}>Detect TikTok/Instagram links</Text>
+            </View>
+            <Switch
+              value={clipboardDetectionEnabled}
+              onValueChange={onToggleClipboardDetection}
+              trackColor={{ false: colors.paperBeige, true: colors.mossGreen }}
+              thumbColor={colors.cloudWhite}
+              accessibilityLabel="Toggle clipboard URL detection"
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -185,5 +209,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 16,
     color: colors.midnightNavy,
+  },
+  toggleLabelContainer: {
+    flex: 1,
+  },
+  toggleDescription: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.stormGray,
+    marginTop: 2,
   },
 });

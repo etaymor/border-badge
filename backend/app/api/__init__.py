@@ -7,6 +7,7 @@ from app.api import (
     classification,
     countries,
     entries,
+    ingest,
     lists,
     media,
     outbound,
@@ -32,4 +33,5 @@ router.include_router(lists.router, tags=["lists"])
 router.include_router(
     classification.router, prefix="/classify", tags=["classification"]
 )
+router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])

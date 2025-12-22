@@ -127,7 +127,8 @@ def test_safe_google_photo_url_allows_http() -> None:
 def test_google_photo_domains_constant_complete() -> None:
     """Test that expected domains are in the whitelist."""
     expected_domains = {
-        "maps.googleapis.com",
+        "places.googleapis.com",  # New Places API (v1)
+        "maps.googleapis.com",  # Legacy Places API
         "lh3.googleusercontent.com",
         "geo0.ggpht.com",
         "geo1.ggpht.com",

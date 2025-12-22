@@ -1,10 +1,10 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
-
+import { logger } from '@utils/logger';
 // Entry type icons and colors
 const ENTRY_TYPE_CONFIG: Record<
   EntryType,
@@ -31,16 +31,62 @@ function formatDate(dateString: string | null): string {
   });
 }
 
+/**
+ * Validate that a URL is a Google Places photo URL.
+ * Both v1 (places.googleapis.com) and legacy (maps.googleapis.com) formats are supported.
+ */
+function isValidGooglePhotoUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    // Valid Google photo URL domains
+    const validHosts = [
+      'places.googleapis.com',
+      'maps.googleapis.com',
+      'lh3.googleusercontent.com',
+      'ggpht.com',
+    ];
+
+    const isValid = validHosts.some(
+      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+    );
+
+    return isValid ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 function EntryCardComponent({ entry, onPress }: EntryCardProps) {
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
   const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
   const [imageError, setImageError] = useState(false);
+  const placePhotoUrl = useMemo(
+    () => isValidGooglePhotoUrl(entry.place?.google_photo_url ?? null),
+    [entry.place?.google_photo_url]
+  );
+
+  // Debug logging
+  useEffect(() => {
+    if (entry.place?.google_photo_url) {
+      logger.log('[EntryCard] Photo URL info', {
+        entryId: entry.id,
+        rawPhotoUrl: entry.place.google_photo_url?.substring(0, 100),
+        validatedUrl: placePhotoUrl?.substring(0, 100),
+        hasUserMedia,
+      });
+    }
+  }, [entry.id, entry.place?.google_photo_url, placePhotoUrl, hasUserMedia]);
 
   // Use user-uploaded media first, fall back to Google Places photo
   const firstMediaUrl = hasUserMedia
     ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
-    : entry.place?.google_photo_url;
+    : placePhotoUrl;
 
   const hasMedia = !!firstMediaUrl;
   const shouldShowImage = hasMedia && !imageError;
@@ -98,7 +144,18 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
             <Image
               source={{ uri: firstMediaUrl }}
               style={styles.mediaThumbnail}
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                logger.warn('[EntryCard] Image load error', {
+                  url: firstMediaUrl.substring(0, 100),
+                  error: e.nativeEvent?.error,
+                });
+                setImageError(true);
+              }}
+              onLoad={() => {
+                logger.log('[EntryCard] Image loaded successfully', {
+                  url: firstMediaUrl.substring(0, 100),
+                });
+              }}
             />
           ) : (
             <View style={styles.mediaThumbnailPlaceholder}>

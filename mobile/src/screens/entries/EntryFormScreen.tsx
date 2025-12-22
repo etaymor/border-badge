@@ -23,6 +23,7 @@ import type { TripsStackScreenProps, EntryType } from '@navigation/types';
 import {
   useCreateEntry,
   useUpdateEntry,
+  useDeleteEntry,
   useEntry,
   CreateEntryInput,
   PlaceInput,
@@ -46,9 +47,9 @@ export function EntryFormScreen({ route, navigation }: Props) {
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Animations
-  const formFadeAnim = useRef(new Animated.Value(0)).current;
-  const formSlideAnim = useRef(new Animated.Value(30)).current;
+  // Animations - start at final state if editing to avoid flash
+  const formFadeAnim = useRef(new Animated.Value(isEditing ? 1 : 0)).current;
+  const formSlideAnim = useRef(new Animated.Value(isEditing ? 0 : 30)).current;
 
   // Fetch existing entry data for editing
   const { data: existingEntry, isLoading: isLoadingEntry } = useEntry(entryId ?? '');
@@ -56,6 +57,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const { data: trip } = useTrip(tripId);
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
+  const deleteEntry = useDeleteEntry();
 
   // Form state
   const [entryType, setEntryType] = useState<EntryType | null>(initialEntryType ?? null);
@@ -89,9 +91,51 @@ export function EntryFormScreen({ route, navigation }: Props) {
     }
   }, [hasSelectedType, formFadeAnim, formSlideAnim]);
 
-  // Reset form when navigating to a new entry (different trip or creating new)
+  // Initialize/reset form based on mode (create vs edit)
   useEffect(() => {
-    if (!isEditing) {
+    console.log('[EntryFormScreen] useEffect triggered', {
+      isEditing,
+      entryId,
+      hasExistingEntry: !!existingEntry,
+      existingEntryPlace: existingEntry?.place,
+    });
+
+    if (isEditing && existingEntry) {
+      console.log('[EntryFormScreen] Populating form for editing', {
+        title: existingEntry.title,
+        entryType: existingEntry.entry_type,
+        place: existingEntry.place,
+      });
+
+      // Populate form when editing an existing entry
+      setTitle(existingEntry.title);
+      setEntryType(existingEntry.entry_type as EntryType);
+      setHasSelectedType(true);
+      setNotes(existingEntry.notes ?? '');
+      setLink(existingEntry.link ?? '');
+      if (existingEntry.place) {
+        const placeToSet = {
+          google_place_id:
+            existingEntry.place.google_place_id ?? `existing_${existingEntry.place.id}`,
+          name: existingEntry.place.name,
+          address: existingEntry.place.address,
+          latitude: existingEntry.place.latitude,
+          longitude: existingEntry.place.longitude,
+          google_photo_url: existingEntry.place.google_photo_url,
+          website_url: null,
+          country_code: null, // Existing entries don't store country_code
+        };
+        console.log('[EntryFormScreen] Setting selectedPlace', placeToSet);
+        setSelectedPlace(placeToSet);
+      } else {
+        console.log('[EntryFormScreen] No place data, setting selectedPlace to null');
+        setSelectedPlace(null);
+      }
+      // Set animations to final state for editing
+      formFadeAnim.setValue(1);
+      formSlideAnim.setValue(0);
+    } else if (!isEditing) {
+      // Reset form when creating new entry
       setTitle('');
       setEntryType(initialEntryType ?? null);
       setHasSelectedType(!!initialEntryType);
@@ -104,33 +148,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
       formFadeAnim.setValue(initialEntryType ? 1 : 0);
       formSlideAnim.setValue(initialEntryType ? 0 : 30);
     }
-  }, [tripId, entryId, isEditing, initialEntryType, formFadeAnim, formSlideAnim]);
-
-  // Populate form when editing
-  useEffect(() => {
-    if (existingEntry && isEditing) {
-      setTitle(existingEntry.title);
-      setEntryType(existingEntry.entry_type as EntryType);
-      setHasSelectedType(true);
-      setNotes(existingEntry.notes ?? '');
-      setLink(existingEntry.link ?? '');
-      if (existingEntry.place) {
-        setSelectedPlace({
-          google_place_id:
-            existingEntry.place.google_place_id ?? `existing_${existingEntry.place.id}`,
-          name: existingEntry.place.name,
-          address: existingEntry.place.address,
-          latitude: existingEntry.place.latitude,
-          longitude: existingEntry.place.longitude,
-          google_photo_url: existingEntry.place.google_photo_url,
-          website_url: null, // Existing entries don't have website_url stored
-        });
-      }
-      // Set animations to final state for editing
-      formFadeAnim.setValue(1);
-      formSlideAnim.setValue(0);
-    }
-  }, [existingEntry, isEditing, formFadeAnim, formSlideAnim]);
+  }, [tripId, entryId, isEditing, existingEntry, initialEntryType, formFadeAnim, formSlideAnim]);
 
   // URL validation with length limit
   const MAX_URL_LENGTH = 2048;
@@ -280,6 +298,27 @@ export function EntryFormScreen({ route, navigation }: Props) {
     }, 150);
   }, []);
 
+  // Handle delete entry
+  const handleDelete = useCallback(() => {
+    if (!entryId) return;
+
+    Alert.alert('Delete Entry', 'Are you sure you want to delete this entry?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteEntry.mutateAsync({ entryId, tripId });
+            navigation.goBack();
+          } catch {
+            Alert.alert('Error', 'Failed to delete entry. Please try again.');
+          }
+        },
+      },
+    ]);
+  }, [entryId, tripId, deleteEntry, navigation]);
+
   if (isEditing && isLoadingEntry) {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
@@ -335,8 +374,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
           {hasSelectedType && (
             <Animated.View
               style={{
-                opacity: formFadeAnim,
-                transform: [{ translateY: formSlideAnim }],
+                opacity: isEditing ? 1 : formFadeAnim,
+                transform: [{ translateY: isEditing ? 0 : formSlideAnim }],
                 zIndex: 10, // Ensure content layering works
               }}
             >
@@ -450,6 +489,15 @@ export function EntryFormScreen({ route, navigation }: Props) {
                   disabled={isSubmitting}
                   testID="entry-save-button"
                 />
+                {isEditing && (
+                  <Button
+                    title="Delete Entry"
+                    onPress={handleDelete}
+                    variant="destructive"
+                    style={styles.deleteButton}
+                    testID="entry-delete-button"
+                  />
+                )}
               </View>
             </Animated.View>
           )}
@@ -561,5 +609,8 @@ const styles = StyleSheet.create({
   // Footer
   footer: {
     paddingTop: 16,
+  },
+  deleteButton: {
+    marginTop: 12,
   },
 });

@@ -1,5 +1,7 @@
 """Shared API utilities."""
 
+from typing import Any
+
 from fastapi import Request
 
 
@@ -9,6 +11,42 @@ def get_token_from_request(request: Request) -> str | None:
     if auth.startswith("Bearer "):
         return auth[7:]
     return None
+
+
+def check_duplicate_place_in_entries(
+    entries: list[dict[str, Any]], google_place_id: str
+) -> bool:
+    """Check if a place already exists in a list of entries.
+
+    PostgREST behavior for embedded relationships:
+    - One-to-one relationships (like entry->place) are returned as a single object
+    - One-to-many relationships are returned as arrays
+    - When using !inner join, entries without matching places are excluded
+
+    This function handles both formats defensively for forward compatibility.
+
+    Args:
+        entries: List of entry dicts from PostgREST with embedded place data
+        google_place_id: The Google Place ID to check for
+
+    Returns:
+        True if the place already exists in any entry
+    """
+    for entry in entries:
+        place = entry.get("place")
+        if place is None:
+            continue
+
+        # PostgREST returns one-to-one as object, but handle array defensively
+        if isinstance(place, dict):
+            if place.get("google_place_id") == google_place_id:
+                return True
+        elif isinstance(place, list) and len(place) > 0:
+            # Handle array format (shouldn't happen with !inner, but be safe)
+            if place[0].get("google_place_id") == google_place_id:
+                return True
+
+    return False
 
 
 # Special flag mappings for non-standard country codes
