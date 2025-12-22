@@ -45,23 +45,23 @@ def _row_to_cache_entry(row: dict) -> OEmbedCacheEntry:
 
 
 async def get_cached_oembed(canonical_url: str) -> OEmbedResponse | None:
-    """Fetch a non-expired cached oEmbed response.
+    """Fetch a cached oEmbed response.
+
+    The cache is permanent - data is never deleted based on expires_at.
+    The expires_at field is kept for optional refresh logic but not enforced.
 
     Args:
         canonical_url: The canonical URL to look up
 
     Returns:
-        Cached oEmbed response if found and not expired, None otherwise
+        Cached oEmbed response if found, None otherwise
     """
     db = get_supabase_client()
-
-    now = datetime.now(UTC).isoformat()
 
     rows = await db.get(
         "oembed_cache",
         {
             "canonical_url": f"eq.{canonical_url}",
-            "expires_at": f"gt.{now}",
             "select": "*",
         },
     )
@@ -129,34 +129,6 @@ async def cache_oembed(
     )
 
     return _row_to_cache_entry(row)
-
-
-async def cleanup_expired_cache(batch_size: int = 100) -> int:
-    """Delete expired cache entries in batches.
-
-    For high-volume usage, this limits the number of entries deleted per call
-    to avoid long-running transactions. Call repeatedly until it returns 0.
-
-    Args:
-        batch_size: Maximum number of entries to delete per call (default 100)
-
-    Returns:
-        Number of entries deleted in this batch
-    """
-    db = get_supabase_client()
-
-    now = datetime.now(UTC).isoformat()
-
-    rows = await db.delete(
-        "oembed_cache",
-        {"expires_at": f"lt.{now}", "limit": batch_size},
-    )
-
-    count = len(rows)
-    if count > 0:
-        logger.info(f"oembed_cache_cleanup: deleted={count} batch_size={batch_size}")
-
-    return count
 
 
 # =============================================================================

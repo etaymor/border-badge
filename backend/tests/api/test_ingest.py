@@ -1,7 +1,6 @@
 """Tests for social ingest API endpoints."""
 
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +15,6 @@ from app.schemas.social_ingest import (
 
 # Test constants
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
-TEST_SAVED_SOURCE_ID = "550e8400-e29b-41d4-a716-446655440010"
 TEST_TRIP_ID = "550e8400-e29b-41d4-a716-446655440002"
 TEST_ENTRY_ID = "550e8400-e29b-41d4-a716-446655440003"
 
@@ -110,49 +108,25 @@ class TestIngestSocialUrl:
                     with patch("app.api.ingest.extract_place") as mock_extract:
                         mock_extract.return_value = mock_place
 
-                        with patch("app.api.ingest.get_supabase_client") as mock_db:
-                            mock_client = AsyncMock()
-                            mock_client.post = AsyncMock(
-                                return_value=[
-                                    {
-                                        "id": TEST_SAVED_SOURCE_ID,
-                                        "user_id": TEST_USER_ID,
-                                        "provider": "tiktok",
-                                        "original_url": "https://vm.tiktok.com/short",
-                                        "canonical_url": "https://www.tiktok.com/@foodie123/video/123",
-                                        "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
-                                        "author_handle": "foodie123",
-                                        "caption": None,
-                                        "title": "Amazing restaurant in Bali",
-                                        "oembed_data": {
-                                            "title": "Amazing restaurant in Bali"
-                                        },
-                                        "entry_id": None,
-                                        "created_at": "2024-01-01T00:00:00Z",
-                                        "updated_at": "2024-01-01T00:00:00Z",
-                                    }
-                                ]
-                            )
-                            mock_db.return_value = mock_client
+                        response = client.post(
+                            "/ingest/social",
+                            json={"url": "https://vm.tiktok.com/short"},
+                            headers={"Authorization": "Bearer test-token"},
+                        )
 
-                            with patch("app.api.ingest.get_token_from_request"):
-                                response = client.post(
-                                    "/ingest/social",
-                                    json={"url": "https://vm.tiktok.com/short"},
-                                    headers={"Authorization": "Bearer test-token"},
-                                )
-
-                                assert response.status_code == 201
-                                data = response.json()
-                                assert data["provider"] == "tiktok"
-                                assert (
-                                    data["thumbnail_url"]
-                                    == "https://p16-sign.tiktokcdn.com/123.jpg"
-                                )
-                                assert (
-                                    data["detected_place"]["name"] == "Beach Restaurant"
-                                )
-                                assert data["detected_place"]["country_code"] == "ID"
+                        assert response.status_code == 200
+                        data = response.json()
+                        assert data["provider"] == "tiktok"
+                        assert (
+                            data["canonical_url"]
+                            == "https://www.tiktok.com/@foodie123/video/123"
+                        )
+                        assert (
+                            data["thumbnail_url"]
+                            == "https://p16-sign.tiktokcdn.com/123.jpg"
+                        )
+                        assert data["detected_place"]["name"] == "Beach Restaurant"
+                        assert data["detected_place"]["country_code"] == "ID"
         finally:
             app.dependency_overrides.clear()
 
@@ -179,41 +153,15 @@ class TestIngestSocialUrl:
                     with patch("app.api.ingest.extract_place") as mock_extract:
                         mock_extract.return_value = None  # No place detected
 
-                        with patch("app.api.ingest.get_supabase_client") as mock_db:
-                            mock_client = AsyncMock()
-                            mock_client.post = AsyncMock(
-                                return_value=[
-                                    {
-                                        "id": TEST_SAVED_SOURCE_ID,
-                                        "user_id": TEST_USER_ID,
-                                        "provider": "tiktok",
-                                        "original_url": "https://www.tiktok.com/@dancer99/video/456",
-                                        "canonical_url": "https://www.tiktok.com/@dancer99/video/456",
-                                        "thumbnail_url": "https://p16-sign.tiktokcdn.com/456.jpg",
-                                        "author_handle": "dancer99",
-                                        "caption": None,
-                                        "title": "Random dance video",
-                                        "oembed_data": {"title": "Random dance video"},
-                                        "entry_id": None,
-                                        "created_at": "2024-01-01T00:00:00Z",
-                                        "updated_at": "2024-01-01T00:00:00Z",
-                                    }
-                                ]
-                            )
-                            mock_db.return_value = mock_client
+                        response = client.post(
+                            "/ingest/social",
+                            json={"url": "https://www.tiktok.com/@dancer99/video/456"},
+                            headers={"Authorization": "Bearer test-token"},
+                        )
 
-                            with patch("app.api.ingest.get_token_from_request"):
-                                response = client.post(
-                                    "/ingest/social",
-                                    json={
-                                        "url": "https://www.tiktok.com/@dancer99/video/456"
-                                    },
-                                    headers={"Authorization": "Bearer test-token"},
-                                )
-
-                                assert response.status_code == 201
-                                data = response.json()
-                                assert data["detected_place"] is None
+                        assert response.status_code == 200
+                        data = response.json()
+                        assert data["detected_place"] is None
         finally:
             app.dependency_overrides.clear()
 
@@ -240,42 +188,18 @@ class TestIngestSocialUrl:
                     with patch("app.api.ingest.extract_place") as mock_extract:
                         mock_extract.return_value = None
 
-                        with patch("app.api.ingest.get_supabase_client") as mock_db:
-                            mock_client = AsyncMock()
-                            mock_client.post = AsyncMock(
-                                return_value=[
-                                    {
-                                        "id": TEST_SAVED_SOURCE_ID,
-                                        "user_id": TEST_USER_ID,
-                                        "provider": "instagram",
-                                        "original_url": "https://www.instagram.com/reel/ABC123",
-                                        "canonical_url": "https://www.instagram.com/reel/ABC123",
-                                        "thumbnail_url": "https://instagram.com/media/789.jpg",
-                                        "author_handle": "travel_lover",
-                                        "caption": "Check this out!",
-                                        "title": "Sunset at the beach",
-                                        "oembed_data": {"title": "Sunset at the beach"},
-                                        "entry_id": None,
-                                        "created_at": "2024-01-01T00:00:00Z",
-                                        "updated_at": "2024-01-01T00:00:00Z",
-                                    }
-                                ]
-                            )
-                            mock_db.return_value = mock_client
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://www.instagram.com/reel/ABC123",
+                                "caption": "Check this out!",
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
 
-                            with patch("app.api.ingest.get_token_from_request"):
-                                response = client.post(
-                                    "/ingest/social",
-                                    json={
-                                        "url": "https://www.instagram.com/reel/ABC123",
-                                        "caption": "Check this out!",
-                                    },
-                                    headers={"Authorization": "Bearer test-token"},
-                                )
-
-                                assert response.status_code == 201
-                                data = response.json()
-                                assert data["provider"] == "instagram"
+                        assert response.status_code == 200
+                        data = response.json()
+                        assert data["provider"] == "instagram"
         finally:
             app.dependency_overrides.clear()
 
@@ -287,63 +211,48 @@ class TestSaveToTrip:
         response = client.post(
             "/ingest/save-to-trip",
             json={
-                "saved_source_id": TEST_SAVED_SOURCE_ID,
                 "trip_id": TEST_TRIP_ID,
+                "provider": "tiktok",
+                "canonical_url": "https://www.tiktok.com/@user/video/123",
             },
         )
         # FastAPI returns 403 Forbidden when no auth is provided
         assert response.status_code in (401, 403)
 
-    def test_returns_404_for_missing_source(self, client, auth_override):
+    def test_returns_404_for_missing_trip(self, client, auth_override):
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
             with patch("app.api.ingest.get_supabase_client") as mock_db:
                 mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=[])  # No source found
+                mock_client.get = AsyncMock(return_value=[])  # No trip found
                 mock_db.return_value = mock_client
 
                 with patch("app.api.ingest.get_token_from_request"):
                     response = client.post(
                         "/ingest/save-to-trip",
                         json={
-                            "saved_source_id": str(uuid4()),
                             "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
                         },
                         headers={"Authorization": "Bearer test-token"},
                     )
 
                     assert response.status_code == 404
-                    assert "Saved source not found" in response.json()["detail"]
+                    assert "Trip not found" in response.json()["detail"]
         finally:
             app.dependency_overrides.clear()
 
     def test_saves_to_trip_with_place(self, client, auth_override):
         app.dependency_overrides[get_current_user] = auth_override
 
-        source_data = {
-            "id": TEST_SAVED_SOURCE_ID,
-            "user_id": TEST_USER_ID,
-            "provider": "tiktok",
-            "original_url": "https://www.tiktok.com/@user/video/123",
-            "canonical_url": "https://www.tiktok.com/@user/video/123",
-            "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
-            "author_handle": "foodie123",
-            "title": "Amazing restaurant",
-        }
-
         try:
             with patch("app.api.ingest.get_supabase_client") as mock_db:
                 mock_client = AsyncMock()
 
-                # First call: get saved_source
-                # Second call: get trip
-                mock_client.get = AsyncMock(
-                    side_effect=[
-                        [source_data],  # saved_source
-                        [{"id": TEST_TRIP_ID}],  # trip
-                    ]
-                )
+                # Get trip
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
 
                 # Atomic RPC call returns entry_row and place_row in JSONB format
                 mock_client.rpc = AsyncMock(
@@ -356,7 +265,12 @@ class TestSaveToTrip:
                                 "title": "Beach Restaurant",
                                 "notes": None,
                                 "link": "https://www.tiktok.com/@user/video/123",
-                                "metadata": {},
+                                "metadata": {
+                                    "source_type": "social_ingest",
+                                    "provider": "tiktok",
+                                    "author_handle": "foodie123",
+                                    "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
+                                },
                                 "date": None,
                                 "created_at": "2024-01-01T00:00:00Z",
                                 "deleted_at": None,
@@ -383,8 +297,12 @@ class TestSaveToTrip:
                     response = client.post(
                         "/ingest/save-to-trip",
                         json={
-                            "saved_source_id": TEST_SAVED_SOURCE_ID,
                             "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
+                            "author_handle": "foodie123",
+                            "title": "Amazing restaurant",
                             "place": {
                                 "google_place_id": "ChIJ123",
                                 "name": "Beach Restaurant",
@@ -414,26 +332,10 @@ class TestSaveToTrip:
     def test_saves_to_trip_strips_invalid_google_photo_url(self, client, auth_override):
         app.dependency_overrides[get_current_user] = auth_override
 
-        source_data = {
-            "id": TEST_SAVED_SOURCE_ID,
-            "user_id": TEST_USER_ID,
-            "provider": "tiktok",
-            "original_url": "https://www.tiktok.com/@user/video/123",
-            "canonical_url": "https://www.tiktok.com/@user/video/123",
-            "thumbnail_url": "https://p16-sign.tiktokcdn.com/123.jpg",
-            "author_handle": "foodie123",
-            "title": "Amazing restaurant",
-        }
-
         try:
             with patch("app.api.ingest.get_supabase_client") as mock_db:
                 mock_client = AsyncMock()
-                mock_client.get = AsyncMock(
-                    side_effect=[
-                        [source_data],
-                        [{"id": TEST_TRIP_ID}],
-                    ]
-                )
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
                 mock_client.rpc = AsyncMock(
                     return_value=[
                         {
@@ -469,8 +371,9 @@ class TestSaveToTrip:
                     response = client.post(
                         "/ingest/save-to-trip",
                         json={
-                            "saved_source_id": TEST_SAVED_SOURCE_ID,
                             "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
                             "place": {
                                 "google_place_id": "ChIJ123",
                                 "name": "Beach Restaurant",
@@ -489,94 +392,61 @@ class TestSaveToTrip:
                     assert response.status_code == 201
                     args, kwargs = mock_client.rpc.await_args
                     payload = args[1]
-                    assert "google_photo_url" not in payload["p_place_data"]["extra_data"]
-        finally:
-            app.dependency_overrides.clear()
-
-
-class TestListSavedSources:
-    """Tests for GET /ingest/saved-sources endpoint."""
-
-    def test_lists_user_sources(self, client, auth_override):
-        app.dependency_overrides[get_current_user] = auth_override
-
-        sources = [
-            {
-                "id": TEST_SAVED_SOURCE_ID,
-                "user_id": TEST_USER_ID,
-                "provider": "tiktok",
-                "original_url": "https://www.tiktok.com/@user/video/123",
-                "canonical_url": "https://www.tiktok.com/@user/video/123",
-                "thumbnail_url": "https://example.com/thumb.jpg",
-                "author_handle": "user123",
-                "caption": None,
-                "title": "Video title",
-                "oembed_data": {},
-                "entry_id": None,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z",
-            }
-        ]
-
-        try:
-            with patch("app.api.ingest.get_supabase_client") as mock_db:
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=sources)
-                mock_db.return_value = mock_client
-
-                with patch("app.api.ingest.get_token_from_request"):
-                    response = client.get(
-                        "/ingest/saved-sources",
-                        headers={"Authorization": "Bearer test-token"},
+                    assert (
+                        "google_photo_url" not in payload["p_place_data"]["extra_data"]
                     )
-
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert len(data) == 1
-                    assert data[0]["provider"] == "tiktok"
         finally:
             app.dependency_overrides.clear()
 
-
-class TestDeleteSavedSource:
-    """Tests for DELETE /ingest/saved-sources/{source_id} endpoint."""
-
-    def test_deletes_source(self, client, auth_override):
+    def test_saves_to_trip_without_place(self, client, auth_override):
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
             with patch("app.api.ingest.get_supabase_client") as mock_db:
                 mock_client = AsyncMock()
-                mock_client.delete = AsyncMock(
-                    return_value=[{"id": TEST_SAVED_SOURCE_ID}]
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Amazing restaurant",
+                                "notes": "Check this out!",
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {
+                                    "source_type": "social_ingest",
+                                    "provider": "tiktok",
+                                },
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": None,
+                        }
+                    ]
                 )
+
                 mock_db.return_value = mock_client
 
                 with patch("app.api.ingest.get_token_from_request"):
-                    response = client.delete(
-                        f"/ingest/saved-sources/{TEST_SAVED_SOURCE_ID}",
+                    response = client.post(
+                        "/ingest/save-to-trip",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "title": "Amazing restaurant",
+                            "notes": "Check this out!",
+                        },
                         headers={"Authorization": "Bearer test-token"},
                     )
 
-                    assert response.status_code == 204
-        finally:
-            app.dependency_overrides.clear()
-
-    def test_returns_404_for_missing_source(self, client, auth_override):
-        app.dependency_overrides[get_current_user] = auth_override
-
-        try:
-            with patch("app.api.ingest.get_supabase_client") as mock_db:
-                mock_client = AsyncMock()
-                mock_client.delete = AsyncMock(return_value=[])  # Not found
-                mock_db.return_value = mock_client
-
-                with patch("app.api.ingest.get_token_from_request"):
-                    response = client.delete(
-                        f"/ingest/saved-sources/{uuid4()}",
-                        headers={"Authorization": "Bearer test-token"},
-                    )
-
-                    assert response.status_code == 404
+                    assert response.status_code == 201
+                    data = response.json()
+                    assert data["id"] == TEST_ENTRY_ID
+                    assert data["title"] == "Amazing restaurant"
+                    assert data["place"] is None
         finally:
             app.dependency_overrides.clear()

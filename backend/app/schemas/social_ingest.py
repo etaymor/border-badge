@@ -53,47 +53,18 @@ class DetectedPlace(BaseModel):
 
 
 class SocialIngestResponse(BaseModel):
-    """Response from social media ingest."""
+    """Response from social media ingest.
 
-    saved_source_id: UUID
+    Returns oEmbed metadata and detected place without persisting to saved_source.
+    The client should pass this data to /ingest/save-to-trip when saving.
+    """
+
     provider: SocialProvider
     canonical_url: str
     thumbnail_url: str | None = None
     author_handle: str | None = None
     title: str | None = None
     detected_place: DetectedPlace | None = None
-
-
-class SavedSourceCreate(BaseModel):
-    """Data for creating a saved source record."""
-
-    user_id: UUID
-    provider: SocialProvider
-    original_url: str
-    canonical_url: str
-    thumbnail_url: str | None = None
-    author_handle: str | None = None
-    caption: str | None = None
-    title: str | None = None
-    oembed_data: dict[str, Any] | None = None
-
-
-class SavedSource(BaseModel):
-    """Saved source response model."""
-
-    id: UUID
-    user_id: UUID
-    provider: SocialProvider
-    original_url: str
-    canonical_url: str
-    thumbnail_url: str | None = None
-    author_handle: str | None = None
-    caption: str | None = None
-    title: str | None = None
-    oembed_data: dict[str, Any] | None = None
-    entry_id: UUID | None = None
-    created_at: datetime
-    updated_at: datetime
 
 
 class OEmbedCacheEntry(BaseModel):
@@ -123,10 +94,19 @@ class OEmbedResponse(BaseModel):
 
 
 class SaveToTripRequest(BaseModel):
-    """Request to save a social source to a trip as an entry."""
+    """Request to save a social source to a trip as an entry.
 
-    saved_source_id: UUID
+    Includes full ingest data instead of referencing a saved_source_id.
+    """
+
     trip_id: UUID
+    # Ingest data (previously from saved_source)
+    provider: SocialProvider
+    canonical_url: str
+    thumbnail_url: str | None = None
+    author_handle: str | None = None
+    title: str | None = None
+    # User-provided data
     place: DetectedPlace | None = None
     entry_type: str = "place"
     notes: str | None = None

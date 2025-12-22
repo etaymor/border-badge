@@ -1,6 +1,5 @@
 """FastAPI application entry point."""
 
-import asyncio
 import logging
 import secrets
 from collections.abc import AsyncIterator
@@ -22,7 +21,6 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
-from app.services.oembed_adapters import cleanup_expired_cache
 
 # CSP nonce key for request state
 CSP_NONCE_KEY = "csp_nonce"
@@ -54,33 +52,11 @@ from app.api import router as api_router  # noqa: E402, I001
 logger = logging.getLogger(__name__)
 
 
-async def _background_cache_cleanup() -> None:
-    """Run cache cleanup in background, logging any errors."""
-    try:
-        await cleanup_expired_cache()
-    except Exception as e:
-        logger.warning(f"Background cache cleanup failed: {e}")
-
-
-# Track background task for proper cleanup
-_cleanup_task: asyncio.Task | None = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
-    global _cleanup_task
-    # Startup - schedule cache cleanup in background (non-blocking)
-    _cleanup_task = asyncio.create_task(_background_cache_cleanup())
     yield
-    # Shutdown - cancel cleanup task if still running
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
-        try:
-            await _cleanup_task
-        except asyncio.CancelledError:
-            pass
-    # Close shared HTTP client
+    # Shutdown - close shared HTTP client
     await close_http_client()
 
 

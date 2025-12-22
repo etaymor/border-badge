@@ -470,13 +470,19 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
       return;
     }
 
-    // Normal flow with saved_source
+    // Normal flow with ingest data
     if (!ingestResult) return;
 
     saveToTrip.mutate(
       {
-        saved_source_id: ingestResult.saved_source_id,
         trip_id: selectedTripId,
+        // Pass ingest data directly
+        provider: ingestResult.provider,
+        canonical_url: ingestResult.canonical_url,
+        thumbnail_url: ingestResult.thumbnail_url,
+        author_handle: ingestResult.author_handle,
+        title: ingestResult.title,
+        // User data
         place: selectedPlaceToDetectedPlace(selectedPlace),
         entry_type: entryType,
         notes: notes.trim() || undefined,
@@ -511,11 +517,10 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   }, [socialIngest, url, caption]);
 
   const handleManualEntry = useCallback(() => {
-    // Enable manual entry mode - we'll create an entry directly without saved_source
+    // Enable manual entry mode - we'll create an entry directly
     // Set a minimal ingest result just for UI display purposes (provider badge, etc.)
     const detectedProvider = detectProviderFromUrl(url);
     setIngestResult({
-      saved_source_id: '', // Not used in manual mode - entry is created directly
       provider: detectedProvider ?? 'tiktok',
       canonical_url: url,
       thumbnail_url: null,

@@ -10,7 +10,7 @@ import {
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
 
 interface ButtonProps {
   title: string;
@@ -92,6 +92,9 @@ const styles = StyleSheet.create({
   ghost: {
     backgroundColor: 'transparent',
   },
+  destructive: {
+    backgroundColor: 'transparent',
+  },
   disabled: {
     opacity: 0.5,
   },
@@ -111,6 +114,9 @@ const styles = StyleSheet.create({
   },
   ghostText: {
     color: colors.primary,
+  },
+  destructiveText: {
+    color: colors.adobeBrick,
   },
   disabledText: {
     color: colors.textTertiary,

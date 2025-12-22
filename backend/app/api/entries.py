@@ -124,6 +124,24 @@ async def create_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Check for duplicate place in same trip (by google_place_id)
+    if data.place and data.place.google_place_id:
+        existing_entries = await db.get(
+            "entry",
+            {
+                "trip_id": f"eq.{trip_id}",
+                "deleted_at": "is.null",
+                "select": "id, place!inner(google_place_id)",
+            },
+        )
+        for entry in existing_entries:
+            place = entry.get("place")
+            if place and place.get("google_place_id") == data.place.google_place_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This place has already been saved to this trip",
+                )
+
     # Create entry
     entry_data = {
         "trip_id": str(trip_id),
@@ -163,7 +181,14 @@ async def create_entry(
             "extra_data": data.place.extra_data,
         }
         place_rows = await db.post("place", place_data)
-        logger.info("Place creation result for entry %s: %s", entry.id, place_rows)
+        logger.debug(
+            "Place created for entry",
+            extra={
+                "entry_id": str(entry.id),
+                "place_id": place_rows[0]["id"] if place_rows else None,
+                "has_google_place_id": bool(data.place.google_place_id),
+            },
+        )
         if not place_rows:
             # Rollback: delete the entry we just created
             # If cleanup fails, log the orphaned entry for manual resolution

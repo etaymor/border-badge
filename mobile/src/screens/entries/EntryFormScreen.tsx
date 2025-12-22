@@ -23,6 +23,7 @@ import type { TripsStackScreenProps, EntryType } from '@navigation/types';
 import {
   useCreateEntry,
   useUpdateEntry,
+  useDeleteEntry,
   useEntry,
   CreateEntryInput,
   PlaceInput,
@@ -56,6 +57,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const { data: trip } = useTrip(tripId);
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
+  const deleteEntry = useDeleteEntry();
 
   // Form state
   const [entryType, setEntryType] = useState<EntryType | null>(initialEntryType ?? null);
@@ -296,6 +298,27 @@ export function EntryFormScreen({ route, navigation }: Props) {
     }, 150);
   }, []);
 
+  // Handle delete entry
+  const handleDelete = useCallback(() => {
+    if (!entryId) return;
+
+    Alert.alert('Delete Entry', 'Are you sure you want to delete this entry?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteEntry.mutateAsync({ entryId, tripId });
+            navigation.goBack();
+          } catch {
+            Alert.alert('Error', 'Failed to delete entry. Please try again.');
+          }
+        },
+      },
+    ]);
+  }, [entryId, tripId, deleteEntry, navigation]);
+
   if (isEditing && isLoadingEntry) {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
@@ -466,6 +489,15 @@ export function EntryFormScreen({ route, navigation }: Props) {
                   disabled={isSubmitting}
                   testID="entry-save-button"
                 />
+                {isEditing && (
+                  <Button
+                    title="Delete Entry"
+                    onPress={handleDelete}
+                    variant="destructive"
+                    style={styles.deleteButton}
+                    testID="entry-delete-button"
+                  />
+                )}
               </View>
             </Animated.View>
           )}
@@ -577,5 +609,8 @@ const styles = StyleSheet.create({
   // Footer
   footer: {
     paddingTop: 16,
+  },
+  deleteButton: {
+    marginTop: 12,
   },
 });

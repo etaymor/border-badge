@@ -3,7 +3,7 @@
  * Handles URL processing, place detection, and saving to trips.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
@@ -35,9 +35,8 @@ export interface SocialIngestRequest {
   caption?: string;
 }
 
-// Response from social ingest
+// Response from social ingest (no longer includes saved_source_id)
 export interface SocialIngestResponse {
-  saved_source_id: string;
   provider: SocialProvider;
   canonical_url: string;
   thumbnail_url: string | null;
@@ -46,26 +45,16 @@ export interface SocialIngestResponse {
   detected_place: DetectedPlace | null;
 }
 
-// Saved source record
-export interface SavedSource {
-  id: string;
-  user_id: string;
-  provider: SocialProvider;
-  original_url: string;
-  canonical_url: string;
-  thumbnail_url: string | null;
-  author_handle: string | null;
-  caption: string | null;
-  title: string | null;
-  entry_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// Request to save a source to a trip
+// Request to save ingest data to a trip (includes full ingest data)
 export interface SaveToTripRequest {
-  saved_source_id: string;
   trip_id: string;
+  // Ingest data
+  provider: SocialProvider;
+  canonical_url: string;
+  thumbnail_url?: string | null;
+  author_handle?: string | null;
+  title?: string | null;
+  // User data
   place: DetectedPlace | null;
   entry_type: EntryType;
   notes?: string;
@@ -107,16 +96,13 @@ export interface SaveToTripResponse {
   media_files: EntryMediaFile[];
 }
 
-const SAVED_SOURCES_QUERY_KEY = ['saved_sources'];
 const ENTRIES_QUERY_KEY = ['entries'];
 
 /**
  * Mutation to ingest a social media URL.
- * Fetches metadata, detects places, and creates a saved_source record.
+ * Fetches metadata, detects places, and returns the data without persistence.
  */
 export function useSocialIngest() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (input: SocialIngestRequest): Promise<SocialIngestResponse> => {
       const response = await api.post('/ingest/social', input);
@@ -129,9 +115,6 @@ export function useSocialIngest() {
         hasPlace: !!data.detected_place,
         confidence: data.detected_place?.confidence ?? 0,
       });
-
-      // Invalidate saved sources list
-      queryClient.invalidateQueries({ queryKey: SAVED_SOURCES_QUERY_KEY });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to process URL';
@@ -142,7 +125,7 @@ export function useSocialIngest() {
 }
 
 /**
- * Mutation to save a social source to a trip as an entry.
+ * Mutation to save social ingest data to a trip as an entry.
  */
 export function useSaveToTrip() {
   const queryClient = useQueryClient();
@@ -159,9 +142,6 @@ export function useSaveToTrip() {
         tripId: data.trip_id,
       });
 
-      // Invalidate saved sources (now has entry_id linked)
-      queryClient.invalidateQueries({ queryKey: SAVED_SOURCES_QUERY_KEY });
-
       // Invalidate entries for the trip
       queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, data.trip_id] });
 
@@ -170,43 +150,6 @@ export function useSaveToTrip() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to save to trip';
-      Alert.alert('Error', message);
-    },
-  });
-}
-
-/**
- * Query to fetch saved sources that haven't been linked to entries yet.
- */
-export function useSavedSources(unlinkedOnly = true) {
-  return useQuery({
-    queryKey: [...SAVED_SOURCES_QUERY_KEY, { unlinkedOnly }],
-    queryFn: async (): Promise<SavedSource[]> => {
-      const params = new URLSearchParams();
-      if (unlinkedOnly) {
-        params.append('unlinked_only', 'true');
-      }
-      const response = await api.get(`/ingest/saved-sources?${params.toString()}`);
-      return response.data;
-    },
-  });
-}
-
-/**
- * Mutation to delete a saved source.
- */
-export function useDeleteSavedSource() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (sourceId: string): Promise<void> => {
-      await api.delete(`/ingest/saved-sources/${sourceId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SAVED_SOURCES_QUERY_KEY });
-    },
-    onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to delete';
       Alert.alert('Error', message);
     },
   });
