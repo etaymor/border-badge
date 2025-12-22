@@ -259,7 +259,6 @@ async def fetch_instagram_oembed(url: str) -> OEmbedResponse | None:
     settings = get_settings()
     params = {
         "url": url,
-        "access_token": settings.instagram_oembed_token,
         "omitscript": "true",  # Don't include embed.js script
     }
 
@@ -267,10 +266,15 @@ async def fetch_instagram_oembed(url: str) -> OEmbedResponse | None:
 
     try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
+            # Use Authorization header instead of query param to avoid token
+            # leakage in logs (OAuth 2.0 spec recommendation)
             response = await client.get(
                 INSTAGRAM_OEMBED_URL,
                 params=params,
-                headers={"User-Agent": USER_AGENT},
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Authorization": f"Bearer {settings.instagram_oembed_token}",
+                },
             )
 
             elapsed_ms = (time.monotonic() - start_time) * 1000

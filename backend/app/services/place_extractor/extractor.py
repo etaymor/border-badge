@@ -7,6 +7,7 @@ candidate extraction, location hints, API calls, and scoring.
 import asyncio
 import logging
 
+from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
 from app.services.place_extractor.candidate_extraction import extract_place_candidates
 from app.services.place_extractor.google_places_client import (
@@ -146,16 +147,18 @@ async def _extract_place_impl(
     location_bias = location_hints[0] if location_hints else None
 
     # Log candidate count without exposing content (privacy)
+    title_len = len(title) if title else 0
+    bias_name = location_bias.name if location_bias else None
     logger.info(
-        f"PLACE EXTRACTION: {len(candidates)} candidates from title_len="
-        f"{len(title) if title else 0}, location_bias={location_bias.name if location_bias else None}"
+        f"PLACE EXTRACTION: {len(candidates)} candidates from "
+        f"title_len={title_len}, location_bias={bias_name}"
     )
-    # Log first candidate only (truncated) for debugging - avoid exposing full user content
+    # Log first candidate only (truncated) for debugging
     if candidates:
-        first_candidate = (
+        first_cand = (
             candidates[0][:30] + "..." if len(candidates[0]) > 30 else candidates[0]
         )
-        logger.debug(f"PLACE EXTRACTION first candidate: {first_candidate!r}")
+        logger.debug(f"PLACE EXTRACTION first candidate: {first_cand!r}")
 
     # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
     top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]
@@ -186,12 +189,30 @@ async def _extract_place_impl(
 
     # Log selection details for debugging
     if len(scored_results) > 1:
-        alternatives = [f"{r.name}({s:.2f})" for s, _, r in scored_results[1:3]]
+        alts = [f"{r.name}({s:.2f})" for s, _, r in scored_results[1:3]]
+        name = best_result.name
+        cc = best_result.country_code
+        ptype = best_result.primary_type
         logger.info(
-            f"PLACE EXTRACTION selected: {best_result.name} (score={best_score:.2f}, "
-            f"country={best_result.country_code}, type={best_result.primary_type}) "
-            f"over alternatives: {alternatives}"
+            f"PLACE EXTRACTION selected: {name} (score={best_score:.2f}, "
+            f"country={cc}, type={ptype}) over alternatives: {alts}"
         )
+
+    # Apply minimum confidence threshold to avoid low-confidence false matches
+    settings = get_settings()
+    min_confidence = settings.place_extraction_min_confidence
+    if best_result.confidence < min_confidence:
+        logger.info(
+            "place_extraction_low_confidence",
+            extra={
+                "event": "place_extraction",
+                "result": "below_threshold",
+                "place_name": best_result.name[:50] if best_result.name else None,
+                "confidence": best_result.confidence,
+                "threshold": min_confidence,
+            },
+        )
+        return None
 
     return best_result
 

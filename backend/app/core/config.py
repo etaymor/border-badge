@@ -58,6 +58,14 @@ class Settings(BaseSettings):
         default="", repr=False
     )  # Google Places API key for place resolution
 
+    # Place extraction settings
+    place_extraction_min_confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence score (0.0-1.0) for place extraction",
+    )
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:
