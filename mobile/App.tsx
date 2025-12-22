@@ -51,6 +51,72 @@ SplashScreen.preventAutoHideAsync();
 // Key for storing navigation state in AsyncStorage
 const NAVIGATION_STATE_KEY = 'navigation-state';
 
+// Navigation state expires after 24 hours to prevent stale data
+const NAVIGATION_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Screens that should not have their params persisted (contain sensitive data)
+const SENSITIVE_SCREENS = ['ShareCapture'];
+
+// Type for persisted navigation state with metadata
+type PersistedNavigationState = {
+  state: NavigationState;
+  timestamp: number;
+  version: number; // For future schema migrations
+};
+
+// Current schema version - increment when navigation structure changes
+const NAVIGATION_STATE_VERSION = 1;
+
+/**
+ * Recursively strips sensitive params from navigation state routes.
+ * This prevents persisting URLs, user data, or other sensitive info.
+ */
+function sanitizeNavigationState(state: NavigationState): NavigationState {
+  const sanitizeRoutes = (routes: NavigationState['routes']): NavigationState['routes'] => {
+    return routes.map((route) => {
+      const sanitizedRoute = { ...route };
+
+      // Strip params from sensitive screens
+      if (SENSITIVE_SCREENS.includes(route.name)) {
+        delete sanitizedRoute.params;
+      }
+
+      // Recursively sanitize nested state
+      if (sanitizedRoute.state) {
+        sanitizedRoute.state = sanitizeNavigationState(
+          sanitizedRoute.state as NavigationState
+        ) as typeof sanitizedRoute.state;
+      }
+
+      return sanitizedRoute;
+    });
+  };
+
+  return {
+    ...state,
+    routes: sanitizeRoutes(state.routes),
+  };
+}
+
+/**
+ * Validates that a navigation state has the expected structure.
+ * Returns false if the state is malformed or from an incompatible version.
+ */
+function isValidNavigationState(state: unknown): state is NavigationState {
+  if (!state || typeof state !== 'object') return false;
+  const s = state as Record<string, unknown>;
+  if (!Array.isArray(s.routes)) return false;
+  if (s.routes.length === 0) return false;
+  // Check that routes have required 'key' and 'name' properties
+  return s.routes.every(
+    (route) =>
+      route &&
+      typeof route === 'object' &&
+      typeof route.key === 'string' &&
+      typeof route.name === 'string'
+  );
+}
+
 // Generate a cryptographically secure session ID for app_opened events
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -89,7 +155,9 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
   const [isNavigationReady, setIsNavigationReady] = useState(false);
-  const [initialNavigationState, setInitialNavigationState] = useState<NavigationState | undefined>();
+  const [initialNavigationState, setInitialNavigationState] = useState<
+    NavigationState | undefined
+  >();
   // Note: pendingShareUrl state could be added here for UI feedback (e.g., showing a banner)
   const nativeSplashHiddenRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
@@ -346,24 +414,59 @@ export default function App() {
     };
   }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
 
-  // Restore navigation state on app launch
+  // Restore navigation state on app launch (only for authenticated users)
   useEffect(() => {
     const restoreNavigationState = async () => {
       try {
-        const savedState = await AsyncStorage.getItem(NAVIGATION_STATE_KEY);
-        if (savedState) {
-          const state = JSON.parse(savedState) as NavigationState;
-          setInitialNavigationState(state);
+        // Only restore navigation state if user is authenticated
+        // This prevents navigating to auth-required screens before auth is ready
+        if (!session) {
+          setIsNavigationReady(true);
+          return;
+        }
+
+        const savedData = await AsyncStorage.getItem(NAVIGATION_STATE_KEY);
+        if (savedData) {
+          const persisted = JSON.parse(savedData) as PersistedNavigationState;
+
+          // Check version compatibility
+          if (persisted.version !== NAVIGATION_STATE_VERSION) {
+            console.warn('Navigation state version mismatch, discarding');
+            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
+            setIsNavigationReady(true);
+            return;
+          }
+
+          // Check TTL expiration
+          const age = Date.now() - persisted.timestamp;
+          if (age > NAVIGATION_STATE_TTL_MS) {
+            console.warn('Navigation state expired, discarding');
+            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
+            setIsNavigationReady(true);
+            return;
+          }
+
+          // Validate state structure
+          if (!isValidNavigationState(persisted.state)) {
+            console.warn('Navigation state invalid, discarding');
+            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
+            setIsNavigationReady(true);
+            return;
+          }
+
+          setInitialNavigationState(persisted.state);
         }
       } catch (error) {
         console.warn('Failed to restore navigation state:', error);
+        // Clean up corrupted state
+        AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch(() => {});
       } finally {
         setIsNavigationReady(true);
       }
     };
 
     restoreNavigationState();
-  }, []);
+  }, [session]);
 
   // Clear navigation state when user signs out
   useEffect(() => {
@@ -378,10 +481,18 @@ export default function App() {
   const handleNavigationStateChange = useCallback(
     (state: NavigationState | undefined) => {
       if (state && session) {
-        // Only persist navigation state for authenticated users
-        AsyncStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(state)).catch((error) => {
-          console.warn('Failed to save navigation state:', error);
-        });
+        // Sanitize state to remove sensitive params before persisting
+        const sanitizedState = sanitizeNavigationState(state);
+        const persistedState: PersistedNavigationState = {
+          state: sanitizedState,
+          timestamp: Date.now(),
+          version: NAVIGATION_STATE_VERSION,
+        };
+        AsyncStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(persistedState)).catch(
+          (error) => {
+            console.warn('Failed to save navigation state:', error);
+          }
+        );
       }
     },
     [session]
