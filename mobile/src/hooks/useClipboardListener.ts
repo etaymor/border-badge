@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useAuthStore } from '@stores/authStore';
@@ -20,8 +19,11 @@ import type { SocialProvider } from '../types/shared';
 
 export type { SocialProvider };
 
-/** Key for tracking if user has been notified about clipboard permission issues */
-const CLIPBOARD_PERMISSION_NOTIFIED_KEY = 'clipboard_permission_notified';
+/**
+ * Key for tracking if user dismissed the clipboard permission banner this session.
+ * We use session-scoped tracking (not persistent) so the banner can reappear
+ * if the user later enables clipboard permissions in Settings.
+ */
 
 /** Maximum URL length to prevent malicious clipboard hijacking */
 const MAX_URL_LENGTH = 2048;
@@ -80,43 +82,16 @@ export interface ClipboardListenerResult {
   isEnabled: boolean;
   /** True if clipboard access has failed (permissions issue) */
   hasPermissionError: boolean;
-  /** Call to acknowledge the permission error (won't show again) */
+  /** Call to dismiss the permission error banner (session-scoped, will reappear if permissions enabled) */
   acknowledgePermissionError: () => void;
 }
 
 /**
- * Check if user has already been notified about clipboard permission issues.
- * @returns Promise<boolean> - true if user was already notified
+ * Check if clipboard access error should show permission banner.
+ * Only shows on iOS where clipboard permission prompts are common.
  */
-async function hasUserBeenNotifiedAboutPermissions(): Promise<boolean> {
-  try {
-    const notified = await AsyncStorage.getItem(CLIPBOARD_PERMISSION_NOTIFIED_KEY);
-    return notified === 'true';
-  } catch {
-    // If storage check fails, assume not notified
-    return false;
-  }
-}
-
-/**
- * Handle clipboard access errors and determine if permission error should be shown.
- * Only shows permission errors on iOS where clipboard prompts are common,
- * and only if the user hasn't been notified before.
- *
- * @param setHasPermissionError - State setter for permission error flag
- */
-async function handleClipboardAccessError(
-  setHasPermissionError: (value: boolean) => void
-): Promise<void> {
-  // Only show permission error on iOS where clipboard prompts are common
-  if (Platform.OS !== 'ios') {
-    return;
-  }
-
-  const alreadyNotified = await hasUserBeenNotifiedAboutPermissions();
-  if (!alreadyNotified) {
-    setHasPermissionError(true);
-  }
+function shouldShowPermissionError(): boolean {
+  return Platform.OS === 'ios';
 }
 
 /**
@@ -131,22 +106,8 @@ export function useClipboardListener(): ClipboardListenerResult {
   const { session } = useAuthStore();
   const lastCheckedUrlRef = useRef<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
-  const hasCheckedPermissionNotifiedRef = useRef(false);
-
-  // Check if user was already notified about clipboard permissions
-  useEffect(() => {
-    const checkNotified = async () => {
-      if (hasCheckedPermissionNotifiedRef.current) return;
-      hasCheckedPermissionNotifiedRef.current = true;
-
-      const alreadyNotified = await hasUserBeenNotifiedAboutPermissions();
-      if (alreadyNotified) {
-        // User was already notified, don't show error again
-        setHasPermissionError(false);
-      }
-    };
-    void checkNotified();
-  }, []);
+  // Track if user dismissed the permission banner this session
+  const permissionBannerDismissedRef = useRef(false);
 
   const checkClipboard = useCallback(async () => {
     // Skip if detection is disabled or user not authenticated
@@ -160,6 +121,13 @@ export function useClipboardListener(): ClipboardListenerResult {
 
       const clipboardContent = await Clipboard.getStringAsync();
       if (!clipboardContent) return;
+
+      // Clipboard access succeeded - clear any permission error
+      // This handles the case where user enabled permissions in Settings
+      if (hasPermissionError) {
+        setHasPermissionError(false);
+        permissionBannerDismissedRef.current = false;
+      }
 
       // Skip if we've already processed this URL
       if (clipboardContent === lastCheckedUrlRef.current) {
@@ -178,9 +146,12 @@ export function useClipboardListener(): ClipboardListenerResult {
         console.warn('[ClipboardListener] Failed to check clipboard:', error);
       }
 
-      await handleClipboardAccessError(setHasPermissionError);
+      // Show permission error if on iOS and user hasn't dismissed it this session
+      if (shouldShowPermissionError() && !permissionBannerDismissedRef.current) {
+        setHasPermissionError(true);
+      }
     }
-  }, [clipboardDetectionEnabled, session?.user?.id]);
+  }, [clipboardDetectionEnabled, session?.user?.id, hasPermissionError]);
 
   // Listen for app state changes
   useEffect(() => {
@@ -232,16 +203,12 @@ export function useClipboardListener(): ClipboardListenerResult {
   }, []);
 
   /**
-   * Acknowledge the permission error (user has been notified).
-   * Persists to storage so we don't show the message again.
+   * Acknowledge the permission error (user dismissed the banner).
+   * Session-scoped so the banner can reappear if user enables permissions in Settings.
    */
-  const acknowledgePermissionError = useCallback(async () => {
+  const acknowledgePermissionError = useCallback(() => {
     setHasPermissionError(false);
-    try {
-      await AsyncStorage.setItem(CLIPBOARD_PERMISSION_NOTIFIED_KEY, 'true');
-    } catch {
-      // Ignore storage errors
-    }
+    permissionBannerDismissedRef.current = true;
   }, []);
 
   return {

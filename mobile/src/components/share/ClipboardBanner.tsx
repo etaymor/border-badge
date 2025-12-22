@@ -30,9 +30,9 @@ const PROVIDER_CONFIG = {
     subtitle: 'We detected a TikTok link',
   },
   instagram: {
-    icon: 'camera' as const,
+    icon: 'logo-instagram' as const,
     label: 'Instagram',
-    color: '#E1306C',
+    color: '#C13584', // Instagram gradient purple-pink
     subtitle: 'We detected an Instagram link',
   },
 };
