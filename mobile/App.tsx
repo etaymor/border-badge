@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
 import {
@@ -14,7 +15,11 @@ import {
   OpenSans_700Bold,
 } from '@expo-google-fonts/open-sans';
 import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  NavigationState,
+  createNavigationContainerRef,
+} from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -42,6 +47,9 @@ import { useAuthStore } from '@stores/authStore';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
+
+// Key for storing navigation state in AsyncStorage
+const NAVIGATION_STATE_KEY = 'navigation-state';
 
 // Generate a cryptographically secure session ID for app_opened events
 function generateSessionId(): string {
@@ -80,6 +88,8 @@ export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
+  const [isNavigationReady, setIsNavigationReady] = useState(false);
+  const [initialNavigationState, setInitialNavigationState] = useState<NavigationState | undefined>();
   // Note: pendingShareUrl state could be added here for UI feedback (e.g., showing a banner)
   const nativeSplashHiddenRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
@@ -336,6 +346,47 @@ export default function App() {
     };
   }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
 
+  // Restore navigation state on app launch
+  useEffect(() => {
+    const restoreNavigationState = async () => {
+      try {
+        const savedState = await AsyncStorage.getItem(NAVIGATION_STATE_KEY);
+        if (savedState) {
+          const state = JSON.parse(savedState) as NavigationState;
+          setInitialNavigationState(state);
+        }
+      } catch (error) {
+        console.warn('Failed to restore navigation state:', error);
+      } finally {
+        setIsNavigationReady(true);
+      }
+    };
+
+    restoreNavigationState();
+  }, []);
+
+  // Clear navigation state when user signs out
+  useEffect(() => {
+    if (!session) {
+      AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch((error) => {
+        console.warn('Failed to clear navigation state:', error);
+      });
+    }
+  }, [session]);
+
+  // Save navigation state when it changes
+  const handleNavigationStateChange = useCallback(
+    (state: NavigationState | undefined) => {
+      if (state && session) {
+        // Only persist navigation state for authenticated users
+        AsyncStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(state)).catch((error) => {
+          console.warn('Failed to save navigation state:', error);
+        });
+      }
+    },
+    [session]
+  );
+
   // Handle splash animation complete
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -352,7 +403,7 @@ export default function App() {
     });
   }, []);
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || !isNavigationReady) {
     return null;
   }
 
@@ -363,6 +414,8 @@ export default function App() {
           <NavigationContainer
             ref={navigationRef}
             linking={linking}
+            initialState={initialNavigationState}
+            onStateChange={handleNavigationStateChange}
             onReady={handleNavigationReady}
           >
             <RootNavigator />
