@@ -271,8 +271,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceResult | nu
 
     // Extract country code from address components
     const countryComponent = data.addressComponents?.find(
-      (c: { types: string[] }) =>
-        c.types?.includes('country') || c.types?.includes('COUNTRY')
+      (c: { types: string[] }) => c.types?.includes('country') || c.types?.includes('COUNTRY')
     );
     const countryCode = countryComponent?.shortText ?? undefined;
 

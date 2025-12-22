@@ -1,5 +1,6 @@
 -- Update atomic_create_entry_with_place to remove saved_source linking logic
 -- The saved_source table has been removed, so this function no longer needs to link entries to it.
+-- Also updated to use is_trip_participant() to allow approved trip_tags members to create entries.
 
 CREATE OR REPLACE FUNCTION atomic_create_entry_with_place(
   p_trip_id UUID,
@@ -21,13 +22,9 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Verify trip exists and user owns it (not soft-deleted)
-  IF NOT EXISTS (
-    SELECT 1 FROM trip
-    WHERE id = p_trip_id
-      AND user_id = v_user_id
-      AND deleted_at IS NULL
-  ) THEN
+  -- Verify user is a trip participant (owner or approved tag) and trip is not soft-deleted
+  -- Uses is_trip_participant() helper which already checks deleted_at IS NULL
+  IF NOT is_trip_participant(p_trip_id) THEN
     RETURN;
   END IF;
 

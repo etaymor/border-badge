@@ -1,10 +1,11 @@
 """Social media ingest endpoints."""
 
 import logging
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from app.api.utils import get_token_from_request
+from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
 from app.core.security import CurrentUser
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
@@ -20,6 +21,28 @@ from app.services.place_extractor import extract_place
 from app.services.url_resolver import canonicalize_url, detect_provider
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_url_for_logging(url: str, max_length: int = 200) -> str:
+    """Sanitize a URL for logging by removing query parameters.
+
+    Query parameters may contain auth tokens, session IDs, or PII.
+
+    Args:
+        url: URL to sanitize
+        max_length: Maximum length of returned string
+
+    Returns:
+        Sanitized URL safe for logging
+    """
+    try:
+        parsed = urlparse(url)
+        # Reconstruct URL without query string and fragment
+        sanitized = urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+        return sanitized[:max_length]
+    except Exception:
+        # If parsing fails, return truncated host portion only
+        return url.split("?")[0][:max_length]
 
 
 router = APIRouter()
@@ -78,8 +101,9 @@ async def ingest_social_url(
             "event": "ingest_start",
             "provider": provider.value,
             "user_id": str(user.id),
-            "original_url": data.url[:200],
-            "canonical_url": canonical_url[:200],
+            # Sanitize URLs to remove query params that may contain tokens/PII
+            "original_url": _sanitize_url_for_logging(data.url),
+            "canonical_url": _sanitize_url_for_logging(canonical_url),
         },
     )
 
@@ -172,13 +196,13 @@ async def save_to_trip(
                 "select": "id, place!inner(google_place_id)",
             },
         )
-        for entry in existing_entries:
-            place = entry.get("place")
-            if place and place.get("google_place_id") == data.place.google_place_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="This place has already been saved to this trip",
-                )
+        if check_duplicate_place_in_entries(
+            existing_entries, data.place.google_place_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            )
 
     # Build place data for atomic operation
     place_data = None
@@ -224,28 +248,62 @@ async def save_to_trip(
 
     # Use atomic RPC function to create entry + place in a single transaction.
     # This ensures no orphaned entries if place creation fails.
-    result = await db.rpc(
-        "atomic_create_entry_with_place",
-        {
-            "p_trip_id": str(data.trip_id),
-            "p_entry_data": entry_data,
-            "p_place_data": place_data,
-        },
-    )
-
-    if not result:
+    try:
+        result = await db.rpc(
+            "atomic_create_entry_with_place",
+            {
+                "p_trip_id": str(data.trip_id),
+                "p_entry_data": entry_data,
+                "p_place_data": place_data,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            "rpc_atomic_create_failed",
+            extra={
+                "event": "rpc_error",
+                "function": "atomic_create_entry_with_place",
+                "trip_id": str(data.trip_id),
+                "error": str(e)[:200],
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create entry",
+            detail="Failed to create entry - database error",
+        ) from None
+
+    # Handle RPC returning empty result (authorization failure or trip not found)
+    if not result or len(result) == 0:
+        logger.warning(
+            "rpc_atomic_create_empty_result",
+            extra={
+                "event": "rpc_empty_result",
+                "function": "atomic_create_entry_with_place",
+                "trip_id": str(data.trip_id),
+                "user_id": str(user.id),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to add entries to this trip",
         )
 
-    entry_row = result[0].get("entry_row") if result else None
-    place_row = result[0].get("place_row") if result else None
+    entry_row = result[0].get("entry_row")
+    place_row = result[0].get("place_row")
 
     if not entry_row:
+        logger.error(
+            "rpc_atomic_create_missing_entry",
+            extra={
+                "event": "rpc_invalid_result",
+                "function": "atomic_create_entry_with_place",
+                "trip_id": str(data.trip_id),
+                "result_keys": list(result[0].keys()) if result else [],
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create entry",
+            detail="Failed to create entry - unexpected result format",
         )
 
     entry = Entry(**entry_row)

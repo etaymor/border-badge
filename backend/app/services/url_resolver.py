@@ -46,27 +46,61 @@ def _is_private_ip_sync(hostname: str) -> bool:
     """Synchronous check if a hostname resolves to a private/internal IP address.
 
     This is a blocking call - use _is_private_ip for async contexts.
+
+    Security notes:
+    - Fails closed on resolution errors (returns True = blocked)
+    - Checks both IPv4 and IPv6 addresses
+    - Validates against private, loopback, link-local, and reserved ranges
     """
     # Check explicit blocklist
     if hostname.lower() in BLOCKED_HOSTNAMES:
         return True
 
     try:
-        # Try to parse as IP address directly
+        # Try to parse as IP address directly (handles both IPv4 and IPv6)
         ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+        return _is_blocked_ip(ip)
     except ValueError:
         pass
 
     try:
-        # Resolve hostname to IP
-        resolved = socket.gethostbyname(hostname)
-        ip = ipaddress.ip_address(resolved)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-    except (socket.gaierror, ValueError):
-        # Can't resolve - allow the request but log it
-        logger.debug(f"ssrf_check_failed: could not resolve hostname {hostname}")
+        # Resolve hostname to IP addresses (get all, not just first)
+        # Use getaddrinfo for IPv4/IPv6 support
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+        for _, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if _is_blocked_ip(ip):
+                    return True
+            except ValueError:
+                # Invalid IP format - fail closed
+                return True
         return False
+    except socket.gaierror:
+        # Can't resolve - fail closed for security
+        logger.warning(f"ssrf_dns_resolution_failed: hostname={hostname}")
+        return True
+
+
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address should be blocked for SSRF protection.
+
+    Covers both IPv4 and IPv6 private/internal ranges.
+    """
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        # IPv6-specific: check for IPv4-mapped addresses
+        or (
+            isinstance(ip, ipaddress.IPv6Address)
+            and ip.ipv4_mapped is not None
+            and _is_blocked_ip(ip.ipv4_mapped)
+        )
+    )
 
 
 # DNS resolution timeout in seconds

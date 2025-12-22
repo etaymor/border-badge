@@ -54,10 +54,13 @@ class QueueLock {
     if (!this.locked) {
       if (this.waitQueue.length === 0) {
         console.warn('QueueLock.release() called when not locked');
+        return;
       } else {
-        console.error('QueueLock: Invalid state - not locked but has waiters');
+        // Invalid state: not locked but has waiters - recover by processing queue
+        console.error('QueueLock: Invalid state - not locked but has waiters. Recovering...');
+        // Set locked and fall through to process the queue
+        this.locked = true;
       }
-      return;
     }
 
     if (this.waitQueue.length > 0) {

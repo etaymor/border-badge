@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request
+from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -134,13 +134,13 @@ async def create_entry(
                 "select": "id, place!inner(google_place_id)",
             },
         )
-        for entry in existing_entries:
-            place = entry.get("place")
-            if place and place.get("google_place_id") == data.place.google_place_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="This place has already been saved to this trip",
-                )
+        if check_duplicate_place_in_entries(
+            existing_entries, data.place.google_place_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            )
 
     # Create entry
     entry_data = {
