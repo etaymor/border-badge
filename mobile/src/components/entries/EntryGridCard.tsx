@@ -42,7 +42,8 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
   // Use user-uploaded media first, fall back to Google Places photo
   const firstMedia = entry.media_files?.[0];
   const userMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
-  const firstMediaUrl = userMediaUrl ?? entry.place?.google_photo_url;
+  const googlePhotoUrl = entry.place?.google_photo_url;
+  const firstMediaUrl = userMediaUrl ?? googlePhotoUrl;
   const hasValidImage = firstMediaUrl && !imageError;
 
   return (

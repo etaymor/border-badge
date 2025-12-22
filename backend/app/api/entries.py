@@ -58,14 +58,15 @@ async def list_entries(
 
         entry = Entry(**entry_row)
 
-        # Parse place if it exists (place is an array from PostgREST)
+        # Parse place if it exists
+        # PostgREST returns one-to-one relationships as a single object (not array)
         place = None
-        if place_data and isinstance(place_data, list) and len(place_data) > 0:
-            first_place = place_data[0]
-            if isinstance(first_place, dict):
-                place = Place(**first_place)
-            else:
-                logger.warning("Unexpected place data type: %s", type(first_place))
+        if place_data:
+            if isinstance(place_data, dict):
+                place = Place(**place_data)
+            elif isinstance(place_data, list) and len(place_data) > 0:
+                # Handle array format just in case
+                place = Place(**place_data[0])
 
         # Parse media_files and build URLs
         media_files = []
@@ -231,11 +232,6 @@ async def get_entry(
 
     # Fetch entry with embedded place in single query
     entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
-    logger.info(
-        "get_entry raw result: entry_id=%s, entries=%s",
-        entry_id,
-        entries,
-    )
 
     if not entries:
         raise HTTPException(
@@ -245,32 +241,21 @@ async def get_entry(
 
     entry_row = entries[0]
     place_data = entry_row.pop("place", None)
-    logger.info(
-        "get_entry place_data from embedded query: entry_id=%s, place_data=%s, type=%s",
-        entry_id,
-        place_data,
-        type(place_data).__name__,
-    )
     entry = Entry(**entry_row)
 
-    # Parse place if it exists (place is an array from PostgREST)
+    # Parse place if it exists
+    # PostgREST returns one-to-one relationships as a single object (not array)
     place = None
-    if place_data and isinstance(place_data, list) and len(place_data) > 0:
-        first_place = place_data[0]
-        if isinstance(first_place, dict):
-            place = Place(**first_place)
-        else:
-            logger.warning("Unexpected place data type: %s", type(first_place))
+    if place_data:
+        if isinstance(place_data, dict):
+            place = Place(**place_data)
+        elif isinstance(place_data, list) and len(place_data) > 0:
+            place = Place(**place_data[0])
 
     # Fallback: if embedded query returned no place, try fetching directly
     # This works around potential PostgREST embedding issues
     if place is None:
         places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
-        logger.info(
-            "get_entry fallback place query: entry_id=%s, places=%s",
-            entry_id,
-            places,
-        )
         if places and len(places) > 0:
             place = Place(**places[0])
 

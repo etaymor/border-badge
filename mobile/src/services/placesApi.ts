@@ -106,29 +106,12 @@ export function hasApiKey(): boolean {
 }
 
 /**
- * Extract the legacy photo_reference value from a Places API photo resource name.
- * The new Places API (v1) returns resource names like:
- *   places/PLACE_ID/photos/AWU5eF...
- * We need the final segment (after `/photos/`) to use the legacy photo endpoint,
- * which works without custom headers and can be rendered directly inside <Image>.
- */
-function extractPhotoReference(photoName: string): string | null {
-  if (!photoName) {
-    return null;
-  }
-
-  const match = photoName.match(/\/photos\/([^/]+)$/);
-  if (match?.[1]) {
-    return match[1];
-  }
-
-  const segments = photoName.split('/');
-  return segments.pop() || null;
-}
-
-/**
- * Construct a Google Places photo URL that can be consumed by React Native <Image>.
- * We fall back to the legacy photo endpoint because it allows API keys via query params.
+ * Construct a Google Places photo URL using the new Places API (v1).
+ * The v1 endpoint redirects to the actual image when accessed.
+ *
+ * @param photoName - Photo resource name in format "places/{placeId}/photos/{photoRef}"
+ * @param maxWidthPx - Maximum width in pixels (1-4800, default 400)
+ * @returns Full photo URL or null if API key is missing
  */
 export function getPhotoUrl(photoName: string, maxWidthPx = 400): string | null {
   if (!GOOGLE_PLACES_API_KEY) {
@@ -136,15 +119,20 @@ export function getPhotoUrl(photoName: string, maxWidthPx = 400): string | null 
     return null;
   }
 
-  const photoReference = extractPhotoReference(photoName);
-  if (!photoReference) {
-    logger.warn('Failed to parse Google photo reference from resource name');
+  if (!photoName) {
     return null;
   }
 
-  const clampedWidth = Math.min(Math.max(Math.floor(maxWidthPx), 1), 1600);
-  const encodedReference = encodeURIComponent(photoReference);
-  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${clampedWidth}&photo_reference=${encodedReference}&key=${GOOGLE_PLACES_API_KEY}`;
+  // Ensure the resource name has the correct format
+  // It should be "places/{placeId}/photos/{photoRef}" without leading slash
+  const resourceName = photoName.startsWith('places/')
+    ? photoName
+    : photoName.startsWith('/places/')
+      ? photoName.slice(1)
+      : `places/${photoName}`;
+
+  const clampedWidth = Math.min(Math.max(Math.floor(maxWidthPx), 1), 4800);
+  return `https://places.googleapis.com/v1/${resourceName}/media?key=${GOOGLE_PLACES_API_KEY}&maxWidthPx=${clampedWidth}`;
 }
 
 /**

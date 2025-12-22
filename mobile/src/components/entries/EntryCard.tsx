@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
-import { getPhotoUrl } from '@services/placesApi';
-
+import { logger } from '@utils/logger';
 // Entry type icons and colors
 const ENTRY_TYPE_CONFIG: Record<
   EntryType,
@@ -32,7 +31,11 @@ function formatDate(dateString: string | null): string {
   });
 }
 
-function normalizeGooglePhotoUrl(url: string | null): string | null {
+/**
+ * Validate that a URL is a Google Places photo URL.
+ * Both v1 (places.googleapis.com) and legacy (maps.googleapis.com) formats are supported.
+ */
+function isValidGooglePhotoUrl(url: string | null): string | null {
   if (!url) {
     return null;
   }
@@ -40,31 +43,21 @@ function normalizeGooglePhotoUrl(url: string | null): string | null {
   try {
     const parsed = new URL(url);
 
-    // Legacy domains already load fine inside <Image />
-    const legacyHosts = ['maps.googleapis.com', 'lh3.googleusercontent.com', 'ggpht.com'];
-    if (legacyHosts.some((host) => parsed.hostname === host || parsed.hostname.endsWith(host))) {
-      return url;
-    }
+    // Valid Google photo URL domains
+    const validHosts = [
+      'places.googleapis.com',
+      'maps.googleapis.com',
+      'lh3.googleusercontent.com',
+      'ggpht.com',
+    ];
 
-    if (!parsed.hostname.endsWith('places.googleapis.com')) {
-      return url;
-    }
+    const isValid = validHosts.some(
+      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+    );
 
-    if (!parsed.pathname.includes('/photos/')) {
-      return url;
-    }
-
-    // Convert /v1/places/{placeId}/photos/{photoId}/media → places/{placeId}/photos/{photoId}
-    const trimmedPath = parsed.pathname.replace(/^\/?v1\//, '').replace(/\/media\/?$/, '');
-    if (!trimmedPath.startsWith('places/')) {
-      return url;
-    }
-
-    const maxWidthParam = parsed.searchParams.get('maxWidthPx') ?? parsed.searchParams.get('maxwidth');
-    const maxWidth = maxWidthParam ? Number(maxWidthParam) : undefined;
-    return getPhotoUrl(trimmedPath, Number.isFinite(maxWidth) ? maxWidth : undefined) ?? url;
+    return isValid ? url : null;
   } catch {
-    return url;
+    return null;
   }
 }
 
@@ -74,9 +67,21 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
   const mediaCount = entry.media_files?.length ?? 0;
   const [imageError, setImageError] = useState(false);
   const placePhotoUrl = useMemo(
-    () => normalizeGooglePhotoUrl(entry.place?.google_photo_url ?? null),
+    () => isValidGooglePhotoUrl(entry.place?.google_photo_url ?? null),
     [entry.place?.google_photo_url]
   );
+
+  // Debug logging
+  useEffect(() => {
+    if (entry.place?.google_photo_url) {
+      logger.log('[EntryCard] Photo URL info', {
+        entryId: entry.id,
+        rawPhotoUrl: entry.place.google_photo_url?.substring(0, 100),
+        validatedUrl: placePhotoUrl?.substring(0, 100),
+        hasUserMedia,
+      });
+    }
+  }, [entry.id, entry.place?.google_photo_url, placePhotoUrl, hasUserMedia]);
 
   // Use user-uploaded media first, fall back to Google Places photo
   const firstMediaUrl = hasUserMedia
@@ -139,7 +144,18 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
             <Image
               source={{ uri: firstMediaUrl }}
               style={styles.mediaThumbnail}
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                logger.warn('[EntryCard] Image load error', {
+                  url: firstMediaUrl.substring(0, 100),
+                  error: e.nativeEvent?.error,
+                });
+                setImageError(true);
+              }}
+              onLoad={() => {
+                logger.log('[EntryCard] Image loaded successfully', {
+                  url: firstMediaUrl.substring(0, 100),
+                });
+              }}
             />
           ) : (
             <View style={styles.mediaThumbnailPlaceholder}>

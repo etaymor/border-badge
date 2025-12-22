@@ -112,7 +112,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Any inline styles in templates must include nonce="{{ request.state.csp_nonce }}"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' https://*.supabase.co data:; "
+            "img-src 'self' https://*.supabase.co https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com data:; "
             f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'"

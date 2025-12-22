@@ -118,7 +118,8 @@ export function useEntries(tripId: string) {
     queryKey: [...ENTRIES_QUERY_KEY, tripId],
     queryFn: async (): Promise<EntryWithPlace[]> => {
       const response = await api.get(`/trips/${tripId}/entries`);
-      return (response.data as Record<string, unknown>[]).map(transformEntry);
+      const rawEntries = response.data as Record<string, unknown>[];
+      return rawEntries.map(transformEntry);
     },
     enabled: !!tripId,
   });
@@ -130,17 +131,7 @@ export function useEntry(entryId: string) {
     queryKey: [...ENTRIES_QUERY_KEY, 'detail', entryId],
     queryFn: async (): Promise<EntryWithPlace> => {
       const response = await api.get(`/entries/${entryId}`);
-      console.log('[useEntry] Raw API response', {
-        entryId,
-        data: response.data,
-        place: (response.data as Record<string, unknown>)?.place,
-      });
-      const transformed = transformEntry(response.data as Record<string, unknown>);
-      console.log('[useEntry] Transformed entry', {
-        entryId,
-        place: transformed.place,
-      });
-      return transformed;
+      return transformEntry(response.data as Record<string, unknown>);
     },
     enabled: !!entryId,
   });
