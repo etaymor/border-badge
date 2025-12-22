@@ -89,6 +89,31 @@ export function track(
 }
 
 // ============================================================================
+// URL Sanitization
+// ============================================================================
+
+/**
+ * Sanitize a URL for analytics by removing query params and fragments.
+ * Prevents PII or sensitive data from being tracked.
+ *
+ * @param url - The URL to sanitize
+ * @param maxLength - Maximum length of the sanitized URL (default 100)
+ * @returns Sanitized URL with only host and path
+ */
+function sanitizeUrlForAnalytics(url: string, maxLength = 100): string {
+  try {
+    const parsed = new URL(url);
+    // Only keep host and pathname, strip query and fragment
+    const sanitized = `${parsed.host}${parsed.pathname}`;
+    return sanitized.substring(0, maxLength);
+  } catch {
+    // If URL parsing fails, just truncate and remove obvious query strings
+    const withoutQuery = url.split('?')[0].split('#')[0];
+    return withoutQuery.substring(0, maxLength);
+  }
+}
+
+// ============================================================================
 // Typed Event Helpers
 // ============================================================================
 
@@ -161,4 +186,70 @@ export const Analytics = {
       milestone_types: props.milestoneTypes.join(',') || null,
       milestone_count: props.milestoneTypes.length,
     }),
+
+  // Social Share Ingest
+  shareStarted: (props: { source: string; url: string }) =>
+    track('share_started', { source: props.source, url: sanitizeUrlForAnalytics(props.url) }),
+
+  shareIngested: (props: { provider: string; hasPlace: boolean; confidence: number }) =>
+    track('share_ingested', {
+      provider: props.provider,
+      has_place: props.hasPlace,
+      confidence: props.confidence,
+    }),
+
+  shareIngestFailed: (error: string) => track('share_ingest_failed', { error }),
+
+  shareSaved: (props: { entryId: string; tripId: string }) =>
+    track('share_saved', { entry_id: props.entryId, trip_id: props.tripId }),
+
+  shareCompleted: (props: { provider: string; entryType: string; tripId: string }) =>
+    track('share_completed', {
+      provider: props.provider,
+      entry_type: props.entryType,
+      trip_id: props.tripId,
+    }),
+
+  shareFailed: (props: { provider: string; error: string; stage: 'ingest' | 'save' }) =>
+    track('share_failed', {
+      provider: props.provider,
+      error: props.error,
+      stage: props.stage,
+    }),
+
+  shareQueued: (props: { url: string; reason: 'offline' | 'error' }) =>
+    track('share_queued', { url: sanitizeUrlForAnalytics(props.url), reason: props.reason }),
+
+  shareRetried: (props: { shareId: string; attempt: number; success: boolean }) =>
+    track('share_retried', {
+      share_id: props.shareId,
+      attempt: props.attempt,
+      success: props.success,
+    }),
+
+  // Place detection events
+  placeDetected: (props: { confidence: number; provider: string }) =>
+    track('place_detected', { confidence: props.confidence, provider: props.provider }),
+
+  placeConfirmed: (props: { wasDetected: boolean; wasEdited: boolean }) =>
+    track('place_confirmed', { was_detected: props.wasDetected, was_edited: props.wasEdited }),
+
+  placeManualEntry: () => track('place_manual_entry'),
+
+  // Trip selection events
+  tripSelected: (props: { tripId: string; isNew: boolean }) =>
+    track('trip_selected', { trip_id: props.tripId, is_new: props.isNew }),
+
+  tripCreatedInline: (props: { tripId: string; countryCode: string }) =>
+    track('trip_created_inline', { trip_id: props.tripId, country_code: props.countryCode }),
+
+  // Clipboard events
+  clipboardPromptShown: (props: { url: string }) =>
+    track('clipboard_prompt_shown', { url: sanitizeUrlForAnalytics(props.url) }),
+
+  clipboardPromptAccepted: (props: { url: string }) =>
+    track('clipboard_prompt_accepted', { url: sanitizeUrlForAnalytics(props.url) }),
+
+  clipboardPromptDismissed: (props: { url: string }) =>
+    track('clipboard_prompt_dismissed', { url: sanitizeUrlForAnalytics(props.url) }),
 };

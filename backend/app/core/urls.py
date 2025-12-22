@@ -10,7 +10,8 @@ MAX_QUERY_PARAMS = 50
 # Google Places Photo API domains (for SSRF protection)
 GOOGLE_PHOTO_DOMAINS = frozenset(
     {
-        "maps.googleapis.com",
+        "places.googleapis.com",  # New Places API (v1)
+        "maps.googleapis.com",  # Legacy Places API
         "lh3.googleusercontent.com",
         "geo0.ggpht.com",
         "geo1.ggpht.com",

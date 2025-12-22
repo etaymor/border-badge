@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request
+from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -23,6 +23,32 @@ from app.schemas.entries import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _parse_place_from_postgrest(place_data: dict | list | None) -> Place | None:
+    """Parse place data from PostgREST embedded response.
+
+    PostgREST returns one-to-one relationships as a single object, but we
+    defensively handle array format as well in case of future behavior changes
+    or edge cases with nullable foreign keys.
+
+    Args:
+        place_data: Raw place data from PostgREST - can be dict (normal),
+                   list (edge case), or None (no place)
+
+    Returns:
+        Parsed Place object or None if no valid place data
+    """
+    if not place_data:
+        return None
+
+    if isinstance(place_data, dict):
+        return Place(**place_data)
+    elif isinstance(place_data, list) and len(place_data) > 0:
+        # Handle array format (edge case with some PostgREST configurations)
+        return Place(**place_data[0])
+
+    return None
 
 
 @router.get("/trips/{trip_id}/entries", response_model=list[EntryWithPlace])
@@ -57,15 +83,7 @@ async def list_entries(
         media_data = entry_row.pop("media_files", None)
 
         entry = Entry(**entry_row)
-
-        # Parse place if it exists (place is an array from PostgREST)
-        place = None
-        if place_data and isinstance(place_data, list) and len(place_data) > 0:
-            first_place = place_data[0]
-            if isinstance(first_place, dict):
-                place = Place(**first_place)
-            else:
-                logger.warning("Unexpected place data type: %s", type(first_place))
+        place = _parse_place_from_postgrest(place_data)
 
         # Parse media_files and build URLs
         media_files = []
@@ -123,6 +141,24 @@ async def create_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Check for duplicate place in same trip (by google_place_id)
+    if data.place and data.place.google_place_id:
+        existing_entries = await db.get(
+            "entry",
+            {
+                "trip_id": f"eq.{trip_id}",
+                "deleted_at": "is.null",
+                "select": "id, place!inner(google_place_id)",
+            },
+        )
+        if check_duplicate_place_in_entries(
+            existing_entries, data.place.google_place_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            )
+
     # Create entry
     entry_data = {
         "trip_id": str(trip_id),
@@ -146,6 +182,12 @@ async def create_entry(
 
     # Create place if provided
     if data.place:
+        logger.info(
+            "Creating place for entry %s: place_name=%s, google_place_id=%s",
+            entry.id,
+            data.place.place_name,
+            data.place.google_place_id,
+        )
         place_data = {
             "entry_id": str(entry.id),
             "google_place_id": data.place.google_place_id,
@@ -156,6 +198,14 @@ async def create_entry(
             "extra_data": data.place.extra_data,
         }
         place_rows = await db.post("place", place_data)
+        logger.debug(
+            "Place created for entry",
+            extra={
+                "entry_id": str(entry.id),
+                "place_id": place_rows[0]["id"] if place_rows else None,
+                "has_google_place_id": bool(data.place.google_place_id),
+            },
+        )
         if not place_rows:
             # Rollback: delete the entry we just created
             # If cleanup fails, log the orphaned entry for manual resolution
@@ -224,6 +274,7 @@ async def get_entry(
 
     # Fetch entry with embedded place in single query
     entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
+
     if not entries:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -233,15 +284,14 @@ async def get_entry(
     entry_row = entries[0]
     place_data = entry_row.pop("place", None)
     entry = Entry(**entry_row)
+    place = _parse_place_from_postgrest(place_data)
 
-    # Parse place if it exists (place is an array from PostgREST)
-    place = None
-    if place_data and isinstance(place_data, list) and len(place_data) > 0:
-        first_place = place_data[0]
-        if isinstance(first_place, dict):
-            place = Place(**first_place)
-        else:
-            logger.warning("Unexpected place data type: %s", type(first_place))
+    # Fallback: if embedded query returned no place, try fetching directly
+    # This works around potential PostgREST embedding issues
+    if place is None:
+        places = await db.get("place", {"entry_id": f"eq.{entry_id}"})
+        if places and len(places) > 0:
+            place = Place(**places[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
 

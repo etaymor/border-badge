@@ -67,13 +67,18 @@ async def _generate_entry_redirect_url(
         return None
 
 
-def _extract_place_photo_url(place: dict[str, Any] | None) -> str | None:
+def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
     """Pull google_photo_url out of place.extra_data if present and validate it.
 
     Uses safe_google_photo_url() to validate URLs against a whitelist of
     known Google photo-serving domains for SSRF protection.
     """
     if not place:
+        return None
+    # PostgREST may return place as array or dict depending on relationship type
+    if isinstance(place, list):
+        place = place[0] if place else None
+    if not isinstance(place, dict):
         return None
     extra_data = place.get("extra_data")
     if not isinstance(extra_data, dict):
@@ -158,7 +163,12 @@ async def view_public_list(
     for row in entry_rows:
         entry = row.get("entry", {})
         if entry:
-            place = entry.get("place", {}) if entry.get("place") else {}
+            place_raw = entry.get("place")
+            # PostgREST may return place as array or dict
+            if isinstance(place_raw, list):
+                place = place_raw[0] if place_raw else {}
+            else:
+                place = place_raw if place_raw else {}
             entry_id = entry.get("id")
 
             # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id
@@ -292,7 +302,12 @@ async def view_public_trip(
 
     entries: list[PublicTripEntry] = []
     for entry in entry_rows:
-        place = entry.get("place", {}) if entry.get("place") else {}
+        place_raw = entry.get("place")
+        # PostgREST may return place as array or dict
+        if isinstance(place_raw, list):
+            place = place_raw[0] if place_raw else {}
+        else:
+            place = place_raw if place_raw else {}
         entry_id = entry.get("id")
 
         # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id

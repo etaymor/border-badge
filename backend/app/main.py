@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -17,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
 
@@ -31,6 +33,9 @@ STATIC_DIR = APP_DIR / "static"
 # Get settings first so we can use them in template globals
 settings = get_settings()
 
+# Setup logging early
+setup_logging(debug=settings.debug)
+
 # Jinja2 templates instance (shared across the application)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
 templates.env.filters["safe_external_url"] = safe_external_url
@@ -44,10 +49,12 @@ limiter = Limiter(key_func=get_remote_address)
 from app.api import router as api_router  # noqa: E402, I001
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
-    # Startup
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
@@ -81,7 +88,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Any inline styles in templates must include nonce="{{ request.state.csp_nonce }}"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' https://*.supabase.co data:; "
+            "img-src 'self' https://*.supabase.co https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com data:; "
             f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'"

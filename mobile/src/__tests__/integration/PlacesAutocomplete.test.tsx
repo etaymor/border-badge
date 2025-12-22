@@ -277,6 +277,7 @@ describe('PlacesAutocomplete Integration', () => {
           longitude: 139.6503,
           google_photo_url: null,
           website_url: null,
+          country_code: null,
         });
       });
     });
@@ -320,6 +321,7 @@ describe('PlacesAutocomplete Integration', () => {
           longitude: null,
           google_photo_url: null,
           website_url: null,
+          country_code: null,
         });
       });
     });
@@ -364,6 +366,7 @@ describe('PlacesAutocomplete Integration', () => {
           longitude: null,
           google_photo_url: null,
           website_url: null,
+          country_code: null,
         });
       });
     });

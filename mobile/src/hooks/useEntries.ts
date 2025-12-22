@@ -118,7 +118,8 @@ export function useEntries(tripId: string) {
     queryKey: [...ENTRIES_QUERY_KEY, tripId],
     queryFn: async (): Promise<EntryWithPlace[]> => {
       const response = await api.get(`/trips/${tripId}/entries`);
-      return (response.data as Record<string, unknown>[]).map(transformEntry);
+      const rawEntries = response.data as Record<string, unknown>[];
+      return rawEntries.map(transformEntry);
     },
     enabled: !!tripId,
   });
@@ -142,6 +143,14 @@ export function useCreateEntry() {
 
   return useMutation({
     mutationFn: async (input: CreateEntryInput): Promise<EntryWithPlace> => {
+      console.log('[useCreateEntry] Input received', {
+        trip_id: input.trip_id,
+        entry_type: input.entry_type,
+        title: input.title,
+        hasPlace: !!input.place,
+        place: input.place,
+      });
+
       // Transform to backend format
       const backendInput = {
         type: input.entry_type,
@@ -163,7 +172,19 @@ export function useCreateEntry() {
           : undefined,
         pending_media_ids: input.pending_media_ids,
       };
+
+      console.log('[useCreateEntry] Sending to backend', {
+        trip_id: input.trip_id,
+        backendInput,
+      });
+
       const response = await api.post(`/trips/${input.trip_id}/entries`, backendInput);
+
+      console.log('[useCreateEntry] Response from backend', {
+        data: response.data,
+        place: (response.data as Record<string, unknown>)?.place,
+      });
+
       return transformEntry(response.data as Record<string, unknown>);
     },
     onSuccess: (data, variables) => {

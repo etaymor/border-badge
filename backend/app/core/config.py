@@ -50,6 +50,22 @@ class Settings(BaseSettings):
     skimlinks_api_key: str = ""  # Skimlinks API key for link monetization
     skimlinks_publisher_id: str = ""  # Skimlinks publisher ID
 
+    # Social ingest - marked as secrets to prevent logging exposure
+    instagram_oembed_token: str = Field(
+        default="", repr=False
+    )  # Meta app token for Instagram oEmbed API
+    google_places_api_key: str = Field(
+        default="", repr=False
+    )  # Google Places API key for place resolution
+
+    # Place extraction settings
+    place_extraction_min_confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence score (0.0-1.0) for place extraction",
+    )
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

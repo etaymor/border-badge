@@ -15,6 +15,7 @@ import { useProfile, useUpdateProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
+import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 import { formatPhoneForDisplay } from '@utils/phoneValidation';
 import { getFlagEmoji } from '@utils/flags';
@@ -59,6 +60,8 @@ function getInitials(name: string | undefined): string {
 
 export function ProfileSettingsScreen({ navigation }: Props) {
   const { session } = useAuthStore();
+  const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
+  const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
   const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: homeCountry } = useCountryByCode(profile?.home_country_code);
   const { data: userCountries } = useUserCountries();
@@ -183,6 +186,14 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setExportModalVisible(false);
     setCopyFeedback(false);
   }, []);
+
+  const handleToggleClipboardDetection = useCallback(
+    (enabled: boolean) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setClipboardDetectionEnabled(enabled);
+    },
+    [setClipboardDetectionEnabled]
+  );
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
@@ -343,8 +354,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           memberSince={memberSince}
           trackingPreferenceDisplay={trackingPreferenceDisplay}
           visitedCount={visitedCount}
+          clipboardDetectionEnabled={clipboardDetectionEnabled}
           onOpenTrackingModal={handleOpenTrackingModal}
           onOpenExportModal={handleOpenExportModal}
+          onToggleClipboardDetection={handleToggleClipboardDetection}
         />
 
         <View style={styles.divider} />

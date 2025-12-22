@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Linking } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
 import {
@@ -14,7 +14,7 @@ import {
   OpenSans_700Bold,
 } from '@expo-google-fonts/open-sans';
 import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -24,9 +24,19 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplash } from '@components/splash';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
+import type { ShareCaptureSource } from '@navigation/types';
+// Note: RootStackParamList would be imported here for type-safe navigation,
+// but during LAUNCH_SIMPLIFICATION the navigation structure doesn't match types
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
+import {
+  isShareExtensionDeepLink,
+  parseDeepLinkParams,
+  savePendingShare,
+  getPendingShare,
+  clearPendingShare,
+} from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 
@@ -38,14 +48,46 @@ function generateSessionId(): string {
   return Crypto.randomUUID();
 }
 
+// Navigation container ref for programmatic navigation
+// Using any type due to LAUNCH_SIMPLIFICATION navigation structure
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const navigationRef = createNavigationContainerRef<any>();
+
+/**
+ * Deep linking configuration for the app.
+ * Handles borderbadge:// URLs from the Share Extension.
+ *
+ * Note: During LAUNCH_SIMPLIFICATION, Main uses PassportNavigator directly
+ * which makes the type system complex. We use a minimal linking config
+ * and handle ShareCapture navigation manually in the useEffect.
+ */
+const linking = {
+  prefixes: ['borderbadge://'],
+  // Minimal config - actual ShareCapture navigation is handled manually
+  // in the useEffect to avoid complex nested navigation types
+  config: {
+    screens: {},
+  },
+};
+
+type ShareCaptureNavigationParams = {
+  url: string;
+  caption?: string;
+  source: ShareCaptureSource;
+};
+
 export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
+  // Note: pendingShareUrl state could be added here for UI feedback (e.g., showing a banner)
   const nativeSplashHiddenRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const sessionIdRef = useRef(generateSessionId());
   const hasTrackedInitialOpenRef = useRef(false);
+  const hasProcessedInitialShareRef = useRef(false);
+  const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
+  const shouldClearPendingShareRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -73,6 +115,78 @@ export default function App() {
   useEffect(() => {
     void initAnalytics();
   }, []);
+
+  // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
+  const tryNavigateToShareCapture = useCallback(
+    (params: ShareCaptureNavigationParams): 'navigated' | 'queued' | 'unauthenticated' => {
+      if (!session?.user?.id) {
+        return 'unauthenticated';
+      }
+
+      if (!navigationRef.isReady()) {
+        pendingAuthedShareRef.current = params;
+        return 'queued';
+      }
+
+      navigationRef.navigate('Main', {
+        screen: 'ShareCapture',
+        params,
+      });
+      pendingAuthedShareRef.current = null;
+      return 'navigated';
+    },
+    [session?.user?.id]
+  );
+
+  const flushPendingAuthedShare = useCallback(() => {
+    if (!pendingAuthedShareRef.current) return;
+
+    const result = tryNavigateToShareCapture(pendingAuthedShareRef.current);
+    if (result === 'navigated' && shouldClearPendingShareRef.current) {
+      shouldClearPendingShareRef.current = false;
+      void clearPendingShare();
+    }
+  }, [tryNavigateToShareCapture]);
+
+  const processPendingShare = useCallback(async () => {
+    if (!session?.user?.id) return;
+
+    const pendingShare = await getPendingShare();
+    if (pendingShare) {
+      const result = tryNavigateToShareCapture({
+        url: pendingShare.url,
+        source: 'share_extension',
+      });
+
+      if (result === 'navigated') {
+        await clearPendingShare();
+      } else if (result === 'queued') {
+        shouldClearPendingShareRef.current = true;
+      }
+    }
+  }, [session?.user?.id, tryNavigateToShareCapture]);
+
+  const handleNavigationReady = useCallback(() => {
+    flushPendingAuthedShare();
+    void processPendingShare();
+  }, [flushPendingAuthedShare, processPendingShare]);
+
+  // If user signs out before we could navigate, persist the queued share for later.
+  useEffect(() => {
+    if (session?.user?.id) {
+      flushPendingAuthedShare();
+      return;
+    }
+
+    if (pendingAuthedShareRef.current) {
+      const urlToPersist = pendingAuthedShareRef.current.url;
+      pendingAuthedShareRef.current = null;
+      shouldClearPendingShareRef.current = false;
+      void savePendingShare(urlToPersist);
+    } else {
+      shouldClearPendingShareRef.current = false;
+    }
+  }, [flushPendingAuthedShare, session?.user?.id]);
 
   // Track app_opened when app comes to foreground
   useEffect(() => {
@@ -108,6 +222,53 @@ export default function App() {
       subscription.remove();
     };
   }, [session?.user?.id]);
+
+  // Handle Share Extension deep links and pending shares
+  useEffect(() => {
+    /**
+     * Process a share extension deep link.
+     * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
+     */
+    const handleShareDeepLink = async (deepLinkUrl: string) => {
+      // Only process share extension deep links
+      if (!isShareExtensionDeepLink(deepLinkUrl)) return;
+
+      // Extract the shared URL from the deep link query parameter
+      const params = parseDeepLinkParams(deepLinkUrl);
+      const sharedUrl = params.url;
+
+      if (sharedUrl) {
+        const result = tryNavigateToShareCapture({
+          url: sharedUrl,
+          source: 'share_extension',
+        });
+
+        if (result === 'unauthenticated') {
+          // User not authenticated - save for later
+          await savePendingShare(sharedUrl);
+        }
+      }
+    };
+
+    // Subscribe to deep link events
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleShareDeepLink(url);
+    });
+
+    // Check for initial URL (app opened via deep link)
+    if (!hasProcessedInitialShareRef.current) {
+      hasProcessedInitialShareRef.current = true;
+      Linking.getInitialURL().then((url) => {
+        if (url) {
+          void handleShareDeepLink(url);
+        }
+      });
+    }
+
+    return () => {
+      subscription.remove();
+    };
+  }, [tryNavigateToShareCapture]);
 
   useEffect(() => {
     // Wire up API sign-out callback
@@ -199,7 +360,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          <NavigationContainer>
+          <NavigationContainer
+            ref={navigationRef}
+            linking={linking}
+            onReady={handleNavigationReady}
+          >
             <RootNavigator />
             <StatusBar style="auto" />
           </NavigationContainer>

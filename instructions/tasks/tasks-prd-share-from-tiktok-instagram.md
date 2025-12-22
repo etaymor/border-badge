@@ -1,59 +1,81 @@
 ## Relevant Files
 
-- `mobile/src/extensions/share/ShareCaptureScreen.tsx` - Primary UI for the Share Extension/Share Target one-tap save surface.
-- `mobile/src/extensions/share/__tests__/ShareCaptureScreen.test.tsx` - Component tests for ShareCaptureScreen interactions.
-- `mobile/src/ios/ShareExtensionViewController.swift` - Native wrapper that hands URLs into the React Native share UI.
-- `mobile/src/android/share/ShareTargetActivity.kt` - Android share target activity receiving ACTION_SEND intents.
-- `mobile/src/hooks/useClipboardListener.ts` - Hooks for clipboard detection and prompting logic.
-- `mobile/src/hooks/__tests__/useClipboardListener.test.ts` - Unit tests validating clipboard prompt behavior.
-- `mobile/src/services/shareQueue.ts` - Local queue for retrying failed share submissions.
-- `mobile/src/services/__tests__/shareQueue.test.ts` - Unit tests covering retry and persistence logic.
-- `mobile/src/services/analytics.ts` - Event logging for share start/success/failure metrics.
-- `backend/app/api/ingest.py` - FastAPI routes for `/ingest/social`, `/ingest/tiktok`, `/ingest/instagram`.
-- `backend/tests/api/test_ingest.py` - API tests covering success, low-confidence, rate-limit, and error paths.
-- `backend/app/services/social_ingest.py` - Canonicalization, metadata adapters, caching, and place extraction orchestration.
-- `backend/tests/services/test_social_ingest.py` - Unit tests for adapters, caching, and Google Places resolution.
-- `backend/app/models/saved_source.py` - SQLAlchemy/Pydantic models for SavedSource and relationships to Place/Trip.
-- `backend/migrations/` - Schema migrations adding SavedSource tables/columns.
+### Backend
+- `supabase/migrations/0025_social_ingest.sql` - Database schema for saved_source and oembed_cache tables
+- `backend/app/schemas/social_ingest.py` - Pydantic models for ingest requests/responses
+- `backend/app/services/url_resolver.py` - URL canonicalization and provider detection
+- `backend/app/services/oembed_adapters.py` - TikTok/Instagram oEmbed API clients with caching
+- `backend/app/services/place_extractor.py` - Extract place candidates from metadata, resolve via Google Places
+- `backend/app/api/ingest.py` - FastAPI routes for `/ingest/social`
+- `backend/tests/services/test_url_resolver.py` - Unit tests for URL processing
+- `backend/tests/services/test_oembed_adapters.py` - Unit tests for oEmbed adapters
+- `backend/tests/api/test_ingest.py` - Integration tests for ingest API
+
+### Mobile - Share UI
+- `mobile/src/screens/share/ShareCaptureScreen.tsx` - Main share capture UI with place confirmation
+- `mobile/src/components/share/TripSelector.tsx` - Trip dropdown with inline creation
+- `mobile/src/components/share/InlineTripForm.tsx` - Quick trip creation form
+- `mobile/src/components/share/ClipboardBanner.tsx` - Floating prompt for clipboard URLs
+- `mobile/src/hooks/useSocialIngest.ts` - React Query mutations for ingest API
+- `mobile/src/hooks/useClipboardListener.ts` - Clipboard detection on app foreground
+
+### Mobile - Native Extensions
+- `mobile/plugins/withShareExtension.js` - Expo config plugin for iOS Share Extension
+- `mobile/plugins/share-extension/ShareViewController.swift` - iOS Share Extension Swift code
+- `mobile/plugins/share-extension/Info.plist` - Extension configuration
+- `mobile/plugins/share-extension/ShareExtension.entitlements` - App Group entitlements
+- `mobile/src/services/shareExtensionBridge.ts` - Bridge to read shared data from App Group
+- `mobile/src/__tests__/services/shareExtensionBridge.test.ts` - Unit tests for share extension bridge
+- `mobile/src/services/shareQueue.ts` - Local retry queue for failed submissions
 
 ### Notes
 
-- Unit tests should typically live beside the files being tested (e.g., `Component.tsx` with `Component.test.tsx`).
-- Use `npm run test -- [path]` inside `mobile/` and `poetry run pytest [path]` inside `backend/` for targeted suites. Running without a path executes the entire test suite.
+- Unit tests live beside the files being tested (e.g., `Component.tsx` with `Component.test.tsx`)
+- Use `npm run test -- [path]` inside `mobile/` and `poetry run pytest [path]` inside `backend/`
+- Focus tests on critical logic (URL parsing, oEmbed, place extraction, retry queue) - skip UI component tests
 
 ## Tasks
 
-- [ ] 1.0 Build cross-platform share capture surfaces
-  - [ ] 1.1 Create the iOS Share Extension target, configure entitlements/app group, and load the React Native `ShareCaptureScreen`.
-  - [ ] 1.2 Implement the branded one-tap UI (thumbnail, detected place, Save CTA, trip selector) shared across iOS/Android.
-  - [ ] 1.3 Wire the Share Extension to package payloads (URL, caption, source, user auth token) and post them to the core app/backend.
-  - [ ] 1.4 Register an Android `ACTION_SEND` share target activity that extracts the first URL from `EXTRA_TEXT` and opens the same React Native UI.
-  - [ ] 1.5 Add automated UI tests (React Native testing library) covering TikTok and Instagram share flows, including trip picker behavior.
+- [x] 1.0 Backend Social Ingest API
+  - [x] 1.1 Create database migration `0025_social_ingest.sql` with `saved_source` table, `oembed_cache` table, and RLS policies
+  - [x] 1.2 Create Pydantic schemas in `social_ingest.py` for ingest request/response and provider enum
+  - [x] 1.3 Implement URL canonicalization service in `url_resolver.py` (follow redirects, detect provider, normalize URL)
+  - [x] 1.4 Implement oEmbed adapters in `oembed_adapters.py` (TikTok oEmbed, Instagram oEmbed with token, OpenGraph fallback, database caching)
+  - [x] 1.5 Implement place extraction in `place_extractor.py` (extract candidates from oEmbed/caption, call Google Places, return with confidence)
+  - [x] 1.6 Create ingest API endpoint in `ingest.py` with rate limiting and register router
+  - [x] 1.7 Write backend tests for URL resolver, oEmbed adapters, and ingest API integration
 
-- [ ] 2.0 Implement social ingestion backend with caching and rate limiting
-  - [ ] 2.1 Add FastAPI routes (`/ingest/social`, `/ingest/tiktok`, `/ingest/instagram`) and request schemas for URL + caption payloads.
-  - [ ] 2.2 Build canonicalization utilities that follow one redirect, detect provider, and normalize URLs for storage.
-  - [ ] 2.3 Implement TikTok oEmbed adapter with short-term response caching (e.g., Redis) to avoid redundant provider calls.
-  - [ ] 2.4 Implement Instagram metadata adapter using the Meta access token (config via env vars) plus fallback OpenGraph fetch; include cache + error handling.
-  - [ ] 2.5 Enforce rate limiting on all ingest endpoints (per-user + global ceilings) and add structured logging when limits trigger.
-  - [ ] 2.6 Write backend unit/integration tests covering success paths, cache hits, provider failures, and rate-limit responses.
+- [x] 2.0 Mobile Share Capture UI
+  - [x] 2.1 Create ShareCaptureScreen with branded UI (thumbnail, place autocomplete, trip selector, save CTA)
+  - [x] 2.2 Create TripSelector component with country-filtered trips and "Create new trip" option
+  - [x] 2.3 Create InlineTripForm for quick trip creation within share flow
+  - [x] 2.4 Create useSocialIngest hook with mutations for `/ingest/social` and save-to-trip
+  - [x] 2.5 Add ShareCaptureScreen to navigation with modal presentation and deep link params
 
-- [ ] 3.0 Extend place extraction, trip association, and persistence
-  - [ ] 3.1 Update or create `SavedSource` models, migrations, and repositories to store original/canonical URLs, thumbnails, captions, and author handles.
-  - [ ] 3.2 Integrate the existing Google Places autocomplete → details pipeline, returning confidence scores and resolved Place IDs.
-  - [ ] 3.3 Implement trip matching logic (by country) plus “create new trip” support in the backend payloads consumed by the share UI.
-  - [ ] 3.4 Persist SavedSource ↔ Place ↔ Trip relationships and expose them via existing APIs for downstream use.
-  - [ ] 3.5 Add automated tests for persistence logic and place resolution edge cases (high confidence vs. unresolved saves).
+- [x] 3.0 Clipboard Detection (In-App Fallback)
+  - [x] 3.1 Create useClipboardListener hook to detect TikTok/Instagram URLs on app foreground
+  - [x] 3.2 Create ClipboardBanner component for non-blocking prompt UI
+  - [x] 3.3 Add clipboard detection opt-out toggle to ProfileSettingsScreen
+  - [x] 3.4 Write tests for clipboard URL pattern detection
 
-- [ ] 4.0 Deliver reliability backstops and failure handling
-  - [ ] 4.1 Implement the in-app clipboard listener hook that detects TikTok/Instagram URLs (with opt-in/out settings) and launches the capture UI.
-  - [ ] 4.2 Build a local retry queue for failed share submissions with exponential backoff and foreground/background flush triggers.
-  - [ ] 4.3 Design error states for the share UI (provider outage, offline) and ensure users can retry or save as unresolved.
-  - [ ] 4.4 Add automated tests for clipboard prompts, queue persistence, and retry behavior (including offline simulations).
+- [x] 4.0 iOS Share Extension
+  - [x] 4.1 Create iOS Share Extension target with entitlements and App Group configuration
+  - [x] 4.2 Implement ShareViewController.swift to extract URL and pass to main app
+  - [x] 4.3 Create shareExtensionBridge.ts to read shared URL from App Group storage
+  - [x] 4.4 Update App.tsx to handle deep links and open ShareCaptureScreen
 
-- [ ] 5.0 Instrument analytics, monitoring, and critical tests
-  - [ ] 5.1 Define and emit analytics events for share start/completion, metadata success/failure, trip association, clipboard prompt conversions.
-  - [ ] 5.2 Add observability on the backend (structured logs, metrics for cache hit ratio, rate-limit counts, adapter latency).
-  - [ ] 5.3 Expand automated test coverage: end-to-end happy path (share → saved place), low-confidence fallback, and rate-limit enforcement scenarios.
-  - [ ] 5.4 Document test plans and add CI checks ensuring new suites (mobile + backend) run on every PR.
+- [ ] 5.0 Android Share Target
+  - [ ] 5.1 Add ACTION_SEND intent filter to AndroidManifest.xml for text/plain
+  - [ ] 5.2 Create androidShareHandler.ts to extract URL from shared intent
+  - [ ] 5.3 Wire intent handling to open ShareCaptureScreen with URL
 
+- [x] 6.0 Reliability and Polish
+  - [x] 6.1 Implement shareQueue.ts for local retry queue with exponential backoff
+  - [x] 6.2 Add error states to ShareCaptureScreen (provider outage, offline, retry)
+  - [x] 6.3 Add analytics events for share flow (started, completed, failed, place detection, trip selection)
+  - [x] 6.4 Write tests for retry queue persistence and flush behavior
+
+- [ ] 7.0 Share Ingest Bug Fixes
+  - [x] 7.1 Validate Supabase token usage in ingest endpoints
+  - [x] 7.2 Restrict save-to-trip verification to owner trips
+  - [x] 7.3 Prevent authenticated shares from being stored as pending when navigation isn't ready
