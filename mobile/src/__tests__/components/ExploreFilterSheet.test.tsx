@@ -112,10 +112,11 @@ describe('ExploreFilterSheet', () => {
   });
 
   describe('clear all button', () => {
-    it('does not show Clear All when no filters active', () => {
+    it('Clear All button is always rendered to prevent layout shift', () => {
       renderSheet();
 
-      expect(screen.queryByText('Clear All')).toBeNull();
+      // Button is always rendered (but invisible with opacity 0) to prevent layout shift
+      expect(screen.getByText('Clear All')).toBeTruthy();
     });
 
     it('shows Clear All when filters are active', () => {
