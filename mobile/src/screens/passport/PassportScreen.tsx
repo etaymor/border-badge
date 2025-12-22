@@ -161,7 +161,10 @@ export function PassportScreen({ navigation }: Props) {
   }, [setFilters]);
 
   // Layout data for FlatList
-  const layoutData = useMemo(() => computeLayoutData(flatListData), [computeLayoutData, flatListData]);
+  const layoutData = useMemo(
+    () => computeLayoutData(flatListData),
+    [computeLayoutData, flatListData]
+  );
 
   const getItemLayout = useCallback(
     (_: ArrayLike<ListItem> | null | undefined, index: number) => {
@@ -177,7 +180,9 @@ export function PassportScreen({ navigation }: Props) {
     (stamps: CountryDisplayItem[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, stamps.length);
       ensureRowVisible(rowKey, animValues);
-      return <StampRow stamps={stamps} animValues={animValues} onCountryPress={handleCountryPress} />;
+      return (
+        <StampRow stamps={stamps} animValues={animValues} onCountryPress={handleCountryPress} />
+      );
     },
     [getRowAnimationValues, ensureRowVisible, handleCountryPress]
   );
@@ -196,7 +201,13 @@ export function PassportScreen({ navigation }: Props) {
         />
       );
     },
-    [getRowAnimationValues, ensureRowVisible, handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
+    [
+      getRowAnimationValues,
+      ensureRowVisible,
+      handleUnvisitedCountryPress,
+      handleAddVisited,
+      handleToggleWishlist,
+    ]
   );
 
   const renderItem = useCallback(
@@ -208,7 +219,13 @@ export function PassportScreen({ navigation }: Props) {
               title={item.title}
               showShareButton={item.key === 'header-visited' && !!passportShareContext}
               onSharePress={handlePassportShare}
-              variant={item.key === 'header-visited' ? 'visited' : item.key === 'header-explore' ? 'explore' : 'default'}
+              variant={
+                item.key === 'header-visited'
+                  ? 'visited'
+                  : item.key === 'header-explore'
+                    ? 'explore'
+                    : 'default'
+              }
             />
           );
         case 'stamp-row':
@@ -238,7 +255,16 @@ export function PassportScreen({ navigation }: Props) {
         onProfilePress={handleProfilePress}
       />
     ),
-    [stats, searchQuery, isLoading, filtersActive, activeFilterCount, setSearchQuery, handleExplorePress, handleProfilePress]
+    [
+      stats,
+      searchQuery,
+      isLoading,
+      filtersActive,
+      activeFilterCount,
+      setSearchQuery,
+      handleExplorePress,
+      handleProfilePress,
+    ]
   );
 
   if (isLoading) {

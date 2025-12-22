@@ -19,7 +19,11 @@ export function StampRow({ stamps, animValues, onCountryPress }: StampRowProps) 
           animValue={animValues[index]}
           style={styles.stampCardWrapper}
         >
-          <StampCard code={item.code} hasTrips={item.hasTrips} onPress={() => onCountryPress(item)} />
+          <StampCard
+            code={item.code}
+            hasTrips={item.hasTrips}
+            onPress={() => onCountryPress(item)}
+          />
         </AnimatedCardWrapper>
       ))}
     </View>

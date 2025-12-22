@@ -19,7 +19,12 @@ import {
   type ExploreFilters,
 } from '../types/filters';
 import type { OnboardingShareContext } from '@components/share';
-import type { CountryDisplayItem, UnvisitedCountry, ListItem, PassportStats } from '../screens/passport/passportTypes';
+import type {
+  CountryDisplayItem,
+  UnvisitedCountry,
+  ListItem,
+  PassportStats,
+} from '../screens/passport/passportTypes';
 
 export function usePassportData() {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();

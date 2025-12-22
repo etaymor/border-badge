@@ -1,11 +1,6 @@
 import React from 'react';
 import { Animated } from 'react-native';
-
-interface AnimatedCardWrapperProps {
-  children: React.ReactNode;
-  animValue: Animated.Value;
-  style?: object;
-}
+import type { AnimatedCardWrapperProps } from '../../screens/passport/passportTypes';
 
 export function AnimatedCardWrapper({ children, animValue, style }: AnimatedCardWrapperProps) {
   return (
