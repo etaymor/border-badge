@@ -26,7 +26,7 @@ interface UseShareCaptureParams {
   url: string;
   caption?: string;
   source?: string;
-  onComplete: () => void;
+  onComplete: (tripId?: string) => void;
 }
 
 export interface ShareCaptureState {
@@ -214,7 +214,7 @@ export function useShareCapture({
               entryType,
               tripId: selectedTripId,
             });
-            onComplete();
+            onComplete(selectedTripId ?? undefined);
           },
           onError: (err) => {
             const message = err instanceof Error ? err.message : 'Failed to save entry';
@@ -252,7 +252,7 @@ export function useShareCapture({
             entryType,
             tripId: selectedTripId,
           });
-          onComplete();
+          onComplete(selectedTripId ?? undefined);
         },
         onError: (err) => {
           const message = err instanceof Error ? err.message : 'Failed to save entry';

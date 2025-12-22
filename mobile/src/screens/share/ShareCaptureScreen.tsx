@@ -66,7 +66,14 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     url,
     caption,
     source,
-    onComplete: () => navigation.goBack(),
+    onComplete: (tripId?: string) => {
+      if (tripId) {
+        // Navigate to the trip detail screen after saving
+        navigation.navigate('Trips', { screen: 'TripDetail', params: { tripId } });
+      } else {
+        navigation.goBack();
+      }
+    },
   });
 
   // Loading state
