@@ -27,10 +27,10 @@ from app.services.place_extractor.scoring import (
 logger = logging.getLogger(__name__)
 
 # Maximum candidates to try in parallel (limits API calls)
-MAX_PARALLEL_CANDIDATES = 5
+MAX_PARALLEL_CANDIDATES = 3
 
 # Overall timeout for place extraction (seconds)
-PLACE_EXTRACTION_TIMEOUT = 10.0
+PLACE_EXTRACTION_TIMEOUT = 5.0
 
 
 async def _try_candidate(
