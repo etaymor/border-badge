@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 
 import { ClipboardBannerOverlay } from '@components/share';
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
-import { PassportScreen } from '@screens/PassportScreen';
+import { PassportScreen } from '@screens/passport/PassportScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.

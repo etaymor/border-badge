@@ -260,11 +260,13 @@ export function ExploreFilterSheet({
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Explore Filters</Text>
-              {activeFilterCount > 0 && (
-                <TouchableOpacity onPress={onClearAll} style={styles.clearButton}>
-                  <Text style={styles.clearButtonText}>Clear All</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                onPress={onClearAll}
+                style={[styles.clearButton, { opacity: activeFilterCount > 0 ? 1 : 0 }]}
+                disabled={activeFilterCount === 0}
+              >
+                <Text style={styles.clearButtonText}>Clear All</Text>
+              </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false} bounces={false}>
