@@ -216,6 +216,18 @@ export function useShareCapture({
             });
             onComplete();
           },
+          onError: (err) => {
+            const message = err instanceof Error ? err.message : 'Failed to save entry';
+            console.error('createEntry error:', err);
+            Alert.alert('Save Failed', message);
+            Analytics.shareFailed({
+              provider: detectProviderFromUrl(url) ?? 'tiktok',
+              entryType,
+              tripId: selectedTripId,
+              error: message,
+              stage: 'save',
+            });
+          },
         }
       );
       return;
@@ -243,6 +255,18 @@ export function useShareCapture({
             tripId: selectedTripId,
           });
           onComplete();
+        },
+        onError: (err) => {
+          const message = err instanceof Error ? err.message : 'Failed to save entry';
+          console.error('saveToTrip error:', err);
+          Alert.alert('Save Failed', message);
+          Analytics.shareFailed({
+            provider: ingestResult.provider,
+            entryType,
+            tripId: selectedTripId,
+            error: message,
+            stage: 'save',
+          });
         },
       }
     );
