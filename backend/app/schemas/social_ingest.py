@@ -102,11 +102,11 @@ class SaveToTripRequest(BaseModel):
     trip_id: UUID
     # Ingest data (previously from saved_source)
     provider: SocialProvider
-    canonical_url: str
-    thumbnail_url: str | None = None
-    author_handle: str | None = None
-    title: str | None = None
+    canonical_url: str = Field(..., max_length=2048)
+    thumbnail_url: str | None = Field(None, max_length=2048)
+    author_handle: str | None = Field(None, max_length=200)
+    title: str | None = Field(None, max_length=200)
     # User-provided data
     place: DetectedPlace | None = None
-    entry_type: str = "place"
-    notes: str | None = None
+    entry_type: str = Field("place", max_length=50)
+    notes: str | None = Field(None, max_length=2000)

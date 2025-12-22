@@ -25,6 +25,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _parse_place_from_postgrest(place_data: dict | list | None) -> Place | None:
+    """Parse place data from PostgREST embedded response.
+
+    PostgREST returns one-to-one relationships as a single object, but we
+    defensively handle array format as well in case of future behavior changes
+    or edge cases with nullable foreign keys.
+
+    Args:
+        place_data: Raw place data from PostgREST - can be dict (normal),
+                   list (edge case), or None (no place)
+
+    Returns:
+        Parsed Place object or None if no valid place data
+    """
+    if not place_data:
+        return None
+
+    if isinstance(place_data, dict):
+        return Place(**place_data)
+    elif isinstance(place_data, list) and len(place_data) > 0:
+        # Handle array format (edge case with some PostgREST configurations)
+        return Place(**place_data[0])
+
+    return None
+
+
 @router.get("/trips/{trip_id}/entries", response_model=list[EntryWithPlace])
 async def list_entries(
     request: Request,
@@ -57,16 +83,7 @@ async def list_entries(
         media_data = entry_row.pop("media_files", None)
 
         entry = Entry(**entry_row)
-
-        # Parse place if it exists
-        # PostgREST returns one-to-one relationships as a single object (not array)
-        place = None
-        if place_data:
-            if isinstance(place_data, dict):
-                place = Place(**place_data)
-            elif isinstance(place_data, list) and len(place_data) > 0:
-                # Handle array format just in case
-                place = Place(**place_data[0])
+        place = _parse_place_from_postgrest(place_data)
 
         # Parse media_files and build URLs
         media_files = []
@@ -267,15 +284,7 @@ async def get_entry(
     entry_row = entries[0]
     place_data = entry_row.pop("place", None)
     entry = Entry(**entry_row)
-
-    # Parse place if it exists
-    # PostgREST returns one-to-one relationships as a single object (not array)
-    place = None
-    if place_data:
-        if isinstance(place_data, dict):
-            place = Place(**place_data)
-        elif isinstance(place_data, list) and len(place_data) > 0:
-            place = Place(**place_data[0])
+    place = _parse_place_from_postgrest(place_data)
 
     # Fallback: if embedded query returned no place, try fetching directly
     # This works around potential PostgREST embedding issues

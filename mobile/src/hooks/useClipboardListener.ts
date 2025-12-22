@@ -85,6 +85,41 @@ export interface ClipboardListenerResult {
 }
 
 /**
+ * Check if user has already been notified about clipboard permission issues.
+ * @returns Promise<boolean> - true if user was already notified
+ */
+async function hasUserBeenNotifiedAboutPermissions(): Promise<boolean> {
+  try {
+    const notified = await AsyncStorage.getItem(CLIPBOARD_PERMISSION_NOTIFIED_KEY);
+    return notified === 'true';
+  } catch {
+    // If storage check fails, assume not notified
+    return false;
+  }
+}
+
+/**
+ * Handle clipboard access errors and determine if permission error should be shown.
+ * Only shows permission errors on iOS where clipboard prompts are common,
+ * and only if the user hasn't been notified before.
+ *
+ * @param setHasPermissionError - State setter for permission error flag
+ */
+async function handleClipboardAccessError(
+  setHasPermissionError: (value: boolean) => void
+): Promise<void> {
+  // Only show permission error on iOS where clipboard prompts are common
+  if (Platform.OS !== 'ios') {
+    return;
+  }
+
+  const alreadyNotified = await hasUserBeenNotifiedAboutPermissions();
+  if (!alreadyNotified) {
+    setHasPermissionError(true);
+  }
+}
+
+/**
  * Hook to listen for TikTok/Instagram URLs on clipboard.
  *
  * @returns Object with detected URL info and dismiss handler
@@ -104,14 +139,10 @@ export function useClipboardListener(): ClipboardListenerResult {
       if (hasCheckedPermissionNotifiedRef.current) return;
       hasCheckedPermissionNotifiedRef.current = true;
 
-      try {
-        const notified = await AsyncStorage.getItem(CLIPBOARD_PERMISSION_NOTIFIED_KEY);
-        if (notified === 'true') {
-          // User was already notified, don't show error again
-          setHasPermissionError(false);
-        }
-      } catch {
-        // Ignore storage errors
+      const alreadyNotified = await hasUserBeenNotifiedAboutPermissions();
+      if (alreadyNotified) {
+        // User was already notified, don't show error again
+        setHasPermissionError(false);
       }
     };
     void checkNotified();
@@ -147,19 +178,7 @@ export function useClipboardListener(): ClipboardListenerResult {
         console.warn('[ClipboardListener] Failed to check clipboard:', error);
       }
 
-      // Only show permission error on iOS where clipboard prompts are common
-      // and only if user hasn't been notified before
-      if (Platform.OS === 'ios') {
-        try {
-          const notified = await AsyncStorage.getItem(CLIPBOARD_PERMISSION_NOTIFIED_KEY);
-          if (notified !== 'true') {
-            setHasPermissionError(true);
-          }
-        } catch {
-          // If we can't check storage, show the error anyway
-          setHasPermissionError(true);
-        }
-      }
+      await handleClipboardAccessError(setHasPermissionError);
     }
   }, [clipboardDetectionEnabled, session?.user?.id]);
 

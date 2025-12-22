@@ -416,15 +416,40 @@ export async function getShareById(id: string): Promise<QueuedShare | null> {
 }
 
 /**
- * Update a share's data (e.g., after user selects trip or confirms place)
+ * User-facing fields that can be updated via updateShare.
+ * Internal retry state fields (retryCount, lastRetryAt, error) are excluded
+ * to prevent callers from manipulating retry logic.
+ */
+export type UpdatableShareFields = Pick<
+  QueuedShare,
+  'tripId' | 'placeId' | 'entryType' | 'notes' | 'url' | 'source'
+>;
+
+/**
+ * Allowed keys for share updates - used for runtime filtering
+ */
+const ALLOWED_UPDATE_KEYS: ReadonlySet<keyof UpdatableShareFields> = new Set([
+  'tripId',
+  'placeId',
+  'entryType',
+  'notes',
+  'url',
+  'source',
+]);
+
+/**
+ * Update a share's user-facing data (e.g., after user selects trip or confirms place).
  * Uses locking to prevent race conditions.
  *
+ * Only user-facing fields can be updated. Internal retry state (retryCount,
+ * lastRetryAt, error) cannot be modified through this function.
+ *
  * @param id - The ID of the share to update
- * @param updates - Partial share data to merge
+ * @param updates - Partial share data to merge (only user-facing fields)
  */
 export async function updateShare(
   id: string,
-  updates: Partial<Omit<QueuedShare, 'id' | 'createdAt'>>
+  updates: Partial<UpdatableShareFields>
 ): Promise<void> {
   await queueLock.acquire();
   try {
@@ -432,9 +457,17 @@ export async function updateShare(
     const index = queue.findIndex((share) => share.id === id);
 
     if (index !== -1) {
+      // Defensively filter to only allowed keys at runtime
+      const filteredUpdates: Partial<QueuedShare> = {};
+      for (const key of Object.keys(updates) as Array<keyof typeof updates>) {
+        if (ALLOWED_UPDATE_KEYS.has(key)) {
+          (filteredUpdates as Record<string, unknown>)[key] = updates[key];
+        }
+      }
+
       queue[index] = {
         ...queue[index],
-        ...updates,
+        ...filteredUpdates,
       };
       await writeQueue(queue);
     }
