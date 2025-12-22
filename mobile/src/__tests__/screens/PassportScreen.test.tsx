@@ -9,7 +9,7 @@ import {
   createMockUserCountry,
   createMockNavigation,
 } from '../utils/mockFactories';
-import { PassportScreen } from '@screens/PassportScreen';
+import { PassportScreen } from '@screens/passport/PassportScreen';
 import type { PassportStackScreenProps } from '@navigation/types';
 import * as useCountriesModule from '@hooks/useCountries';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
