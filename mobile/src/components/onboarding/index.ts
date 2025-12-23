@@ -1,5 +1,5 @@
 export { default as CelebrationOverlay } from './CelebrationOverlay';
-export type { CelebrationOverlayProps, CelebrationBadgeConfig } from './CelebrationOverlay';
+export type { CelebrationOverlayProps } from './CelebrationOverlay';
 
 export { default as CountrySelectionScreen } from './CountrySelectionScreen';
 export type { CountrySelectionConfig } from './CountrySelectionScreen';

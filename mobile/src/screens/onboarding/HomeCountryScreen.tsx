@@ -29,12 +29,7 @@ export function HomeCountryScreen({ navigation }: Props) {
     backgroundColor: colors.dustyCoral,
     title: "Where's home?",
     dropdownBorderColor: colors.dustyCoral,
-    celebration: {
-      icon: 'checkmark-circle',
-      iconColor: colors.mossGreen,
-      text: 'Home Set!',
-      textColor: colors.mossGreen,
-    },
+    celebrationType: 'home',
     heroElement: 'locationPin',
     showBackButton: false,
     onCountrySelect: handleCountrySelect,

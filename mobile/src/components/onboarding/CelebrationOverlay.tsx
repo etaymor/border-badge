@@ -1,239 +1,268 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  Animated,
+  Easing,
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+
+import { getCountryImage } from '../../assets/countryImages';
+import { getStampImage } from '../../assets/stampImages';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import type { CelebrationAnimationRefs } from '@hooks/useCountrySelectionAnimations';
-
-export interface CelebrationBadgeConfig {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconSize?: number;
-  text: string;
-  textColor: string;
-}
 
 export interface CelebrationOverlayProps {
   visible: boolean;
-  flagEmoji: string;
+  countryCode: string;
   countryName: string;
-  badge: CelebrationBadgeConfig;
-  showStars?: boolean;
+  type: 'home' | 'dream';
   animationRefs: CelebrationAnimationRefs;
+  onSkip?: () => void;
+}
+
+const BURST_PARTICLES = Array.from({ length: 24 }).map((_, i) => i);
+
+function BurstAnimation({ visible }: { visible: boolean }) {
+  const anims = useRef(BURST_PARTICLES.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    if (visible) {
+      const animations = anims.map((anim, i) => {
+        const delay = Math.random() * 50;
+        const duration = 2500 + Math.random() * 1000;
+        
+        anim.setValue(0);
+        return Animated.timing(anim, {
+          toValue: 1,
+          duration,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        });
+      });
+
+      Animated.stagger(20, animations).start();
+    } else {
+      anims.forEach((anim) => anim.setValue(0));
+    }
+  }, [visible, anims]);
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {BURST_PARTICLES.map((i) => {
+        const angle = (i / BURST_PARTICLES.length) * 2 * Math.PI;
+        const radius = 350 + Math.random() * 100;
+        
+        const translateX = anims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, Math.cos(angle) * radius],
+        });
+        
+        const translateY = anims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, Math.sin(angle) * radius],
+        });
+
+        const scale = anims[i].interpolate({
+          inputRange: [0, 0.1, 0.8, 1],
+          outputRange: [0, 1.8, 1.2, 0],
+        });
+
+        const opacity = anims[i].interpolate({
+          inputRange: [0, 0.1, 0.8, 1],
+          outputRange: [0, 1, 0.8, 0],
+        });
+
+        const color = i % 3 === 0 ? colors.sunsetGold : i % 3 === 1 ? colors.lakeBlue : colors.dustyCoral;
+
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.particle,
+              { backgroundColor: color, opacity },
+              {
+                transform: [{ translateX }, { translateY }, { scale }],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
 }
 
 export default function CelebrationOverlay({
   visible,
-  flagEmoji,
+  countryCode,
   countryName,
-  badge,
-  showStars = false,
+  type,
   animationRefs,
+  onSkip,
 }: CelebrationOverlayProps) {
+  const { width } = useWindowDimensions();
   const {
     selectionScale,
     selectionOpacity,
     flagScale,
     flagRotate,
-    checkmarkScale,
-    checkmarkOpacity,
-    confettiOpacity,
-    starScale,
   } = animationRefs;
 
-  // Memoize interpolation to prevent recreation on every render (Issue #8)
-  // Must be called before early return to satisfy rules of hooks
   const flagRotateInterpolation = useMemo(
     () =>
       flagRotate.interpolate({
         inputRange: [0, 1],
-        outputRange: ['-10deg', '0deg'],
+        outputRange: ['-5deg', '5deg'],
       }),
     [flagRotate]
   );
 
+  const imageSource = useMemo(() => {
+    if (type === 'home') {
+      return getStampImage(countryCode);
+    }
+    return getCountryImage(countryCode);
+  }, [countryCode, type]);
+
   if (!visible) return null;
 
   return (
-    <Animated.View
-      style={[
-        styles.celebrationOverlay,
-        {
-          opacity: selectionOpacity,
-        },
-      ]}
+    <TouchableOpacity 
+      style={StyleSheet.absoluteFill} 
+      activeOpacity={1} 
+      onPress={onSkip}
     >
       <Animated.View
         style={[
-          styles.celebrationContent,
+          styles.celebrationOverlay,
           {
-            transform: [{ scale: selectionScale }],
+            opacity: selectionOpacity,
           },
         ]}
       >
-        {/* Confetti-like decorative elements */}
-        <Animated.View style={[styles.confettiContainer, { opacity: confettiOpacity }]}>
-          <View style={[styles.confettiDot, styles.confetti1]} />
-          <View style={[styles.confettiDot, styles.confetti2]} />
-          <View style={[styles.confettiDot, styles.confetti3]} />
-          <View style={[styles.confettiDot, styles.confetti4]} />
-          <View style={[styles.confettiDot, styles.confetti5]} />
-          <View style={[styles.confettiDot, styles.confetti6]} />
-        </Animated.View>
+        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+        
+        <Animated.View
+          style={[
+            styles.celebrationContent,
+            {
+              transform: [{ scale: selectionScale }],
+            },
+          ]}
+        >
+          <BurstAnimation visible={visible} />
 
-        {/* Stars around the flag (optional) */}
-        {showStars && (
           <Animated.View
             style={[
-              styles.starsContainer,
+              styles.imageContainer,
               {
-                opacity: confettiOpacity,
-                transform: [{ scale: starScale }],
+                transform: [
+                  { scale: flagScale },
+                  { rotate: flagRotateInterpolation },
+                ],
               },
             ]}
           >
-            <Ionicons name="star" size={24} color={colors.sunsetGold} style={styles.star1} />
-            <Ionicons name="star" size={16} color={colors.sunsetGold} style={styles.star2} />
-            <Ionicons name="star" size={20} color={colors.sunsetGold} style={styles.star3} />
+            {imageSource ? (
+              <Image
+                source={imageSource}
+                style={[
+                  type === 'home' ? styles.stampImage : styles.illustrationImage,
+                  { width: width * 0.75 },
+                ]}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.fallbackContainer}>
+                <Text style={styles.fallbackEmoji}>🌍</Text>
+              </View>
+            )}
           </Animated.View>
-        )}
 
-        {/* Flag with bounce */}
-        <Animated.View
-          style={[
-            styles.celebrationFlag,
-            {
-              transform: [{ scale: flagScale }, { rotate: flagRotateInterpolation }],
-            },
-          ]}
-        >
-          <Text style={styles.celebrationFlagText}>{flagEmoji}</Text>
-        </Animated.View>
-
-        {/* Country name */}
-        <Text variant="title" style={styles.celebrationCountryName}>
-          {countryName}
-        </Text>
-
-        {/* Badge */}
-        <Animated.View
-          style={[
-            styles.checkmarkBadge,
-            {
-              opacity: checkmarkOpacity,
-              transform: [{ scale: checkmarkScale }],
-            },
-          ]}
-        >
-          <Ionicons name={badge.icon} size={badge.iconSize ?? 32} color={badge.iconColor} />
-          <Text variant="label" style={[styles.checkmarkText, { color: badge.textColor }]}>
-            {badge.text}
-          </Text>
+          <View style={styles.textContainer}>
+            <Text variant="display" style={styles.titleText}>
+              {type === 'home' ? 'Home Sweet Home' : 'Dream Big!'}
+            </Text>
+            <Text variant="body" style={styles.subtitleText}>
+              {countryName} {type === 'home' ? 'is set as your home' : 'added to your list'}
+            </Text>
+          </View>
         </Animated.View>
       </Animated.View>
-    </Animated.View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   celebrationOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(23, 42, 58, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
   },
   celebrationContent: {
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
+    padding: 20,
+    width: '100%',
   },
-  confettiContainer: {
-    ...StyleSheet.absoluteFillObject,
+  imageContainer: {
+    marginBottom: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  stampImage: {
+    height: 240,
+    aspectRatio: 1,
+  },
+  illustrationImage: {
+    height: 240,
+    aspectRatio: 1.5,
+  },
+  fallbackContainer: {
+    width: 150,
+    height: 150,
+    backgroundColor: colors.warmCream,
+    borderRadius: 75,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  confettiDot: {
-    position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  fallbackEmoji: {
+    fontSize: 64,
   },
-  confetti1: {
-    backgroundColor: colors.sunsetGold,
-    top: -40,
-    left: 20,
-  },
-  confetti2: {
-    backgroundColor: colors.dustyCoral,
-    top: -20,
-    right: 30,
-  },
-  confetti3: {
-    backgroundColor: colors.mossGreen,
-    bottom: -30,
-    left: 40,
-  },
-  confetti4: {
-    backgroundColor: colors.lakeBlue,
-    bottom: -20,
-    right: 20,
-  },
-  confetti5: {
-    backgroundColor: colors.adobeBrick,
-    top: 20,
-    left: -20,
-  },
-  confetti6: {
-    backgroundColor: colors.warmCream,
-    top: 30,
-    right: -10,
-  },
-  starsContainer: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    justifyContent: 'center',
+  textContainer: {
     alignItems: 'center',
-  },
-  star1: {
-    position: 'absolute',
-    top: 10,
-    right: 20,
-  },
-  star2: {
-    position: 'absolute',
-    top: 50,
-    left: 10,
-  },
-  star3: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-  },
-  celebrationFlag: {
-    marginBottom: 16,
-  },
-  celebrationFlagText: {
-    fontSize: 80,
-  },
-  celebrationCountryName: {
-    fontSize: 28,
-    color: colors.white,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  checkmarkBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.warmCream,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 30,
     gap: 8,
   },
-  checkmarkText: {
-    fontSize: 16,
-    fontWeight: '600',
+  titleText: {
+    color: colors.white,
+    textAlign: 'center',
+    fontSize: 40,
+    fontFamily: fonts.playfair.bold,
+  },
+  subtitleText: {
+    color: colors.warmCream,
+    textAlign: 'center',
+    opacity: 0.9,
+    fontSize: 18,
+    fontFamily: fonts.openSans.regular,
+  },
+  particle: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

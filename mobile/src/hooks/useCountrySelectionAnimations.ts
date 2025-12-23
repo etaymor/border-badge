@@ -282,9 +282,9 @@ export function useCountrySelectionAnimations(
             tension: 100,
             useNativeDriver: true,
           }),
+          // Trigger flag animation simultaneously with container
+          ...flagAnimations,
         ]),
-        // Bounce in flag with rotation (and stars if enabled)
-        Animated.parallel(flagAnimations),
         // Pop in checkmark
         Animated.parallel([
           Animated.spring(checkmarkScale, {
@@ -301,10 +301,10 @@ export function useCountrySelectionAnimations(
         ]),
         // Hold for a moment
         Animated.delay(celebrationHoldDuration),
-        // Fade out
+        // Fade out quickly
         Animated.timing(selectionOpacity, {
           toValue: 0,
-          duration: 300,
+          duration: 200,
           useNativeDriver: true,
         }),
       ]).start(() => {
