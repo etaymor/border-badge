@@ -8,7 +8,7 @@ import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
-import { hasUserOnboarded } from '@utils/authHelpers';
+import { extractAuthTokensFromUrl, hasUserOnboarded } from '@utils/authHelpers';
 
 // Ensure web browser auth sessions are properly handled
 WebBrowser.maybeCompleteAuthSession();
@@ -46,27 +46,27 @@ export function useGoogleSignIn() {
         throw new Error('ERR_REQUEST_CANCELED');
       }
 
-      // Validate the callback URL origin for security
-      const expectedPrefix = redirectUrl.split('#')[0].split('?')[0];
-      if (!result.url.startsWith(expectedPrefix)) {
+      // Validate the callback URL origin for security (exact match, not prefix)
+      const expectedBase = redirectUrl.split('#')[0].split('?')[0];
+      const actualBase = result.url.split('#')[0].split('?')[0];
+      if (actualBase !== expectedBase) {
         throw new Error('Invalid OAuth callback origin');
       }
 
-      // Extract the tokens from the callback URL
-      const url = result.url;
-      const params = new URLSearchParams(url.split('#')[1] || url.split('?')[1] || '');
-
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
-
-      if (!accessToken) {
+      // Extract the tokens from the callback URL using shared utility
+      const tokens = extractAuthTokensFromUrl(result.url);
+      if (!tokens) {
         throw new Error('No access token received from Google');
       }
 
+      const { accessToken, refreshToken } = tokens;
+
       // Set the session in Supabase using the tokens
+      // Note: refresh_token is required by Supabase for session refresh
+      // OAuth providers should always provide one, but we default to empty string if missing
       const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
         access_token: accessToken,
-        refresh_token: refreshToken || '',
+        refresh_token: refreshToken ?? '',
       });
 
       if (sessionError) throw sessionError;

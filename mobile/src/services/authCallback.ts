@@ -18,7 +18,7 @@ import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getSafeLogMessage } from '@utils/authErrors';
-import { hasUserOnboarded } from '@utils/authHelpers';
+import { extractAuthTokensFromUrl, hasUserOnboarded } from '@utils/authHelpers';
 
 /** Expected auth callback URL prefix for origin validation */
 const EXPECTED_CALLBACK_PREFIX = 'borderbadge://auth-callback';
@@ -48,34 +48,13 @@ function validateCallbackOrigin(url: string): boolean {
 }
 
 /**
- * Extract auth tokens from the callback URL
+ * Extract auth tokens from the callback URL.
+ * Re-exports the shared utility for backward compatibility.
  *
  * @param url - The callback URL containing tokens
  * @returns Object with access_token and refresh_token, or null if not found
  */
-export function extractAuthTokens(
-  url: string
-): { accessToken: string; refreshToken: string | null } | null {
-  try {
-    // Tokens can be in fragment (#) or query params (?)
-    const fragmentOrQuery = url.split('#')[1] || url.split('?')[1];
-    if (!fragmentOrQuery) return null;
-
-    const params = new URLSearchParams(fragmentOrQuery);
-    const accessToken = params.get('access_token');
-
-    if (!accessToken) return null;
-
-    return {
-      accessToken,
-      refreshToken: params.get('refresh_token'),
-    };
-  } catch {
-    // Don't log the error as it may contain token data
-    console.error('Failed to extract auth tokens from callback URL');
-    return null;
-  }
-}
+export const extractAuthTokens = extractAuthTokensFromUrl;
 
 /**
  * Process an auth callback deep link

@@ -34,7 +34,10 @@ export function ProfileInfoSection({
         <Text style={styles.sectionTitle}>PASSPORT DETAILS</Text>
         <View style={styles.card}>
           <View style={styles.cardRow}>
-            <Text style={styles.rowLabel}>Email</Text>
+            <View>
+              <Text style={styles.rowLabel}>Email</Text>
+              <Text style={styles.emailNote}>Cannot be changed</Text>
+            </View>
             <Text style={styles.rowValue}>{formattedEmail}</Text>
           </View>
 
@@ -218,5 +221,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.stormGray,
     marginTop: 2,
+  },
+  emailNote: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
 });
