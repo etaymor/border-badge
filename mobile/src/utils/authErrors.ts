@@ -19,6 +19,12 @@ const ERROR_MESSAGES: Record<string, string> = {
   'Signup disabled': 'Account creation is currently unavailable.',
   'OAuth error': 'Sign-in failed. Please try again.',
   'Invalid OAuth callback': 'Authentication failed. Please try again.',
+  // Password-specific errors
+  'Password should be at least': 'Password must be at least 6 characters.',
+  'User already registered': 'An account with this email already exists. Try signing in.',
+  'Email already registered': 'An account with this email already exists. Try signing in.',
+  'Weak password': 'Please choose a stronger password.',
+  'Email confirmation required': 'Please check your email to confirm your account.',
 };
 
 /**

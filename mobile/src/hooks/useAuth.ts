@@ -2,12 +2,19 @@ import { useMutation } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import { Alert } from 'react-native';
 
-import { clearOnboardingComplete, clearTokens } from '@services/api';
+import {
+  clearOnboardingComplete,
+  clearTokens,
+  storeOnboardingComplete,
+  storeTokens,
+} from '@services/api';
+import { migrateGuestData } from '@services/guestMigration';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
+import { hasUserOnboarded } from '@utils/authHelpers';
 
 // ============================================================================
 // Email Magic Link Authentication Hooks
@@ -42,6 +49,113 @@ export function useSendMagicLink() {
       console.error('Magic link send failed:', getSafeLogMessage(error));
       const message = getAuthErrorMessage(error) || 'Failed to send magic link';
       Alert.alert('Error', message);
+    },
+  });
+}
+
+// ============================================================================
+// Email + Password Authentication Hooks
+// ============================================================================
+
+interface PasswordAuthInput {
+  email: string;
+  password: string;
+}
+
+/**
+ * Hook to sign up with email and password.
+ * Creates a new account in Supabase.
+ * Note: Requires "Enable email confirmations" to be disabled in Supabase
+ * dashboard for immediate sign-in without email verification.
+ */
+export function useSignUpWithPassword() {
+  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+
+  return useMutation({
+    mutationFn: async ({ email, password }: PasswordAuthInput) => {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      // If email confirmation is required, session will be null
+      if (!data.session) {
+        throw new Error('Email confirmation required. Check your inbox.');
+      }
+
+      return data;
+    },
+    onSuccess: async (data) => {
+      if (data.session) {
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+
+        // New user - attempt migration of guest data
+        try {
+          await migrateGuestData(data.session);
+        } catch {
+          console.warn('Migration failed for new password user');
+        }
+
+        // New sign-up, so onboarding not completed
+        setHasCompletedOnboarding(false);
+        setSession(data.session);
+      }
+    },
+    onError: (error) => {
+      console.error('Password sign-up failed:', getSafeLogMessage(error));
+      const message = getAuthErrorMessage(error) || 'Failed to create account';
+      Alert.alert('Sign Up Failed', message);
+    },
+  });
+}
+
+/**
+ * Hook to sign in with email and password.
+ * Authenticates an existing account.
+ */
+export function useSignInWithPassword() {
+  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+
+  return useMutation({
+    mutationFn: async ({ email, password }: PasswordAuthInput) => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: async (data) => {
+      if (data.session) {
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+
+        // Check if returning user
+        const onboarded = await hasUserOnboarded(data.session.user.id);
+
+        if (onboarded) {
+          setHasCompletedOnboarding(true);
+          await storeOnboardingComplete();
+        } else {
+          // User exists but hasn't onboarded - attempt migration
+          try {
+            await migrateGuestData(data.session);
+          } catch {
+            console.warn('Migration failed for password user');
+          }
+        }
+
+        setSession(data.session);
+      }
+    },
+    onError: (error) => {
+      console.error('Password sign-in failed:', getSafeLogMessage(error));
+      const message = getAuthErrorMessage(error) || 'Failed to sign in';
+      Alert.alert('Sign In Failed', message);
     },
   });
 }

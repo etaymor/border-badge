@@ -377,8 +377,7 @@ describe('EmailAuthFlow Integration', () => {
         limit: jest.fn().mockResolvedValue({ data: [], error: null }),
       });
 
-      const callbackUrl =
-        'atlasi://auth-callback#access_token=new-token&refresh_token=new-refresh';
+      const callbackUrl = 'atlasi://auth-callback#access_token=new-token&refresh_token=new-refresh';
       await processAuthCallback(callbackUrl);
 
       // New user should trigger migration

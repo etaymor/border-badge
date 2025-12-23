@@ -18,7 +18,7 @@ import { Text, GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
-import { useSendMagicLink } from '@hooks/useAuth';
+import { useSendMagicLink, useSignInWithPassword, useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
 import { useAuthStore } from '@stores/authStore';
@@ -31,9 +31,13 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 type Props = AuthStackScreenProps<'Login'>;
 
 type AuthStep = 'email' | 'check_email';
+type AuthMode = 'password' | 'magic_link';
 
 // Cooldown for resending magic link (in seconds)
 const RESEND_COOLDOWN_SECONDS = 60;
+
+// Minimum password length (Supabase default)
+const MIN_PASSWORD_LENGTH = 6;
 
 export function AuthScreen({ navigation }: Props) {
   const [step, setStep] = useState<AuthStep>('email');
@@ -42,7 +46,16 @@ export function AuthScreen({ navigation }: Props) {
   const [magicLinkSentAt, setMagicLinkSentAt] = useState<number | undefined>();
   const [resendCountdown, setResendCountdown] = useState(0);
 
+  // Password auth state
+  const [authMode, setAuthMode] = useState<AuthMode>('password');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(true);
+
   const sendMagicLink = useSendMagicLink();
+  const signUp = useSignUpWithPassword();
+  const signIn = useSignInWithPassword();
   const appleSignIn = useAppleSignIn();
   const googleSignIn = useGoogleSignIn();
   const isAppleAvailable = useAppleAuthAvailable();
@@ -129,6 +142,45 @@ export function AuthScreen({ navigation }: Props) {
     }
   }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, checkEmailAnim]);
 
+  // Validate password
+  const validatePassword = (pwd: string): { isValid: boolean; error?: string } => {
+    if (!pwd) {
+      return { isValid: false, error: 'Password is required' };
+    }
+    if (pwd.length < MIN_PASSWORD_LENGTH) {
+      return {
+        isValid: false,
+        error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      };
+    }
+    return { isValid: true };
+  };
+
+  // Handle password authentication (sign up or sign in)
+  const handlePasswordAuth = () => {
+    const emailResult = validateEmail(email);
+    if (!emailResult.isValid) {
+      setEmailError(emailResult.error!);
+      return;
+    }
+    setEmailError('');
+
+    const passwordResult = validatePassword(password);
+    if (!passwordResult.isValid) {
+      setPasswordError(passwordResult.error!);
+      return;
+    }
+    setPasswordError('');
+
+    const credentials = { email: emailResult.normalizedEmail!, password };
+
+    if (isSignUp) {
+      signUp.mutate(credentials);
+    } else {
+      signIn.mutate(credentials);
+    }
+  };
+
   // Handle sending magic link
   const handleSendMagicLink = () => {
     const result = validateEmail(email);
@@ -147,6 +199,15 @@ export function AuthScreen({ navigation }: Props) {
         },
       }
     );
+  };
+
+  // Handle continue button based on auth mode
+  const handleContinue = () => {
+    if (authMode === 'password') {
+      handlePasswordAuth();
+    } else {
+      handleSendMagicLink();
+    }
   };
 
   // Handle resend magic link
@@ -171,6 +232,8 @@ export function AuthScreen({ navigation }: Props) {
     setStep('email');
     setEmail('');
     setEmailError('');
+    setPassword('');
+    setPasswordError('');
     setMagicLinkSentAt(undefined);
   };
 
@@ -244,6 +307,48 @@ export function AuthScreen({ navigation }: Props) {
               {/* Spacer to push content to bottom */}
               <View style={styles.spacer} />
 
+              {/* Auth mode toggle */}
+              <Animated.View
+                style={{
+                  opacity: titleAnim,
+                }}
+              >
+                <View style={styles.authModeToggle}>
+                  <TouchableOpacity
+                    style={[
+                      styles.authModeButton,
+                      authMode === 'password' && styles.authModeButtonActive,
+                    ]}
+                    onPress={() => setAuthMode('password')}
+                  >
+                    <Text
+                      style={[
+                        styles.authModeText,
+                        authMode === 'password' && styles.authModeTextActive,
+                      ]}
+                    >
+                      Password
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.authModeButton,
+                      authMode === 'magic_link' && styles.authModeButtonActive,
+                    ]}
+                    onPress={() => setAuthMode('magic_link')}
+                  >
+                    <Text
+                      style={[
+                        styles.authModeText,
+                        authMode === 'magic_link' && styles.authModeTextActive,
+                      ]}
+                    >
+                      Magic Link
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+
               {/* Title */}
               <Animated.View
                 style={{
@@ -252,7 +357,11 @@ export function AuthScreen({ navigation }: Props) {
                 }}
               >
                 <Text variant="title" style={styles.title}>
-                  Continue exploring
+                  {authMode === 'password'
+                    ? isSignUp
+                      ? 'Create account'
+                      : 'Welcome back'
+                    : 'Continue exploring'}
                 </Text>
               </Animated.View>
 
@@ -320,6 +429,57 @@ export function AuthScreen({ navigation }: Props) {
                     {emailError}
                   </Text>
                 )}
+
+                {/* Password input - only shown in password mode */}
+                {authMode === 'password' && (
+                  <>
+                    <View style={styles.inputGlassWrapper}>
+                      <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                        <View
+                          style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+                        >
+                          <Ionicons
+                            name="lock-closed-outline"
+                            size={20}
+                            color={colors.stormGray}
+                            style={styles.inputIcon}
+                          />
+                          <TextInput
+                            style={styles.glassInput}
+                            value={password}
+                            onChangeText={(value) => {
+                              setPassword(value);
+                              if (passwordError) setPasswordError('');
+                            }}
+                            placeholder="Password"
+                            placeholderTextColor={colors.stormGray}
+                            secureTextEntry={!showPassword}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="password"
+                            textContentType={isSignUp ? 'newPassword' : 'password'}
+                            testID="auth-password-input"
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowPassword(!showPassword)}
+                            style={styles.clearButton}
+                          >
+                            <Ionicons
+                              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                              size={20}
+                              color={colors.stormGray}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </BlurView>
+                    </View>
+                    {passwordError && (
+                      <Text variant="caption" style={styles.errorText}>
+                        {passwordError}
+                      </Text>
+                    )}
+                  </>
+                )}
               </Animated.View>
 
               {/* Continue button */}
@@ -329,20 +489,63 @@ export function AuthScreen({ navigation }: Props) {
                   transform: [{ scale: buttonScale }],
                 }}
               >
-                <TouchableOpacity
-                  style={[styles.button, sendMagicLink.isPending && styles.buttonDisabled]}
-                  onPress={handleSendMagicLink}
-                  activeOpacity={0.9}
-                  disabled={sendMagicLink.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue with email"
-                  testID="auth-send-button"
-                >
-                  <Text style={styles.buttonText}>
-                    {sendMagicLink.isPending ? 'Sending...' : 'Continue'}
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const isLoading =
+                    authMode === 'password'
+                      ? signUp.isPending || signIn.isPending
+                      : sendMagicLink.isPending;
+
+                  const buttonLabel =
+                    authMode === 'password'
+                      ? isSignUp
+                        ? 'Create Account'
+                        : 'Sign In'
+                      : 'Continue';
+
+                  const loadingLabel =
+                    authMode === 'password'
+                      ? isSignUp
+                        ? 'Creating...'
+                        : 'Signing in...'
+                      : 'Sending...';
+
+                  return (
+                    <TouchableOpacity
+                      style={[styles.button, isLoading && styles.buttonDisabled]}
+                      onPress={handleContinue}
+                      activeOpacity={0.9}
+                      disabled={isLoading}
+                      accessibilityRole="button"
+                      accessibilityLabel={buttonLabel}
+                      testID="auth-send-button"
+                    >
+                      <Text style={styles.buttonText}>
+                        {isLoading ? loadingLabel : buttonLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </Animated.View>
+
+              {/* Sign up / Sign in toggle - only shown in password mode */}
+              {authMode === 'password' && (
+                <Animated.View
+                  style={{
+                    opacity: buttonAnim,
+                  }}
+                >
+                  <TouchableOpacity
+                    style={styles.signUpToggle}
+                    onPress={() => setIsSignUp(!isSignUp)}
+                  >
+                    <Text style={styles.signUpToggleText}>
+                      {isSignUp
+                        ? 'Already have an account? Sign in'
+                        : "Don't have an account? Sign up"}
+                    </Text>
+                  </TouchableOpacity>
+                </Animated.View>
+              )}
 
               {/* Social Sign In buttons */}
               {showSocialButtons && (
@@ -680,5 +883,47 @@ const styles = StyleSheet.create({
   },
   resendButtonTextDisabled: {
     color: colors.textSecondary,
+  },
+  // Auth mode toggle styles
+  authModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderRadius: 20,
+    padding: 4,
+    marginBottom: 24,
+    alignSelf: 'center',
+  },
+  authModeButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+  },
+  authModeButtonActive: {
+    backgroundColor: colors.white,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  authModeText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  authModeTextActive: {
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
+  },
+  // Sign up toggle styles
+  signUpToggle: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  signUpToggleText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.sunsetGold,
   },
 });

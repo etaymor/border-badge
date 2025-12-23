@@ -19,10 +19,11 @@ describe('AuthScreen', () => {
     jest.clearAllMocks();
   });
 
-  it('renders welcome back title', () => {
+  it('renders create account title (password mode default)', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Welcome back')).toBeTruthy();
+    // Password mode with sign-up is the default
+    expect(screen.getByText('Create account')).toBeTruthy();
   });
 
   it('displays email input', () => {
@@ -31,9 +32,15 @@ describe('AuthScreen', () => {
     expect(screen.getByPlaceholderText('Email address')).toBeTruthy();
   });
 
-  it('displays continue button', () => {
+  it('displays password input in password mode', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Continue')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Password')).toBeTruthy();
+  });
+
+  it('displays create account button (password mode default)', () => {
+    render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
+
+    expect(screen.getByText('Create Account')).toBeTruthy();
   });
 });
