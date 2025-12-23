@@ -36,7 +36,6 @@ export function ProfileInfoSection({
           <View style={styles.cardRow}>
             <View>
               <Text style={styles.rowLabel}>Email</Text>
-              <Text style={styles.emailNote}>Cannot be changed</Text>
             </View>
             <Text style={styles.rowValue}>{formattedEmail}</Text>
           </View>

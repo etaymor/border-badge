@@ -13,7 +13,7 @@ Border Badge is a travel tracking mobile application that lets users mark countr
 | Backend  | FastAPI (Python 3.12+), Uvicorn               |
 | Database | Supabase (PostgreSQL with Row-Level Security) |
 | Storage  | Supabase Storage (media files)                |
-| Auth     | Supabase Phone OTP Authentication             |
+| Auth     | Supabase Email/Password + Social (Apple, Google) |
 
 ## Repository Structure
 
@@ -264,6 +264,45 @@ user_profile     - Extended user data
 | `docs/travel-prd.md`                      | Product requirements          |
 | `docs/travel-technical-design.md`         | Technical design              |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
+
+## Authentication System (IMPORTANT)
+
+The app uses **email/password authentication** for all users. Magic links are NOT supported.
+
+### Authentication Screens
+
+| Screen | File | Purpose |
+|--------|------|---------|
+| **AccountCreationScreen** | `screens/onboarding/AccountCreationScreen.tsx` | **New user sign-up** during onboarding. Collects email + password (password appears after valid email). Uses `useSignUpWithPassword` hook. Also supports Apple/Google social sign-in. |
+| **AuthScreen** | `screens/auth/AuthScreen.tsx` | **Returning user sign-in**. Collects email + password (password appears after valid email). Uses `useSignInWithPassword` hook. Also supports Apple/Google social sign-in. |
+
+### Authentication Flow
+
+1. **New Users (Onboarding)**:
+   - Complete onboarding steps → `AccountCreationScreen`
+   - Enter email → password field appears when email is valid
+   - Submit → `useSignUpWithPassword` creates account with displayName from onboarding
+
+2. **Returning Users**:
+   - Launch app → `AuthScreen`
+   - Enter email → password field appears when email is valid
+   - Submit → `useSignInWithPassword` authenticates
+
+### Auth Hooks (`mobile/src/hooks/useAuth.ts`)
+
+| Hook | Purpose |
+|------|---------|
+| `useSignUpWithPassword` | Create new account (email, password, displayName) |
+| `useSignInWithPassword` | Sign in existing account (email, password) |
+| `useSignOut` | Sign out and clear session |
+
+### Key Implementation Details
+
+- Password field only appears after entering a valid email (progressive disclosure)
+- Minimum password length: 6 characters (Supabase default)
+- Email validation uses RFC 5322 compliant regex
+- Social auth (Apple, Google) available as alternatives
+- **Magic links are NOT implemented** - do not add magic link functionality
 
 ## Launch Simplification (IMPORTANT)
 

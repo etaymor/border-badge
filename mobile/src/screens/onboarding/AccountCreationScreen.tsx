@@ -18,7 +18,7 @@ import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
-import { useSendMagicLink } from '@hooks/useAuth';
+import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
@@ -31,17 +31,15 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
-type AuthStep = 'email' | 'check_email';
-
-// Cooldown for resending magic link (in seconds)
-const RESEND_COOLDOWN_SECONDS = 60;
+// Minimum password length (Supabase default)
+const MIN_PASSWORD_LENGTH = 6;
 
 export function AccountCreationScreen({ navigation }: Props) {
-  const [step, setStep] = useState<AuthStep>('email');
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
-  const [magicLinkSentAt, setMagicLinkSentAt] = useState<number | undefined>();
-  const [resendCountdown, setResendCountdown] = useState(0);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const { displayName } = useOnboardingStore();
 
@@ -50,129 +48,100 @@ export function AccountCreationScreen({ navigation }: Props) {
     Analytics.viewOnboardingAccount();
   }, []);
 
-  const sendMagicLink = useSendMagicLink();
+  const signUp = useSignUpWithPassword();
   const appleSignIn = useAppleSignIn();
   const googleSignIn = useGoogleSignIn();
   const isAppleAvailable = useAppleAuthAvailable();
   const isGoogleAvailable = useGoogleAuthAvailable();
 
-  // Resend countdown timer
-  useEffect(() => {
-    if (magicLinkSentAt) {
-      const elapsed = Math.floor((Date.now() - magicLinkSentAt) / 1000);
-      const remaining = Math.max(0, RESEND_COOLDOWN_SECONDS - elapsed);
-      setResendCountdown(remaining);
+  // Check if email is valid to show password field
+  const isEmailValid = validateEmail(email).isValid;
 
-      if (remaining > 0) {
-        const interval = setInterval(() => {
-          setResendCountdown((prev) => {
-            if (prev <= 1) {
-              clearInterval(interval);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-        return () => clearInterval(interval);
-      }
-    }
-  }, [magicLinkSentAt]);
-
-  // Animation values for email step
+  // Animation values
   const titleAnim = useRef(new Animated.Value(0)).current;
   const accentAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
   const buttonAnim = useRef(new Animated.Value(0)).current;
-
-  // Animation values for check email step
-  const checkEmailAnim = useRef(new Animated.Value(0)).current;
+  const passwordAnim = useRef(new Animated.Value(0)).current;
 
   // Run entrance animations
   useEffect(() => {
-    if (step === 'email') {
-      // Reset animations
-      titleAnim.setValue(0);
-      accentAnim.setValue(0);
-      contentAnim.setValue(0);
-      buttonAnim.setValue(0);
+    // Reset animations
+    titleAnim.setValue(0);
+    accentAnim.setValue(0);
+    contentAnim.setValue(0);
+    buttonAnim.setValue(0);
 
-      Animated.stagger(100, [
-        Animated.timing(titleAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(accentAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(contentAnim, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.spring(buttonAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      // Check email step - minimal fade in
-      checkEmailAnim.setValue(0);
-      Animated.timing(checkEmailAnim, {
+    Animated.stagger(100, [
+      Animated.timing(titleAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(accentAnim, {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
-      }).start();
-    }
-  }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, checkEmailAnim]);
+      }),
+      Animated.timing(contentAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.spring(buttonAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
 
-  // Handle sending magic link
-  const handleSendMagicLink = () => {
-    const result = validateEmail(email);
-    if (!result.isValid) {
-      setEmailError(result.error!);
+  // Animate password field when email becomes valid
+  useEffect(() => {
+    Animated.timing(passwordAnim, {
+      toValue: isEmailValid ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [isEmailValid, passwordAnim]);
+
+  // Validate password
+  const validatePassword = (pwd: string): { isValid: boolean; error?: string } => {
+    if (!pwd) {
+      return { isValid: false, error: 'Password is required' };
+    }
+    if (pwd.length < MIN_PASSWORD_LENGTH) {
+      return {
+        isValid: false,
+        error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      };
+    }
+    return { isValid: true };
+  };
+
+  // Handle password sign up
+  const handleSignUp = () => {
+    const emailResult = validateEmail(email);
+    if (!emailResult.isValid) {
+      setEmailError(emailResult.error!);
       return;
     }
     setEmailError('');
 
-    sendMagicLink.mutate(
-      { email: result.normalizedEmail!, displayName: displayName ?? undefined },
-      {
-        onSuccess: () => {
-          setMagicLinkSentAt(Date.now());
-          setStep('check_email');
-        },
-      }
-    );
-  };
+    const passwordResult = validatePassword(password);
+    if (!passwordResult.isValid) {
+      setPasswordError(passwordResult.error!);
+      return;
+    }
+    setPasswordError('');
 
-  // Handle resend magic link
-  const handleResendMagicLink = () => {
-    if (resendCountdown > 0) return;
-
-    const result = validateEmail(email);
-    if (!result.isValid) return;
-
-    sendMagicLink.mutate(
-      { email: result.normalizedEmail!, displayName: displayName ?? undefined },
-      {
-        onSuccess: () => {
-          setMagicLinkSentAt(Date.now());
-        },
-      }
-    );
-  };
-
-  // Handle back to email entry
-  const handleBackToEmail = () => {
-    setStep('email');
-    setEmail('');
-    setEmailError('');
-    setMagicLinkSentAt(undefined);
+    const credentials = {
+      email: emailResult.normalizedEmail!,
+      password,
+      displayName: displayName ?? undefined,
+    };
+    signUp.mutate(credentials);
   };
 
   // Handle Apple Sign In
@@ -218,19 +187,7 @@ export function AccountCreationScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       {/* Header with logo */}
       <View style={styles.headerRow}>
-        {step === 'check_email' ? (
-          <TouchableOpacity
-            onPress={handleBackToEmail}
-            style={styles.backButton}
-            accessibilityRole="button"
-            accessibilityLabel="Use different email"
-          >
-            <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
-            <Text style={styles.backText}>Use different email</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.backButtonPlaceholder} />
-        )}
+        <View style={styles.backButtonPlaceholder} />
         <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
         <View style={styles.backButtonPlaceholder} />
       </View>
@@ -243,226 +200,222 @@ export function AccountCreationScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {step === 'email' ? (
-            // Email Entry Step
-            <View style={styles.content}>
-              {/* Title */}
-              <Animated.View
-                style={{
-                  opacity: titleAnim,
-                  transform: [{ translateY: titleTranslateY }],
-                }}
-              >
-                <Text variant="title" style={styles.title}>
-                  Save your passport
-                </Text>
-              </Animated.View>
+          <View style={styles.content}>
+            {/* Title */}
+            <Animated.View
+              style={{
+                opacity: titleAnim,
+                transform: [{ translateY: titleTranslateY }],
+              }}
+            >
+              <Text variant="title" style={styles.title}>
+                Save your passport
+              </Text>
+            </Animated.View>
 
-              {/* Accent subtitle */}
-              <Animated.Text
-                style={[
-                  styles.accentSubtitle,
-                  {
-                    opacity: accentAnim,
-                    transform: [{ translateY: accentTranslateY }],
-                  },
-                ]}
-              >
-                Just one more step
-              </Animated.Text>
+            {/* Accent subtitle */}
+            <Animated.Text
+              style={[
+                styles.accentSubtitle,
+                {
+                  opacity: accentAnim,
+                  transform: [{ translateY: accentTranslateY }],
+                },
+              ]}
+            >
+              Just one more step
+            </Animated.Text>
 
-              {/* Email input - glass style */}
-              <Animated.View
-                style={{
-                  opacity: contentAnim,
-                  transform: [{ translateY: contentTranslateY }],
-                }}
-              >
-                <View style={styles.inputGlassWrapper}>
-                  <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
-                    <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
-                      <Ionicons
-                        name="mail-outline"
-                        size={20}
-                        color={colors.stormGray}
-                        style={styles.inputIcon}
-                      />
-                      <TextInput
-                        style={styles.glassInput}
-                        value={email}
-                        onChangeText={(value) => {
-                          setEmail(value);
+            {/* Email input - glass style */}
+            <Animated.View
+              style={{
+                opacity: contentAnim,
+                transform: [{ translateY: contentTranslateY }],
+              }}
+            >
+              <View style={styles.inputGlassWrapper}>
+                <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                  <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
+                    <Ionicons
+                      name="mail-outline"
+                      size={20}
+                      color={colors.stormGray}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.glassInput}
+                      value={email}
+                      onChangeText={(value) => {
+                        setEmail(value);
+                        if (emailError) setEmailError('');
+                      }}
+                      placeholder="Email address"
+                      placeholderTextColor={colors.stormGray}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="email"
+                      textContentType="emailAddress"
+                      testID="account-creation-email"
+                    />
+                    {email.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setEmail('');
                           if (emailError) setEmailError('');
                         }}
-                        placeholder="Email address"
-                        placeholderTextColor={colors.stormGray}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        autoComplete="email"
-                        textContentType="emailAddress"
-                        testID="account-creation-email"
-                      />
-                      {email.length > 0 && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setEmail('');
-                            if (emailError) setEmailError('');
+                        style={styles.clearButton}
+                      >
+                        <Ionicons name="close-circle" size={18} color={colors.stormGray} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </BlurView>
+              </View>
+              {emailError && (
+                <Text variant="caption" style={styles.errorText}>
+                  {emailError}
+                </Text>
+              )}
+
+              {/* Password input - only shown when email is valid */}
+              {isEmailValid && (
+                <Animated.View style={{ opacity: passwordAnim }}>
+                  <View style={styles.inputGlassWrapper}>
+                    <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                      <View
+                        style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+                      >
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={20}
+                          color={colors.stormGray}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.glassInput}
+                          value={password}
+                          onChangeText={(value) => {
+                            setPassword(value);
+                            if (passwordError) setPasswordError('');
                           }}
+                          placeholder="Password"
+                          placeholderTextColor={colors.stormGray}
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="password-new"
+                          textContentType="newPassword"
+                          testID="account-creation-password"
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
                           style={styles.clearButton}
                         >
-                          <Ionicons name="close-circle" size={18} color={colors.stormGray} />
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={colors.stormGray}
+                          />
                         </TouchableOpacity>
-                      )}
-                    </View>
-                  </BlurView>
-                </View>
-                {emailError && (
-                  <Text variant="caption" style={styles.errorText}>
-                    {emailError}
-                  </Text>
-                )}
-              </Animated.View>
-
-              {/* Continue button */}
-              <Animated.View
-                style={{
-                  opacity: buttonAnim,
-                  transform: [{ scale: buttonScale }],
-                }}
-              >
-                <TouchableOpacity
-                  style={[styles.button, sendMagicLink.isPending && styles.buttonDisabled]}
-                  onPress={handleSendMagicLink}
-                  activeOpacity={0.9}
-                  disabled={sendMagicLink.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue with email"
-                  testID="account-creation-send-button"
-                >
-                  <Text style={styles.buttonText}>
-                    {sendMagicLink.isPending ? 'Sending...' : 'Continue'}
-                  </Text>
-                </TouchableOpacity>
-              </Animated.View>
-
-              {/* Social Sign In buttons */}
-              {showSocialButtons && (
-                <Animated.View
-                  style={{
-                    opacity: buttonAnim,
-                  }}
-                >
-                  {/* Divider */}
-                  <View style={styles.divider}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or</Text>
-                    <View style={styles.dividerLine} />
+                      </View>
+                    </BlurView>
                   </View>
-
-                  {/* Google Sign In Button */}
-                  {isGoogleAvailable && (
-                    <TouchableOpacity
-                      style={styles.googleButton}
-                      onPress={handleGoogleSignIn}
-                      activeOpacity={0.9}
-                      disabled={googleSignIn.isPending}
-                      accessibilityRole="button"
-                      accessibilityLabel="Continue with Google"
-                      testID="account-creation-google-button"
-                    >
-                      <Ionicons name="logo-google" size={18} color={colors.white} />
-                      <Text style={styles.googleButtonText}>
-                        {googleSignIn.isPending ? 'Signing in...' : 'Continue with Google'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Apple Sign In Button - only shown on iOS */}
-                  {isAppleAvailable && (
-                    <TouchableOpacity
-                      style={styles.appleButton}
-                      onPress={handleAppleSignIn}
-                      activeOpacity={0.9}
-                      disabled={appleSignIn.isPending}
-                      accessibilityRole="button"
-                      accessibilityLabel="Continue with Apple"
-                      testID="account-creation-apple-button"
-                    >
-                      <Ionicons name="logo-apple" size={18} color={colors.white} />
-                      <Text style={styles.appleButtonText}>
-                        {appleSignIn.isPending ? 'Signing in...' : 'Continue with Apple'}
-                      </Text>
-                    </TouchableOpacity>
+                  {passwordError && (
+                    <Text variant="caption" style={styles.errorText}>
+                      {passwordError}
+                    </Text>
                   )}
                 </Animated.View>
               )}
+            </Animated.View>
 
-              {/* Login link */}
-              <Animated.View style={{ opacity: contentAnim }}>
-                <TouchableOpacity
-                  onPress={handleAlreadyHaveAccount}
-                  style={styles.loginLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Sign in to existing account"
-                >
-                  <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-          ) : (
-            // Check Your Email Step
-            <Animated.View style={[styles.content, { opacity: checkEmailAnim }]}>
-              {/* Mail Icon */}
-              <View style={styles.mailIconContainer}>
-                <Ionicons name="mail-outline" size={64} color={colors.sunsetGold} />
-              </View>
-
-              <Text variant="title" style={styles.checkEmailTitle}>
-                Check your email
-              </Text>
-              <Text variant="body" style={styles.checkEmailSubtitle}>
-                We sent a magic link to
-              </Text>
-              <Text variant="body" style={styles.emailDisplay}>
-                {email}
-              </Text>
-              <Text variant="body" style={styles.checkEmailInstructions}>
-                Click the link in the email to create your account.
-              </Text>
-
-              {/* Resend button */}
+            {/* Create Account button */}
+            <Animated.View
+              style={{
+                opacity: buttonAnim,
+                transform: [{ scale: buttonScale }],
+              }}
+            >
               <TouchableOpacity
-                style={[
-                  styles.resendButton,
-                  (resendCountdown > 0 || sendMagicLink.isPending) && styles.resendButtonDisabled,
-                ]}
-                onPress={handleResendMagicLink}
-                disabled={resendCountdown > 0 || sendMagicLink.isPending}
+                style={[styles.button, signUp.isPending && styles.buttonDisabled]}
+                onPress={handleSignUp}
+                activeOpacity={0.9}
+                disabled={signUp.isPending}
                 accessibilityRole="button"
-                accessibilityLabel={
-                  resendCountdown > 0
-                    ? `Resend available in ${resendCountdown} seconds`
-                    : 'Resend email'
-                }
-                testID="account-creation-resend-button"
+                accessibilityLabel="Create Account"
+                testID="account-creation-submit-button"
               >
-                <Text
-                  style={[
-                    styles.resendButtonText,
-                    (resendCountdown > 0 || sendMagicLink.isPending) &&
-                      styles.resendButtonTextDisabled,
-                  ]}
-                >
-                  {sendMagicLink.isPending
-                    ? 'Sending...'
-                    : resendCountdown > 0
-                      ? `Resend email (${resendCountdown}s)`
-                      : 'Resend email'}
+                <Text style={styles.buttonText}>
+                  {signUp.isPending ? 'Creating account...' : 'Create Account'}
                 </Text>
               </TouchableOpacity>
             </Animated.View>
-          )}
+
+            {/* Social Sign In buttons */}
+            {showSocialButtons && (
+              <Animated.View
+                style={{
+                  opacity: buttonAnim,
+                }}
+              >
+                {/* Divider */}
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                {/* Google Sign In Button */}
+                {isGoogleAvailable && (
+                  <TouchableOpacity
+                    style={styles.googleButton}
+                    onPress={handleGoogleSignIn}
+                    activeOpacity={0.9}
+                    disabled={googleSignIn.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Google"
+                    testID="account-creation-google-button"
+                  >
+                    <Ionicons name="logo-google" size={18} color={colors.white} />
+                    <Text style={styles.googleButtonText}>
+                      {googleSignIn.isPending ? 'Signing in...' : 'Continue with Google'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Apple Sign In Button - only shown on iOS */}
+                {isAppleAvailable && (
+                  <TouchableOpacity
+                    style={styles.appleButton}
+                    onPress={handleAppleSignIn}
+                    activeOpacity={0.9}
+                    disabled={appleSignIn.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Apple"
+                    testID="account-creation-apple-button"
+                  >
+                    <Ionicons name="logo-apple" size={18} color={colors.white} />
+                    <Text style={styles.appleButtonText}>
+                      {appleSignIn.isPending ? 'Signing in...' : 'Continue with Apple'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+            )}
+
+            {/* Login link */}
+            <Animated.View style={{ opacity: contentAnim }}>
+              <TouchableOpacity
+                onPress={handleAlreadyHaveAccount}
+                style={styles.loginLink}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in to existing account"
+              >
+                <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -488,17 +441,6 @@ const styles = StyleSheet.create({
   },
   backButtonPlaceholder: {
     width: 140,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    width: 140,
-  },
-  backText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.midnightNavy,
   },
   keyboardView: {
     flex: 1,
@@ -645,45 +587,5 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
-  },
-  // Check your email step styles
-  mailIconContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  checkEmailTitle: {
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  checkEmailSubtitle: {
-    textAlign: 'center',
-    color: colors.textSecondary,
-  },
-  emailDisplay: {
-    textAlign: 'center',
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
-    marginBottom: 16,
-  },
-  checkEmailInstructions: {
-    textAlign: 'center',
-    color: colors.textSecondary,
-    marginBottom: 32,
-  },
-  resendButton: {
-    alignSelf: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  resendButtonDisabled: {
-    opacity: 0.5,
-  },
-  resendButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.sunsetGold,
-  },
-  resendButtonTextDisabled: {
-    color: colors.textSecondary,
   },
 });

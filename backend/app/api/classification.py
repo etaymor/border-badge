@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 import re
 from typing import Any
 
@@ -12,7 +13,7 @@ from app.core.config import get_settings
 from app.core.security import OptionalUser
 from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
-from app.main import limiter
+from app.main import get_request_context, limiter
 from app.schemas.classification import (
     TravelerClassificationRequest,
     TravelerClassificationResponse,
@@ -26,6 +27,28 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Regex to strip markdown code fences (handles ```json, ```javascript, etc.)
 CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+
+
+def _classification_rate_limit() -> str:
+    """Return stricter rate limit for anonymous requests, lenient for authenticated.
+
+    Anonymous users: 5 requests per hour (to protect LLM API costs)
+    Authenticated users: 30 requests per minute
+
+    Uses ContextVar to access the current request (set by middleware).
+    """
+    request = get_request_context()
+    if request is None:
+        # Fallback to strict limit if no request context (shouldn't happen)
+        return "5/hour"
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer ") and len(auth_header) > 7:
+        # Has a token - use lenient limit (token validity checked by endpoint)
+        return "30/minute"
+    # No token - strict limit to prevent LLM API abuse
+    return "5/hour"
+
 
 # LLM prompts for classification
 SYSTEM_PROMPT = """You are a creative travel personality classifier. You MUST output only valid JSON matching the schema.
@@ -62,7 +85,7 @@ Output ONLY this JSON:
   "traveler_type": "string (2-4 words, Title Case)",
   "signature_country": "string (MUST be from visited list, NOT home country)",
   "confidence": 0.0,
-  "rationale_short": "string (max 18 words)"
+  "rationale_short": "string (max 100 chars, ~15 words)"
 }}"""
 
 
@@ -220,8 +243,6 @@ def generate_fallback_traveler_type(countries: list[dict[str, Any]]) -> tuple[st
         if count / total_countries >= 0.6:
             types = region_traveler_types.get(region, [])
             if types:
-                import random
-
                 return random.choice(types)
 
     # Check for subregion specialization
@@ -254,8 +275,6 @@ def generate_fallback_traveler_type(countries: list[dict[str, Any]]) -> tuple[st
         if count / total_countries >= 0.5:
             types = subregion_types.get(subregion, [])
             if types:
-                import random
-
                 return random.choice(types)
 
     # Check for high rarity (off-the-beaten-path traveler)
@@ -395,16 +414,21 @@ def validate_llm_response(
     else:
         conf_value = 0.5
 
+    # Truncate rationale to max 100 chars (schema limit)
+    rationale_text = rationale or "Classification based on travel patterns"
+    if len(rationale_text) > 100:
+        rationale_text = rationale_text[:97] + "..."
+
     return {
         "traveler_type": traveler_type,
         "signature_country": signature_country,
         "confidence": conf_value,
-        "rationale_short": rationale or "Classification based on travel patterns",
+        "rationale_short": rationale_text,
     }
 
 
 @router.post("/traveler", response_model=TravelerClassificationResponse)
-@limiter.limit("10/minute")
+@limiter.limit(_classification_rate_limit)
 async def classify_traveler(
     request: Request,
     data: TravelerClassificationRequest,
@@ -439,11 +463,22 @@ async def classify_traveler(
     # Create name to code mapping for reverse lookup
     name_to_code = {v: k for k, v in code_to_name.items()}
 
-    # Get home country name for LLM (if provided and valid)
+    # Validate and get home country name for LLM (if provided)
     home_country_code = data.home_country.upper() if data.home_country else None
-    home_country_name = (
-        code_to_name.get(home_country_code) if home_country_code else None
-    )
+    home_country_name = None
+    if home_country_code:
+        # Fetch home country from DB to validate it exists
+        db = get_supabase_client()
+        home_country_rows = await db.get(
+            "country",
+            {"code": f"eq.{home_country_code}", "select": "code,name", "limit": 1},
+        )
+        if not home_country_rows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid home country code: {data.home_country}",
+            )
+        home_country_name = home_country_rows[0]["name"]
 
     # Call LLM
     llm_result = await call_openrouter_llm(
@@ -508,6 +543,10 @@ async def classify_traveler(
     rarest_code = await get_rarest_country_code(
         valid_codes, exclude_code=home_country_code
     )
+
+    # Truncate rationale to max 100 chars (schema limit)
+    if len(rationale) > 100:
+        rationale = rationale[:97] + "..."
 
     return TravelerClassificationResponse(
         traveler_type=traveler_type,

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { CommonActions } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -18,7 +19,7 @@ import { Text, GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
-import { useSignInWithPassword, useSignUpWithPassword } from '@hooks/useAuth';
+import { useSignInWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
 import { useAuthStore } from '@stores/authStore';
@@ -39,9 +40,7 @@ export function AuthScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(true);
 
-  const signUp = useSignUpWithPassword();
   const signIn = useSignInWithPassword();
   const appleSignIn = useAppleSignIn();
   const googleSignIn = useGoogleSignIn();
@@ -57,6 +56,13 @@ export function AuthScreen({ navigation }: Props) {
   // Handle restart onboarding
   const handleRestartOnboarding = () => {
     setHasCompletedOnboarding(false);
+    // Reset navigation to Onboarding screen
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Onboarding' }],
+      })
+    );
   };
 
   // Animation values
@@ -122,7 +128,7 @@ export function AuthScreen({ navigation }: Props) {
     return { isValid: true };
   };
 
-  // Handle password authentication (sign up or sign in)
+  // Handle password authentication (sign in)
   const handlePasswordAuth = () => {
     const emailResult = validateEmail(email);
     if (!emailResult.isValid) {
@@ -139,12 +145,7 @@ export function AuthScreen({ navigation }: Props) {
     setPasswordError('');
 
     const credentials = { email: emailResult.normalizedEmail!, password };
-
-    if (isSignUp) {
-      signUp.mutate(credentials);
-    } else {
-      signIn.mutate(credentials);
-    }
+    signIn.mutate(credentials);
   };
 
   // Handle Apple Sign In
@@ -221,7 +222,7 @@ export function AuthScreen({ navigation }: Props) {
               }}
             >
               <Text variant="title" style={styles.title}>
-                {isSignUp ? 'Create account' : 'Welcome back'}
+                Continue exploring
               </Text>
             </Animated.View>
 
@@ -317,7 +318,7 @@ export function AuthScreen({ navigation }: Props) {
                           autoCapitalize="none"
                           autoCorrect={false}
                           autoComplete="password"
-                          textContentType={isSignUp ? 'newPassword' : 'password'}
+                          textContentType="password"
                           testID="auth-password-input"
                         />
                         <TouchableOpacity
@@ -342,43 +343,24 @@ export function AuthScreen({ navigation }: Props) {
               )}
             </Animated.View>
 
-            {/* Continue button */}
+            {/* Sign In button */}
             <Animated.View
               style={{
                 opacity: buttonAnim,
                 transform: [{ scale: buttonScale }],
               }}
             >
-              {(() => {
-                const isLoading = signUp.isPending || signIn.isPending;
-                const buttonLabel = isSignUp ? 'Create Account' : 'Sign In';
-                const loadingLabel = isSignUp ? 'Creating...' : 'Signing in...';
-
-                return (
-                  <TouchableOpacity
-                    style={[styles.button, isLoading && styles.buttonDisabled]}
-                    onPress={handlePasswordAuth}
-                    activeOpacity={0.9}
-                    disabled={isLoading}
-                    accessibilityRole="button"
-                    accessibilityLabel={buttonLabel}
-                    testID="auth-send-button"
-                  >
-                    <Text style={styles.buttonText}>{isLoading ? loadingLabel : buttonLabel}</Text>
-                  </TouchableOpacity>
-                );
-              })()}
-            </Animated.View>
-
-            {/* Sign up / Sign in toggle */}
-            <Animated.View
-              style={{
-                opacity: buttonAnim,
-              }}
-            >
-              <TouchableOpacity style={styles.signUpToggle} onPress={() => setIsSignUp(!isSignUp)}>
-                <Text style={styles.signUpToggleText}>
-                  {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+              <TouchableOpacity
+                style={[styles.button, signIn.isPending && styles.buttonDisabled]}
+                onPress={handlePasswordAuth}
+                activeOpacity={0.9}
+                disabled={signIn.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Sign In"
+                testID="auth-send-button"
+              >
+                <Text style={styles.buttonText}>
+                  {signIn.isPending ? 'Signing in...' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
             </Animated.View>
@@ -626,16 +608,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     textDecorationLine: 'underline',
-  },
-  // Sign up toggle styles
-  signUpToggle: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 8,
-  },
-  signUpToggleText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.sunsetGold,
   },
 });

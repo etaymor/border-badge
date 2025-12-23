@@ -60,6 +60,7 @@ export function useSendMagicLink() {
 interface PasswordAuthInput {
   email: string;
   password: string;
+  displayName?: string;
 }
 
 /**
@@ -72,10 +73,13 @@ export function useSignUpWithPassword() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async ({ email, password }: PasswordAuthInput) => {
+    mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: displayName ? { display_name: displayName } : undefined,
+        },
       });
 
       if (error) throw error;
