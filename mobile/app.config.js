@@ -8,7 +8,9 @@ export default {
     orientation: 'portrait',
     icon: './assets/Atlasi-book-app-icon-cream.png',
     userInterfaceStyle: 'automatic',
-    scheme: 'borderbadge',
+    // Deep link scheme - handles all paths like atlasi://auth-callback, atlasi://share
+    // Used by: magic link auth, OAuth callbacks, share extension
+    scheme: 'atlasi',
     newArchEnabled: true,
     splash: {
       image: './assets/splash-atlantis.png',

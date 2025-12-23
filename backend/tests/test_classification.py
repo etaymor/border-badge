@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.classification import (
     CODE_FENCE_PATTERN,
+    generate_fallback_traveler_type,
     validate_llm_response,
 )
 from app.core.security import AuthUser, get_current_user
@@ -257,13 +258,44 @@ def test_code_fence_pattern_no_newline_before_close() -> None:
 # ============================================================================
 
 
-def test_classify_traveler_requires_auth(client: TestClient) -> None:
-    """Test that classification endpoint requires authentication."""
-    response = client.post(
-        "/classify/traveler",
-        json={"countries_visited": ["US"], "interest_tags": []},
-    )
-    assert response.status_code == 403
+def test_classify_traveler_works_without_auth(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that classification endpoint works without authentication (for onboarding)."""
+    # Mock country lookup for anonymous requests
+    mock_supabase_client.get.side_effect = [
+        [{"code": "US", "name": "United States"}],  # get_country_names_by_codes
+        [
+            {
+                "code": "US",
+                "name": "United States",
+                "region": "Americas",
+                "subregion": "North America",
+                "rarity_score": 1,
+            }
+        ],  # get_countries_with_regions
+        [{"code": "US", "rarity_score": 1}],  # get_rarest_country_code
+    ]
+
+    with (
+        patch(
+            "app.api.classification.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch("app.api.classification.get_settings") as mock_settings,
+    ):
+        mock_settings.return_value = MagicMock(openrouter_api_key=None)
+        response = client.post(
+            "/classify/traveler",
+            json={"countries_visited": ["US"], "interest_tags": []},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    # Should work and return a classification
+    assert "traveler_type" in data
+    assert "signature_country" in data
 
 
 def test_classify_traveler_returns_fallback_without_api_key(
@@ -273,9 +305,18 @@ def test_classify_traveler_returns_fallback_without_api_key(
     auth_headers: dict[str, str],
 ) -> None:
     """Test fallback classification when OpenRouter API key not configured."""
-    # Mock country lookup
+    # Mock country lookup - now includes additional calls for smart fallback
     mock_supabase_client.get.side_effect = [
         [{"code": "JP", "name": "Japan"}],  # get_country_names_by_codes
+        [
+            {
+                "code": "JP",
+                "name": "Japan",
+                "region": "Asia",
+                "subregion": "Eastern Asia",
+                "rarity_score": 5,
+            }
+        ],  # get_countries_with_regions
         [{"code": "JP", "rarity_score": 5}],  # get_rarest_country_code
     ]
 
@@ -300,9 +341,15 @@ def test_classify_traveler_returns_fallback_without_api_key(
 
         assert response.status_code == 200
         data = response.json()
-        assert data["traveler_type"] == "Global Explorer"  # Fallback
+        # Smart fallback now returns creative type based on region
+        assert data["traveler_type"] in [
+            "Eastern Spirit",
+            "Orient Express",
+            "Silk Road Traveler",
+            "World Curious",
+        ]
         assert data["signature_country"] == "JP"
-        assert data["confidence"] == 0.3  # Fallback confidence
+        assert data["confidence"] == 0.5  # Smart fallback confidence
     finally:
         app.dependency_overrides.clear()
 
@@ -598,3 +645,183 @@ def test_interest_tags_injection_keywords_case_insensitive() -> None:
         ],
     )
     assert request.interest_tags == ["valid tag"]
+
+
+# ============================================================================
+# Unit Tests for generate_fallback_traveler_type
+# ============================================================================
+
+
+def test_generate_fallback_empty_list() -> None:
+    """Test fallback with empty country list."""
+    traveler_type, rationale = generate_fallback_traveler_type([])
+    assert traveler_type == "Global Explorer"
+    assert "discover" in rationale.lower()
+
+
+def test_generate_fallback_europe_dominant() -> None:
+    """Test fallback with European-dominant travel."""
+    countries = [
+        {
+            "code": "FR",
+            "name": "France",
+            "region": "Europe",
+            "subregion": "Western Europe",
+            "rarity_score": 2,
+        },
+        {
+            "code": "DE",
+            "name": "Germany",
+            "region": "Europe",
+            "subregion": "Western Europe",
+            "rarity_score": 2,
+        },
+        {
+            "code": "IT",
+            "name": "Italy",
+            "region": "Europe",
+            "subregion": "Southern Europe",
+            "rarity_score": 2,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    assert traveler_type in [
+        "Euro Wanderer",
+        "Continental Classic",
+        "Old World Explorer",
+    ]
+
+
+def test_generate_fallback_asia_dominant() -> None:
+    """Test fallback with Asian-dominant travel."""
+    countries = [
+        {
+            "code": "JP",
+            "name": "Japan",
+            "region": "Asia",
+            "subregion": "Eastern Asia",
+            "rarity_score": 3,
+        },
+        {
+            "code": "TH",
+            "name": "Thailand",
+            "region": "Asia",
+            "subregion": "Southeast Asia",
+            "rarity_score": 3,
+        },
+        {
+            "code": "VN",
+            "name": "Vietnam",
+            "region": "Asia",
+            "subregion": "Southeast Asia",
+            "rarity_score": 4,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    assert traveler_type in ["Eastern Spirit", "Orient Express", "Silk Road Traveler"]
+
+
+def test_generate_fallback_high_rarity() -> None:
+    """Test fallback with high rarity score countries from diverse regions."""
+    # Use diverse regions so no single region is dominant (>60%)
+    countries = [
+        {
+            "code": "BT",
+            "name": "Bhutan",
+            "region": "Asia",
+            "subregion": "Southern Asia",
+            "rarity_score": 8,
+        },
+        {
+            "code": "SV",
+            "name": "Svalbard",
+            "region": "Europe",
+            "subregion": "Northern Europe",
+            "rarity_score": 9,
+        },
+        {
+            "code": "TV",
+            "name": "Tuvalu",
+            "region": "Oceania",
+            "subregion": "Polynesia",
+            "rarity_score": 9,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    assert traveler_type in ["Hidden Gem Hunter", "Off The Grid", "Global Nomad"]
+
+
+def test_generate_fallback_diverse_regions() -> None:
+    """Test fallback with many different regions."""
+    countries = [
+        {
+            "code": "US",
+            "name": "United States",
+            "region": "Americas",
+            "subregion": "North America",
+            "rarity_score": 1,
+        },
+        {
+            "code": "JP",
+            "name": "Japan",
+            "region": "Asia",
+            "subregion": "Eastern Asia",
+            "rarity_score": 3,
+        },
+        {
+            "code": "FR",
+            "name": "France",
+            "region": "Europe",
+            "subregion": "Western Europe",
+            "rarity_score": 2,
+        },
+        {
+            "code": "AU",
+            "name": "Australia",
+            "region": "Oceania",
+            "subregion": "Australia and New Zealand",
+            "rarity_score": 3,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    assert traveler_type in ["World Collector", "Global Nomad"]
+
+
+def test_generate_fallback_single_country() -> None:
+    """Test fallback with single country - uses region-based since 100% in one region."""
+    countries = [
+        {
+            "code": "US",
+            "name": "United States",
+            "region": "Americas",
+            "subregion": "North America",
+            "rarity_score": 1,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    # Single country from Americas triggers region-based type
+    assert traveler_type in ["Americas Adventurer", "New World Nomad"]
+
+
+def test_generate_fallback_few_countries_mixed() -> None:
+    """Test fallback with few countries from mixed regions (no dominance)."""
+    countries = [
+        {
+            "code": "US",
+            "name": "United States",
+            "region": "Americas",
+            "subregion": "North America",
+            "rarity_score": 1,
+        },
+        {
+            "code": "JP",
+            "name": "Japan",
+            "region": "Asia",
+            "subregion": "Eastern Asia",
+            "rarity_score": 3,
+        },
+    ]
+    traveler_type, rationale = generate_fallback_traveler_type(countries)
+    # 2 countries from 2 regions - not enough for diversity types, not enough for count types
+    assert traveler_type == "World Curious"
+    assert "beginning" in rationale.lower()

@@ -140,7 +140,7 @@ export function NameEntryScreen({ navigation }: Props) {
               },
             ]}
           >
-            ~ your adventure awaits ~
+            Your adventure awaits
           </Animated.Text>
 
           {/* Input section - Liquid Glass Style */}
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
   },
   accentSubtitle: {
     fontFamily: fonts.dawning.regular,
-    fontSize: 18,
+    fontSize: 24,
     color: colors.adobeBrick,
     marginBottom: 32,
   },

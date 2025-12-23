@@ -1,4 +1,4 @@
-import { render, screen } from './utils/testUtils';
+import { render, screen, fireEvent } from './utils/testUtils';
 
 import { AuthScreen } from '@screens/auth';
 import type { AuthStackScreenProps } from '@navigation/types';
@@ -10,6 +10,7 @@ const mockNavigation = {
   goBack: jest.fn(),
   setOptions: jest.fn(),
   canGoBack: jest.fn().mockReturnValue(false),
+  dispatch: jest.fn(),
 } as unknown as AuthStackScreenProps<'Login'>['navigation'];
 
 const mockRoute = {} as AuthStackScreenProps<'Login'>['route'];
@@ -19,21 +20,36 @@ describe('AuthScreen', () => {
     jest.clearAllMocks();
   });
 
-  it('renders welcome back title', () => {
+  it('renders continue exploring title for returning users', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Welcome back')).toBeTruthy();
+    // AuthScreen is for returning users (sign in)
+    expect(screen.getByText('Continue exploring')).toBeTruthy();
   });
 
-  it('displays phone number input', () => {
+  it('displays email input', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByPlaceholderText('Phone Number')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Email address')).toBeTruthy();
   });
 
-  it('displays continue button', () => {
+  it('displays password input after entering valid email', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Continue')).toBeTruthy();
+    // Password field is hidden until email is valid
+    expect(screen.queryByPlaceholderText('Password')).toBeNull();
+
+    // Enter a valid email
+    const emailInput = screen.getByPlaceholderText('Email address');
+    fireEvent.changeText(emailInput, 'test@example.com');
+
+    // Now password field should be visible
+    expect(screen.getByPlaceholderText('Password')).toBeTruthy();
+  });
+
+  it('displays sign in button', () => {
+    render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
+
+    expect(screen.getByText('Sign In')).toBeTruthy();
   });
 });

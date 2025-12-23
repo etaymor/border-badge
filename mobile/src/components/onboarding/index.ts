@@ -18,6 +18,3 @@ export type { RotatingStampHeroProps } from './RotatingStampHero';
 
 export { default as OnboardingInput } from './OnboardingInput';
 export type { OnboardingInputProps } from './OnboardingInput';
-
-export { default as OnboardingPhoneInput } from './OnboardingPhoneInput';
-export type { OnboardingPhoneInputProps } from './OnboardingPhoneInput';

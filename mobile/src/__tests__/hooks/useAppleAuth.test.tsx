@@ -336,7 +336,7 @@ describe('useAppleAuth', () => {
     });
 
     describe('Error Handling', () => {
-      it('logs error to console.error', async () => {
+      it('logs sanitized error to console.error', async () => {
         const error = new Error('Apple auth failed');
         mockedSignInAsync.mockRejectedValue(error);
 
@@ -350,7 +350,8 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isError).toBe(true));
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', error);
+        // Logs sanitized message (just the error message, not the object)
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Apple auth failed');
       });
 
       it('logs cancellation error with "canceled" message', async () => {
@@ -368,7 +369,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', error);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'The operation was canceled'
+        );
       });
 
       it('logs cancellation error with "ERR_REQUEST_CANCELED" message', async () => {
@@ -386,7 +390,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', error);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'ERR_REQUEST_CANCELED'
+        );
       });
 
       it('logs cancellation error with "1001" code', async () => {
@@ -404,7 +411,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', error);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'Error code 1001: User canceled'
+        );
       });
 
       it('returns error for non-cancellation errors', async () => {
@@ -421,8 +431,11 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isError).toBe(true));
 
-        // Verify error was logged
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', error);
+        // Verify sanitized error was logged
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'Network connection failed'
+        );
         // Verify error message is accessible
         expect(result.current.error?.message).toBe('Network connection failed');
       });
@@ -440,8 +453,8 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isError).toBe(true));
 
-        // Verify error was logged
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In error:', 'string error');
+        // Verify error was logged with 'Unknown error type' for non-Error objects
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Unknown error type');
       });
 
       it('throws error when not on iOS', async () => {

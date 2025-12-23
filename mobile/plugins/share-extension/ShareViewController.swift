@@ -1,15 +1,15 @@
 /**
- * ShareViewController - iOS Share Extension for BorderBadge
+ * ShareViewController - iOS Share Extension for Atlasi
  *
  * This extension receives shared URLs from TikTok, Instagram, and other apps,
- * then opens the main BorderBadge app with the URL for processing.
+ * then opens the main Atlasi app with the URL for processing.
  *
  * Flow:
  * 1. User taps Share in TikTok/Instagram
- * 2. Selects "Save Place" (BorderBadge)
+ * 2. Selects "Save Place" (Atlasi)
  * 3. Extension extracts URL from shared content
  * 4. Writes URL to App Group shared storage
- * 5. Opens main app via borderbadge://share deep link
+ * 5. Opens main app via atlasi://share deep link
  * 6. Completes extension request
  */
 
@@ -29,7 +29,7 @@ class ShareViewController: UIViewController {
     private let timestampKey = "SharedURLTimestamp"
 
     /// Deep link URL base to open the main app (URL is appended as query parameter)
-    private let appDeepLinkBase = "borderbadge://share"
+    private let appDeepLinkBase = "atlasi://share"
 
     // MARK: - Lifecycle
 
@@ -164,7 +164,7 @@ class ShareViewController: UIViewController {
 
     // MARK: - App Opening
 
-    /// Open the main BorderBadge app via deep link with the shared URL
+    /// Open the main Atlasi app via deep link with the shared URL
     private func openMainApp(with sharedURL: String) {
         // URL-encode the shared URL and pass it as a query parameter
         guard let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),

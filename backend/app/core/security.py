@@ -8,11 +8,32 @@ import jwt
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
+
+
+def determine_supabase_issuer(settings: Settings) -> str | None:
+    """Determine the expected JWT issuer from Supabase configuration.
+
+    Returns:
+        The issuer URL if SUPABASE_URL is configured, or None otherwise.
+
+    Side Effects:
+        Logs an error if SUPABASE_JWT_SECRET is set but SUPABASE_URL is missing,
+        as this indicates a server misconfiguration.
+    """
+    if settings.supabase_url:
+        return f"{settings.supabase_url}/auth/v1"
+    elif settings.supabase_jwt_secret:
+        logger.error(
+            "Supabase JWT secret is configured but SUPABASE_URL is empty; "
+            "refusing to validate tokens without a trusted issuer. "
+            "Set SUPABASE_URL to your Supabase project URL.",
+        )
+    return None
 
 
 class AuthUser:
@@ -34,18 +55,12 @@ async def get_current_user(
     settings = get_settings()
     token = credentials.credentials
 
-    # Determine expected issuer. If Supabase is configured (JWT secret set) but
-    # the URL is missing, treat this as a hard server misconfiguration rather
-    # than silently disabling issuer validation.
-    issuer: str | None = None
-    if settings.supabase_url:
-        issuer = f"{settings.supabase_url}/auth/v1"
-    elif settings.supabase_jwt_secret:
-        logger.error(
-            "Supabase JWT secret is configured but SUPABASE_URL is empty; "
-            "refusing to validate tokens without a trusted issuer. "
-            "Set SUPABASE_URL to your Supabase project URL.",
-        )
+    # Determine expected issuer using shared helper
+    issuer = determine_supabase_issuer(settings)
+
+    # If JWT secret is configured but issuer could not be determined,
+    # treat this as a hard server misconfiguration
+    if settings.supabase_jwt_secret and issuer is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Authentication is misconfigured on the server.",
@@ -85,6 +100,53 @@ async def get_current_user(
 
 # Type alias for dependency injection
 CurrentUser = Annotated[AuthUser, Depends(get_current_user)]
+
+
+async def get_optional_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))
+    ],
+) -> AuthUser | None:
+    """
+    Optionally verify JWT token and extract the current user.
+
+    Returns None if no token is provided or if the token is invalid.
+    Use this for endpoints that work both authenticated and anonymously.
+    """
+    if not credentials:
+        return None
+
+    settings = get_settings()
+    token = credentials.credentials
+
+    # Determine expected issuer using shared helper
+    # For optional auth, just return None on misconfiguration (helper logs the error)
+    issuer = determine_supabase_issuer(settings)
+    if settings.supabase_jwt_secret and issuer is None:
+        return None
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            issuer=issuer,
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        return AuthUser(
+            user_id=user_id,
+            email=payload.get("email"),
+        )
+    except jwt.InvalidTokenError:
+        # For optional auth, just return None on invalid token
+        return None
+
+
+# Type alias for optional user dependency
+OptionalUser = Annotated[AuthUser | None, Depends(get_optional_user)]
 
 
 async def require_service_role(

@@ -18,7 +18,7 @@ import type { VariantProps } from '../types';
  * Shows traveler type badge and signature country that represents their travel style.
  */
 export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
-  const { visitedCountries, totalCountries, motivationTags, personaTags } = context;
+  const { visitedCountries, totalCountries, motivationTags, personaTags, homeCountry } = context;
 
   const [classification, setClassification] = useState<TravelerClassificationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,6 +56,7 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
           {
             countries_visited: visitedCountries,
             interest_tags: interestTags,
+            home_country: homeCountry,
           },
           signal
         );
@@ -85,7 +86,7 @@ export const MapVariant = memo(function MapVariant({ context }: VariantProps) {
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [visitedCountries, interestTags]);
+  }, [visitedCountries, interestTags, homeCountry]);
 
   // Determine signature country - from API or fallback to first visited
   const signatureCountryCode = classification?.signature_country || visitedCountries[0] || 'US';

@@ -238,6 +238,7 @@ export function usePassportData() {
       continentStats,
       motivationTags: profile?.travel_motives ?? [],
       personaTags: profile?.persona_tags ?? [],
+      homeCountry: profile?.home_country_code ?? null,
     };
   }, [countries, visitedCountries, visitedCodes, profile]);
 

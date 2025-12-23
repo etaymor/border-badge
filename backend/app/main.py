@@ -4,6 +4,7 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,6 +22,17 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
+
+# ContextVar for accessing request in rate limit functions
+_request_ctx_var: ContextVar[Request | None] = ContextVar(
+    "request_context", default=None
+)
+
+
+def get_request_context() -> Request | None:
+    """Get the current request from context (for use in rate limit functions)."""
+    return _request_ctx_var.get()
+
 
 # CSP nonce key for request state
 CSP_NONCE_KEY = "csp_nonce"
@@ -55,6 +67,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
+    # Startup validation - warn about auth misconfiguration early
+    if settings.supabase_jwt_secret and not settings.supabase_url:
+        logger.error(
+            "AUTH_MISCONFIGURATION: SUPABASE_JWT_SECRET is set but "
+            "SUPABASE_URL is missing. Token validation will fail. "
+            "Set SUPABASE_URL to your Supabase project URL."
+        )
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
@@ -70,14 +89,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     Generates a per-request CSP nonce for inline styles/scripts.
     The nonce is stored in request.state and can be accessed in templates.
+    Also stores request in ContextVar for rate limit functions to access.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        # Store request in context var for rate limit functions
+        token = _request_ctx_var.set(request)
+
         # Generate nonce for this request
         nonce = generate_csp_nonce()
         request.state.csp_nonce = nonce
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        finally:
+            _request_ctx_var.reset(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"

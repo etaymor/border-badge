@@ -17,7 +17,6 @@ import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
-import { formatPhoneForDisplay } from '@utils/phoneValidation';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -197,10 +196,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
-  const formattedPhone = useMemo(
-    () => formatPhoneForDisplay(session?.user.phone ?? '') || 'Not set',
-    [session?.user.phone]
-  );
+  const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
   const memberSince = useMemo(() => formatMemberSince(profile?.created_at), [profile?.created_at]);
   const homeCountryDisplay = useMemo(() => {
     if (!homeCountry) return null;
@@ -349,7 +345,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         <View style={styles.divider} />
 
         <ProfileInfoSection
-          formattedPhone={formattedPhone}
+          formattedEmail={formattedEmail}
           homeCountryDisplay={homeCountryDisplay}
           memberSince={memberSince}
           trackingPreferenceDisplay={trackingPreferenceDisplay}

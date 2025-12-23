@@ -21,6 +21,8 @@ export interface OnboardingShareContext {
   // Profile tags for traveler classification
   motivationTags: string[];
   personaTags: string[];
+  // Home country code - excluded from signature country selection (unless it's the only one)
+  homeCountry: string | null;
 }
 
 export interface VariantProps {

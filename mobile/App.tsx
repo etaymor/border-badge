@@ -35,6 +35,7 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
+import { isAuthCallbackDeepLink, processAuthCallback } from '@services/authCallback';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
@@ -70,14 +71,14 @@ const navigationRef = createNavigationContainerRef<any>();
 
 /**
  * Deep linking configuration for the app.
- * Handles borderbadge:// URLs from the Share Extension.
+ * Handles atlasi:// URLs from the Share Extension.
  *
  * Note: During LAUNCH_SIMPLIFICATION, Main uses PassportNavigator directly
  * which makes the type system complex. We use a minimal linking config
  * and handle ShareCapture navigation manually in the useEffect.
  */
 const linking = {
-  prefixes: ['borderbadge://'],
+  prefixes: ['atlasi://'],
   // Minimal config - actual ShareCapture navigation is handled manually
   // in the useEffect to avoid complex nested navigation types
   config: {
@@ -104,7 +105,7 @@ export default function App() {
   const appStateRef = useRef(AppState.currentState);
   const sessionIdRef = useRef(generateSessionId());
   const hasTrackedInitialOpenRef = useRef(false);
-  const hasProcessedInitialShareRef = useRef(false);
+  const hasProcessedInitialDeepLinkRef = useRef(false);
   const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
   const shouldClearPendingShareRef = useRef(false);
 
@@ -242,8 +243,22 @@ export default function App() {
     };
   }, [session?.user?.id]);
 
-  // Handle Share Extension deep links and pending shares
+  // Handle deep links: auth callbacks and share extension
   useEffect(() => {
+    /**
+     * Process an auth callback deep link (magic links, OAuth).
+     * Extracts tokens and sets the Supabase session.
+     */
+    const handleAuthCallbackDeepLink = async (deepLinkUrl: string) => {
+      if (!isAuthCallbackDeepLink(deepLinkUrl)) return;
+
+      console.log('Processing auth callback deep link');
+      const result = await processAuthCallback(deepLinkUrl);
+      if (!result.success) {
+        console.error('Failed to process auth callback:', result.error);
+      }
+    };
+
     /**
      * Process a share extension deep link.
      * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
@@ -269,19 +284,39 @@ export default function App() {
       }
     };
 
+    /**
+     * Route incoming deep links to the appropriate handler.
+     */
+    const handleDeepLink = async (deepLinkUrl: string) => {
+      if (isAuthCallbackDeepLink(deepLinkUrl)) {
+        await handleAuthCallbackDeepLink(deepLinkUrl);
+      } else if (isShareExtensionDeepLink(deepLinkUrl)) {
+        await handleShareDeepLink(deepLinkUrl);
+      }
+    };
+
     // Subscribe to deep link events
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleShareDeepLink(url);
+      void handleDeepLink(url);
     });
 
-    // Check for initial URL (app opened via deep link)
-    if (!hasProcessedInitialShareRef.current) {
-      hasProcessedInitialShareRef.current = true;
-      Linking.getInitialURL().then((url) => {
-        if (url) {
-          void handleShareDeepLink(url);
-        }
-      });
+    // Check for initial URL (app opened via deep link - auth callback or share extension)
+    // This handles cold start scenarios where the app is opened via a magic link or share
+    // Note: We set the ref inside the promise to avoid race conditions where a URL
+    // could arrive between setting the ref and promise resolution
+    if (!hasProcessedInitialDeepLinkRef.current) {
+      Linking.getInitialURL()
+        .then((url) => {
+          // Set ref after getting URL to prevent race condition
+          hasProcessedInitialDeepLinkRef.current = true;
+          if (url) {
+            void handleDeepLink(url);
+          }
+        })
+        .catch((error) => {
+          hasProcessedInitialDeepLinkRef.current = true;
+          console.error('Failed to get initial deep link URL:', error);
+        });
     }
 
     return () => {

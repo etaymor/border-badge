@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 import re
 from typing import Any
 
@@ -9,10 +10,10 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.core.config import get_settings
-from app.core.security import CurrentUser
+from app.core.security import OptionalUser
 from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
-from app.main import limiter
+from app.main import get_request_context, limiter
 from app.schemas.classification import (
     TravelerClassificationRequest,
     TravelerClassificationResponse,
@@ -27,6 +28,58 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Regex to strip markdown code fences (handles ```json, ```javascript, etc.)
 CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
+
+def _classification_rate_limit() -> str:
+    """Return stricter rate limit for anonymous requests, lenient for authenticated.
+
+    Anonymous users: 5 requests per hour (to protect LLM API costs)
+    Authenticated users: 30 requests per minute
+
+    Uses ContextVar to access the current request (set by middleware).
+    Validates the token to prevent invalid tokens from bypassing the strict limit.
+    """
+    import jwt
+
+    from app.core.security import determine_supabase_issuer
+
+    request = get_request_context()
+    if request is None:
+        # Fallback to strict limit if no request context (shouldn't happen)
+        return "5/hour"
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer ") or len(auth_header) <= 7:
+        # No token - strict limit to prevent LLM API abuse
+        return "5/hour"
+
+    # Extract and validate the token
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    settings = get_settings()
+
+    # Determine expected issuer
+    issuer = determine_supabase_issuer(settings)
+    if settings.supabase_jwt_secret and issuer is None:
+        # Misconfiguration - treat as unauthenticated
+        return "5/hour"
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            issuer=issuer,
+        )
+        # Valid token with user ID - use lenient limit
+        if payload.get("sub"):
+            return "30/minute"
+    except jwt.InvalidTokenError:
+        # Invalid token - strict limit
+        pass
+
+    return "5/hour"
+
+
 # LLM prompts for classification
 SYSTEM_PROMPT = """You are a creative travel personality classifier. You MUST output only valid JSON matching the schema.
 Do not include markdown, code fences, or extra keys.
@@ -37,6 +90,7 @@ USER_PROMPT_TEMPLATE = """Task: Analyze this traveler's visited countries and cr
 
 Visited Countries: {countries}
 Interest Tags (optional hints): {interest_tags}
+Home Country (do NOT pick as signature): {home_country}
 
 Instructions:
 1. Look for PATTERNS in the countries:
@@ -49,6 +103,7 @@ Instructions:
    - Latin America heavy? → "Salsa Soul" / "Latin Wanderer"
 
 2. Pick the SINGLE country that best represents their travel identity - the one that tells their story.
+   IMPORTANT: Do NOT pick the home country as signature country unless it's the ONLY country visited.
 
 3. Create a 2-4 word traveler_type that's:
    - Memorable and shareable on social media
@@ -58,9 +113,9 @@ Instructions:
 Output ONLY this JSON:
 {{
   "traveler_type": "string (2-4 words, Title Case)",
-  "signature_country": "string (MUST be from the visited list)",
+  "signature_country": "string (MUST be from visited list, NOT home country)",
   "confidence": 0.0,
-  "rationale_short": "string (max 18 words)"
+  "rationale_short": "string (max 100 chars, ~15 words)"
 }}"""
 
 
@@ -99,13 +154,30 @@ def lookup_country_code_case_insensitive(
     return None
 
 
-async def get_rarest_country_code(codes: list[str]) -> str:
-    """Find the country with highest rarity_score from the given codes."""
+async def get_rarest_country_code(
+    codes: list[str], exclude_code: str | None = None
+) -> str:
+    """Find the country with highest rarity_score from the given codes.
+
+    Args:
+        codes: List of country codes to search
+        exclude_code: Optional code to exclude (e.g., home country)
+    """
+    # Filter out excluded code if provided
+    search_codes = [c.upper() for c in codes]
+    if exclude_code:
+        exclude_upper = exclude_code.upper()
+        search_codes = [c for c in search_codes if c != exclude_upper]
+
+    # If no codes left after exclusion, use original list (fallback)
+    if not search_codes:
+        search_codes = [c.upper() for c in codes]
+
     db = get_supabase_client()
     rows = await db.get(
         "country",
         {
-            "code": in_list([c.upper() for c in codes]),
+            "code": in_list(search_codes),
             "select": "code,rarity_score",
             "order": "rarity_score.desc",
             "limit": 1,
@@ -114,11 +186,154 @@ async def get_rarest_country_code(codes: list[str]) -> str:
     if rows:
         return rows[0]["code"]
     # Fallback to first code if DB query fails
-    return codes[0].upper() if codes else "US"
+    return search_codes[0] if search_codes else "US"
+
+
+async def get_countries_with_regions(codes: list[str]) -> list[dict[str, Any]]:
+    """Fetch countries with their region data for fallback classification."""
+    if not codes:
+        return []
+    db = get_supabase_client()
+    return await db.get(
+        "country",
+        {
+            "code": in_list([c.upper() for c in codes]),
+            "select": "code,name,region,subregion,rarity_score",
+        },
+    )
+
+
+def generate_fallback_traveler_type(countries: list[dict[str, Any]]) -> tuple[str, str]:
+    """Generate a creative fallback traveler type based on visited countries.
+
+    Returns (traveler_type, rationale) tuple.
+    """
+    if not countries:
+        return ("Global Explorer", "Ready to discover the world")
+
+    # Count countries per region and subregion
+    region_counts: dict[str, int] = {}
+    subregion_counts: dict[str, int] = {}
+
+    for c in countries:
+        region = c.get("region", "")
+        subregion = c.get("subregion", "")
+        if region:
+            region_counts[region] = region_counts.get(region, 0) + 1
+        if subregion:
+            subregion_counts[subregion] = subregion_counts.get(subregion, 0) + 1
+
+    total_countries = len(countries)
+
+    # Calculate average rarity
+    rarity_scores = [c.get("rarity_score", 0) or 0 for c in countries]
+    avg_rarity = sum(rarity_scores) / len(rarity_scores) if rarity_scores else 0
+
+    # Region-based patterns
+    region_traveler_types = {
+        "Europe": [
+            ("Euro Wanderer", "Exploring the continent of castles and culture"),
+            ("Continental Classic", "A love affair with European charm"),
+            ("Old World Explorer", "Drawn to history and heritage"),
+        ],
+        "Asia": [
+            ("Eastern Spirit", "Finding meaning in the mysteries of the East"),
+            ("Orient Express", "Journeying through ancient civilizations"),
+            ("Silk Road Traveler", "Following footsteps of ancient traders"),
+        ],
+        "Africa": [
+            ("Safari Seeker", "Chasing sunsets across the savanna"),
+            ("African Explorer", "Captivated by the mother continent"),
+            ("Wild Heart", "Where adventure meets authenticity"),
+        ],
+        "Oceania": [
+            ("Island Hopper", "Collecting paradise one island at a time"),
+            ("Pacific Drifter", "Following the ocean currents"),
+            ("Down Under Devotee", "Exploring lands of wonder"),
+        ],
+        "Americas": [
+            ("Americas Adventurer", "From Alaska to Patagonia"),
+            ("New World Nomad", "Exploring the lands of opportunity"),
+        ],
+        "South America": [
+            ("Latin Soul", "Dancing through South America"),
+            ("Andes Adventurer", "Where mountains meet passion"),
+        ],
+        "North America": [
+            ("North American Nomad", "Coast to coast exploration"),
+        ],
+        "Caribbean": [
+            ("Caribbean Cruiser", "Island vibes and ocean waves"),
+            ("Tropical Soul", "Living life in flip flops"),
+        ],
+    }
+
+    # Check for dominant region (>60% of visited countries)
+    for region, count in region_counts.items():
+        if count / total_countries >= 0.6:
+            types = region_traveler_types.get(region, [])
+            if types:
+                return random.choice(types)
+
+    # Check for subregion specialization
+    subregion_types = {
+        "Southeast Asia": [
+            ("Southeast Explorer", "Temples, beaches, and street food"),
+            ("Backpacker Soul", "Living the Southeast Asia dream"),
+        ],
+        "Western Europe": [
+            ("Western Wanderer", "Classic European adventures"),
+        ],
+        "Eastern Europe": [
+            ("Eastern Explorer", "Discovering hidden European gems"),
+        ],
+        "Northern Europe": [
+            ("Nordic Soul", "Chasing northern lights and fjords"),
+        ],
+        "Southern Europe": [
+            ("Mediterranean Heart", "Sun, sea, and la dolce vita"),
+        ],
+        "Middle East": [
+            ("Desert Wanderer", "Where ancient meets modern"),
+        ],
+        "Central America": [
+            ("Central American Spirit", "Between two great oceans"),
+        ],
+    }
+
+    for subregion, count in subregion_counts.items():
+        if count / total_countries >= 0.5:
+            types = subregion_types.get(subregion, [])
+            if types:
+                return random.choice(types)
+
+    # Check for high rarity (off-the-beaten-path traveler)
+    if avg_rarity >= 6:
+        return ("Hidden Gem Hunter", "Seeking paths less traveled")
+    if avg_rarity >= 4:
+        return ("Off The Grid", "Beyond the tourist trail")
+
+    # Check for diversity (many regions = world traveler)
+    if len(region_counts) >= 4:
+        return ("World Collector", "Stamps from every corner")
+    if len(region_counts) >= 3:
+        return ("Global Nomad", "Home is wherever you wander")
+
+    # Default fallbacks based on count
+    if total_countries >= 20:
+        return ("Seasoned Wanderer", "A well-stamped passport tells stories")
+    if total_countries >= 10:
+        return ("Curious Explorer", "Every journey sparks a new dream")
+    if total_countries >= 5:
+        return ("Rising Adventurer", "Just getting started")
+
+    return ("World Curious", "The adventure is just beginning")
 
 
 async def call_openrouter_llm(
-    countries: list[str], interest_tags: list[str]
+    countries: list[str],
+    interest_tags: list[str],
+    home_country: str | None = None,
 ) -> dict[str, Any] | None:
     """Call OpenRouter API to classify the traveler. Returns parsed JSON or None on failure."""
     settings = get_settings()
@@ -130,6 +345,7 @@ async def call_openrouter_llm(
     user_prompt = USER_PROMPT_TEMPLATE.format(
         countries=json.dumps(countries),
         interest_tags=json.dumps(interest_tags) if interest_tags else "[]",
+        home_country=home_country or "None specified",
     )
 
     payload = {
@@ -228,26 +444,34 @@ def validate_llm_response(
     else:
         conf_value = 0.5
 
+    # Truncate rationale to max 100 chars (schema limit)
+    rationale_text = rationale or "Classification based on travel patterns"
+    if len(rationale_text) > 100:
+        rationale_text = rationale_text[:97] + "..."
+
     return {
         "traveler_type": traveler_type,
         "signature_country": signature_country,
         "confidence": conf_value,
-        "rationale_short": rationale or "Classification based on travel patterns",
+        "rationale_short": rationale_text,
     }
 
 
 @router.post("/traveler", response_model=TravelerClassificationResponse)
-@limiter.limit("10/minute")
+@limiter.limit(_classification_rate_limit)
 async def classify_traveler(
     request: Request,
     data: TravelerClassificationRequest,
-    user: CurrentUser,
+    user: OptionalUser,
 ) -> TravelerClassificationResponse:
     """
     Classify a traveler based on their visited countries.
 
     Uses an LLM to analyze travel patterns and assign a creative traveler type
     along with a signature country that best represents their travel identity.
+
+    Authentication is optional - this endpoint is used during onboarding
+    before the user is fully authenticated.
     """
     # Normalize country codes
     country_codes = [c.upper() for c in data.countries_visited]
@@ -269,16 +493,58 @@ async def classify_traveler(
     # Create name to code mapping for reverse lookup
     name_to_code = {v: k for k, v in code_to_name.items()}
 
+    # Validate and get home country name for LLM (if provided)
+    home_country_code = data.home_country.upper() if data.home_country else None
+    home_country_name = None
+    if home_country_code:
+        # Fetch home country from DB to validate it exists
+        db = get_supabase_client()
+        home_country_rows = await db.get(
+            "country",
+            {"code": f"eq.{home_country_code}", "select": "code,name", "limit": 1},
+        )
+        if not home_country_rows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid home country code: {data.home_country}",
+            )
+        home_country_name = home_country_rows[0]["name"]
+
     # Call LLM
-    llm_result = await call_openrouter_llm(country_names, data.interest_tags)
+    llm_result = await call_openrouter_llm(
+        country_names, data.interest_tags, home_country_name
+    )
 
     if llm_result:
+        logger.debug("LLM result: %s", llm_result)
         # Validate the response
         validated = validate_llm_response(llm_result, country_names)
         if validated:
             # Convert country name back to code using case-insensitive lookup
             sig_name = validated["signature_country"]
             sig_code = lookup_country_code_case_insensitive(sig_name, name_to_code)
+
+            # Check if LLM returned home country as signature (and there are alternatives)
+            if (
+                sig_code
+                and home_country_code
+                and sig_code.upper() == home_country_code
+                and len(valid_codes) > 1
+            ):
+                # LLM picked home country despite instruction - use fallback for signature
+                logger.info(
+                    "LLM picked home country %s as signature, using fallback",
+                    home_country_code,
+                )
+                rarest_code = await get_rarest_country_code(
+                    valid_codes, exclude_code=home_country_code
+                )
+                return TravelerClassificationResponse(
+                    traveler_type=validated["traveler_type"],
+                    signature_country=rarest_code,
+                    confidence=validated["confidence"],
+                    rationale_short=validated["rationale_short"],
+                )
 
             # Final validation: ensure sig_code is in our valid codes
             if sig_code and sig_code.upper() in valid_codes:
@@ -288,14 +554,33 @@ async def classify_traveler(
                     confidence=validated["confidence"],
                     rationale_short=validated["rationale_short"],
                 )
+        else:
+            logger.warning("LLM response validation failed: %s", llm_result)
 
-    # Fallback: use rarest country and generic type
-    logger.info("Using fallback classification for user %s", user.id)
-    rarest_code = await get_rarest_country_code(valid_codes)
+    # Fallback: use smart pattern-based classification
+    logger.info(
+        "Using fallback classification for user %s", user.id if user else "anonymous"
+    )
+
+    # Get full country data for smart fallback
+    countries_data = await get_countries_with_regions(valid_codes)
+
+    # Generate creative traveler type based on patterns
+    traveler_type, rationale = generate_fallback_traveler_type(countries_data)
+
+    # Get signature country (rarest, excluding home country if provided)
+    # home_country_code was already computed above
+    rarest_code = await get_rarest_country_code(
+        valid_codes, exclude_code=home_country_code
+    )
+
+    # Truncate rationale to max 100 chars (schema limit)
+    if len(rationale) > 100:
+        rationale = rationale[:97] + "..."
 
     return TravelerClassificationResponse(
-        traveler_type="Global Explorer",
+        traveler_type=traveler_type,
         signature_country=rarest_code,
-        confidence=0.3,
-        rationale_short="Unique travel experiences across the globe",
+        confidence=0.5,
+        rationale_short=rationale,
     )

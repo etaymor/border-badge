@@ -5,7 +5,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
 interface ProfileInfoSectionProps {
-  formattedPhone: string;
+  formattedEmail: string;
   homeCountryDisplay: { flag: string; name: string } | null;
   memberSince: string;
   trackingPreferenceDisplay: { name: string; count: number };
@@ -17,7 +17,7 @@ interface ProfileInfoSectionProps {
 }
 
 export function ProfileInfoSection({
-  formattedPhone,
+  formattedEmail,
   homeCountryDisplay,
   memberSince,
   trackingPreferenceDisplay,
@@ -34,8 +34,10 @@ export function ProfileInfoSection({
         <Text style={styles.sectionTitle}>PASSPORT DETAILS</Text>
         <View style={styles.card}>
           <View style={styles.cardRow}>
-            <Text style={styles.rowLabel}>Phone</Text>
-            <Text style={styles.rowValue}>{formattedPhone}</Text>
+            <View>
+              <Text style={styles.rowLabel}>Email</Text>
+            </View>
+            <Text style={styles.rowValue}>{formattedEmail}</Text>
           </View>
 
           <View style={styles.divider} />
@@ -72,10 +74,7 @@ export function ProfileInfoSection({
             <View style={styles.cardRow}>
               <Text style={styles.rowLabel}>Country Tracking</Text>
               <View style={styles.rowValueContainer}>
-                <Text style={styles.rowValue}>
-                  {trackingPreferenceDisplay.name}
-                  {/* <Text style={styles.rowValueDetail}> ({trackingPreferenceDisplay.count})</Text> */}
-                </Text>
+                <Text style={styles.rowValue}>{trackingPreferenceDisplay.name}</Text>
                 <Ionicons
                   name="chevron-forward"
                   size={16}
@@ -171,9 +170,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
+  // Slightly less than card border radius for proper nesting
   cardPressable: {
-    borderRadius: 12, // slightly less than card to fit inside if needed, though here it spans full width minus padding effectively if we wanted, but standard iOS list style is full width.
-    // Actually, to get touch feedback on the row, we wrap the row content.
+    borderRadius: 12,
   },
   cardPressableActive: {
     backgroundColor: colors.paperBeige,
@@ -218,5 +217,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.stormGray,
     marginTop: 2,
+  },
+  emailNote: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
 });

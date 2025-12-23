@@ -2,12 +2,12 @@
  * Expo Config Plugin for iOS Share Extension
  *
  * This plugin adds a Share Extension target to the iOS project that allows
- * users to share TikTok/Instagram URLs directly to the BorderBadge app.
+ * users to share TikTok/Instagram URLs directly to the Atlasi app.
  *
  * The extension:
  * 1. Receives shared URLs from other apps
  * 2. Writes the URL to App Group shared storage
- * 3. Opens the main app via deep link (borderbadge://share)
+ * 3. Opens the main app via deep link (atlasi://share)
  *
  * @see https://docs.expo.dev/config-plugins/plugins-and-mods/
  */

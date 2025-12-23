@@ -1,34 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { BlurView } from 'expo-blur';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingPhoneInput } from '@components/onboarding';
-import { OTPInput, ResendTimer, Text } from '@components/ui';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
+import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
+import { useSignUpWithPassword } from '@hooks/useAuth';
+import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
 import type { OnboardingStackScreenProps } from '@navigation/types';
-import { storeOnboardingComplete } from '@services/api';
 import { Analytics } from '@services/analytics';
-import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
-import {
-  formatPhoneForDisplay,
-  RESEND_COOLDOWN_SECONDS,
-  validateOTP,
-  validatePhone,
-} from '@utils/phoneValidation';
+import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
@@ -36,171 +31,127 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
-type AuthStep = 'phone' | 'otp';
+// Minimum password length (Supabase default)
+const MIN_PASSWORD_LENGTH = 6;
 
 export function AccountCreationScreen({ navigation }: Props) {
-  const [step, setStep] = useState<AuthStep>('phone');
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [phoneError, setPhoneError] = useState('');
-  const [otpError, setOtpError] = useState('');
-  const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  const { setHasCompletedOnboarding } = useAuthStore();
-  const { homeCountry, displayName, selectedCountries, trackingPreference } = useOnboardingStore();
+  const { displayName } = useOnboardingStore();
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingAccount();
   }, []);
 
-  const sendOTP = useSendOTP();
-  const verifyOTP = useVerifyOTP({
-    onMigrationComplete: (result) => {
-      if (!result) {
-        // Migration failed entirely - keep onboarding state for retry
-        Alert.alert('Migration failed', 'Your data could not be migrated. Please try again.');
-        return;
-      }
+  const signUp = useSignUpWithPassword();
+  const appleSignIn = useAppleSignIn();
+  const googleSignIn = useGoogleSignIn();
+  const isAppleAvailable = useAppleAuthAvailable();
+  const isGoogleAvailable = useGoogleAuthAvailable();
 
-      if (result.success) {
-        // Track successful onboarding completion
-        const countriesCount = new Set([
-          ...selectedCountries,
-          ...(homeCountry ? [homeCountry] : []),
-        ]).size;
-        Analytics.completeOnboarding({
-          countriesCount,
-          homeCountry,
-          trackingPreference,
-        });
+  // Check if email is valid to show password field
+  const isEmailValid = validateEmail(email).isValid;
 
-        setHasCompletedOnboarding(true);
-        storeOnboardingComplete();
-      } else {
-        // Keep onboarding state intact so user can retry migration
-        const message =
-          result.errors.length > 0
-            ? result.errors.join('\n')
-            : 'Some data could not be migrated. Please try again.';
-        Alert.alert('Migration incomplete', message);
-      }
-    },
-  });
-
-  // Animation values for phone step
+  // Animation values
   const titleAnim = useRef(new Animated.Value(0)).current;
   const accentAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
   const buttonAnim = useRef(new Animated.Value(0)).current;
+  const passwordAnim = useRef(new Animated.Value(0)).current;
 
-  // Animation values for OTP step
-  const otpContainerAnim = useRef(new Animated.Value(0)).current;
-
-  // Run entrance animations for phone step
+  // Run entrance animations
   useEffect(() => {
-    if (step === 'phone') {
-      // Reset animations
-      titleAnim.setValue(0);
-      accentAnim.setValue(0);
-      contentAnim.setValue(0);
-      buttonAnim.setValue(0);
+    // Reset animations
+    titleAnim.setValue(0);
+    accentAnim.setValue(0);
+    contentAnim.setValue(0);
+    buttonAnim.setValue(0);
 
-      Animated.stagger(100, [
-        Animated.timing(titleAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(accentAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(contentAnim, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.spring(buttonAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      // OTP step - minimal fade in
-      otpContainerAnim.setValue(0);
-      Animated.timing(otpContainerAnim, {
+    Animated.stagger(100, [
+      Animated.timing(titleAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(accentAnim, {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
-      }).start();
-    }
-  }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, otpContainerAnim]);
+      }),
+      Animated.timing(contentAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.spring(buttonAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
 
-  // Handle sending OTP
-  const handleSendOTP = () => {
-    const result = validatePhone(phone);
-    if (!result.isValid) {
-      setPhoneError(result.error!);
-      return;
-    }
-    setPhoneError('');
+  // Animate password field when email becomes valid
+  useEffect(() => {
+    Animated.timing(passwordAnim, {
+      toValue: isEmailValid ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [isEmailValid, passwordAnim]);
 
-    sendOTP.mutate(
-      { phone, displayName: displayName ?? undefined },
-      {
-        onSuccess: () => {
-          setOtpSentAt(Date.now());
-          setStep('otp');
-          setOtpError('');
-        },
-      }
-    );
+  // Validate password
+  const validatePassword = (pwd: string): { isValid: boolean; error?: string } => {
+    if (!pwd) {
+      return { isValid: false, error: 'Password is required' };
+    }
+    if (pwd.length < MIN_PASSWORD_LENGTH) {
+      return {
+        isValid: false,
+        error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      };
+    }
+    return { isValid: true };
   };
 
-  // Handle OTP verification - wrapped in useCallback to provide stable reference for OTPInput
-  const handleVerifyOTP = useCallback(() => {
-    const result = validateOTP(otp);
-    if (!result.isValid) {
-      setOtpError(result.error!);
+  // Handle password sign up
+  const handleSignUp = () => {
+    const emailResult = validateEmail(email);
+    if (!emailResult.isValid) {
+      setEmailError(emailResult.error!);
       return;
     }
+    setEmailError('');
 
-    // Pass display name from onboarding store
-    verifyOTP.mutate(
-      { phone, token: otp, displayName: displayName ?? undefined },
-      {
-        onError: () => {
-          setOtp('');
-          setOtpError('Invalid code. Please try again.');
-        },
-      }
-    );
-  }, [otp, phone, displayName, verifyOTP]);
+    const passwordResult = validatePassword(password);
+    if (!passwordResult.isValid) {
+      setPasswordError(passwordResult.error!);
+      return;
+    }
+    setPasswordError('');
 
-  // Handle resend OTP
-  const handleResendOTP = () => {
-    sendOTP.mutate(
-      { phone, displayName: displayName ?? undefined },
-      {
-        onSuccess: () => {
-          setOtpSentAt(Date.now());
-        },
-      }
-    );
+    const credentials = {
+      email: emailResult.normalizedEmail!,
+      password,
+      displayName: displayName ?? undefined,
+    };
+    signUp.mutate(credentials);
   };
 
-  // Handle back to phone entry
-  const handleBackToPhone = () => {
-    setStep('phone');
-    setPhone('');
-    setPhoneError('');
-    setOtp('');
-    setOtpError('');
-    setOtpSentAt(undefined);
+  // Handle Apple Sign In
+  const handleAppleSignIn = () => {
+    appleSignIn.mutate();
+  };
+
+  // Handle Google Sign In
+  const handleGoogleSignIn = () => {
+    googleSignIn.mutate();
   };
 
   // Handle navigation to login for existing users
@@ -230,23 +181,13 @@ export function AccountCreationScreen({ navigation }: Props) {
     outputRange: [0.95, 1],
   });
 
+  const showSocialButtons = isAppleAvailable || isGoogleAvailable;
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header with logo */}
       <View style={styles.headerRow}>
-        {step === 'otp' ? (
-          <TouchableOpacity
-            onPress={handleBackToPhone}
-            style={styles.backButton}
-            accessibilityRole="button"
-            accessibilityLabel="Change phone number"
-          >
-            <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
-            <Text style={styles.backText}>Change number</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.backButtonPlaceholder} />
-        )}
+        <View style={styles.backButtonPlaceholder} />
         <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
         <View style={styles.backButtonPlaceholder} />
       </View>
@@ -259,136 +200,222 @@ export function AccountCreationScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {step === 'phone' ? (
-            // Phone Entry Step
-            <View style={styles.content}>
-              {/* Title */}
-              <Animated.View
-                style={{
-                  opacity: titleAnim,
-                  transform: [{ translateY: titleTranslateY }],
-                }}
-              >
-                <Text variant="title" style={styles.title}>
-                  Save your passport
+          <View style={styles.content}>
+            {/* Title */}
+            <Animated.View
+              style={{
+                opacity: titleAnim,
+                transform: [{ translateY: titleTranslateY }],
+              }}
+            >
+              <Text variant="title" style={styles.title}>
+                Save your passport
+              </Text>
+            </Animated.View>
+
+            {/* Accent subtitle */}
+            <Animated.Text
+              style={[
+                styles.accentSubtitle,
+                {
+                  opacity: accentAnim,
+                  transform: [{ translateY: accentTranslateY }],
+                },
+              ]}
+            >
+              Just one more step
+            </Animated.Text>
+
+            {/* Email input - glass style */}
+            <Animated.View
+              style={{
+                opacity: contentAnim,
+                transform: [{ translateY: contentTranslateY }],
+              }}
+            >
+              <View style={styles.inputGlassWrapper}>
+                <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                  <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
+                    <Ionicons
+                      name="mail-outline"
+                      size={20}
+                      color={colors.stormGray}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.glassInput}
+                      value={email}
+                      onChangeText={(value) => {
+                        setEmail(value);
+                        if (emailError) setEmailError('');
+                      }}
+                      placeholder="Email address"
+                      placeholderTextColor={colors.stormGray}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="email"
+                      textContentType="emailAddress"
+                      testID="account-creation-email"
+                    />
+                    {email.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setEmail('');
+                          if (emailError) setEmailError('');
+                        }}
+                        style={styles.clearButton}
+                      >
+                        <Ionicons name="close-circle" size={18} color={colors.stormGray} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </BlurView>
+              </View>
+              {emailError && (
+                <Text variant="caption" style={styles.errorText}>
+                  {emailError}
                 </Text>
-              </Animated.View>
+              )}
 
-              {/* Accent subtitle */}
-              <Animated.Text
-                style={[
-                  styles.accentSubtitle,
-                  {
-                    opacity: accentAnim,
-                    transform: [{ translateY: accentTranslateY }],
-                  },
-                ]}
+              {/* Password input - only shown when email is valid */}
+              {isEmailValid && (
+                <Animated.View style={{ opacity: passwordAnim }}>
+                  <View style={styles.inputGlassWrapper}>
+                    <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                      <View
+                        style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+                      >
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={20}
+                          color={colors.stormGray}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.glassInput}
+                          value={password}
+                          onChangeText={(value) => {
+                            setPassword(value);
+                            if (passwordError) setPasswordError('');
+                          }}
+                          placeholder="Password"
+                          placeholderTextColor={colors.stormGray}
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          autoComplete="password-new"
+                          textContentType="newPassword"
+                          testID="account-creation-password"
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          style={styles.clearButton}
+                        >
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={colors.stormGray}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </BlurView>
+                  </View>
+                  {passwordError && (
+                    <Text variant="caption" style={styles.errorText}>
+                      {passwordError}
+                    </Text>
+                  )}
+                </Animated.View>
+              )}
+            </Animated.View>
+
+            {/* Create Account button */}
+            <Animated.View
+              style={{
+                opacity: buttonAnim,
+                transform: [{ scale: buttonScale }],
+              }}
+            >
+              <TouchableOpacity
+                style={[styles.button, signUp.isPending && styles.buttonDisabled]}
+                onPress={handleSignUp}
+                activeOpacity={0.9}
+                disabled={signUp.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Create Account"
+                testID="account-creation-submit-button"
               >
-                ~ just one more step ~
-              </Animated.Text>
+                <Text style={styles.buttonText}>
+                  {signUp.isPending ? 'Creating account...' : 'Create Account'}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
 
-              {/* Phone input */}
-              <Animated.View
-                style={{
-                  opacity: contentAnim,
-                  transform: [{ translateY: contentTranslateY }],
-                }}
-              >
-                <OnboardingPhoneInput
-                  value={phone}
-                  onChangeText={(value) => {
-                    setPhone(value);
-                    if (phoneError) setPhoneError('');
-                  }}
-                  defaultCountryCode={homeCountry}
-                  placeholder="Phone Number"
-                  error={phoneError}
-                  containerStyle={styles.input}
-                  testID="account-creation-phone"
-                />
-              </Animated.View>
-
-              {/* Continue button */}
+            {/* Social Sign In buttons */}
+            {showSocialButtons && (
               <Animated.View
                 style={{
                   opacity: buttonAnim,
-                  transform: [{ scale: buttonScale }],
                 }}
               >
-                <TouchableOpacity
-                  style={[styles.button, sendOTP.isPending && styles.buttonDisabled]}
-                  onPress={handleSendOTP}
-                  activeOpacity={0.9}
-                  disabled={sendOTP.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue to verification"
-                  testID="account-creation-send-button"
-                >
-                  <Text style={styles.buttonText}>
-                    {sendOTP.isPending ? 'Sending...' : 'Continue'}
-                  </Text>
-                </TouchableOpacity>
+                {/* Divider */}
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                {/* Google Sign In Button */}
+                {isGoogleAvailable && (
+                  <TouchableOpacity
+                    style={styles.googleButton}
+                    onPress={handleGoogleSignIn}
+                    activeOpacity={0.9}
+                    disabled={googleSignIn.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Google"
+                    testID="account-creation-google-button"
+                  >
+                    <Ionicons name="logo-google" size={18} color={colors.white} />
+                    <Text style={styles.googleButtonText}>
+                      {googleSignIn.isPending ? 'Signing in...' : 'Continue with Google'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Apple Sign In Button - only shown on iOS */}
+                {isAppleAvailable && (
+                  <TouchableOpacity
+                    style={styles.appleButton}
+                    onPress={handleAppleSignIn}
+                    activeOpacity={0.9}
+                    disabled={appleSignIn.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Apple"
+                    testID="account-creation-apple-button"
+                  >
+                    <Ionicons name="logo-apple" size={18} color={colors.white} />
+                    <Text style={styles.appleButtonText}>
+                      {appleSignIn.isPending ? 'Signing in...' : 'Continue with Apple'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </Animated.View>
+            )}
 
-              {/* Login link */}
-              <Animated.View style={{ opacity: contentAnim }}>
-                <TouchableOpacity
-                  onPress={handleAlreadyHaveAccount}
-                  style={styles.loginLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Sign in to existing account"
-                >
-                  <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-          ) : (
-            // OTP Entry Step
-            <Animated.View style={[styles.content, { opacity: otpContainerAnim }]}>
-              <Text variant="title" style={styles.title}>
-                Enter your code
-              </Text>
-              <Text variant="body" style={styles.subtitle}>
-                Sent to {formatPhoneForDisplay(phone)}
-              </Text>
-
-              <View style={styles.otpContainer}>
-                <OTPInput
-                  value={otp}
-                  onChangeText={(value) => {
-                    setOtp(value);
-                    if (otpError) setOtpError('');
-                  }}
-                  onComplete={handleVerifyOTP}
-                  error={otpError}
-                  autoFocus
-                  testID="account-creation-otp"
-                />
-              </View>
-
+            {/* Login link */}
+            <Animated.View style={{ opacity: contentAnim }}>
               <TouchableOpacity
-                style={[styles.button, verifyOTP.isPending && styles.buttonDisabled]}
-                onPress={handleVerifyOTP}
-                activeOpacity={0.9}
-                disabled={verifyOTP.isPending}
+                onPress={handleAlreadyHaveAccount}
+                style={styles.loginLink}
                 accessibilityRole="button"
-                accessibilityLabel="Create your account"
-                testID="account-creation-verify-button"
+                accessibilityLabel="Sign in to existing account"
               >
-                <Text style={styles.buttonText}>
-                  {verifyOTP.isPending ? 'Creating...' : 'Create Account'}
-                </Text>
+                <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
               </TouchableOpacity>
-
-              <ResendTimer
-                onResend={handleResendOTP}
-                isResending={sendOTP.isPending}
-                cooldownSeconds={RESEND_COOLDOWN_SECONDS}
-                startTime={otpSentAt}
-                testID="account-creation-resend"
-              />
             </Animated.View>
-          )}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -413,18 +440,7 @@ const styles = StyleSheet.create({
     height: 40,
   },
   backButtonPlaceholder: {
-    width: 120,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    width: 120,
-  },
-  backText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.midnightNavy,
+    width: 140,
   },
   keyboardView: {
     flex: 1,
@@ -443,19 +459,56 @@ const styles = StyleSheet.create({
   },
   accentSubtitle: {
     fontFamily: fonts.dawning.regular,
-    fontSize: 18,
+    fontSize: 24,
     color: colors.adobeBrick,
-    marginBottom: 32,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    marginBottom: 32,
-  },
-  input: {
     marginBottom: 24,
   },
-  otpContainer: {
-    marginBottom: 32,
+  // Glass input styles
+  inputGlassWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  inputGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
+  },
+  inputWrapperError: {
+    borderColor: colors.error,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  glassInput: {
+    flex: 1,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  errorText: {
+    color: colors.error,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   button: {
     backgroundColor: colors.sunsetGold,
@@ -477,6 +530,53 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.midnightNavy,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.adobeBrick,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 10,
+    marginBottom: 12,
+  },
+  googleButtonText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 15,
+    color: colors.white,
+  },
+  appleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.midnightNavy,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 10,
+  },
+  appleButtonText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 15,
+    color: colors.white,
   },
   loginLink: {
     marginTop: 24,

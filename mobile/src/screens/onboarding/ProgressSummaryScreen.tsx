@@ -141,8 +141,9 @@ export function ProgressSummaryScreen({ navigation }: Props) {
       continentStats,
       motivationTags,
       personaTags,
+      homeCountry,
     };
-  }, [allCountriesData, allVisitedCountries, motivationTags, personaTags]);
+  }, [allCountriesData, allVisitedCountries, motivationTags, personaTags, homeCountry]);
 
   // Handle share button press
   const handleShare = useCallback(() => {

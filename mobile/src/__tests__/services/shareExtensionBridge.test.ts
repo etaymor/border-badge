@@ -37,17 +37,17 @@ describe('shareExtensionBridge', () => {
   });
 
   describe('isShareExtensionDeepLink', () => {
-    it('returns true for borderbadge://share', () => {
-      expect(isShareExtensionDeepLink('borderbadge://share')).toBe(true);
+    it('returns true for atlasi://share', () => {
+      expect(isShareExtensionDeepLink('atlasi://share')).toBe(true);
     });
 
-    it('returns true for borderbadge://share with query params', () => {
-      expect(isShareExtensionDeepLink('borderbadge://share?foo=bar')).toBe(true);
+    it('returns true for atlasi://share with query params', () => {
+      expect(isShareExtensionDeepLink('atlasi://share?foo=bar')).toBe(true);
     });
 
-    it('returns false for other borderbadge deep links', () => {
-      expect(isShareExtensionDeepLink('borderbadge://other')).toBe(false);
-      expect(isShareExtensionDeepLink('borderbadge://settings')).toBe(false);
+    it('returns false for other atlasi deep links', () => {
+      expect(isShareExtensionDeepLink('atlasi://other')).toBe(false);
+      expect(isShareExtensionDeepLink('atlasi://settings')).toBe(false);
     });
 
     it('returns false for other URL schemes', () => {
@@ -63,14 +63,14 @@ describe('shareExtensionBridge', () => {
 
   describe('parseDeepLinkParams', () => {
     it('extracts URL from query params', () => {
-      const deepLink = 'borderbadge://share?url=https%3A%2F%2Fvm.tiktok.com%2Fabc123';
+      const deepLink = 'atlasi://share?url=https%3A%2F%2Fvm.tiktok.com%2Fabc123';
       const params = parseDeepLinkParams(deepLink);
       expect(params.url).toBe('https://vm.tiktok.com/abc123');
       expect(params.source).toBe('share_extension');
     });
 
     it('handles deep links without URL param', () => {
-      const params = parseDeepLinkParams('borderbadge://share');
+      const params = parseDeepLinkParams('atlasi://share');
       expect(params.url).toBeUndefined();
       expect(params.source).toBe('share_extension');
     });
