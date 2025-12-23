@@ -6,7 +6,7 @@
  * and setting the session in Supabase.
  *
  * The callback URL format is:
- * borderbadge://auth-callback#access_token=xxx&refresh_token=xxx&...
+ * atlasi://auth-callback#access_token=xxx&refresh_token=xxx&...
  *
  * This is triggered when:
  * 1. User clicks a magic link in their email
@@ -21,7 +21,7 @@ import { getSafeLogMessage } from '@utils/authErrors';
 import { extractAuthTokensFromUrl, hasUserOnboarded } from '@utils/authHelpers';
 
 /** Expected auth callback URL prefix for origin validation */
-const EXPECTED_CALLBACK_PREFIX = 'borderbadge://auth-callback';
+const EXPECTED_CALLBACK_PREFIX = 'atlasi://auth-callback';
 
 /**
  * Check if the URL is an auth callback deep link

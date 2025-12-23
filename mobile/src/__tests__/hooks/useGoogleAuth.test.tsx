@@ -57,7 +57,7 @@ jest.mock('expo-web-browser', () => ({
 
 // Mock expo-linking
 jest.mock('expo-linking', () => ({
-  createURL: jest.fn().mockReturnValue('borderbadge://auth-callback'),
+  createURL: jest.fn().mockReturnValue('atlasi://auth-callback'),
 }));
 
 // Create wrapper for hooks
@@ -133,7 +133,7 @@ describe('useGoogleAuth', () => {
         // Mock browser session with successful callback
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback#access_token=test-access-token&refresh_token=test-refresh-token',
+          url: 'atlasi://auth-callback#access_token=test-access-token&refresh_token=test-refresh-token',
         });
 
         // Mock session set
@@ -164,7 +164,7 @@ describe('useGoogleAuth', () => {
         expect(mockSignInWithOAuth).toHaveBeenCalledWith({
           provider: 'google',
           options: {
-            redirectTo: 'borderbadge://auth-callback',
+            redirectTo: 'atlasi://auth-callback',
             skipBrowserRedirect: true,
           },
         });
@@ -183,7 +183,7 @@ describe('useGoogleAuth', () => {
 
         expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
           'https://accounts.google.com/oauth',
-          'borderbadge://auth-callback'
+          'atlasi://auth-callback'
         );
       });
 
@@ -302,7 +302,7 @@ describe('useGoogleAuth', () => {
       it('handles tokens in query params instead of fragment', async () => {
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback?access_token=query-token&refresh_token=query-refresh',
+          url: 'atlasi://auth-callback?access_token=query-token&refresh_token=query-refresh',
         });
 
         mockSetSession.mockResolvedValue({
@@ -419,7 +419,7 @@ describe('useGoogleAuth', () => {
       it('throws error when no access token in callback', async () => {
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback#refresh_token=only-refresh',
+          url: 'atlasi://auth-callback#refresh_token=only-refresh',
         });
 
         const { result } = renderHook(() => useGoogleSignIn(), {
@@ -438,7 +438,7 @@ describe('useGoogleAuth', () => {
       it('handles setSession error', async () => {
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+          url: 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh',
         });
 
         const sessionError = new Error('Session error');
@@ -484,7 +484,7 @@ describe('useGoogleAuth', () => {
 
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+          url: 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh',
         });
 
         mockSetSession.mockResolvedValue({
@@ -518,7 +518,7 @@ describe('useGoogleAuth', () => {
 
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
           type: 'success',
-          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+          url: 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh',
         });
 
         mockSetSession.mockResolvedValue({

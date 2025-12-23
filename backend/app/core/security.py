@@ -87,6 +87,56 @@ async def get_current_user(
 CurrentUser = Annotated[AuthUser, Depends(get_current_user)]
 
 
+async def get_optional_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))
+    ],
+) -> AuthUser | None:
+    """
+    Optionally verify JWT token and extract the current user.
+
+    Returns None if no token is provided or if the token is invalid.
+    Use this for endpoints that work both authenticated and anonymously.
+    """
+    if not credentials:
+        return None
+
+    settings = get_settings()
+    token = credentials.credentials
+
+    # Determine expected issuer
+    issuer: str | None = None
+    if settings.supabase_url:
+        issuer = f"{settings.supabase_url}/auth/v1"
+    elif settings.supabase_jwt_secret:
+        # Server misconfiguration - but for optional auth, just return None
+        logger.warning("Supabase JWT secret configured but URL missing")
+        return None
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            issuer=issuer,
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        return AuthUser(
+            user_id=user_id,
+            email=payload.get("email"),
+        )
+    except jwt.InvalidTokenError:
+        # For optional auth, just return None on invalid token
+        return None
+
+
+# Type alias for optional user dependency
+OptionalUser = Annotated[AuthUser | None, Depends(get_optional_user)]
+
+
 async def require_service_role(
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:

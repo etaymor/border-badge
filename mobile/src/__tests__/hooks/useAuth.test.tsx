@@ -36,7 +36,7 @@ jest.mock('@services/api', () => ({
 
 // Mock expo-linking
 jest.mock('expo-linking', () => ({
-  createURL: jest.fn().mockReturnValue('borderbadge://auth-callback'),
+  createURL: jest.fn().mockReturnValue('atlasi://auth-callback'),
 }));
 
 // Create wrapper for hooks
@@ -90,7 +90,7 @@ describe('useAuth', () => {
       expect(mockSignInWithOtp).toHaveBeenCalledWith({
         email: 'test@example.com',
         options: {
-          emailRedirectTo: 'borderbadge://auth-callback',
+          emailRedirectTo: 'atlasi://auth-callback',
           data: undefined,
         },
       });
@@ -112,7 +112,7 @@ describe('useAuth', () => {
       expect(mockSignInWithOtp).toHaveBeenCalledWith({
         email: 'test@example.com',
         options: {
-          emailRedirectTo: 'borderbadge://auth-callback',
+          emailRedirectTo: 'atlasi://auth-callback',
           data: { display_name: 'John Doe' },
         },
       });

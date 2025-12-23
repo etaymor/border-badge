@@ -52,6 +52,10 @@ class TravelerClassificationRequest(BaseModel):
         max_length=MAX_INTEREST_TAGS,
         description="Optional interest tags for classification hints",
     )
+    home_country: str | None = Field(
+        default=None,
+        description="User's home country code - excluded from signature country selection unless it's the only country visited",
+    )
 
     @field_validator("interest_tags")
     @classmethod

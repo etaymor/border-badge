@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as AppleAuthentication from 'expo-apple-authentication';
+import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -8,12 +8,12 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingInput } from '@components/onboarding';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -268,33 +268,60 @@ export function AccountCreationScreen({ navigation }: Props) {
                   },
                 ]}
               >
-                ~ just one more step ~
+                Just one more step
               </Animated.Text>
 
-              {/* Email input */}
+              {/* Email input - glass style */}
               <Animated.View
                 style={{
                   opacity: contentAnim,
                   transform: [{ translateY: contentTranslateY }],
                 }}
               >
-                <OnboardingInput
-                  value={email}
-                  onChangeText={(value) => {
-                    setEmail(value);
-                    if (emailError) setEmailError('');
-                  }}
-                  placeholder="Email address"
-                  error={emailError}
-                  containerStyle={styles.input}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="email"
-                  textContentType="emailAddress"
-                  icon="mail-outline"
-                  testID="account-creation-email"
-                />
+                <View style={styles.inputGlassWrapper}>
+                  <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                    <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
+                      <Ionicons
+                        name="mail-outline"
+                        size={20}
+                        color={colors.stormGray}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={styles.glassInput}
+                        value={email}
+                        onChangeText={(value) => {
+                          setEmail(value);
+                          if (emailError) setEmailError('');
+                        }}
+                        placeholder="Email address"
+                        placeholderTextColor={colors.stormGray}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        autoComplete="email"
+                        textContentType="emailAddress"
+                        testID="account-creation-email"
+                      />
+                      {email.length > 0 && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEmail('');
+                            if (emailError) setEmailError('');
+                          }}
+                          style={styles.clearButton}
+                        >
+                          <Ionicons name="close-circle" size={18} color={colors.stormGray} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </BlurView>
+                </View>
+                {emailError && (
+                  <Text variant="caption" style={styles.errorText}>
+                    {emailError}
+                  </Text>
+                )}
               </Animated.View>
 
               {/* Continue button */}
@@ -344,7 +371,7 @@ export function AccountCreationScreen({ navigation }: Props) {
                       accessibilityLabel="Continue with Google"
                       testID="account-creation-google-button"
                     >
-                      <Ionicons name="logo-google" size={20} color={colors.midnightNavy} />
+                      <Ionicons name="logo-google" size={18} color={colors.white} />
                       <Text style={styles.googleButtonText}>
                         {googleSignIn.isPending ? 'Signing in...' : 'Continue with Google'}
                       </Text>
@@ -353,13 +380,20 @@ export function AccountCreationScreen({ navigation }: Props) {
 
                   {/* Apple Sign In Button - only shown on iOS */}
                   {isAppleAvailable && (
-                    <AppleAuthentication.AppleAuthenticationButton
-                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
-                      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                      cornerRadius={12}
+                    <TouchableOpacity
                       style={styles.appleButton}
                       onPress={handleAppleSignIn}
-                    />
+                      activeOpacity={0.9}
+                      disabled={appleSignIn.isPending}
+                      accessibilityRole="button"
+                      accessibilityLabel="Continue with Apple"
+                      testID="account-creation-apple-button"
+                    >
+                      <Ionicons name="logo-apple" size={18} color={colors.white} />
+                      <Text style={styles.appleButtonText}>
+                        {appleSignIn.isPending ? 'Signing in...' : 'Continue with Apple'}
+                      </Text>
+                    </TouchableOpacity>
                   )}
                 </Animated.View>
               )}
@@ -483,12 +517,56 @@ const styles = StyleSheet.create({
   },
   accentSubtitle: {
     fontFamily: fonts.dawning.regular,
-    fontSize: 18,
+    fontSize: 24,
     color: colors.adobeBrick,
-    marginBottom: 32,
-  },
-  input: {
     marginBottom: 24,
+  },
+  // Glass input styles
+  inputGlassWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  inputGlassContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
+  },
+  inputWrapperError: {
+    borderColor: colors.error,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  glassInput: {
+    flex: 1,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  errorText: {
+    color: colors.error,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   button: {
     backgroundColor: colors.sunsetGold,
@@ -531,23 +609,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.white,
-    paddingVertical: 14,
+    backgroundColor: colors.adobeBrick,
+    paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
+    gap: 10,
     marginBottom: 12,
   },
   googleButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.midnightNavy,
+    fontFamily: fonts.openSans.regular,
+    fontSize: 15,
+    color: colors.white,
   },
   appleButton: {
-    width: '100%',
-    height: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.midnightNavy,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 10,
+  },
+  appleButtonText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 15,
+    color: colors.white,
   },
   loginLink: {
     marginTop: 24,

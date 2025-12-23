@@ -8,7 +8,7 @@
  * 3. Tracking processed shares to prevent duplicates
  *
  * The iOS Share Extension passes the shared URL as a query parameter in the deep link:
- * borderbadge://share?url=<encoded_url>
+ * atlasi://share?url=<encoded_url>
  *
  * The URL is also stored in App Group UserDefaults as a backup, though reading it
  * requires a native module that is not currently installed.
@@ -37,7 +37,7 @@ export interface SharedData {
  */
 export function isShareExtensionDeepLink(url: string | null): boolean {
   if (!url) return false;
-  return url.startsWith('borderbadge://share');
+  return url.startsWith('atlasi://share');
 }
 
 /**
@@ -48,7 +48,7 @@ export function isShareExtensionDeepLink(url: string | null): boolean {
  */
 export function parseDeepLinkParams(url: string): { url?: string; source?: string } {
   try {
-    // Handle borderbadge://share?url=encoded_url
+    // Handle atlasi://share?url=encoded_url
     const urlObj = new URL(url);
     const params: { url?: string; source?: string } = {};
 

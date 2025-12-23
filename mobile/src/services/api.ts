@@ -156,6 +156,7 @@ export async function clearOnboardingComplete(): Promise<void> {
 export interface TravelerClassificationRequest {
   countries_visited: string[];
   interest_tags: string[];
+  home_country?: string | null;
 }
 
 export interface TravelerClassificationResponse {

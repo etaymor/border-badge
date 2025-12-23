@@ -71,14 +71,14 @@ const navigationRef = createNavigationContainerRef<any>();
 
 /**
  * Deep linking configuration for the app.
- * Handles borderbadge:// URLs from the Share Extension.
+ * Handles atlasi:// URLs from the Share Extension.
  *
  * Note: During LAUNCH_SIMPLIFICATION, Main uses PassportNavigator directly
  * which makes the type system complex. We use a minimal linking config
  * and handle ShareCapture navigation manually in the useEffect.
  */
 const linking = {
-  prefixes: ['borderbadge://'],
+  prefixes: ['atlasi://'],
   // Minimal config - actual ShareCapture navigation is handled manually
   // in the useEffect to avoid complex nested navigation types
   config: {

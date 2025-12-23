@@ -52,7 +52,7 @@ jest.mock('@services/api', () => ({
 
 // Mock expo-linking
 jest.mock('expo-linking', () => ({
-  createURL: jest.fn().mockReturnValue('borderbadge://auth-callback'),
+  createURL: jest.fn().mockReturnValue('atlasi://auth-callback'),
 }));
 
 // Create wrapper for hooks
@@ -116,14 +116,14 @@ describe('EmailAuthFlow Integration', () => {
 
   describe('Deep Link Detection', () => {
     it('identifies auth callback URLs', () => {
-      expect(isAuthCallbackDeepLink('borderbadge://auth-callback')).toBe(true);
-      expect(isAuthCallbackDeepLink('borderbadge://auth-callback#access_token=xyz')).toBe(true);
-      expect(isAuthCallbackDeepLink('borderbadge://auth-callback?code=abc')).toBe(true);
+      expect(isAuthCallbackDeepLink('atlasi://auth-callback')).toBe(true);
+      expect(isAuthCallbackDeepLink('atlasi://auth-callback#access_token=xyz')).toBe(true);
+      expect(isAuthCallbackDeepLink('atlasi://auth-callback?code=abc')).toBe(true);
     });
 
     it('rejects non-auth URLs', () => {
-      expect(isAuthCallbackDeepLink('borderbadge://share')).toBe(false);
-      expect(isAuthCallbackDeepLink('borderbadge://other')).toBe(false);
+      expect(isAuthCallbackDeepLink('atlasi://share')).toBe(false);
+      expect(isAuthCallbackDeepLink('atlasi://other')).toBe(false);
       expect(isAuthCallbackDeepLink('https://example.com/auth-callback')).toBe(false);
     });
 
@@ -137,7 +137,7 @@ describe('EmailAuthFlow Integration', () => {
 
   describe('Token Extraction', () => {
     it('extracts tokens from URL fragment', () => {
-      const url = 'borderbadge://auth-callback#access_token=abc123&refresh_token=def456';
+      const url = 'atlasi://auth-callback#access_token=abc123&refresh_token=def456';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toEqual({
@@ -147,7 +147,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('extracts tokens from query params', () => {
-      const url = 'borderbadge://auth-callback?access_token=xyz789&refresh_token=uvw012';
+      const url = 'atlasi://auth-callback?access_token=xyz789&refresh_token=uvw012';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toEqual({
@@ -157,7 +157,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('handles missing refresh token', () => {
-      const url = 'borderbadge://auth-callback#access_token=abc123';
+      const url = 'atlasi://auth-callback#access_token=abc123';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toEqual({
@@ -167,14 +167,14 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('returns null when access token is missing', () => {
-      const url = 'borderbadge://auth-callback#refresh_token=abc123';
+      const url = 'atlasi://auth-callback#refresh_token=abc123';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toBeNull();
     });
 
     it('returns null for URL without tokens', () => {
-      const url = 'borderbadge://auth-callback';
+      const url = 'atlasi://auth-callback';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toBeNull();
@@ -182,7 +182,7 @@ describe('EmailAuthFlow Integration', () => {
 
     it('handles extra parameters in URL', () => {
       const url =
-        'borderbadge://auth-callback#access_token=abc&refresh_token=def&type=magiclink&expires_in=3600';
+        'atlasi://auth-callback#access_token=abc&refresh_token=def&type=magiclink&expires_in=3600';
       const tokens = extractAuthTokens(url);
 
       expect(tokens).toEqual({
@@ -211,7 +211,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('processes valid callback and sets session', async () => {
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       const result = await processAuthCallback(url);
 
@@ -223,7 +223,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('stores tokens on successful callback', async () => {
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       await processAuthCallback(url);
 
@@ -238,7 +238,7 @@ describe('EmailAuthFlow Integration', () => {
         limit: jest.fn().mockResolvedValue({ data: [{ id: 'country-1' }], error: null }),
       });
 
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       await processAuthCallback(url);
 
@@ -247,7 +247,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('runs migration for new users', async () => {
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       await processAuthCallback(url);
 
@@ -255,7 +255,7 @@ describe('EmailAuthFlow Integration', () => {
     });
 
     it('returns error when tokens cannot be extracted', async () => {
-      const url = 'borderbadge://auth-callback';
+      const url = 'atlasi://auth-callback';
 
       const result = await processAuthCallback(url);
 
@@ -270,7 +270,7 @@ describe('EmailAuthFlow Integration', () => {
         error: new Error('Session expired'),
       });
 
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       const result = await processAuthCallback(url);
 
@@ -283,7 +283,7 @@ describe('EmailAuthFlow Integration', () => {
       const setSession = jest.fn();
       useAuthStore.setState({ setSession });
 
-      const url = 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh';
+      const url = 'atlasi://auth-callback#access_token=test-token&refresh_token=test-refresh';
 
       await processAuthCallback(url);
 
@@ -310,7 +310,7 @@ describe('EmailAuthFlow Integration', () => {
       expect(mockSignInWithOtp).toHaveBeenCalledWith({
         email: 'test@example.com',
         options: {
-          emailRedirectTo: 'borderbadge://auth-callback',
+          emailRedirectTo: 'atlasi://auth-callback',
           data: undefined,
         },
       });
@@ -334,7 +334,7 @@ describe('EmailAuthFlow Integration', () => {
       useAuthStore.setState({ setSession });
 
       const callbackUrl =
-        'borderbadge://auth-callback#access_token=final-token&refresh_token=final-refresh';
+        'atlasi://auth-callback#access_token=final-token&refresh_token=final-refresh';
       const callbackResult = await processAuthCallback(callbackUrl);
 
       // Step 3: Verify session is set
@@ -359,7 +359,7 @@ describe('EmailAuthFlow Integration', () => {
       expect(mockSignInWithOtp).toHaveBeenCalledWith({
         email: 'new@example.com',
         options: {
-          emailRedirectTo: 'borderbadge://auth-callback',
+          emailRedirectTo: 'atlasi://auth-callback',
           data: { display_name: 'Jane Doe' },
         },
       });
@@ -378,7 +378,7 @@ describe('EmailAuthFlow Integration', () => {
       });
 
       const callbackUrl =
-        'borderbadge://auth-callback#access_token=new-token&refresh_token=new-refresh';
+        'atlasi://auth-callback#access_token=new-token&refresh_token=new-refresh';
       await processAuthCallback(callbackUrl);
 
       // New user should trigger migration
@@ -422,7 +422,7 @@ describe('EmailAuthFlow Integration', () => {
       useAuthStore.setState({ setHasCompletedOnboarding });
 
       const callbackUrl =
-        'borderbadge://auth-callback#access_token=return-token&refresh_token=return-refresh';
+        'atlasi://auth-callback#access_token=return-token&refresh_token=return-refresh';
       await processAuthCallback(callbackUrl);
 
       // Returning user should skip migration and set onboarding complete
@@ -454,7 +454,7 @@ describe('EmailAuthFlow Integration', () => {
     it('handles callback processing failure gracefully', async () => {
       mockSetSession.mockRejectedValue(new Error('Network error'));
 
-      const url = 'borderbadge://auth-callback#access_token=test&refresh_token=test';
+      const url = 'atlasi://auth-callback#access_token=test&refresh_token=test';
       const result = await processAuthCallback(url);
 
       expect(result.success).toBe(false);
@@ -480,7 +480,7 @@ describe('EmailAuthFlow Integration', () => {
       const setSession = jest.fn();
       useAuthStore.setState({ setSession });
 
-      const url = 'borderbadge://auth-callback#access_token=test&refresh_token=test';
+      const url = 'atlasi://auth-callback#access_token=test&refresh_token=test';
       const result = await processAuthCallback(url);
 
       // Auth should still succeed even if migration fails
