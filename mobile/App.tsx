@@ -44,78 +44,19 @@ import {
 } from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
+import {
+  NAVIGATION_STATE_TTL_MS,
+  NAVIGATION_STATE_VERSION,
+  sanitizeNavigationState,
+  isValidNavigationState,
+  type PersistedNavigationState,
+} from '@utils/navigationPersistence';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
 // Key for storing navigation state in AsyncStorage
 const NAVIGATION_STATE_KEY = 'navigation-state';
-
-// Navigation state expires after 24 hours to prevent stale data
-const NAVIGATION_STATE_TTL_MS = 24 * 60 * 60 * 1000;
-
-// Screens that should not have their params persisted (contain sensitive data)
-const SENSITIVE_SCREENS = ['ShareCapture'];
-
-// Type for persisted navigation state with metadata
-type PersistedNavigationState = {
-  state: NavigationState;
-  timestamp: number;
-  version: number; // For future schema migrations
-};
-
-// Current schema version - increment when navigation structure changes
-const NAVIGATION_STATE_VERSION = 1;
-
-/**
- * Recursively strips sensitive params from navigation state routes.
- * This prevents persisting URLs, user data, or other sensitive info.
- */
-function sanitizeNavigationState(state: NavigationState): NavigationState {
-  const sanitizeRoutes = (routes: NavigationState['routes']): NavigationState['routes'] => {
-    return routes.map((route) => {
-      const sanitizedRoute = { ...route };
-
-      // Strip params from sensitive screens
-      if (SENSITIVE_SCREENS.includes(route.name)) {
-        delete sanitizedRoute.params;
-      }
-
-      // Recursively sanitize nested state
-      if (sanitizedRoute.state) {
-        sanitizedRoute.state = sanitizeNavigationState(
-          sanitizedRoute.state as NavigationState
-        ) as typeof sanitizedRoute.state;
-      }
-
-      return sanitizedRoute;
-    });
-  };
-
-  return {
-    ...state,
-    routes: sanitizeRoutes(state.routes),
-  };
-}
-
-/**
- * Validates that a navigation state has the expected structure.
- * Returns false if the state is malformed or from an incompatible version.
- */
-function isValidNavigationState(state: unknown): state is NavigationState {
-  if (!state || typeof state !== 'object') return false;
-  const s = state as Record<string, unknown>;
-  if (!Array.isArray(s.routes)) return false;
-  if (s.routes.length === 0) return false;
-  // Check that routes have required 'key' and 'name' properties
-  return s.routes.every(
-    (route) =>
-      route &&
-      typeof route === 'object' &&
-      typeof route.key === 'string' &&
-      typeof route.name === 'string'
-  );
-}
 
 // Generate a cryptographically secure session ID for app_opened events
 function generateSessionId(): string {
