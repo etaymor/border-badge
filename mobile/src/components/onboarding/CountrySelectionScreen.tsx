@@ -353,7 +353,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
       {/* Selection Celebration Overlay */}
       {showSelection && !!selectedCountryData && (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none" zIndex={100}>
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]} pointerEvents="box-none">
           <CelebrationOverlay
             visible={true}
             countryCode={selectedCountryData.code}

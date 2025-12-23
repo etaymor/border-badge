@@ -6,10 +6,6 @@ export interface CelebrationAnimationRefs {
   selectionOpacity: Animated.Value;
   flagScale: Animated.Value;
   flagRotate: Animated.Value;
-  checkmarkScale: Animated.Value;
-  checkmarkOpacity: Animated.Value;
-  confettiOpacity: Animated.Value;
-  starScale: Animated.Value;
 }
 
 export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs {
@@ -30,7 +26,6 @@ export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs 
 export interface UseCountrySelectionAnimationsOptions {
   hasLocationPin?: boolean;
   hasBackButton?: boolean;
-  hasStars?: boolean;
   celebrationHoldDuration?: number;
 }
 
@@ -43,12 +38,7 @@ export interface UseCountrySelectionAnimationsReturn {
 export function useCountrySelectionAnimations(
   options: UseCountrySelectionAnimationsOptions = {}
 ): UseCountrySelectionAnimationsReturn {
-  const {
-    hasLocationPin = false,
-    hasBackButton = false,
-    hasStars = false,
-    celebrationHoldDuration = 600,
-  } = options;
+  const { hasLocationPin = false, hasBackButton = false, celebrationHoldDuration = 600 } = options;
 
   // Track mounted state to prevent callbacks after unmount
   const isMountedRef = useRef(true);
@@ -80,10 +70,6 @@ export function useCountrySelectionAnimations(
   const selectionOpacity = useRef(new Animated.Value(0)).current;
   const flagScale = useRef(new Animated.Value(0.5)).current;
   const flagRotate = useRef(new Animated.Value(0)).current;
-  const checkmarkScale = useRef(new Animated.Value(0)).current;
-  const checkmarkOpacity = useRef(new Animated.Value(0)).current;
-  const confettiOpacity = useRef(new Animated.Value(0)).current;
-  const starScale = useRef(new Animated.Value(0)).current;
 
   // Entrance animations
   useEffect(() => {
@@ -230,46 +216,9 @@ export function useCountrySelectionAnimations(
       selectionOpacity.setValue(0);
       flagScale.setValue(0.5);
       flagRotate.setValue(0);
-      checkmarkScale.setValue(0);
-      checkmarkOpacity.setValue(0);
-      confettiOpacity.setValue(0);
-      starScale.setValue(0);
-
-      // Build celebration sequence
-      const flagAnimations: Animated.CompositeAnimation[] = [
-        Animated.spring(flagScale, {
-          toValue: 1,
-          friction: 4,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(flagRotate, {
-          toValue: 1,
-          duration: 400,
-          easing: Easing.out(Easing.back(1.5)),
-          useNativeDriver: true,
-        }),
-        Animated.timing(confettiOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ];
-
-      // Add star animation if enabled
-      if (hasStars) {
-        flagAnimations.push(
-          Animated.spring(starScale, {
-            toValue: 1,
-            friction: 5,
-            tension: 100,
-            useNativeDriver: true,
-          })
-        );
-      }
 
       Animated.sequence([
-        // Fade in backdrop and scale up container
+        // Fade in backdrop and scale up container with flag animation
         Animated.parallel([
           Animated.timing(selectionOpacity, {
             toValue: 1,
@@ -282,20 +231,16 @@ export function useCountrySelectionAnimations(
             tension: 100,
             useNativeDriver: true,
           }),
-          // Trigger flag animation simultaneously with container
-          ...flagAnimations,
-        ]),
-        // Pop in checkmark
-        Animated.parallel([
-          Animated.spring(checkmarkScale, {
+          Animated.spring(flagScale, {
             toValue: 1,
-            friction: 5,
-            tension: 120,
+            friction: 4,
+            tension: 80,
             useNativeDriver: true,
           }),
-          Animated.timing(checkmarkOpacity, {
+          Animated.timing(flagRotate, {
             toValue: 1,
-            duration: 200,
+            duration: 400,
+            easing: Easing.out(Easing.back(1.5)),
             useNativeDriver: true,
           }),
         ]),
@@ -314,18 +259,7 @@ export function useCountrySelectionAnimations(
         }
       });
     },
-    [
-      hasStars,
-      celebrationHoldDuration,
-      selectionScale,
-      selectionOpacity,
-      flagScale,
-      flagRotate,
-      checkmarkScale,
-      checkmarkOpacity,
-      confettiOpacity,
-      starScale,
-    ]
+    [celebrationHoldDuration, selectionScale, selectionOpacity, flagScale, flagRotate]
   );
 
   return {
@@ -345,10 +279,6 @@ export function useCountrySelectionAnimations(
       selectionOpacity,
       flagScale,
       flagRotate,
-      checkmarkScale,
-      checkmarkOpacity,
-      confettiOpacity,
-      starScale,
     },
     animateDropdown,
     playCelebration,

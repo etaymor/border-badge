@@ -28,7 +28,7 @@ export interface CelebrationOverlayProps {
 }
 
 // Pre-calculate particle properties once at module load to avoid recalculating on every render
-const BURST_PARTICLES = Array.from({ length: 24 }).map((_, i) => {
+const BURST_PARTICLES = Array.from({ length: 24 }, (_, i) => {
   const angle = (i / 24) * 2 * Math.PI;
   const radius = 350 + Math.random() * 100;
   const duration = 2500 + Math.random() * 1000;
@@ -181,7 +181,7 @@ export default function CelebrationOverlay({
           </Animated.View>
 
           <View style={styles.textContainer}>
-            <Text variant="display" style={styles.titleText}>
+            <Text variant="heading" style={styles.titleText}>
               {type === 'home' ? 'Home Sweet Home' : 'Dream Big!'}
             </Text>
             <Text variant="body" style={styles.subtitleText}>
