@@ -36,17 +36,47 @@ def _classification_rate_limit() -> str:
     Authenticated users: 30 requests per minute
 
     Uses ContextVar to access the current request (set by middleware).
+    Validates the token to prevent invalid tokens from bypassing the strict limit.
     """
+    import jwt
+
+    from app.core.security import determine_supabase_issuer
+
     request = get_request_context()
     if request is None:
         # Fallback to strict limit if no request context (shouldn't happen)
         return "5/hour"
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer ") and len(auth_header) > 7:
-        # Has a token - use lenient limit (token validity checked by endpoint)
-        return "30/minute"
-    # No token - strict limit to prevent LLM API abuse
+    if not auth_header.startswith("Bearer ") or len(auth_header) <= 7:
+        # No token - strict limit to prevent LLM API abuse
+        return "5/hour"
+
+    # Extract and validate the token
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    settings = get_settings()
+
+    # Determine expected issuer
+    issuer = determine_supabase_issuer(settings)
+    if settings.supabase_jwt_secret and issuer is None:
+        # Misconfiguration - treat as unauthenticated
+        return "5/hour"
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            issuer=issuer,
+        )
+        # Valid token with user ID - use lenient limit
+        if payload.get("sub"):
+            return "30/minute"
+    except jwt.InvalidTokenError:
+        # Invalid token - strict limit
+        pass
+
     return "5/hour"
 
 

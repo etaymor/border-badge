@@ -1,13 +1,10 @@
 /**
  * Integration tests for Email Authentication flow.
- * Tests: magic link sending, deep link callback processing, session management.
+ * Tests: deep link callback processing, token extraction, session management.
  */
 
-import React from 'react';
-import { renderHook, act, waitFor } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 
-import { useSendMagicLink } from '@hooks/useAuth';
 import {
   isAuthCallbackDeepLink,
   extractAuthTokens,
@@ -28,7 +25,6 @@ const mockedStoreOnboardingComplete = storeOnboardingComplete as jest.MockedFunc
 const mockedMigrateGuestData = migrateGuestData as jest.MockedFunction<typeof migrateGuestData>;
 
 // Mock supabase methods
-const mockSignInWithOtp = jest.fn();
 const mockSetSession = jest.fn();
 const mockSupabaseFrom = supabase.from as jest.Mock;
 
@@ -55,13 +51,6 @@ jest.mock('expo-linking', () => ({
   createURL: jest.fn().mockReturnValue('atlasi://auth-callback'),
 }));
 
-// Create wrapper for hooks
-function createWrapper(queryClient: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-  };
-}
-
 // Mock session data
 function createMockSession(
   overrides?: Partial<{
@@ -79,12 +68,13 @@ function createMockSession(
 }
 
 describe('EmailAuthFlow Integration', () => {
-  let queryClient: QueryClient;
+  let _queryClient: QueryClient;
   let consoleErrorSpy: jest.SpyInstance;
   let consoleWarnSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    queryClient = createTestQueryClient();
+    // Create fresh query client for test isolation
+    _queryClient = createTestQueryClient();
     jest.clearAllMocks();
 
     // Spy on console methods
@@ -102,7 +92,6 @@ describe('EmailAuthFlow Integration', () => {
 
     // Default supabase mock setup
     Object.assign(supabase.auth, {
-      signInWithOtp: mockSignInWithOtp,
       setSession: mockSetSession,
     });
   });
@@ -291,31 +280,10 @@ describe('EmailAuthFlow Integration', () => {
     });
   });
 
-  // ============ Full Flow Integration Tests ============
+  // ============ Auth Callback Flow Tests ============
 
-  describe('Full Email Auth Flow', () => {
-    it('completes magic link flow: send → callback → session', async () => {
-      // Step 1: Send magic link
-      mockSignInWithOtp.mockResolvedValue({ error: null });
-
-      const { result } = renderHook(() => useSendMagicLink(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        result.current.mutate({ email: 'test@example.com' });
-      });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockSignInWithOtp).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        options: {
-          emailRedirectTo: 'atlasi://auth-callback',
-          data: undefined,
-        },
-      });
-
-      // Step 2: Process callback (simulating user clicking magic link)
+  describe('Auth Callback Flow', () => {
+    it('completes callback flow: tokens → session → store', async () => {
       const mockSession = createMockSession({
         user: { id: 'user-123', email: 'test@example.com' },
       });
@@ -337,68 +305,12 @@ describe('EmailAuthFlow Integration', () => {
         'atlasi://auth-callback#access_token=final-token&refresh_token=final-refresh';
       const callbackResult = await processAuthCallback(callbackUrl);
 
-      // Step 3: Verify session is set
       expect(callbackResult.success).toBe(true);
       expect(setSession).toHaveBeenCalledWith(mockSession);
       expect(mockedStoreTokens).toHaveBeenCalled();
     });
 
-    it('handles new user with display name through full flow', async () => {
-      // Step 1: Send magic link with display name
-      mockSignInWithOtp.mockResolvedValue({ error: null });
-
-      const { result } = renderHook(() => useSendMagicLink(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        result.current.mutate({ email: 'new@example.com', displayName: 'Jane Doe' });
-      });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockSignInWithOtp).toHaveBeenCalledWith({
-        email: 'new@example.com',
-        options: {
-          emailRedirectTo: 'atlasi://auth-callback',
-          data: { display_name: 'Jane Doe' },
-        },
-      });
-
-      // Step 2: Process callback - new user triggers migration
-      const mockSession = createMockSession({ user: { id: 'new-user', email: 'new@example.com' } });
-      mockSetSession.mockResolvedValue({
-        data: { session: mockSession },
-        error: null,
-      });
-
-      mockSupabaseFrom.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({ data: [], error: null }),
-      });
-
-      const callbackUrl = 'atlasi://auth-callback#access_token=new-token&refresh_token=new-refresh';
-      await processAuthCallback(callbackUrl);
-
-      // New user should trigger migration
-      expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
-    });
-
-    it('handles returning user through full flow', async () => {
-      // Send magic link
-      mockSignInWithOtp.mockResolvedValue({ error: null });
-
-      const { result } = renderHook(() => useSendMagicLink(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        result.current.mutate({ email: 'returning@example.com' });
-      });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-      // Process callback - returning user has existing data
+    it('handles returning user through callback flow', async () => {
       const mockSession = createMockSession({
         user: { id: 'returning-user', email: 'returning@example.com' },
       });
@@ -434,22 +346,6 @@ describe('EmailAuthFlow Integration', () => {
   // ============ Error Recovery Tests ============
 
   describe('Error Recovery', () => {
-    it('handles magic link send failure gracefully', async () => {
-      const error = new Error('Rate limit exceeded');
-      mockSignInWithOtp.mockResolvedValue({ error });
-
-      const { result } = renderHook(() => useSendMagicLink(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        result.current.mutate({ email: 'test@example.com' });
-      });
-
-      await waitFor(() => expect(result.current.isError).toBe(true));
-      expect(result.current.error?.message).toBe('Rate limit exceeded');
-    });
-
     it('handles callback processing failure gracefully', async () => {
       mockSetSession.mockRejectedValue(new Error('Network error'));
 

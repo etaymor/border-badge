@@ -24,12 +24,15 @@ from app.core.urls import safe_external_url
 from app.db.session import close_http_client
 
 # ContextVar for accessing request in rate limit functions
-_request_ctx_var: ContextVar[Request | None] = ContextVar("request_context", default=None)
+_request_ctx_var: ContextVar[Request | None] = ContextVar(
+    "request_context", default=None
+)
 
 
 def get_request_context() -> Request | None:
     """Get the current request from context (for use in rate limit functions)."""
     return _request_ctx_var.get()
+
 
 # CSP nonce key for request state
 CSP_NONCE_KEY = "csp_nonce"

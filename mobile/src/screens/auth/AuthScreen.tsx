@@ -56,13 +56,16 @@ export function AuthScreen({ navigation }: Props) {
   // Handle restart onboarding
   const handleRestartOnboarding = () => {
     setHasCompletedOnboarding(false);
-    // Reset navigation to Onboarding screen
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Onboarding' }],
-      })
-    );
+    // Defer navigation reset to next tick to ensure RootNavigator has re-rendered
+    // with the Onboarding route available after state change propagates
+    setTimeout(() => {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Onboarding' }],
+        })
+      );
+    }, 0);
   };
 
   // Animation values

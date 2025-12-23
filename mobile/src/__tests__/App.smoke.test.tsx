@@ -10,6 +10,7 @@ const mockNavigation = {
   goBack: jest.fn(),
   setOptions: jest.fn(),
   canGoBack: jest.fn().mockReturnValue(false),
+  dispatch: jest.fn(),
 } as unknown as AuthStackScreenProps<'Login'>['navigation'];
 
 const mockRoute = {} as AuthStackScreenProps<'Login'>['route'];
@@ -19,11 +20,11 @@ describe('AuthScreen', () => {
     jest.clearAllMocks();
   });
 
-  it('renders create account title (password mode default)', () => {
+  it('renders continue exploring title for returning users', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    // Password mode with sign-up is the default
-    expect(screen.getByText('Create account')).toBeTruthy();
+    // AuthScreen is for returning users (sign in)
+    expect(screen.getByText('Continue exploring')).toBeTruthy();
   });
 
   it('displays email input', () => {
@@ -46,9 +47,9 @@ describe('AuthScreen', () => {
     expect(screen.getByPlaceholderText('Password')).toBeTruthy();
   });
 
-  it('displays create account button (password mode default)', () => {
+  it('displays sign in button', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByText('Create Account')).toBeTruthy();
+    expect(screen.getByText('Sign In')).toBeTruthy();
   });
 });

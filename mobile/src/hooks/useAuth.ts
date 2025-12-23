@@ -1,5 +1,4 @@
 import { useMutation } from '@tanstack/react-query';
-import * as Linking from 'expo-linking';
 import { Alert } from 'react-native';
 
 import {
@@ -15,43 +14,6 @@ import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 import { hasUserOnboarded } from '@utils/authHelpers';
-
-// ============================================================================
-// Email Magic Link Authentication Hooks
-// ============================================================================
-
-interface SendMagicLinkInput {
-  email: string;
-  displayName?: string; // Optional display name to set in user metadata
-}
-
-/**
- * Hook to send a magic link to an email address.
- * Uses Supabase signInWithOtp which handles both signup and login.
- * The magic link will redirect back to the app via deep link.
- */
-export function useSendMagicLink() {
-  return useMutation({
-    mutationFn: async ({ email, displayName }: SendMagicLinkInput) => {
-      // Create redirect URL for magic link callback
-      const redirectUrl = Linking.createURL('auth-callback');
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: displayName ? { display_name: displayName } : undefined,
-        },
-      });
-      if (error) throw error;
-    },
-    onError: (error) => {
-      console.error('Magic link send failed:', getSafeLogMessage(error));
-      const message = getAuthErrorMessage(error) || 'Failed to send magic link';
-      Alert.alert('Error', message);
-    },
-  });
-}
 
 // ============================================================================
 // Email + Password Authentication Hooks
