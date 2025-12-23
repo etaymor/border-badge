@@ -1,4 +1,4 @@
-import { render, screen } from './utils/testUtils';
+import { render, screen, fireEvent } from './utils/testUtils';
 
 import { AuthScreen } from '@screens/auth';
 import type { AuthStackScreenProps } from '@navigation/types';
@@ -32,9 +32,17 @@ describe('AuthScreen', () => {
     expect(screen.getByPlaceholderText('Email address')).toBeTruthy();
   });
 
-  it('displays password input in password mode', () => {
+  it('displays password input after entering valid email', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
+    // Password field is hidden until email is valid
+    expect(screen.queryByPlaceholderText('Password')).toBeNull();
+
+    // Enter a valid email
+    const emailInput = screen.getByPlaceholderText('Email address');
+    fireEvent.changeText(emailInput, 'test@example.com');
+
+    // Now password field should be visible
     expect(screen.getByPlaceholderText('Password')).toBeTruthy();
   });
 

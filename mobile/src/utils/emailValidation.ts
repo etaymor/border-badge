@@ -25,8 +25,8 @@ const EMAIL_REGEX =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
 /**
- * Pattern to detect consecutive dots in the local part (before @).
- * RFC 5321 does not allow consecutive dots in unquoted local parts.
+ * Pattern to detect consecutive dots anywhere in the email.
+ * RFC 5321 does not allow consecutive dots in unquoted addresses.
  */
 const CONSECUTIVE_DOTS_REGEX = /\.{2,}/;
 
@@ -37,7 +37,7 @@ const CONSECUTIVE_DOTS_REGEX = /\.{2,}/;
  * Checks include:
  * - Required field validation
  * - Maximum length (RFC 5321: 320 chars)
- * - Consecutive dots in local part
+ * - Consecutive dots in entire address
  * - RFC 5322 format compliance
  */
 export function validateEmail(email: string): ValidationResult & { normalizedEmail?: string } {
@@ -52,9 +52,9 @@ export function validateEmail(email: string): ValidationResult & { normalizedEma
     return { isValid: false, error: 'Email address is too long' };
   }
 
-  // Check for consecutive dots in local part (before @)
-  const localPart = normalized.split('@')[0];
-  if (localPart && CONSECUTIVE_DOTS_REGEX.test(localPart)) {
+  // Check for consecutive dots in entire email (local part and domain)
+  // RFC 5321 does not allow consecutive dots in unquoted addresses
+  if (CONSECUTIVE_DOTS_REGEX.test(normalized)) {
     return { isValid: false, error: 'Please enter a valid email address' };
   }
 

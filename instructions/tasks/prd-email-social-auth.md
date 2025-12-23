@@ -121,14 +121,14 @@ This document outlines the replacement of phone OTP authentication with email ma
 - **Remove:** `libphonenumber-js`
 
 ### Deep Link Configuration
-- App scheme: `borderbadge://`
+- App scheme: `atlasi://`
 - Auth callback path: `auth-callback`
-- Magic links will redirect to: `borderbadge://auth-callback`
+- Magic links will redirect to: `atlasi://auth-callback`
 
 ### Supabase Configuration Required
 1. Enable Email provider in Supabase Dashboard
 2. Configure Google OAuth provider with client credentials
-3. Add `borderbadge://auth-callback` to allowed redirect URLs
+3. Add `atlasi://auth-callback` to allowed redirect URLs
 
 ### Migration Logic
 - Existing `migrateGuestData()` function will continue to work

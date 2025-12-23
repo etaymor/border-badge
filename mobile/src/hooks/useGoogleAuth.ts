@@ -84,25 +84,28 @@ export function useGoogleSignIn() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        try {
+          await clearTokens();
+          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
-        // Check if returning user using shared helper
-        const onboarded = await hasUserOnboarded(data.session.user.id);
+          // Check if returning user using shared helper
+          const onboarded = await hasUserOnboarded(data.session.user.id);
 
-        if (onboarded) {
-          setHasCompletedOnboarding(true);
-          await storeOnboardingComplete();
-        } else {
-          // New user - attempt migration
-          try {
-            await migrateGuestData(data.session);
-          } catch {
-            console.warn('Migration failed for Google user');
+          if (onboarded) {
+            setHasCompletedOnboarding(true);
+            await storeOnboardingComplete();
+          } else {
+            // New user - attempt migration
+            try {
+              await migrateGuestData(data.session);
+            } catch {
+              console.warn('Migration failed for Google user');
+            }
           }
+        } finally {
+          // Always set session to prevent stuck loading states
+          setSession(data.session);
         }
-
-        setSession(data.session);
       }
     },
     onError: (error) => {

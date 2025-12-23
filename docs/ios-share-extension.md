@@ -1,13 +1,13 @@
 # iOS Share Extension
 
-This document describes the iOS Share Extension implementation that allows users to save travel spots from TikTok, Instagram, and other apps directly to BorderBadge.
+This document describes the iOS Share Extension implementation that allows users to save travel spots from TikTok, Instagram, and other apps directly to Atlasi.
 
 ## Overview
 
 The Share Extension enables users to:
 
 1. Share a TikTok or Instagram URL from any app
-2. Select "Save Place" (BorderBadge) from the iOS share sheet
+2. Select "Save Place" (Atlasi) from the iOS share sheet
 3. Have the main app open with the ShareCaptureScreen to confirm the place
 
 ## Architecture
@@ -26,11 +26,11 @@ The Share Extension enables users to:
 │  3. ShareViewController.swift (Extension)                              │
 │     - Extracts URL from shared content                                 │
 │     - Writes URL to App Group UserDefaults                             │
-│     - Opens borderbadge://share deep link                              │
+│     - Opens atlasi://share deep link                                   │
 │       │                                                                 │
 │       ▼                                                                 │
-│  4. BorderBadge main app receives deep link                            │
-│     - App.tsx handles borderbadge://share                              │
+│  4. Atlasi main app receives deep link                                 │
+│     - App.tsx handles atlasi://share                                   │
 │     - Reads URL from App Group (if native module available)            │
 │     - Navigates to ShareCaptureScreen                                  │
 │       │                                                                 │
@@ -79,7 +79,7 @@ The native Swift extension controller that:
 - Receives shared content from iOS
 - Extracts URLs from attachments (supports both URL type and plain text with embedded URLs)
 - Writes the URL to App Group shared storage
-- Opens the main app via `borderbadge://share` deep link
+- Opens the main app via `atlasi://share` deep link
 
 ### 3. App Group Communication
 
@@ -94,7 +94,7 @@ The extension and main app share data via App Group UserDefaults:
 
 The main app:
 
-- Listens for `borderbadge://share` deep links
+- Listens for `atlasi://share` deep links
 - Reads the URL from App Group storage (when native module is available)
 - Navigates to `ShareCaptureScreen` with the URL
 - Handles the case where user isn't authenticated (queues share for later)
@@ -221,10 +221,10 @@ Tests cover:
 
 ### Share Extension appears but app doesn't open
 
-1. **Check deep link scheme** - Must be `borderbadge://`
+1. **Check deep link scheme** - Must be `atlasi://`
 2. **Verify in `app.config.js`:**
    ```javascript
-   scheme: 'borderbadge',
+   scheme: 'atlasi',
    ```
 
 ### URL not passed to main app

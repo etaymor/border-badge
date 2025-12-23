@@ -38,7 +38,7 @@
 - Unit tests should typically be placed alongside the code files they are testing or in `__tests__` directories.
 - Use `npm test` or `npx jest [optional/path/to/test/file]` to run tests.
 - Supabase configuration (Email provider, Google OAuth) must be done manually in the Supabase Dashboard.
-- Deep link scheme `borderbadge://auth-callback` must be configured for magic link and OAuth callbacks.
+- Deep link scheme `atlasi://auth-callback` must be configured for magic link and OAuth callbacks.
 
 ---
 
