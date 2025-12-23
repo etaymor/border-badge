@@ -215,7 +215,7 @@ describe('EmailAuthFlow Integration', () => {
 
       const result = await processAuthCallback(url);
 
-      expect(result).toBe(true);
+      expect(result.success).toBe(true);
       expect(mockSetSession).toHaveBeenCalledWith({
         access_token: 'test-token',
         refresh_token: 'test-refresh',
@@ -254,16 +254,17 @@ describe('EmailAuthFlow Integration', () => {
       expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
     });
 
-    it('returns false when tokens cannot be extracted', async () => {
+    it('returns error when tokens cannot be extracted', async () => {
       const url = 'borderbadge://auth-callback';
 
       const result = await processAuthCallback(url);
 
-      expect(result).toBe(false);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('no_tokens');
       expect(mockSetSession).not.toHaveBeenCalled();
     });
 
-    it('returns false on setSession error', async () => {
+    it('returns error on setSession error', async () => {
       mockSetSession.mockResolvedValue({
         data: null,
         error: new Error('Session expired'),
@@ -273,7 +274,8 @@ describe('EmailAuthFlow Integration', () => {
 
       const result = await processAuthCallback(url);
 
-      expect(result).toBe(false);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('session_error');
       expect(consoleErrorSpy).toHaveBeenCalled();
     });
 
@@ -336,7 +338,7 @@ describe('EmailAuthFlow Integration', () => {
       const callbackResult = await processAuthCallback(callbackUrl);
 
       // Step 3: Verify session is set
-      expect(callbackResult).toBe(true);
+      expect(callbackResult.success).toBe(true);
       expect(setSession).toHaveBeenCalledWith(mockSession);
       expect(mockedStoreTokens).toHaveBeenCalled();
     });
@@ -455,7 +457,8 @@ describe('EmailAuthFlow Integration', () => {
       const url = 'borderbadge://auth-callback#access_token=test&refresh_token=test';
       const result = await processAuthCallback(url);
 
-      expect(result).toBe(false);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('unknown_error');
       expect(consoleErrorSpy).toHaveBeenCalled();
     });
 
@@ -481,7 +484,7 @@ describe('EmailAuthFlow Integration', () => {
       const result = await processAuthCallback(url);
 
       // Auth should still succeed even if migration fails
-      expect(result).toBe(true);
+      expect(result.success).toBe(true);
       expect(setSession).toHaveBeenCalledWith(mockSession);
       expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for magic link user');
     });

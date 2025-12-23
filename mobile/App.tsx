@@ -253,9 +253,9 @@ export default function App() {
       if (!isAuthCallbackDeepLink(deepLinkUrl)) return;
 
       console.log('Processing auth callback deep link');
-      const success = await processAuthCallback(deepLinkUrl);
-      if (!success) {
-        console.error('Failed to process auth callback');
+      const result = await processAuthCallback(deepLinkUrl);
+      if (!result.success) {
+        console.error('Failed to process auth callback:', result.error);
       }
     };
 
@@ -304,11 +304,15 @@ export default function App() {
     // This handles cold start scenarios where the app is opened via a magic link or share
     if (!hasProcessedInitialDeepLinkRef.current) {
       hasProcessedInitialDeepLinkRef.current = true;
-      Linking.getInitialURL().then((url) => {
-        if (url) {
-          void handleDeepLink(url);
-        }
-      });
+      Linking.getInitialURL()
+        .then((url) => {
+          if (url) {
+            void handleDeepLink(url);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to get initial deep link URL:', error);
+        });
     }
 
     return () => {

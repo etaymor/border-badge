@@ -75,10 +75,7 @@ export function ProfileInfoSection({
             <View style={styles.cardRow}>
               <Text style={styles.rowLabel}>Country Tracking</Text>
               <View style={styles.rowValueContainer}>
-                <Text style={styles.rowValue}>
-                  {trackingPreferenceDisplay.name}
-                  {/* <Text style={styles.rowValueDetail}> ({trackingPreferenceDisplay.count})</Text> */}
-                </Text>
+                <Text style={styles.rowValue}>{trackingPreferenceDisplay.name}</Text>
                 <Ionicons
                   name="chevron-forward"
                   size={16}
@@ -174,9 +171,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
+  // Slightly less than card border radius for proper nesting
   cardPressable: {
-    borderRadius: 12, // slightly less than card to fit inside if needed, though here it spans full width minus padding effectively if we wanted, but standard iOS list style is full width.
-    // Actually, to get touch feedback on the row, we wrap the row content.
+    borderRadius: 12,
   },
   cardPressableActive: {
     backgroundColor: colors.paperBeige,
