@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -25,7 +25,7 @@ import { useCountries, type Country } from '@hooks/useCountries';
 import { useCountrySelectionAnimations } from '@hooks/useCountrySelectionAnimations';
 import { getFlagEmoji } from '@utils/flags';
 
-import CelebrationOverlay, { type CelebrationBadgeConfig } from './CelebrationOverlay';
+import CelebrationOverlay from './CelebrationOverlay';
 
 export interface CountrySelectionConfig {
   // Appearance
@@ -34,10 +34,7 @@ export interface CountrySelectionConfig {
   dropdownBorderColor: string;
 
   // Celebration overlay
-  celebration: CelebrationBadgeConfig & {
-    showStars?: boolean;
-    holdDuration?: number;
-  };
+  celebrationType: 'home' | 'dream';
 
   // Visual elements
   heroElement?: 'locationPin';
@@ -65,7 +62,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     backgroundColor,
     title,
     dropdownBorderColor,
-    celebration,
+    celebrationType,
     heroElement,
     showBackButton = false,
     onCountrySelect,
@@ -80,6 +77,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedCountryData, setSelectedCountryData] = useState<Country | null>(null);
   const [showSelection, setShowSelection] = useState(false);
+  const hasNavigatedRef = useRef(false);
 
   const { data: countries, isLoading, error, refetch } = useCountries();
   const currentSelection = getCurrentSelection();
@@ -87,9 +85,22 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const { refs, animateDropdown, playCelebration } = useCountrySelectionAnimations({
     hasLocationPin: heroElement === 'locationPin',
     hasBackButton: showBackButton,
-    hasStars: celebration.showStars,
-    celebrationHoldDuration: celebration.holdDuration ?? 600,
+    celebrationHoldDuration: 600, // Faster transition to next step
   });
+
+  // Reset navigation ref on mount
+  useEffect(() => {
+    hasNavigatedRef.current = false;
+  }, []);
+
+  // Safe navigation wrapper
+  const handleNavigateNext = () => {
+    if (!hasNavigatedRef.current) {
+      hasNavigatedRef.current = true;
+      setShowSelection(false);
+      onNavigateNext();
+    }
+  };
 
   // Animate dropdown on visibility change
   useEffect(() => {
@@ -116,16 +127,16 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     // Show the selection overlay
     setSelectedCountryData(country);
     setShowSelection(true);
+    hasNavigatedRef.current = false; // Reset for this selection attempt
 
     // Play celebration animation then navigate
     playCelebration(() => {
-      setShowSelection(false);
-      onNavigateNext();
+      handleNavigateNext();
     });
   };
 
   const handleNext = () => {
-    onNavigateNext();
+    handleNavigateNext();
   };
 
   const handleBack = () => {
@@ -341,14 +352,18 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
       </View>
 
       {/* Selection Celebration Overlay */}
-      <CelebrationOverlay
-        visible={showSelection && !!selectedCountryData}
-        flagEmoji={selectedCountryData ? getFlagEmoji(selectedCountryData.code) : ''}
-        countryName={selectedCountryData?.name ?? ''}
-        badge={celebration}
-        showStars={celebration.showStars}
-        animationRefs={refs}
-      />
+      {showSelection && !!selectedCountryData && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]} pointerEvents="box-none">
+          <CelebrationOverlay
+            visible={true}
+            countryCode={selectedCountryData.code}
+            countryName={selectedCountryData.name}
+            type={celebrationType}
+            animationRefs={refs}
+            onSkip={handleNavigateNext}
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -397,7 +412,7 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     position: 'relative',
-    zIndex: 10,
+    zIndex: 1, // Reduced from 10 to avoid overlapping animations
   },
   searchGlassWrapper: {
     borderRadius: 24,
