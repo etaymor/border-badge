@@ -55,6 +55,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan context manager for startup/shutdown events."""
+    # Startup validation - warn about auth misconfiguration early
+    if settings.supabase_jwt_secret and not settings.supabase_url:
+        logger.error(
+            "AUTH_MISCONFIGURATION: SUPABASE_JWT_SECRET is set but SUPABASE_URL is missing. "
+            "Token validation will fail. Set SUPABASE_URL to your Supabase project URL."
+        )
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

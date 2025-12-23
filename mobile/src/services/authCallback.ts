@@ -60,6 +60,7 @@ export const extractAuthTokens = extractAuthTokensFromUrl;
 export type AuthCallbackError =
   | 'invalid_origin'
   | 'no_tokens'
+  | 'no_refresh_token'
   | 'session_error'
   | 'no_session'
   | 'unknown_error';
@@ -90,11 +91,17 @@ export async function processAuthCallback(url: string): Promise<AuthCallbackResu
     return { success: false, error: 'no_tokens' };
   }
 
+  // Validate refresh token - required for session refresh
+  if (!tokens.refreshToken) {
+    console.error('No refresh token in auth callback - session cannot be refreshed');
+    return { success: false, error: 'no_refresh_token' };
+  }
+
   try {
     // Set the session in Supabase
     const { data, error } = await supabase.auth.setSession({
       access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken || '',
+      refresh_token: tokens.refreshToken,
     });
 
     if (error) {

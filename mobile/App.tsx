@@ -302,15 +302,19 @@ export default function App() {
 
     // Check for initial URL (app opened via deep link - auth callback or share extension)
     // This handles cold start scenarios where the app is opened via a magic link or share
+    // Note: We set the ref inside the promise to avoid race conditions where a URL
+    // could arrive between setting the ref and promise resolution
     if (!hasProcessedInitialDeepLinkRef.current) {
-      hasProcessedInitialDeepLinkRef.current = true;
       Linking.getInitialURL()
         .then((url) => {
+          // Set ref after getting URL to prevent race condition
+          hasProcessedInitialDeepLinkRef.current = true;
           if (url) {
             void handleDeepLink(url);
           }
         })
         .catch((error) => {
+          hasProcessedInitialDeepLinkRef.current = true;
           console.error('Failed to get initial deep link URL:', error);
         });
     }

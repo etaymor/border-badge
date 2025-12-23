@@ -61,12 +61,16 @@ export function useGoogleSignIn() {
 
       const { accessToken, refreshToken } = tokens;
 
+      // Validate refresh token - OAuth providers should always provide one
+      // Without it, session refresh will fail and user will be logged out unexpectedly
+      if (!refreshToken) {
+        throw new Error('No refresh token received - session cannot be refreshed');
+      }
+
       // Set the session in Supabase using the tokens
-      // Note: refresh_token is required by Supabase for session refresh
-      // OAuth providers should always provide one, but we default to empty string if missing
       const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
         access_token: accessToken,
-        refresh_token: refreshToken ?? '',
+        refresh_token: refreshToken,
       });
 
       if (sessionError) throw sessionError;

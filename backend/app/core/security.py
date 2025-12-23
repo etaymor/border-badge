@@ -109,8 +109,12 @@ async def get_optional_user(
     if settings.supabase_url:
         issuer = f"{settings.supabase_url}/auth/v1"
     elif settings.supabase_jwt_secret:
-        # Server misconfiguration - but for optional auth, just return None
-        logger.warning("Supabase JWT secret configured but URL missing")
+        # Server misconfiguration - log as error since this indicates a deployment issue
+        # Even for optional auth, this should be visible in logs/monitoring
+        logger.error(
+            "AUTH_MISCONFIGURATION: Supabase JWT secret is configured but SUPABASE_URL is missing. "
+            "Optional auth requests will fail to validate tokens until this is fixed."
+        )
         return None
 
     try:
