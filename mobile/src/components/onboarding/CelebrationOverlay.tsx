@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useEffect, useMemo, useRef } from 'react';
 import {
@@ -28,21 +27,33 @@ export interface CelebrationOverlayProps {
   onSkip?: () => void;
 }
 
-const BURST_PARTICLES = Array.from({ length: 24 }).map((_, i) => i);
+// Pre-calculate particle properties once at module load to avoid recalculating on every render
+const BURST_PARTICLES = Array.from({ length: 24 }).map((_, i) => {
+  const angle = (i / 24) * 2 * Math.PI;
+  const radius = 350 + Math.random() * 100;
+  const duration = 2500 + Math.random() * 1000;
+  const color = i % 3 === 0 ? colors.sunsetGold : i % 3 === 1 ? colors.lakeBlue : colors.dustyCoral;
+  return {
+    index: i,
+    angle,
+    radius,
+    duration,
+    color,
+    targetX: Math.cos(angle) * radius,
+    targetY: Math.sin(angle) * radius,
+  };
+});
 
 function BurstAnimation({ visible }: { visible: boolean }) {
   const anims = useRef(BURST_PARTICLES.map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
     if (visible) {
-      const animations = anims.map((anim, i) => {
-        const delay = Math.random() * 50;
-        const duration = 2500 + Math.random() * 1000;
-        
-        anim.setValue(0);
-        return Animated.timing(anim, {
+      const animations = BURST_PARTICLES.map((particle, i) => {
+        anims[i].setValue(0);
+        return Animated.timing(anims[i], {
           toValue: 1,
-          duration,
+          duration: particle.duration,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         });
@@ -56,18 +67,15 @@ function BurstAnimation({ visible }: { visible: boolean }) {
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {BURST_PARTICLES.map((i) => {
-        const angle = (i / BURST_PARTICLES.length) * 2 * Math.PI;
-        const radius = 350 + Math.random() * 100;
-        
+      {BURST_PARTICLES.map((particle, i) => {
         const translateX = anims[i].interpolate({
           inputRange: [0, 1],
-          outputRange: [0, Math.cos(angle) * radius],
+          outputRange: [0, particle.targetX],
         });
-        
+
         const translateY = anims[i].interpolate({
           inputRange: [0, 1],
-          outputRange: [0, Math.sin(angle) * radius],
+          outputRange: [0, particle.targetY],
         });
 
         const scale = anims[i].interpolate({
@@ -80,14 +88,12 @@ function BurstAnimation({ visible }: { visible: boolean }) {
           outputRange: [0, 1, 0.8, 0],
         });
 
-        const color = i % 3 === 0 ? colors.sunsetGold : i % 3 === 1 ? colors.lakeBlue : colors.dustyCoral;
-
         return (
           <Animated.View
-            key={i}
+            key={particle.index}
             style={[
               styles.particle,
-              { backgroundColor: color, opacity },
+              { backgroundColor: particle.color, opacity },
               {
                 transform: [{ translateX }, { translateY }, { scale }],
               },
@@ -108,12 +114,7 @@ export default function CelebrationOverlay({
   onSkip,
 }: CelebrationOverlayProps) {
   const { width } = useWindowDimensions();
-  const {
-    selectionScale,
-    selectionOpacity,
-    flagScale,
-    flagRotate,
-  } = animationRefs;
+  const { selectionScale, selectionOpacity, flagScale, flagRotate } = animationRefs;
 
   const flagRotateInterpolation = useMemo(
     () =>
@@ -134,11 +135,7 @@ export default function CelebrationOverlay({
   if (!visible) return null;
 
   return (
-    <TouchableOpacity 
-      style={StyleSheet.absoluteFill} 
-      activeOpacity={1} 
-      onPress={onSkip}
-    >
+    <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onSkip}>
       <Animated.View
         style={[
           styles.celebrationOverlay,
@@ -148,7 +145,7 @@ export default function CelebrationOverlay({
         ]}
       >
         <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-        
+
         <Animated.View
           style={[
             styles.celebrationContent,
@@ -163,10 +160,7 @@ export default function CelebrationOverlay({
             style={[
               styles.imageContainer,
               {
-                transform: [
-                  { scale: flagScale },
-                  { rotate: flagRotateInterpolation },
-                ],
+                transform: [{ scale: flagScale }, { rotate: flagRotateInterpolation }],
               },
             ]}
           >
