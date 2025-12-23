@@ -25,10 +25,10 @@ describe('AuthScreen', () => {
     expect(screen.getByText('Welcome back')).toBeTruthy();
   });
 
-  it('displays phone number input', () => {
+  it('displays email input', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    expect(screen.getByPlaceholderText('Phone Number')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Email address')).toBeTruthy();
   });
 
   it('displays continue button', () => {

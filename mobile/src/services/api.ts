@@ -19,6 +19,8 @@ let onSignOutCallback: (() => void) | null = null;
 
 // Flag to suppress auto-sign-out during critical flows (e.g., migration after sign-up)
 let suppressAutoSignOut = false;
+// Timeout handle for auto-resetting the suppress flag
+let suppressTimeout: NodeJS.Timeout | null = null;
 
 /**
  * Register a callback to be invoked when authentication fails and user should be signed out.
@@ -32,9 +34,26 @@ export function setSignOutCallback(callback: () => void): void {
  * Temporarily suppress automatic sign-out on 401 errors.
  * Use during critical flows like migration where a race condition could cause
  * premature sign-out before tokens are fully established.
+ *
+ * Safety: Automatically resets after 30 seconds to prevent stuck state.
  */
 export function setSuppressAutoSignOut(suppress: boolean): void {
+  // Clear any existing timeout
+  if (suppressTimeout) {
+    clearTimeout(suppressTimeout);
+    suppressTimeout = null;
+  }
+
   suppressAutoSignOut = suppress;
+
+  // Auto-reset after 30 seconds as a safety net
+  // This prevents the flag from getting stuck if migration fails unexpectedly
+  if (suppress) {
+    suppressTimeout = setTimeout(() => {
+      suppressAutoSignOut = false;
+      suppressTimeout = null;
+    }, 30000);
+  }
 }
 
 /**

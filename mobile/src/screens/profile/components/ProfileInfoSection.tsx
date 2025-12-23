@@ -5,7 +5,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
 interface ProfileInfoSectionProps {
-  formattedPhone: string;
+  formattedEmail: string;
   homeCountryDisplay: { flag: string; name: string } | null;
   memberSince: string;
   trackingPreferenceDisplay: { name: string; count: number };
@@ -17,7 +17,7 @@ interface ProfileInfoSectionProps {
 }
 
 export function ProfileInfoSection({
-  formattedPhone,
+  formattedEmail,
   homeCountryDisplay,
   memberSince,
   trackingPreferenceDisplay,
@@ -34,8 +34,8 @@ export function ProfileInfoSection({
         <Text style={styles.sectionTitle}>PASSPORT DETAILS</Text>
         <View style={styles.card}>
           <View style={styles.cardRow}>
-            <Text style={styles.rowLabel}>Phone</Text>
-            <Text style={styles.rowValue}>{formattedPhone}</Text>
+            <Text style={styles.rowLabel}>Email</Text>
+            <Text style={styles.rowValue}>{formattedEmail}</Text>
           </View>
 
           <View style={styles.divider} />

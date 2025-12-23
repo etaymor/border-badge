@@ -35,6 +35,7 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
+import { isAuthCallbackDeepLink, processAuthCallback } from '@services/authCallback';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
@@ -242,8 +243,22 @@ export default function App() {
     };
   }, [session?.user?.id]);
 
-  // Handle Share Extension deep links and pending shares
+  // Handle deep links: auth callbacks and share extension
   useEffect(() => {
+    /**
+     * Process an auth callback deep link (magic links, OAuth).
+     * Extracts tokens and sets the Supabase session.
+     */
+    const handleAuthCallbackDeepLink = async (deepLinkUrl: string) => {
+      if (!isAuthCallbackDeepLink(deepLinkUrl)) return;
+
+      console.log('Processing auth callback deep link');
+      const success = await processAuthCallback(deepLinkUrl);
+      if (!success) {
+        console.error('Failed to process auth callback');
+      }
+    };
+
     /**
      * Process a share extension deep link.
      * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
@@ -269,9 +284,20 @@ export default function App() {
       }
     };
 
+    /**
+     * Route incoming deep links to the appropriate handler.
+     */
+    const handleDeepLink = async (deepLinkUrl: string) => {
+      if (isAuthCallbackDeepLink(deepLinkUrl)) {
+        await handleAuthCallbackDeepLink(deepLinkUrl);
+      } else if (isShareExtensionDeepLink(deepLinkUrl)) {
+        await handleShareDeepLink(deepLinkUrl);
+      }
+    };
+
     // Subscribe to deep link events
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleShareDeepLink(url);
+      void handleDeepLink(url);
     });
 
     // Check for initial URL (app opened via deep link)
@@ -279,7 +305,7 @@ export default function App() {
       hasProcessedInitialShareRef.current = true;
       Linking.getInitialURL().then((url) => {
         if (url) {
-          void handleShareDeepLink(url);
+          void handleDeepLink(url);
         }
       });
     }

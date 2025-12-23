@@ -7,6 +7,8 @@ import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
+import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
+import { hasUserOnboarded } from '@utils/authHelpers';
 
 /**
  * Hook to sign in with Apple.
@@ -77,31 +79,18 @@ export function useAppleSignIn() {
         await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
-        // Check if returning user (same logic as phone auth)
-        let hasOnboarded = false;
+        // Check if returning user using shared helper
+        const onboarded = await hasUserOnboarded(data.session.user.id);
 
-        try {
-          const { data: userCountries } = await supabase
-            .from('user_countries')
-            .select('id')
-            .eq('user_id', data.session.user.id)
-            .limit(1);
-
-          hasOnboarded = !!(userCountries && userCountries.length > 0);
-        } catch (checkError) {
-          console.warn('Failed to check onboarding status:', checkError);
-          // Continue - will attempt migration below
-        }
-
-        if (hasOnboarded) {
+        if (onboarded) {
           setHasCompletedOnboarding(true);
           await storeOnboardingComplete();
         } else {
-          // New user or check failed - attempt migration
+          // New user - attempt migration
           try {
             await migrateGuestData(data.session);
-          } catch (migrationError) {
-            console.warn('Migration failed for Apple user:', migrationError);
+          } catch {
+            console.warn('Migration failed for Apple user');
           }
         }
 
@@ -109,22 +98,14 @@ export function useAppleSignIn() {
       }
     },
     onError: (error) => {
-      // Log full error for debugging (non-sensitive context)
-      console.error('Apple Sign-In error:', error);
+      // Log sanitized error for debugging
+      console.error('Apple Sign-In failed:', getSafeLogMessage(error));
 
-      // Don't show error for user cancellation
-      if (error instanceof Error) {
-        // Apple cancellation error codes
-        if (
-          error.message.includes('canceled') ||
-          error.message.includes('ERR_REQUEST_CANCELED') ||
-          error.message.includes('1001')
-        ) {
-          return;
-        }
+      // Get user-friendly message (null means silent - user cancelled)
+      const message = getAuthErrorMessage(error);
+      if (message) {
+        Alert.alert('Sign In Failed', message);
       }
-      const message = error instanceof Error ? error.message : 'Apple Sign In failed';
-      Alert.alert('Sign In Failed', message);
     },
   });
 }

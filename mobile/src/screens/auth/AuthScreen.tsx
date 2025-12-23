@@ -12,51 +12,72 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingPhoneInput } from '@components/onboarding';
-import { OTPInput, ResendTimer, Text } from '@components/ui';
+import { OnboardingInput } from '@components/onboarding';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
-import { useSendOTP, useVerifyOTP } from '@hooks/useAuth';
+import { useSendMagicLink } from '@hooks/useAuth';
+import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
 import type { AuthStackScreenProps } from '@navigation/types';
-import {
-  formatPhoneForDisplay,
-  RESEND_COOLDOWN_SECONDS,
-  validateOTP,
-  validatePhone,
-} from '@utils/phoneValidation';
+import { validateEmail } from '@utils/emailValidation';
 
 type Props = AuthStackScreenProps<'Login'>;
 
-type AuthStep = 'phone' | 'otp';
+type AuthStep = 'email' | 'check_email';
+
+// Cooldown for resending magic link (in seconds)
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export function AuthScreen({ navigation }: Props) {
-  const [step, setStep] = useState<AuthStep>('phone');
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [phoneError, setPhoneError] = useState('');
-  const [otpError, setOtpError] = useState('');
-  const [otpSentAt, setOtpSentAt] = useState<number | undefined>();
+  const [step, setStep] = useState<AuthStep>('email');
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [magicLinkSentAt, setMagicLinkSentAt] = useState<number | undefined>();
+  const [resendCountdown, setResendCountdown] = useState(0);
 
-  const sendOTP = useSendOTP();
-  const verifyOTP = useVerifyOTP();
+  const sendMagicLink = useSendMagicLink();
   const appleSignIn = useAppleSignIn();
+  const googleSignIn = useGoogleSignIn();
   const isAppleAvailable = useAppleAuthAvailable();
+  const isGoogleAvailable = useGoogleAuthAvailable();
 
   const canGoBack = navigation.canGoBack();
 
-  // Animation values for phone step
+  // Animation values for email step
   const titleAnim = useRef(new Animated.Value(0)).current;
   const accentAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
   const buttonAnim = useRef(new Animated.Value(0)).current;
 
-  // Animation values for OTP step - start at 1 to ensure visibility
-  const otpContainerAnim = useRef(new Animated.Value(1)).current;
+  // Animation values for check email step - start at 1 to ensure visibility
+  const checkEmailAnim = useRef(new Animated.Value(1)).current;
+
+  // Resend countdown timer
+  useEffect(() => {
+    if (magicLinkSentAt) {
+      const elapsed = Math.floor((Date.now() - magicLinkSentAt) / 1000);
+      const remaining = Math.max(0, RESEND_COOLDOWN_SECONDS - elapsed);
+      setResendCountdown(remaining);
+
+      if (remaining > 0) {
+        const interval = setInterval(() => {
+          setResendCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(interval);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        return () => clearInterval(interval);
+      }
+    }
+  }, [magicLinkSentAt]);
 
   // Run entrance animations
   useEffect(() => {
-    if (step === 'phone') {
+    if (step === 'email') {
       // Reset animations
       titleAnim.setValue(0);
       accentAnim.setValue(0);
@@ -87,80 +108,68 @@ export function AuthScreen({ navigation }: Props) {
         }),
       ]).start();
     } else {
-      // OTP step - fade in from current value
-      Animated.timing(otpContainerAnim, {
+      // Check email step - fade in from current value
+      Animated.timing(checkEmailAnim, {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
       }).start();
     }
-  }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, otpContainerAnim]);
+  }, [step, titleAnim, accentAnim, contentAnim, buttonAnim, checkEmailAnim]);
 
-  // Handle sending OTP
-  const handleSendOTP = () => {
-    const result = validatePhone(phone);
+  // Handle sending magic link
+  const handleSendMagicLink = () => {
+    const result = validateEmail(email);
     if (!result.isValid) {
-      setPhoneError(result.error!);
+      setEmailError(result.error!);
       return;
     }
-    setPhoneError('');
+    setEmailError('');
 
-    sendOTP.mutate(
-      { phone },
+    sendMagicLink.mutate(
+      { email: result.normalizedEmail! },
       {
         onSuccess: () => {
-          setOtpSentAt(Date.now());
-          setStep('otp');
-          setOtpError('');
+          setMagicLinkSentAt(Date.now());
+          setStep('check_email');
         },
       }
     );
   };
 
-  // Handle OTP verification
-  const handleVerifyOTP = () => {
-    const result = validateOTP(otp);
-    if (!result.isValid) {
-      setOtpError(result.error!);
-      return;
-    }
+  // Handle resend magic link
+  const handleResendMagicLink = () => {
+    if (resendCountdown > 0) return;
 
-    verifyOTP.mutate(
-      { phone, token: otp },
-      {
-        onError: () => {
-          setOtp('');
-          setOtpError('Invalid code. Please try again.');
-        },
-      }
-    );
-  };
+    const result = validateEmail(email);
+    if (!result.isValid) return;
 
-  // Handle resend OTP
-  const handleResendOTP = () => {
-    sendOTP.mutate(
-      { phone },
+    sendMagicLink.mutate(
+      { email: result.normalizedEmail! },
       {
         onSuccess: () => {
-          setOtpSentAt(Date.now());
+          setMagicLinkSentAt(Date.now());
         },
       }
     );
   };
 
-  // Handle back to phone entry
-  const handleBackToPhone = () => {
-    setStep('phone');
-    setPhone('');
-    setPhoneError('');
-    setOtp('');
-    setOtpError('');
-    setOtpSentAt(undefined);
+  // Handle back to email entry
+  const handleBackToEmail = () => {
+    setStep('email');
+    setEmail('');
+    setEmailError('');
+    setMagicLinkSentAt(undefined);
   };
 
   // Handle Apple Sign In
   const handleAppleSignIn = () => {
     appleSignIn.mutate();
+  };
+
+  // Handle Google Sign In
+  const handleGoogleSignIn = () => {
+    googleSignIn.mutate();
   };
 
   // Animation interpolations
@@ -184,18 +193,22 @@ export function AuthScreen({ navigation }: Props) {
     outputRange: [0.95, 1],
   });
 
+  const showSocialButtons = isAppleAvailable || isGoogleAvailable;
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Back button */}
-      {(canGoBack || step === 'otp') && (
+      {(canGoBack || step === 'check_email') && (
         <TouchableOpacity
-          onPress={step === 'otp' ? handleBackToPhone : () => navigation.goBack()}
+          onPress={step === 'check_email' ? handleBackToEmail : () => navigation.goBack()}
           style={styles.backButton}
           accessibilityRole="button"
-          accessibilityLabel={step === 'otp' ? 'Change phone number' : 'Go back'}
+          accessibilityLabel={step === 'check_email' ? 'Use different email' : 'Go back'}
         >
           <Ionicons name="chevron-back" size={20} color={colors.midnightNavy} />
-          <Text style={styles.backText}>{step === 'otp' ? 'Change number' : 'Back'}</Text>
+          <Text style={styles.backText}>
+            {step === 'check_email' ? 'Use different email' : 'Back'}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -207,8 +220,8 @@ export function AuthScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {step === 'phone' ? (
-            // Phone Entry Step
+          {step === 'email' ? (
+            // Email Entry Step
             <View style={styles.content}>
               {/* Title */}
               <Animated.View
@@ -235,23 +248,29 @@ export function AuthScreen({ navigation }: Props) {
                 ~ let&apos;s pick up where you left off ~
               </Animated.Text>
 
-              {/* Phone input */}
+              {/* Email input */}
               <Animated.View
                 style={{
                   opacity: contentAnim,
                   transform: [{ translateY: contentTranslateY }],
                 }}
               >
-                <OnboardingPhoneInput
-                  value={phone}
+                <OnboardingInput
+                  value={email}
                   onChangeText={(value) => {
-                    setPhone(value);
-                    if (phoneError) setPhoneError('');
+                    setEmail(value);
+                    if (emailError) setEmailError('');
                   }}
-                  placeholder="Phone Number"
-                  error={phoneError}
+                  placeholder="Email address"
+                  error={emailError}
                   containerStyle={styles.input}
-                  testID="auth-phone-input"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  icon="mail-outline"
+                  testID="auth-email-input"
                 />
               </Animated.View>
 
@@ -263,22 +282,22 @@ export function AuthScreen({ navigation }: Props) {
                 }}
               >
                 <TouchableOpacity
-                  style={[styles.button, sendOTP.isPending && styles.buttonDisabled]}
-                  onPress={handleSendOTP}
+                  style={[styles.button, sendMagicLink.isPending && styles.buttonDisabled]}
+                  onPress={handleSendMagicLink}
                   activeOpacity={0.9}
-                  disabled={sendOTP.isPending}
+                  disabled={sendMagicLink.isPending}
                   accessibilityRole="button"
-                  accessibilityLabel="Continue to verification"
+                  accessibilityLabel="Continue with email"
                   testID="auth-send-button"
                 >
                   <Text style={styles.buttonText}>
-                    {sendOTP.isPending ? 'Sending...' : 'Continue'}
+                    {sendMagicLink.isPending ? 'Sending...' : 'Continue'}
                   </Text>
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* Apple Sign In - only shown on iOS */}
-              {isAppleAvailable && (
+              {/* Social Sign In buttons */}
+              {showSocialButtons && (
                 <Animated.View
                   style={{
                     opacity: buttonAnim,
@@ -291,62 +310,88 @@ export function AuthScreen({ navigation }: Props) {
                     <View style={styles.dividerLine} />
                   </View>
 
-                  {/* Apple Sign In Button */}
-                  <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                    cornerRadius={12}
-                    style={styles.appleButton}
-                    onPress={handleAppleSignIn}
-                  />
+                  {/* Google Sign In Button */}
+                  {isGoogleAvailable && (
+                    <TouchableOpacity
+                      style={styles.googleButton}
+                      onPress={handleGoogleSignIn}
+                      activeOpacity={0.9}
+                      disabled={googleSignIn.isPending}
+                      accessibilityRole="button"
+                      accessibilityLabel="Continue with Google"
+                      testID="auth-google-button"
+                    >
+                      <Ionicons name="logo-google" size={20} color={colors.midnightNavy} />
+                      <Text style={styles.googleButtonText}>
+                        {googleSignIn.isPending ? 'Signing in...' : 'Continue with Google'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Apple Sign In Button - only shown on iOS */}
+                  {isAppleAvailable && (
+                    <AppleAuthentication.AppleAuthenticationButton
+                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                      cornerRadius={12}
+                      style={styles.appleButton}
+                      onPress={handleAppleSignIn}
+                    />
+                  )}
                 </Animated.View>
               )}
             </View>
           ) : (
-            // OTP Entry Step
-            <Animated.View style={[styles.content, { opacity: otpContainerAnim }]}>
-              <Text variant="title" style={styles.title}>
-                Enter your code
-              </Text>
-              <Text variant="body" style={styles.subtitle}>
-                Sent to {formatPhoneForDisplay(phone)}
-              </Text>
-
-              <View style={styles.otpContainer}>
-                <OTPInput
-                  value={otp}
-                  onChangeText={(value) => {
-                    setOtp(value);
-                    if (otpError) setOtpError('');
-                  }}
-                  onComplete={handleVerifyOTP}
-                  error={otpError}
-                  autoFocus
-                  testID="auth-otp"
-                />
+            // Check Your Email Step
+            <Animated.View style={[styles.content, { opacity: checkEmailAnim }]}>
+              {/* Mail Icon */}
+              <View style={styles.mailIconContainer}>
+                <Ionicons name="mail-outline" size={64} color={colors.sunsetGold} />
               </View>
 
+              <Text variant="title" style={styles.checkEmailTitle}>
+                Check your email
+              </Text>
+              <Text variant="body" style={styles.checkEmailSubtitle}>
+                We sent a magic link to
+              </Text>
+              <Text variant="body" style={styles.emailDisplay}>
+                {email}
+              </Text>
+              <Text variant="body" style={styles.checkEmailInstructions}>
+                Click the link in the email to sign in.
+              </Text>
+
+              {/* Resend button */}
               <TouchableOpacity
-                style={[styles.button, verifyOTP.isPending && styles.buttonDisabled]}
-                onPress={handleVerifyOTP}
-                activeOpacity={0.9}
-                disabled={verifyOTP.isPending}
+                style={[
+                  styles.resendButton,
+                  (resendCountdown > 0 || sendMagicLink.isPending) && styles.resendButtonDisabled,
+                ]}
+                onPress={handleResendMagicLink}
+                disabled={resendCountdown > 0 || sendMagicLink.isPending}
                 accessibilityRole="button"
-                accessibilityLabel="Verify code and sign in"
-                testID="auth-verify-button"
+                accessibilityLabel={
+                  resendCountdown > 0
+                    ? `Resend available in ${resendCountdown} seconds`
+                    : 'Resend email'
+                }
+                testID="auth-resend-button"
               >
-                <Text style={styles.buttonText}>
-                  {verifyOTP.isPending ? 'Verifying...' : 'Verify'}
+                <Text
+                  style={[
+                    styles.resendButtonText,
+                    (resendCountdown > 0 || sendMagicLink.isPending) &&
+                      styles.resendButtonTextDisabled,
+                  ]}
+                >
+                  {sendMagicLink.isPending
+                    ? 'Sending...'
+                    : resendCountdown > 0
+                      ? `Resend email (${resendCountdown}s)`
+                      : 'Resend email'}
                 </Text>
               </TouchableOpacity>
-
-              <ResendTimer
-                onResend={handleResendOTP}
-                isResending={sendOTP.isPending}
-                cooldownSeconds={RESEND_COOLDOWN_SECONDS}
-                startTime={otpSentAt}
-                testID="auth-resend"
-              />
             </Animated.View>
           )}
         </ScrollView>
@@ -394,15 +439,8 @@ const styles = StyleSheet.create({
     color: colors.adobeBrick,
     marginBottom: 32,
   },
-  subtitle: {
-    color: colors.textSecondary,
-    marginBottom: 32,
-  },
   input: {
     marginBottom: 24,
-  },
-  otpContainer: {
-    marginBottom: 32,
   },
   button: {
     backgroundColor: colors.sunsetGold,
@@ -441,8 +479,66 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 14,
   },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
+    marginBottom: 12,
+  },
+  googleButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
   appleButton: {
     width: '100%',
     height: 50,
+  },
+  // Check your email step styles
+  mailIconContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  checkEmailTitle: {
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  checkEmailSubtitle: {
+    textAlign: 'center',
+    color: colors.textSecondary,
+  },
+  emailDisplay: {
+    textAlign: 'center',
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
+    marginBottom: 16,
+  },
+  checkEmailInstructions: {
+    textAlign: 'center',
+    color: colors.textSecondary,
+    marginBottom: 32,
+  },
+  resendButton: {
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  resendButtonDisabled: {
+    opacity: 0.5,
+  },
+  resendButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.sunsetGold,
+  },
+  resendButtonTextDisabled: {
+    color: colors.textSecondary,
   },
 });

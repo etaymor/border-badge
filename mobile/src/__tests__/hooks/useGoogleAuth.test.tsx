@@ -1,24 +1,18 @@
 /**
- * Tests for useAppleAuth hooks (Apple Sign-In authentication).
+ * Tests for useGoogleAuth hooks (Google Sign-In authentication).
  *
  * Covers:
- * - useAppleSignIn: Apple authentication flow and session management
- * - useAppleAuthAvailable: Platform availability check
+ * - useGoogleSignIn: Google OAuth flow and session management
+ * - useGoogleAuthAvailable: Platform availability check
  */
 
 import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Platform } from 'react-native';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
 
-import { useAppleSignIn, useAppleAuthAvailable } from '@hooks/useAppleAuth';
+import { useGoogleSignIn, useGoogleAuthAvailable } from '@hooks/useGoogleAuth';
 import { supabase } from '@services/supabase';
-
-// Note: Alert.alert is mocked in jest.setup.js at the internal path
-// but verifying Alert calls is complex due to React Native's module structure.
-// We test error logging with console.error which is the new functionality.
 import { storeTokens, clearTokens, storeOnboardingComplete } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { useAuthStore } from '@stores/authStore';
@@ -31,17 +25,10 @@ const mockedStoreOnboardingComplete = storeOnboardingComplete as jest.MockedFunc
   typeof storeOnboardingComplete
 >;
 const mockedMigrateGuestData = migrateGuestData as jest.MockedFunction<typeof migrateGuestData>;
-const mockedSignInAsync = AppleAuthentication.signInAsync as jest.MockedFunction<
-  typeof AppleAuthentication.signInAsync
->;
-const mockedDigestStringAsync = Crypto.digestStringAsync as jest.MockedFunction<
-  typeof Crypto.digestStringAsync
->;
-const mockedRandomUUID = Crypto.randomUUID as jest.MockedFunction<typeof Crypto.randomUUID>;
 
 // Mock supabase methods
-const mockSignInWithIdToken = jest.fn();
-const mockRpc = jest.fn();
+const mockSignInWithOAuth = jest.fn();
+const mockSetSession = jest.fn();
 const mockSupabaseFrom = supabase.from as jest.Mock;
 
 // Mock guestMigration service
@@ -62,22 +49,15 @@ jest.mock('@services/api', () => ({
   storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock expo-apple-authentication
-jest.mock('expo-apple-authentication', () => ({
-  signInAsync: jest.fn(),
-  AppleAuthenticationScope: {
-    FULL_NAME: 0,
-    EMAIL: 1,
-  },
+// Mock expo-web-browser
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  openAuthSessionAsync: jest.fn(),
 }));
 
-// Mock expo-crypto
-jest.mock('expo-crypto', () => ({
-  randomUUID: jest.fn().mockReturnValue('mock-uuid-1234'),
-  digestStringAsync: jest.fn().mockResolvedValue('hashed-nonce-5678'),
-  CryptoDigestAlgorithm: {
-    SHA256: 'SHA-256',
-  },
+// Mock expo-linking
+jest.mock('expo-linking', () => ({
+  createURL: jest.fn().mockReturnValue('borderbadge://auth-callback'),
 }));
 
 // Create wrapper for hooks
@@ -103,34 +83,18 @@ function createMockSession(
   };
 }
 
-// Mock Apple credential
-function createMockAppleCredential(
-  overrides?: Partial<{
-    identityToken: string | null;
-    fullName: { givenName: string | null; familyName: string | null } | null;
-  }>
-) {
-  return {
-    identityToken: 'apple-identity-token',
-    fullName: null,
-    ...overrides,
-  };
-}
-
-describe('useAppleAuth', () => {
+describe('useGoogleAuth', () => {
   let queryClient: QueryClient;
   let consoleErrorSpy: jest.SpyInstance;
-  const originalPlatformOS = Platform.OS;
+  let consoleWarnSpy: jest.SpyInstance;
 
   beforeEach(() => {
     queryClient = createTestQueryClient();
     jest.clearAllMocks();
 
-    // Reset Platform.OS
-    Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
-
-    // Spy on console.error
+    // Spy on console methods
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
     // Reset stores
     useAuthStore.setState({
@@ -143,35 +107,42 @@ describe('useAppleAuth', () => {
 
     // Default supabase mock setup
     Object.assign(supabase.auth, {
-      signInWithIdToken: mockSignInWithIdToken,
+      signInWithOAuth: mockSignInWithOAuth,
+      setSession: mockSetSession,
     });
-    Object.assign(supabase, {
-      rpc: mockRpc,
-    });
-
-    // Default mock values
-    mockedRandomUUID.mockReturnValue('mock-uuid-1234');
-    mockedDigestStringAsync.mockResolvedValue('hashed-nonce-5678');
   });
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
-    Object.defineProperty(Platform, 'OS', { value: originalPlatformOS, configurable: true });
+    consoleWarnSpy.mockRestore();
   });
 
-  // ============ useAppleSignIn Tests ============
+  // ============ useGoogleSignIn Tests ============
 
-  describe('useAppleSignIn', () => {
+  describe('useGoogleSignIn', () => {
     const mockSession = createMockSession();
-    const mockAppleCredential = createMockAppleCredential();
 
     describe('Success Path', () => {
       beforeEach(() => {
-        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
-        mockSignInWithIdToken.mockResolvedValue({
+        // Mock OAuth flow
+        mockSignInWithOAuth.mockResolvedValue({
+          data: { url: 'https://accounts.google.com/oauth' },
+          error: null,
+        });
+
+        // Mock browser session with successful callback
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback#access_token=test-access-token&refresh_token=test-refresh-token',
+        });
+
+        // Mock session set
+        mockSetSession.mockResolvedValue({
           data: { session: mockSession, user: mockSession.user },
           error: null,
         });
+
+        // Mock user_countries check (new user)
         mockSupabaseFrom.mockReturnValue({
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
@@ -179,8 +150,8 @@ describe('useAppleAuth', () => {
         });
       });
 
-      it('calls Apple Authentication with correct parameters', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
+      it('initiates OAuth flow with correct parameters', async () => {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -190,17 +161,17 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockedSignInAsync).toHaveBeenCalledWith({
-          requestedScopes: [
-            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-            AppleAuthentication.AppleAuthenticationScope.EMAIL,
-          ],
-          nonce: 'hashed-nonce-5678',
+        expect(mockSignInWithOAuth).toHaveBeenCalledWith({
+          provider: 'google',
+          options: {
+            redirectTo: 'borderbadge://auth-callback',
+            skipBrowserRedirect: true,
+          },
         });
       });
 
-      it('calls Supabase signInWithIdToken with Apple token', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
+      it('opens browser with OAuth URL', async () => {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -210,15 +181,31 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockSignInWithIdToken).toHaveBeenCalledWith({
-          provider: 'apple',
-          token: 'apple-identity-token',
-          nonce: 'mock-uuid-1234',
+        expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+          'https://accounts.google.com/oauth',
+          'borderbadge://auth-callback'
+        );
+      });
+
+      it('sets session with tokens from callback URL', async () => {
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(mockSetSession).toHaveBeenCalledWith({
+          access_token: 'test-access-token',
+          refresh_token: 'test-refresh-token',
         });
       });
 
       it('clears stale tokens before storing new ones', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -235,7 +222,7 @@ describe('useAppleAuth', () => {
       });
 
       it('stores new tokens on successful authentication', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -259,7 +246,7 @@ describe('useAppleAuth', () => {
         const setHasCompletedOnboarding = jest.fn();
         useAuthStore.setState({ setHasCompletedOnboarding });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -282,7 +269,7 @@ describe('useAppleAuth', () => {
           limit: jest.fn().mockResolvedValue({ data: [], error: null }),
         });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -299,7 +286,7 @@ describe('useAppleAuth', () => {
         const setSession = jest.fn();
         useAuthStore.setState({ setSession });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -312,14 +299,21 @@ describe('useAppleAuth', () => {
         expect(setSession).toHaveBeenCalledWith(mockSession);
       });
 
-      it('updates display name when Apple provides it', async () => {
-        const credentialWithName = createMockAppleCredential({
-          fullName: { givenName: 'John', familyName: 'Doe' },
+      it('handles tokens in query params instead of fragment', async () => {
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback?access_token=query-token&refresh_token=query-refresh',
         });
-        mockedSignInAsync.mockResolvedValue(credentialWithName as never);
-        mockRpc.mockResolvedValue({ data: null, error: null });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        mockSetSession.mockResolvedValue({
+          data: {
+            session: { ...mockSession, access_token: 'query-token', refresh_token: 'query-refresh' },
+            user: mockSession.user,
+          },
+          error: null,
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -329,174 +323,26 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
-          new_display_name: 'John Doe',
+        expect(mockSetSession).toHaveBeenCalledWith({
+          access_token: 'query-token',
+          refresh_token: 'query-refresh',
         });
       });
     });
 
     describe('Error Handling', () => {
-      it('logs sanitized error to console.error', async () => {
-        const error = new Error('Apple auth failed');
-        mockedSignInAsync.mockRejectedValue(error);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Logs sanitized message (just the error message, not the object)
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Apple auth failed');
-      });
-
-      it('logs cancellation error with "canceled" message', async () => {
-        const error = new Error('The operation was canceled');
-        mockedSignInAsync.mockRejectedValue(error);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'The operation was canceled');
-      });
-
-      it('logs cancellation error with "ERR_REQUEST_CANCELED" message', async () => {
-        const error = new Error('ERR_REQUEST_CANCELED');
-        mockedSignInAsync.mockRejectedValue(error);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'ERR_REQUEST_CANCELED');
-      });
-
-      it('logs cancellation error with "1001" code', async () => {
-        const error = new Error('Error code 1001: User canceled');
-        mockedSignInAsync.mockRejectedValue(error);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Error code 1001: User canceled');
-      });
-
-      it('returns error for non-cancellation errors', async () => {
-        const error = new Error('Network connection failed');
-        mockedSignInAsync.mockRejectedValue(error);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Verify sanitized error was logged
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Network connection failed');
-        // Verify error message is accessible
-        expect(result.current.error?.message).toBe('Network connection failed');
-      });
-
-      it('handles non-Error objects', async () => {
-        mockedSignInAsync.mockRejectedValue('string error');
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        // Verify error was logged with 'Unknown error type' for non-Error objects
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Unknown error type');
-      });
-
-      it('throws error when not on iOS', async () => {
-        Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        expect(result.current.error?.message).toBe('Apple Sign In is only available on iOS');
-      });
-
-      it('throws error when identityToken is missing', async () => {
-        const credentialWithoutToken = createMockAppleCredential({ identityToken: null });
-        mockedSignInAsync.mockResolvedValue(credentialWithoutToken as never);
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isError).toBe(true));
-
-        expect(result.current.error?.message).toBe('No identity token received from Apple');
-      });
-
-      it('handles display name update failure gracefully', async () => {
-        const credentialWithName = createMockAppleCredential({
-          fullName: { givenName: 'John', familyName: 'Doe' },
-        });
-        mockedSignInAsync.mockResolvedValue(credentialWithName as never);
-        mockSignInWithIdToken.mockResolvedValue({
-          data: { session: mockSession, user: mockSession.user },
+      beforeEach(() => {
+        mockSignInWithOAuth.mockResolvedValue({
+          data: { url: 'https://accounts.google.com/oauth' },
           error: null,
         });
-        mockRpc.mockRejectedValue(new Error('RPC failed'));
-        mockSupabaseFrom.mockReturnValue({
-          select: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockResolvedValue({ data: [], error: null }),
-        });
+      });
 
-        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      it('logs error to console.error', async () => {
+        const error = new Error('OAuth failed');
+        mockSignInWithOAuth.mockResolvedValue({ data: null, error });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -504,18 +350,141 @@ describe('useAppleAuth', () => {
           result.current.mutate();
         });
 
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        await waitFor(() => expect(result.current.isError).toBe(true));
 
-        expect(consoleWarnSpy).toHaveBeenCalled();
-        consoleWarnSpy.mockRestore();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Google Sign-In failed:', 'OAuth failed');
+      });
+
+      it('handles user cancellation gracefully', async () => {
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'cancel',
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        // Error is logged but no alert shown for cancellation
+        expect(consoleErrorSpy).toHaveBeenCalled();
+        expect(result.current.error?.message).toBe('ERR_REQUEST_CANCELED');
+      });
+
+      it('handles browser dismiss gracefully', async () => {
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'dismiss',
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(result.current.error?.message).toBe('ERR_REQUEST_CANCELED');
+      });
+
+      it('throws error when no OAuth URL received', async () => {
+        mockSignInWithOAuth.mockResolvedValue({
+          data: { url: null },
+          error: null,
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(result.current.error?.message).toBe('No OAuth URL received from Supabase');
+      });
+
+      it('throws error when no access token in callback', async () => {
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback#refresh_token=only-refresh',
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(result.current.error?.message).toBe('No access token received from Google');
+      });
+
+      it('handles setSession error', async () => {
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+        });
+
+        const sessionError = new Error('Session error');
+        mockSetSession.mockResolvedValue({
+          data: null,
+          error: sessionError,
+        });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(result.current.error?.message).toBe('Session error');
+      });
+
+      it('handles non-Error objects in onError', async () => {
+        mockSignInWithOAuth.mockRejectedValue('string error');
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Google Sign-In failed:', 'Unknown error type');
       });
 
       it('falls back to migration if onboarding check fails', async () => {
-        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
-        mockSignInWithIdToken.mockResolvedValue({
+        const mockSession = createMockSession();
+
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+        });
+
+        mockSetSession.mockResolvedValue({
           data: { session: mockSession, user: mockSession.user },
           error: null,
         });
+
         // Mock user_countries check to throw error
         mockSupabaseFrom.mockReturnValue({
           select: jest.fn().mockReturnThis(),
@@ -523,7 +492,7 @@ describe('useAppleAuth', () => {
           limit: jest.fn().mockRejectedValue(new Error('Network error')),
         });
 
-        const { result } = renderHook(() => useAppleSignIn(), {
+        const { result } = renderHook(() => useGoogleSignIn(), {
           wrapper: createWrapper(queryClient),
         });
 
@@ -536,26 +505,51 @@ describe('useAppleAuth', () => {
         // Should still run migration as fallback
         expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
       });
+
+      it('handles migration failure gracefully', async () => {
+        const mockSession = createMockSession();
+
+        (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+          type: 'success',
+          url: 'borderbadge://auth-callback#access_token=test-token&refresh_token=test-refresh',
+        });
+
+        mockSetSession.mockResolvedValue({
+          data: { session: mockSession, user: mockSession.user },
+          error: null,
+        });
+
+        mockSupabaseFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+        });
+
+        mockedMigrateGuestData.mockRejectedValue(new Error('Migration failed'));
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate();
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should still succeed, just log warning (no error object in message)
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for Google user');
+      });
     });
   });
 
-  // ============ useAppleAuthAvailable Tests ============
+  // ============ useGoogleAuthAvailable Tests ============
 
-  describe('useAppleAuthAvailable', () => {
-    it('returns true on iOS', () => {
-      Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
-
-      const { result } = renderHook(() => useAppleAuthAvailable());
+  describe('useGoogleAuthAvailable', () => {
+    it('returns true (Google auth available on all platforms)', () => {
+      const { result } = renderHook(() => useGoogleAuthAvailable());
 
       expect(result.current).toBe(true);
-    });
-
-    it('returns false on Android', () => {
-      Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
-
-      const { result } = renderHook(() => useAppleAuthAvailable());
-
-      expect(result.current).toBe(false);
     });
   });
 });

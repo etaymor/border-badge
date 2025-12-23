@@ -17,10 +17,12 @@ import * as useUserCountriesModule from '@hooks/useUserCountries';
 import * as useProfileModule from '@hooks/useProfile';
 import * as useUpdateDisplayNameModule from '@hooks/useUpdateDisplayName';
 import * as useAuthModule from '@hooks/useAuth';
+import { useAuthStore } from '@stores/authStore';
 import * as Clipboard from 'expo-clipboard';
 import * as ShareModule from '@utils/share';
 import type { Country } from '@hooks/useCountries';
 import type { UserCountry } from '@hooks/useUserCountries';
+import type { Session } from '@supabase/supabase-js';
 
 // Fake timers are set up in beforeEach for proper isolation
 
@@ -398,6 +400,70 @@ describe('ProfileSettingsScreen', () => {
 
       // If we get here without errors, the cleanup worked
       expect(true).toBe(true);
+    });
+  });
+
+  describe('User Info Display', () => {
+    it('displays user email in profile details', async () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      // Set up auth store with a mock session containing email
+      const mockSession = {
+        access_token: 'test-token',
+        refresh_token: 'test-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+        user: {
+          id: 'user-123',
+          email: 'test@example.com',
+          app_metadata: {},
+          user_metadata: {},
+          aud: 'authenticated',
+          created_at: new Date().toISOString(),
+        },
+      } as Session;
+
+      useAuthStore.getState().setSession(mockSession);
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Should display the email in the passport details section
+      await waitFor(() => {
+        expect(screen.getByText('Email')).toBeTruthy();
+        expect(screen.getByText('test@example.com')).toBeTruthy();
+      });
+    });
+
+    it('displays "Not set" when email is not available', async () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      // Set up auth store with a mock session without email
+      const mockSession = {
+        access_token: 'test-token',
+        refresh_token: 'test-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+        user: {
+          id: 'user-123',
+          email: undefined,
+          app_metadata: {},
+          user_metadata: {},
+          aud: 'authenticated',
+          created_at: new Date().toISOString(),
+        },
+      } as unknown as Session;
+
+      useAuthStore.getState().setSession(mockSession);
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Should display "Not set" when email is missing
+      await waitFor(() => {
+        expect(screen.getByText('Email')).toBeTruthy();
+        expect(screen.getByText('Not set')).toBeTruthy();
+      });
     });
   });
 });
