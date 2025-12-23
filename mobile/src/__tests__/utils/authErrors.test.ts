@@ -2,11 +2,7 @@
  * Tests for authErrors utility functions.
  */
 
-import {
-  isUserCancellation,
-  getAuthErrorMessage,
-  getSafeLogMessage,
-} from '@utils/authErrors';
+import { isUserCancellation, getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 
 describe('authErrors', () => {
   describe('isUserCancellation', () => {

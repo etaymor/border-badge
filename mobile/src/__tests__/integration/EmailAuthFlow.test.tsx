@@ -314,7 +314,9 @@ describe('EmailAuthFlow Integration', () => {
       });
 
       // Step 2: Process callback (simulating user clicking magic link)
-      const mockSession = createMockSession({ user: { id: 'user-123', email: 'test@example.com' } });
+      const mockSession = createMockSession({
+        user: { id: 'user-123', email: 'test@example.com' },
+      });
       mockSetSession.mockResolvedValue({
         data: { session: mockSession },
         error: null,

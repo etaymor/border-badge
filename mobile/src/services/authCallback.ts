@@ -17,7 +17,11 @@ import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
+import { getSafeLogMessage } from '@utils/authErrors';
 import { hasUserOnboarded } from '@utils/authHelpers';
+
+/** Expected auth callback URL prefix for origin validation */
+const EXPECTED_CALLBACK_PREFIX = 'borderbadge://auth-callback';
 
 /**
  * Check if the URL is an auth callback deep link
@@ -27,7 +31,20 @@ import { hasUserOnboarded } from '@utils/authHelpers';
  */
 export function isAuthCallbackDeepLink(url: string | null): boolean {
   if (!url) return false;
-  return url.startsWith('borderbadge://auth-callback');
+  return url.startsWith(EXPECTED_CALLBACK_PREFIX);
+}
+
+/**
+ * Validate that the URL origin matches our expected auth callback prefix.
+ * This prevents potential attacks from malicious apps crafting fake callback URLs.
+ *
+ * @param url - The deep link URL to validate
+ * @returns True if the URL has the expected origin
+ */
+function validateCallbackOrigin(url: string): boolean {
+  // Extract base URL without fragment or query params
+  const baseUrl = url.split('#')[0].split('?')[0];
+  return baseUrl === EXPECTED_CALLBACK_PREFIX;
 }
 
 /**
@@ -68,6 +85,12 @@ export function extractAuthTokens(
  * @returns True if session was set successfully, false otherwise
  */
 export async function processAuthCallback(url: string): Promise<boolean> {
+  // Security: Validate URL origin before processing tokens
+  if (!validateCallbackOrigin(url)) {
+    console.error('Invalid auth callback origin - rejecting potentially malicious URL');
+    return false;
+  }
+
   const tokens = extractAuthTokens(url);
   if (!tokens) {
     console.error('No tokens found in auth callback URL');
@@ -114,8 +137,9 @@ export async function processAuthCallback(url: string): Promise<boolean> {
     }
 
     return false;
-  } catch {
-    console.error('Error processing auth callback');
+  } catch (error) {
+    // Use sanitized logging to prevent token exposure in error messages
+    console.error('Error processing auth callback:', getSafeLogMessage(error));
     return false;
   }
 }

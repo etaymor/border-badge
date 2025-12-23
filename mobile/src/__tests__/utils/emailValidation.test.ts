@@ -90,6 +90,29 @@ describe('emailValidation', () => {
         expect(result.isValid).toBe(false);
         expect(result.error).toBe('Please enter a valid email address');
       });
+
+      it('returns invalid for consecutive dots in local part', () => {
+        const result = validateEmail('user..name@example.com');
+        expect(result.isValid).toBe(false);
+        expect(result.error).toBe('Please enter a valid email address');
+      });
+
+      it('returns invalid for multiple consecutive dots in local part', () => {
+        const result = validateEmail('user...name@example.com');
+        expect(result.isValid).toBe(false);
+        expect(result.error).toBe('Please enter a valid email address');
+      });
+
+      it('returns invalid for email exceeding max length (320 chars)', () => {
+        // Create an email that exceeds 320 characters using many subdomains
+        // Each "subdomain." is 10 chars, 33 of them = 330 chars + test@ (5) + example.com (11) = 346 chars
+        const longDomain = Array(33).fill('subdomain').join('.') + '.example.com';
+        const email = `test@${longDomain}`;
+        expect(email.length).toBeGreaterThan(320); // Verify test setup
+        const result = validateEmail(email);
+        expect(result.isValid).toBe(false);
+        expect(result.error).toBe('Email address is too long');
+      });
     });
 
     describe('empty input', () => {

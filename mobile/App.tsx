@@ -105,7 +105,7 @@ export default function App() {
   const appStateRef = useRef(AppState.currentState);
   const sessionIdRef = useRef(generateSessionId());
   const hasTrackedInitialOpenRef = useRef(false);
-  const hasProcessedInitialShareRef = useRef(false);
+  const hasProcessedInitialDeepLinkRef = useRef(false);
   const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
   const shouldClearPendingShareRef = useRef(false);
 
@@ -300,9 +300,10 @@ export default function App() {
       void handleDeepLink(url);
     });
 
-    // Check for initial URL (app opened via deep link)
-    if (!hasProcessedInitialShareRef.current) {
-      hasProcessedInitialShareRef.current = true;
+    // Check for initial URL (app opened via deep link - auth callback or share extension)
+    // This handles cold start scenarios where the app is opened via a magic link or share
+    if (!hasProcessedInitialDeepLinkRef.current) {
+      hasProcessedInitialDeepLinkRef.current = true;
       Linking.getInitialURL().then((url) => {
         if (url) {
           void handleDeepLink(url);

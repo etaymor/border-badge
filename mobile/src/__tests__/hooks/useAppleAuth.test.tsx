@@ -369,7 +369,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'The operation was canceled');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'The operation was canceled'
+        );
       });
 
       it('logs cancellation error with "ERR_REQUEST_CANCELED" message', async () => {
@@ -387,7 +390,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'ERR_REQUEST_CANCELED');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'ERR_REQUEST_CANCELED'
+        );
       });
 
       it('logs cancellation error with "1001" code', async () => {
@@ -405,7 +411,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Error is logged for debugging even for cancellations
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Error code 1001: User canceled');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'Error code 1001: User canceled'
+        );
       });
 
       it('returns error for non-cancellation errors', async () => {
@@ -423,7 +432,10 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isError).toBe(true));
 
         // Verify sanitized error was logged
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Apple Sign-In failed:', 'Network connection failed');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Apple Sign-In failed:',
+          'Network connection failed'
+        );
         // Verify error message is accessible
         expect(result.current.error?.message).toBe('Network connection failed');
       });

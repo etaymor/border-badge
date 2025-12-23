@@ -71,6 +71,11 @@ export function useGoogleSignIn() {
 
       if (sessionError) throw sessionError;
 
+      // Validate that a session was actually created
+      if (!sessionData.session) {
+        throw new Error('Failed to create session from Google OAuth tokens');
+      }
+
       return sessionData;
     },
     onSuccess: async (data) => {

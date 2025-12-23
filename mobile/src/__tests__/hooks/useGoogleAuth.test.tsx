@@ -307,7 +307,11 @@ describe('useGoogleAuth', () => {
 
         mockSetSession.mockResolvedValue({
           data: {
-            session: { ...mockSession, access_token: 'query-token', refresh_token: 'query-refresh' },
+            session: {
+              ...mockSession,
+              access_token: 'query-token',
+              refresh_token: 'query-refresh',
+            },
             user: mockSession.user,
           },
           error: null,
@@ -469,7 +473,10 @@ describe('useGoogleAuth', () => {
 
         await waitFor(() => expect(result.current.isError).toBe(true));
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Google Sign-In failed:', 'Unknown error type');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Google Sign-In failed:',
+          'Unknown error type'
+        );
       });
 
       it('falls back to migration if onboarding check fails', async () => {
