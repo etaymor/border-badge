@@ -45,9 +45,16 @@ const BURST_PARTICLES = Array.from({ length: 24 }, (_, i) => {
 });
 
 function BurstAnimation({ visible }: { visible: boolean }) {
-  const anims = useRef(BURST_PARTICLES.map(() => new Animated.Value(0))).current;
+  // Lazy initialization - only create Animated.Value instances once
+  const animsRef = useRef<Animated.Value[] | null>(null);
+  if (!animsRef.current) {
+    animsRef.current = BURST_PARTICLES.map(() => new Animated.Value(0));
+  }
+  const anims = animsRef.current;
 
   useEffect(() => {
+    let staggeredAnimation: Animated.CompositeAnimation | null = null;
+
     if (visible) {
       const animations = BURST_PARTICLES.map((particle, i) => {
         anims[i].setValue(0);
@@ -59,10 +66,19 @@ function BurstAnimation({ visible }: { visible: boolean }) {
         });
       });
 
-      Animated.stagger(20, animations).start();
+      staggeredAnimation = Animated.stagger(20, animations);
+      staggeredAnimation.start();
     } else {
       anims.forEach((anim) => anim.setValue(0));
     }
+
+    // Cleanup: stop animations on unmount or when visible changes
+    return () => {
+      if (staggeredAnimation) {
+        staggeredAnimation.stop();
+      }
+      anims.forEach((anim) => anim.stopAnimation());
+    };
   }, [visible, anims]);
 
   return (
@@ -255,6 +271,10 @@ const styles = StyleSheet.create({
   },
   particle: {
     position: 'absolute',
+    left: '50%',
+    top: '50%',
+    marginLeft: -4, // Half of width (8/2) to center the particle
+    marginTop: -4, // Half of height (8/2) to center the particle
     width: 8,
     height: 8,
     borderRadius: 4,
