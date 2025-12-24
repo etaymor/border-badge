@@ -85,7 +85,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingHorizontal: 24,
     paddingBottom: 34,
-    maxHeight: '80%',
+    minHeight: '65%',
+    maxHeight: '85%',
   },
   modalHandle: {
     width: 36,
@@ -179,13 +180,15 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modalCloseButton: {
+    backgroundColor: colors.adobeBrick,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 16,
+    borderRadius: 12,
   },
   modalCloseButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.stormGray,
+    color: colors.cloudWhite,
   },
 });

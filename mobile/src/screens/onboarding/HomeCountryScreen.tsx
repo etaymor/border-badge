@@ -18,8 +18,15 @@ export function HomeCountryScreen({ navigation }: Props) {
   }, []);
 
   const handleCountrySelect = (country: Country) => {
+    // If changing home country, remove the old one from visited
+    // (assume selecting it as home was a mistake)
+    if (homeCountry && homeCountry !== country.code && selectedCountries.includes(homeCountry)) {
+      toggleCountry(homeCountry);
+    }
+
     setHomeCountry(country.code);
-    // Also add to visited countries if not already there
+
+    // Add new home country to visited if not already there
     if (!selectedCountries.includes(country.code)) {
       toggleCountry(country.code);
     }

@@ -28,6 +28,9 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Regex to strip markdown code fences (handles ```json, ```javascript, etc.)
 CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
+# Regex to strip trailing commas before closing braces/brackets (common LLM JSON error)
+TRAILING_COMMA_PATTERN = re.compile(r",\s*([}\]])")
+
 
 def _classification_rate_limit() -> str:
     """Return stricter rate limit for anonymous requests, lenient for authenticated.
@@ -89,11 +92,11 @@ Be creative and specific with traveler_type - make it memorable and fun!"""
 USER_PROMPT_TEMPLATE = """Task: Analyze this traveler's visited countries and create a unique traveler identity.
 
 Visited Countries: {countries}
-Interest Tags (optional hints): {interest_tags}
+Interest Tags (if provided, use these as hints): {interest_tags}
 Home Country (do NOT pick as signature): {home_country}
 
 Instructions:
-1. Look for PATTERNS in the countries:
+1. Base your classification PRIMARILY on geographic patterns in the countries visited:
    - Are they island-heavy? → "Island Hopper" / "Tropical Soul"
    - Africa-focused? → "Safari Seeker" / "African Explorer"
    - Rare/uncommon destinations? → "Off The Grid" / "Hidden Gem Hunter"
@@ -102,12 +105,15 @@ Instructions:
    - Mix of everything? → "Global Nomad" / "World Collector"
    - Latin America heavy? → "Salsa Soul" / "Latin Wanderer"
 
-2. Pick the SINGLE country that best represents their travel identity - the one that tells their story.
+2. ONLY incorporate interest tags if they were actually provided (non-empty list).
+   DO NOT invent interests like food, culture, adventure, etc. unless explicitly listed in the tags.
+
+3. Pick the SINGLE country that best represents their travel identity - the one that tells their story.
    IMPORTANT: Do NOT pick the home country as signature country unless it's the ONLY country visited.
 
-3. Create a 2-4 word traveler_type that's:
+4. Create a 2-4 word traveler_type that's:
    - Memorable and shareable on social media
-   - Reflects the dominant pattern in their travels
+   - Reflects the dominant GEOGRAPHIC pattern in their travels
    - Title Case, no punctuation
 
 Output ONLY this JSON:
@@ -391,13 +397,16 @@ async def call_openrouter_llm(
         if fence_match:
             content = fence_match.group(1).strip()
 
+        # Fix trailing commas (common LLM JSON error: {"key": "value",})
+        content = TRAILING_COMMA_PATTERN.sub(r"\1", content)
+
         return json.loads(content)
 
     except httpx.TimeoutException:
         logger.warning("OpenRouter API timeout")
         return None
     except json.JSONDecodeError as e:
-        logger.warning("Failed to parse LLM response as JSON: %s", e)
+        logger.warning("Failed to parse LLM response as JSON: %s, content: %s", e, content[:500] if content else "empty")
         return None
     except Exception as e:
         logger.exception("OpenRouter API call failed: %s", e)

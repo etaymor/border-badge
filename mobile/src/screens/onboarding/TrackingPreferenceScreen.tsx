@@ -105,12 +105,10 @@ const PresetCard = memo(function PresetCard({
             <Text style={styles.presetCount}>{presetData.count} countries</Text>
           </View>
           {!hideDescription && (
-            <>
-              <Text style={styles.presetDescription}>{presetData.description}</Text>
-              {preset !== 'classic' && (
-                <Text style={styles.presetAdded}>{presetData.shortDescription}</Text>
-              )}
-            </>
+            <Text style={styles.presetDescription}>{presetData.description}</Text>
+          )}
+          {preset !== 'classic' && (
+            <Text style={styles.presetAdded}>{presetData.shortDescription}</Text>
           )}
         </View>
       </Pressable>

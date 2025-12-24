@@ -329,7 +329,13 @@ export function EntryMediaGallery({
         )}
 
         {editable && media.status === 'uploaded' && (
-          <Pressable style={styles.deleteButton} onPress={() => handleDelete(media.id)}>
+          <Pressable
+            style={styles.deleteButton}
+            onPress={() => handleDelete(media.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Delete photo"
+            accessibilityHint="Tap to remove this photo"
+          >
             <Ionicons name="close-circle" size={22} color="#fff" />
           </Pressable>
         )}
@@ -400,6 +406,9 @@ export function EntryMediaGallery({
                 style={styles.addButton}
                 onPress={handlePickImages}
                 disabled={isPickerOpen}
+                accessibilityRole="button"
+                accessibilityLabel="Add more photos"
+                accessibilityHint={`Tap to add up to ${remainingSlots} more photos`}
               >
                 <Ionicons name="add" size={32} color={colors.midnightNavy} />
               </Pressable>
@@ -413,6 +422,9 @@ export function EntryMediaGallery({
               style={styles.emptyButton}
               onPress={handlePickImages}
               disabled={isPickerOpen}
+              accessibilityRole="button"
+              accessibilityLabel="Choose photos"
+              accessibilityHint="Tap to select photos from your gallery"
             >
               <BlurView intensity={20} tint="light" style={styles.emptyBlurView}>
                 <View style={styles.emptyContent}>

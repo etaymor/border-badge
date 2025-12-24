@@ -245,6 +245,11 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         style={[styles.picker, disabled && styles.pickerDisabled]}
         onPress={showOptions}
         disabled={disabled || uploading}
+        accessibilityRole="button"
+        accessibilityLabel={value ? 'Change cover image' : 'Add cover image'}
+        accessibilityHint={
+          value ? 'Tap to change or remove the cover image' : 'Tap to select an image from your gallery'
+        }
       >
         {displayUri ? (
           <View style={styles.imageContainer}>
