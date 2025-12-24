@@ -1,24 +1,21 @@
 import { ReactNode } from 'react';
 import { Text, View } from 'react-native';
+import { render, screen } from '@testing-library/react-native';
 
-import { render, screen } from '../utils/testUtils';
+import { ResponsiveProvider, useResponsiveContext, type ScreenSize } from './ResponsiveContext';
 
-import type { ScreenSize } from '@contexts/ResponsiveContext';
-
-// Mock useWindowDimensions at the module level
+// Mock useWindowDimensions at the module level using the internal path
+// This is necessary because jest.requireActual('react-native') causes issues with native modules
 const mockDimensions = { width: 390, height: 844, scale: 2, fontScale: 1 };
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
   default: jest.fn(() => mockDimensions),
 }));
 
-// Import after mock setup
-import { ResponsiveProvider, useResponsiveContext } from '@contexts/ResponsiveContext';
-import useWindowDimensions from 'react-native/Libraries/Utilities/useWindowDimensions';
-
-const mockedUseWindowDimensions = useWindowDimensions as jest.MockedFunction<
-  typeof useWindowDimensions
->;
+// Import the mocked module and cast to proper type
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const useWindowDimensions = require('react-native/Libraries/Utilities/useWindowDimensions')
+  .default as jest.Mock<{ width: number; height: number; scale: number; fontScale: number }>;
 
 // Test component that displays responsive values
 function ResponsiveTestConsumer() {
@@ -51,7 +48,7 @@ describe('ResponsiveContext', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Default dimensions (iPhone 14)
-    mockedUseWindowDimensions.mockReturnValue({
+    useWindowDimensions.mockReturnValue({
       width: 390,
       height: 844,
       scale: 2,
@@ -61,7 +58,7 @@ describe('ResponsiveContext', () => {
 
   describe('breakpoint calculations', () => {
     it('should identify small screens correctly (height < 700)', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 320,
         height: 568,
         scale: 2,
@@ -78,7 +75,7 @@ describe('ResponsiveContext', () => {
     });
 
     it('should identify medium screens correctly (700 <= height < 850)', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 390,
         height: 750,
         scale: 2,
@@ -94,7 +91,7 @@ describe('ResponsiveContext', () => {
     });
 
     it('should identify large screens correctly (height >= 850)', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 428,
         height: 926,
         scale: 3,
@@ -110,7 +107,7 @@ describe('ResponsiveContext', () => {
     });
 
     it('should handle edge case at 700px boundary (medium)', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 375,
         height: 700,
         scale: 2,
@@ -124,7 +121,7 @@ describe('ResponsiveContext', () => {
     });
 
     it('should handle edge case at 850px boundary (large)', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 390,
         height: 850,
         scale: 2,
@@ -140,7 +137,7 @@ describe('ResponsiveContext', () => {
 
   describe('screen dimensions', () => {
     it('should provide correct screen width and height', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 414,
         height: 896,
         scale: 2,
@@ -156,7 +153,7 @@ describe('ResponsiveContext', () => {
 
   describe('fallback behavior', () => {
     it('should provide fallback values when provider is missing', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 320,
         height: 568,
         scale: 2,
@@ -173,7 +170,7 @@ describe('ResponsiveContext', () => {
     });
 
     it('should calculate correct fallback for large screen without provider', () => {
-      mockedUseWindowDimensions.mockReturnValue({
+      useWindowDimensions.mockReturnValue({
         width: 428,
         height: 926,
         scale: 3,
@@ -204,7 +201,7 @@ describe('ResponsiveContext', () => {
 
     deviceTests.forEach(({ name, width, height, expected }) => {
       it(`should correctly identify ${name} as ${expected} screen`, () => {
-        mockedUseWindowDimensions.mockReturnValue({
+        useWindowDimensions.mockReturnValue({
           width,
           height,
           scale: 2,

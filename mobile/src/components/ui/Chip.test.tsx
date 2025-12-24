@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
-import { Chip } from '@components/ui/Chip';
+import { Chip } from './Chip';
 
 // Mock useResponsive hook
 const mockUseResponsive = jest.fn();

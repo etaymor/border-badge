@@ -279,6 +279,7 @@ export function createMockUserCountry(overrides?: Partial<UserCountry>): UserCou
     country_code: 'JP',
     status: 'wishlist',
     created_at: new Date().toISOString(),
+    added_during_onboarding: false,
     ...overrides,
   };
 }

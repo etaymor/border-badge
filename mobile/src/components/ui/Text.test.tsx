@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react-native';
 
-import { Text } from '@components/ui/Text';
+import { Text } from './Text';
 
 // Mock useResponsive hook
 const mockUseResponsive = jest.fn();

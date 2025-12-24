@@ -13,7 +13,7 @@ export interface UserCountry {
   country_code: string;
   status: 'visited' | 'wishlist';
   created_at: string;
-  added_during_onboarding?: boolean;
+  added_during_onboarding: boolean;
 }
 
 // Dynamic query key to isolate cache per user session
