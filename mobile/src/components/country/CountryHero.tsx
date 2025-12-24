@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useResponsive } from '@hooks/useResponsive';
 
 interface CountryHeroProps {
   displayName: string;
@@ -30,6 +31,8 @@ function CountryHeroComponent({
   titleScale,
   titleOpacity,
 }: CountryHeroProps) {
+  const { isSmallScreen } = useResponsive();
+
   return (
     <Animated.View
       style={[
@@ -64,7 +67,11 @@ function CountryHeroComponent({
           },
         ]}
       >
-        <Text style={styles.countryTitle} numberOfLines={2} adjustsFontSizeToFit>
+        <Text
+          style={[styles.countryTitle, isSmallScreen && styles.countryTitleSmall]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+        >
           {displayName}
         </Text>
         <View style={styles.subregionContainer}>
@@ -114,6 +121,10 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
     marginBottom: -8,
+  },
+  countryTitleSmall: {
+    fontSize: 44,
+    lineHeight: 52,
   },
   subregionContainer: {
     flexDirection: 'row',

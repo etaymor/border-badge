@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Text } from '@components/ui';
+import { GlassBackButton, Text } from '@components/ui';
+import { useResponsive } from '@hooks/useResponsive';
 import atlasLogo from '../../../assets/atlasi-logo.png';
 import { colors } from '@constants/colors';
 import {
@@ -41,6 +42,7 @@ interface PresetCardProps {
   isSelected: boolean;
   onSelect: () => void;
   animatedValue: Animated.Value;
+  hideDescription?: boolean;
 }
 
 const PresetCard = memo(function PresetCard({
@@ -48,6 +50,7 @@ const PresetCard = memo(function PresetCard({
   isSelected,
   onSelect,
   animatedValue,
+  hideDescription,
 }: PresetCardProps) {
   const presetData = TRACKING_PRESETS[preset];
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -101,9 +104,13 @@ const PresetCard = memo(function PresetCard({
             <Text style={styles.presetName}>{presetData.name.toUpperCase()}</Text>
             <Text style={styles.presetCount}>{presetData.count} countries</Text>
           </View>
-          <Text style={styles.presetDescription}>{presetData.description}</Text>
-          {preset !== 'classic' && (
-            <Text style={styles.presetAdded}>{presetData.shortDescription}</Text>
+          {!hideDescription && (
+            <>
+              <Text style={styles.presetDescription}>{presetData.description}</Text>
+              {preset !== 'classic' && (
+                <Text style={styles.presetAdded}>{presetData.shortDescription}</Text>
+              )}
+            </>
           )}
         </View>
       </Pressable>
@@ -113,11 +120,17 @@ const PresetCard = memo(function PresetCard({
 
 export function TrackingPreferenceScreen({ navigation }: Props) {
   const { trackingPreference, setTrackingPreference } = useOnboardingStore();
+  const { isSmallScreen } = useResponsive();
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingTracking();
   }, []);
+
+  const handleBack = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.goBack();
+  }, [navigation]);
 
   // Staggered fade-in animations
   const titleOpacity = useRef(new Animated.Value(0)).current;
@@ -210,8 +223,11 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header with logo and login */}
+      {/* Header with back button, logo and login */}
       <View style={styles.headerRow}>
+        <View style={styles.backButtonContainer}>
+          <GlassBackButton onPress={handleBack} size="small" />
+        </View>
         <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
         <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
           <Text variant="label" style={styles.loginText}>
@@ -256,6 +272,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
               isSelected={trackingPreference === preset}
               onSelect={() => handleSelectPreset(preset)}
               animatedValue={cardOpacities[index]}
+              hideDescription={isSmallScreen}
             />
           ))}
         </ScrollView>
@@ -290,6 +307,10 @@ const styles = StyleSheet.create({
   logo: {
     width: 140,
     height: 40,
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    left: 20,
   },
   loginButton: {
     position: 'absolute',

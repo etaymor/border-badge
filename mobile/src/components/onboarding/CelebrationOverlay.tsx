@@ -166,8 +166,12 @@ export default function CelebrationOverlay({
           },
         ]}
       >
-        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+        {/* Background blur layer - isolated in its own container */}
+        <View style={styles.blurContainer} pointerEvents="none">
+          <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+        </View>
 
+        {/* Content layer - elevated above blur */}
         <Animated.View
           style={[
             styles.celebrationContent,
@@ -232,22 +236,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  blurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
   celebrationContent: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
     width: '100%',
-    zIndex: 1,
+    zIndex: 2,
+    elevation: 2,
   },
   imageContainer: {
     marginBottom: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
   },
   imageContainerSmall: {
     marginBottom: 28,
@@ -278,9 +283,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 40,
     fontFamily: fonts.playfair.bold,
+    lineHeight: 48,
   },
   titleTextSmall: {
     fontSize: 28,
+    lineHeight: 34,
   },
   subtitleText: {
     color: colors.warmCream,

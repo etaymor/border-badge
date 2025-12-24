@@ -99,6 +99,7 @@ class UserCountryWithCountry(BaseModel):
     country_id: UUID
     status: UserCountryStatus
     created_at: datetime
+    added_during_onboarding: bool = False
     country: Country | None = None
 
 
