@@ -248,7 +248,9 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         accessibilityRole="button"
         accessibilityLabel={value ? 'Change cover image' : 'Add cover image'}
         accessibilityHint={
-          value ? 'Tap to change or remove the cover image' : 'Tap to select an image from your gallery'
+          value
+            ? 'Tap to change or remove the cover image'
+            : 'Tap to select an image from your gallery'
         }
       >
         {displayUri ? (

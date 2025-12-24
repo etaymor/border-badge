@@ -406,7 +406,11 @@ async def call_openrouter_llm(
         logger.warning("OpenRouter API timeout")
         return None
     except json.JSONDecodeError as e:
-        logger.warning("Failed to parse LLM response as JSON: %s, content: %s", e, content[:500] if content else "empty")
+        logger.warning(
+            "Failed to parse LLM response as JSON: %s, content: %s",
+            e,
+            content[:500] if content else "empty",
+        )
         return None
     except Exception as e:
         logger.exception("OpenRouter API call failed: %s", e)

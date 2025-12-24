@@ -354,12 +354,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
       {/* Selection Celebration Overlay - Using Modal for guaranteed overlay above all content */}
       {showSelection && selectedCountryData && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="none"
-          statusBarTranslucent={true}
-        >
+        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
           <CelebrationOverlay
             visible={true}
             countryCode={selectedCountryData.code}
