@@ -88,6 +88,7 @@ class UserCountry(BaseModel):
     country_code: str  # 2-letter ISO code for frontend compatibility
     status: UserCountryStatus
     created_at: datetime
+    added_during_onboarding: bool = False
 
 
 class UserCountryWithCountry(BaseModel):
@@ -106,6 +107,7 @@ class UserCountryCreate(BaseModel):
 
     country_code: str  # 2-letter ISO code, looked up to UUID on backend
     status: UserCountryStatus
+    added_during_onboarding: bool = False
 
     @field_validator("country_code")
     @classmethod

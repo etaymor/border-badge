@@ -129,14 +129,24 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const thisCountryVisit = visitedCountries.find((uc) => uc.country_code === code);
+
+    // If this country was added during onboarding, don't show milestones
+    // since onboarding country order doesn't represent actual travel chronology
+    const isOnboardingCountry = thisCountryVisit?.added_during_onboarding ?? false;
+
+    // Filter to countries visited before this one, excluding onboarding countries
     const countriesVisitedBefore = thisCountryVisit
       ? visitedCountries.filter(
           (uc) =>
-            new Date(uc.created_at).getTime() < new Date(thisCountryVisit.created_at).getTime()
+            new Date(uc.created_at).getTime() < new Date(thisCountryVisit.created_at).getTime() &&
+            !uc.added_during_onboarding
         )
       : [];
 
-    const milestones = detectMilestones(code, allCountries, countriesVisitedBefore);
+    // Skip milestone detection for onboarding countries
+    const milestones = isOnboardingCountry
+      ? []
+      : detectMilestones(code, allCountries, countriesVisitedBefore);
 
     const context: MilestoneContext = {
       countryCode: code,

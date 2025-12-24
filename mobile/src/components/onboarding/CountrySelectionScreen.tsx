@@ -201,7 +201,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
       </View>
 
       <View style={styles.content}>
-        {/* Title */}
+        {/* Title - Text component handles responsive sizing */}
         <Animated.View
           style={[
             styles.header,
@@ -403,11 +403,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    marginBottom: 48,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 32,
-    lineHeight: 40,
     color: colors.midnightNavy,
   },
   searchContainer: {

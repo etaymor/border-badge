@@ -2,20 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FlatListProps } from 'react-native';
-import {
-  Dimensions,
-  FlatList,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-  type ListRenderItem,
-  type ViewToken,
-} from 'react-native';
+import { FlatList, Image, StyleSheet, TouchableOpacity, View, type ListRenderItem, type ViewToken } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { useResponsive } from '@hooks/useResponsive';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -51,11 +43,16 @@ interface Slide {
   showCTA: boolean;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 
 export function OnboardingSliderScreen({ navigation }: Props) {
+  const { screenWidth, screenHeight, isSmallScreen } = useResponsive();
+
+  // Responsive dimensions for layout
+  const postcardWidth = screenWidth - (isSmallScreen ? 100 : 80);
+  const postcardHeight = postcardWidth * (isSmallScreen ? 1.0 : 1.1);
+  const slideHeight = screenHeight - (isSmallScreen ? 180 : 220);
+
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
 
@@ -136,14 +133,26 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   );
 
   const renderSlide: ListRenderItem<Slide> = ({ item, index }) => (
-    <View style={styles.slide} testID={`carousel-slide-${item.id}`}>
+    <View
+      style={[styles.slide, { width: screenWidth, height: slideHeight }]}
+      testID={`carousel-slide-${item.id}`}
+    >
       <View style={styles.slideContent}>
         {/* Postcard frame container */}
-        <View style={styles.postcardContainer}>
+        <View
+          style={[
+            styles.postcardContainer,
+            { width: postcardWidth + 16, height: postcardHeight + 16 },
+          ]}
+        >
           {/* Shadow layer behind for stacked effect */}
-          <View style={styles.postcardShadow} />
+          <View
+            style={[styles.postcardShadow, { width: postcardWidth, height: postcardHeight }]}
+          />
           {/* Main postcard frame */}
-          <View style={styles.postcardFrame}>
+          <View
+            style={[styles.postcardFrame, { width: postcardWidth, height: postcardHeight }]}
+          >
             <VideoView
               player={players[index]}
               style={styles.video}
@@ -153,7 +162,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Text below postcard */}
+        {/* Text below postcard - Text component handles responsive sizing */}
         <Text variant="title" style={styles.slideText}>
           {item.text}
         </Text>
@@ -226,11 +235,6 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   );
 }
 
-const POSTCARD_WIDTH = SCREEN_WIDTH - 80;
-const POSTCARD_HEIGHT = POSTCARD_WIDTH * 1.1;
-// Calculate available height: screen - safe area top (~50) - header (~50) - bottom button area (~120)
-const SLIDE_HEIGHT = SCREEN_HEIGHT - 220;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -261,8 +265,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   slide: {
-    width: SCREEN_WIDTH,
-    height: SLIDE_HEIGHT,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
@@ -272,15 +274,11 @@ const styles = StyleSheet.create({
   },
   postcardContainer: {
     position: 'relative',
-    width: POSTCARD_WIDTH + 16,
-    height: POSTCARD_HEIGHT + 16,
   },
   postcardShadow: {
     position: 'absolute',
     top: 8,
     left: 8,
-    width: POSTCARD_WIDTH,
-    height: POSTCARD_HEIGHT,
     backgroundColor: colors.stormGray,
     borderRadius: 16,
     opacity: 0.3,
@@ -289,8 +287,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    width: POSTCARD_WIDTH,
-    height: POSTCARD_HEIGHT,
     backgroundColor: colors.paperBeige,
     borderRadius: 16,
     padding: 12,
@@ -306,12 +302,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   slideText: {
-    fontSize: 28,
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginTop: 20,
-    paddingHorizontal: 40,
-    lineHeight: 36,
+    marginTop: 16,
+    paddingHorizontal: 32,
   },
   bottomSection: {
     position: 'absolute',
@@ -327,7 +321,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 12,
     gap: 8,
   },
   dot: {

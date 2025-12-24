@@ -221,7 +221,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.content}>
-        {/* Title */}
+        {/* Title - Text component handles responsive sizing */}
         <Animated.View
           style={[
             styles.header,
@@ -238,7 +238,7 @@ export function TrackingPreferenceScreen({ navigation }: Props) {
 
         {/* Subtitle */}
         <Animated.View style={{ opacity: subtitleOpacity }}>
-          <Text style={styles.subtitle}>
+          <Text variant="body" style={styles.subtitle}>
             Choose what counts as a country in your passport. You can always change this later.
           </Text>
         </Animated.View>
@@ -306,19 +306,14 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 28,
-    lineHeight: 36,
     color: colors.midnightNavy,
   },
   subtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    lineHeight: 24,
     color: colors.stormGray,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   scrollContainer: {
     flex: 1,

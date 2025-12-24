@@ -11,6 +11,7 @@ interface ProfileNameSectionProps {
   displayName: string;
   nameError?: string;
   isSaving: boolean;
+  isSmallScreen?: boolean;
   onStartEditing: () => void;
   onCancelEditing: () => void;
   onSaveName: () => void;
@@ -23,6 +24,7 @@ export function ProfileNameSection({
   displayName,
   nameError,
   isSaving,
+  isSmallScreen,
   onStartEditing,
   onCancelEditing,
   onSaveName,
@@ -50,7 +52,7 @@ export function ProfileNameSection({
               accessibilityRole="button"
               accessibilityLabel="Cancel editing"
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={[styles.cancelButtonText, isSmallScreen && styles.cancelButtonTextSmall]}>Cancel</Text>
             </Pressable>
             <Button
               title={isSaving ? 'Saving...' : 'Save'}
@@ -68,7 +70,7 @@ export function ProfileNameSection({
           accessibilityLabel="Edit display name"
           accessibilityHint="Double tap to edit your display name"
         >
-          <Text style={styles.displayName}>{displayName}</Text>
+          <Text style={[styles.displayName, isSmallScreen && styles.displayNameSmall]}>{displayName}</Text>
           <Ionicons
             name="pencil-outline"
             size={20}
@@ -126,7 +128,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.stormGray,
   },
+  cancelButtonTextSmall: {
+    fontSize: 14,
+  },
   saveButton: {
     minWidth: 100,
+  },
+  displayNameSmall: {
+    fontSize: 20,
   },
 });

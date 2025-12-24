@@ -296,7 +296,19 @@ export function AuthScreen({ navigation }: Props) {
 
               {/* Password input - only shown when email is valid */}
               {isEmailValid && (
-                <Animated.View style={{ opacity: passwordAnim }}>
+                <Animated.View
+                  style={{
+                    opacity: passwordAnim,
+                    transform: [
+                      {
+                        translateY: passwordAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-8, 0],
+                        }),
+                      },
+                    ],
+                  }}
+                >
                   <View style={styles.inputGlassWrapper}>
                     <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
                       <View

@@ -9,6 +9,7 @@ import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
 import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
+import { useResponsive } from '@hooks/useResponsive';
 import { useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useProfile, useUpdateProfile } from '@hooks/useProfile';
@@ -58,6 +59,7 @@ function getInitials(name: string | undefined): string {
 }
 
 export function ProfileSettingsScreen({ navigation }: Props) {
+  const { isSmallScreen } = useResponsive();
   const { session } = useAuthStore();
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
   const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
@@ -324,11 +326,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         {/* Header with back button */}
         <View style={styles.header}>
           <GlassBackButton onPress={handleGoBack} testID="profile-back-button" />
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>Profile</Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        <ProfileAvatar initials={initials} />
+        <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
 
         <ProfileNameSection
           isEditing={isEditing}
@@ -336,6 +338,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           displayName={profile?.display_name ?? 'Set your name'}
           nameError={nameError}
           isSaving={updateDisplayName.isPending}
+          isSmallScreen={isSmallScreen}
           onStartEditing={handleStartEditing}
           onCancelEditing={handleCancelEditing}
           onSaveName={handleSaveName}
@@ -351,6 +354,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           trackingPreferenceDisplay={trackingPreferenceDisplay}
           visitedCount={visitedCount}
           clipboardDetectionEnabled={clipboardDetectionEnabled}
+          isSmallScreen={isSmallScreen}
           onOpenTrackingModal={handleOpenTrackingModal}
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
@@ -358,7 +362,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
         <View style={styles.divider} />
 
-        <SignOutSection onSignOut={handleSignOut} isPending={signOut.isPending} />
+        <SignOutSection onSignOut={handleSignOut} isPending={signOut.isPending} isSmallScreen={isSmallScreen} />
       </ScrollView>
 
       <TrackingPreferenceModal
@@ -410,6 +414,9 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
     fontStyle: 'italic',
     letterSpacing: -0.5,
+  },
+  headerTitleSmall: {
+    fontSize: 24,
   },
   headerSpacer: {
     width: 44, // Match back button width for centering

@@ -113,7 +113,7 @@ export function MotivationScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.content}>
-        {/* Title */}
+        {/* Title - Text component handles responsive sizing */}
         <Animated.View
           style={[
             styles.header,
@@ -226,11 +226,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   title: {
-    fontSize: 32,
-    lineHeight: 40,
     color: colors.midnightNavy,
   },
   scrollContainer: {

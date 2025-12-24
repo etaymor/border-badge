@@ -13,6 +13,7 @@ export interface UserCountry {
   country_code: string;
   status: 'visited' | 'wishlist';
   created_at: string;
+  added_during_onboarding?: boolean;
 }
 
 // Dynamic query key to isolate cache per user session
@@ -37,6 +38,7 @@ export function useUserCountries() {
           country_code: countryCode,
           status: 'visited' as const,
           created_at: new Date().toISOString(),
+          added_during_onboarding: true,
         }));
         const wishlist = bucketListCountries.map((countryCode, index) => ({
           id: `temp-wishlist-${index}`,
@@ -44,6 +46,7 @@ export function useUserCountries() {
           country_code: countryCode,
           status: 'wishlist' as const,
           created_at: new Date().toISOString(),
+          added_during_onboarding: true,
         }));
         return [...visited, ...wishlist];
       }

@@ -5,13 +5,14 @@ import { fonts } from '@constants/typography';
 
 interface ProfileAvatarProps {
   initials: string;
+  isSmallScreen?: boolean;
 }
 
-export function ProfileAvatar({ initials }: ProfileAvatarProps) {
+export function ProfileAvatar({ initials, isSmallScreen }: ProfileAvatarProps) {
   return (
     <View style={styles.avatarSection}>
-      <View style={styles.avatarCircle}>
-        <Text style={styles.avatarText}>{initials}</Text>
+      <View style={[styles.avatarCircle, isSmallScreen && styles.avatarCircleSmall]}>
+        <Text style={[styles.avatarText, isSmallScreen && styles.avatarTextSmall]}>{initials}</Text>
       </View>
     </View>
   );
@@ -40,5 +41,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.playfair.bold,
     fontSize: 32,
     color: colors.cloudWhite,
+  },
+  avatarCircleSmall: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  avatarTextSmall: {
+    fontSize: 26,
   },
 });
