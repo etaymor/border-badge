@@ -34,7 +34,7 @@ const DEFAULT_BACKGROUND = colors.warmCream;
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
   const { addVisitedContinent, visitedContinents } = useOnboardingStore();
-  const { isSmallScreen } = useResponsive();
+  const { isSmallScreen, isLargeScreen } = useResponsive();
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
@@ -166,7 +166,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text variant="title" style={[styles.title, !isSmallScreen && styles.titleLarge]}>
+          <Text variant="title" style={[styles.title, isLargeScreen && styles.titleLarge]}>
             Visited {region}?
           </Text>
         </Animated.View>
@@ -176,7 +176,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           style={[
             styles.videoContainer,
             isSmallScreen && styles.videoContainerSmall,
-            !isSmallScreen && styles.videoContainerLarge,
+            isLargeScreen && styles.videoContainerLarge,
             {
               opacity: contentOpacity,
               transform: [{ scale: videoScale }],
@@ -289,7 +289,7 @@ const styles = StyleSheet.create({
     marginTop: -30,
   },
   videoContainerLarge: {
-    marginTop: -40,
+    marginTop: 0,
   },
   video: {
     width: '100%',
