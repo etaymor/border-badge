@@ -329,7 +329,13 @@ export function EntryMediaGallery({
         )}
 
         {editable && media.status === 'uploaded' && (
-          <Pressable style={styles.deleteButton} onPress={() => handleDelete(media.id)}>
+          <Pressable
+            style={styles.deleteButton}
+            onPress={() => handleDelete(media.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Delete photo"
+            accessibilityHint="Tap to remove this photo"
+          >
             <Ionicons name="close-circle" size={22} color="#fff" />
           </Pressable>
         )}
@@ -400,6 +406,9 @@ export function EntryMediaGallery({
                 style={styles.addButton}
                 onPress={handlePickImages}
                 disabled={isPickerOpen}
+                accessibilityRole="button"
+                accessibilityLabel="Add more photos"
+                accessibilityHint={`Tap to add up to ${remainingSlots} more photos`}
               >
                 <Ionicons name="add" size={32} color={colors.midnightNavy} />
               </Pressable>
@@ -413,14 +422,19 @@ export function EntryMediaGallery({
               style={styles.emptyButton}
               onPress={handlePickImages}
               disabled={isPickerOpen}
+              accessibilityRole="button"
+              accessibilityLabel="Choose photos"
+              accessibilityHint="Tap to select photos from your gallery"
             >
               <BlurView intensity={20} tint="light" style={styles.emptyBlurView}>
                 <View style={styles.emptyContent}>
                   <View style={styles.iconCircle}>
-                    <Ionicons name="image-outline" size={28} color={colors.midnightNavy} />
+                    <Ionicons name="image-outline" size={22} color={colors.midnightNavy} />
                   </View>
-                  <Text style={styles.emptyButtonText}>Choose Photos</Text>
-                  <Text style={styles.emptyHint}>Tap to add memories</Text>
+                  <View style={styles.emptyTextContainer}>
+                    <Text style={styles.emptyButtonText}>Choose Photos</Text>
+                    <Text style={styles.emptyHint}>Tap to add memories</Text>
+                  </View>
                 </View>
               </BlurView>
             </Pressable>
@@ -533,21 +547,24 @@ const styles = StyleSheet.create({
   emptyBlurView: {
     width: '100%',
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 28,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
   },
   emptyContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 12,
   },
   iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  emptyTextContainer: {
+    flex: 1,
   },
   emptyButtonText: {
     color: colors.midnightNavy,

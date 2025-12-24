@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { useResponsive } from '@hooks/useResponsive';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -16,6 +17,7 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 type Props = OnboardingStackScreenProps<'WelcomeCarousel'>;
 
 export function WelcomeCarouselScreen({ navigation }: Props) {
+  const { isSmallScreen } = useResponsive();
   const player = useVideoPlayer(welcomeVideo, (player) => {
     player.loop = true;
     player.muted = true;
@@ -67,7 +69,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
       </SafeAreaView>
 
       {/* Text overlay - below header */}
-      <View style={styles.textOverlay}>
+      <View style={[styles.textOverlay, isSmallScreen && styles.textOverlaySmall]}>
         <Text variant="title" style={styles.title}>
           The world is waiting
         </Text>
@@ -134,6 +136,9 @@ const styles = StyleSheet.create({
     left: 24,
     right: 24,
     alignItems: 'center',
+  },
+  textOverlaySmall: {
+    top: 100,
   },
   title: {
     fontSize: 36,

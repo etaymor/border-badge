@@ -14,6 +14,7 @@ import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useResponsive } from '@hooks/useResponsive';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
 import quillIcon from '../../../assets/quill-icon.png';
@@ -58,6 +59,7 @@ export const CountryCard = React.memo(function CountryCard({
   style,
   testID,
 }: CountryCardProps) {
+  const { isSmallScreen } = useResponsive();
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
   const countryImage = useMemo(() => getCountryImage(code), [code]);
 
@@ -101,7 +103,10 @@ export const CountryCard = React.memo(function CountryCard({
       {/* Top Liquid Glass Pane - Country Name */}
       <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
         <View style={styles.textContainer}>
-          <Text style={styles.countryName} numberOfLines={2}>
+          <Text
+            style={[styles.countryName, isSmallScreen && styles.countryNameSmall]}
+            numberOfLines={2}
+          >
             {name}
           </Text>
           {region && (
@@ -302,6 +307,10 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(255, 255, 255, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+  },
+  countryNameSmall: {
+    fontSize: 16,
+    lineHeight: 20,
   },
   regionName: {
     fontFamily: fonts.openSans.regular,

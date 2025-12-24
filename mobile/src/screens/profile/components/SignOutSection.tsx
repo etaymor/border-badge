@@ -6,9 +6,10 @@ import { fonts } from '@constants/typography';
 interface SignOutSectionProps {
   onSignOut: () => void;
   isPending: boolean;
+  isSmallScreen?: boolean;
 }
 
-export function SignOutSection({ onSignOut, isPending }: SignOutSectionProps) {
+export function SignOutSection({ onSignOut, isPending, isSmallScreen }: SignOutSectionProps) {
   return (
     <View style={styles.signOutSection}>
       <Pressable
@@ -22,7 +23,9 @@ export function SignOutSection({ onSignOut, isPending }: SignOutSectionProps) {
         {isPending ? (
           <ActivityIndicator size="small" color={colors.adobeBrick} />
         ) : (
-          <Text style={styles.signOutText}>Sign Out</Text>
+          <Text style={[styles.signOutText, isSmallScreen && styles.signOutTextSmall]}>
+            Sign Out
+          </Text>
         )}
       </Pressable>
     </View>
@@ -53,5 +56,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.adobeBrick,
+  },
+  signOutTextSmall: {
+    fontSize: 14,
   },
 });

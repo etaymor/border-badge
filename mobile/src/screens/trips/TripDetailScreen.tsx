@@ -129,7 +129,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
     () => (
       <View style={styles.gridHeader}>
         <View style={styles.journalHeaderContainer}>
-          <Text style={styles.journalTitle}>Travel Log</Text>
+          <Text style={styles.journalTitle}>Trip Log</Text>
           <View style={styles.journalLine} />
         </View>
       </View>

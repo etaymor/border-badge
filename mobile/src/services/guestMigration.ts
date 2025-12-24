@@ -48,6 +48,7 @@ interface UserCountry {
   country_code: string;
   status: 'visited' | 'wishlist';
   created_at: string;
+  added_during_onboarding: boolean;
 }
 
 // Helper to migrate a set of countries with a given status using batch endpoint
@@ -70,10 +71,12 @@ async function migrateCountries(
     });
 
     // Batch all countries in a single request for performance
+    // Mark all countries from onboarding so they're excluded from milestone calculations
     const payload = {
       countries: Array.from(countries).map((code) => ({
         country_code: code,
         status,
+        added_during_onboarding: true,
       })),
     };
     const response = await api.post('/countries/user/batch', payload);

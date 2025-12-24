@@ -245,6 +245,13 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         style={[styles.picker, disabled && styles.pickerDisabled]}
         onPress={showOptions}
         disabled={disabled || uploading}
+        accessibilityRole="button"
+        accessibilityLabel={value ? 'Change cover image' : 'Add cover image'}
+        accessibilityHint={
+          value
+            ? 'Tap to change or remove the cover image'
+            : 'Tap to select an image from your gallery'
+        }
       >
         {displayUri ? (
           <View style={styles.imageContainer}>
@@ -271,10 +278,12 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
             <BlurView intensity={20} tint="light" style={styles.blurView}>
               <View style={styles.placeholderContent}>
                 <View style={styles.iconCircle}>
-                  <Ionicons name="image-outline" size={32} color={colors.midnightNavy} />
+                  <Ionicons name="image-outline" size={24} color={colors.midnightNavy} />
                 </View>
-                <Text style={styles.placeholderText}>Add Cover Image</Text>
-                <Text style={styles.placeholderHint}>Tap to select</Text>
+                <View style={styles.placeholderTextContainer}>
+                  <Text style={styles.placeholderText}>Add Cover Image</Text>
+                  <Text style={styles.placeholderHint}>Tap to select</Text>
+                </View>
               </View>
             </BlurView>
           </View>
@@ -324,7 +333,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   glassContainer: {
-    height: 160,
+    height: 80,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#fff',
@@ -335,20 +344,23 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   placeholderContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  placeholderTextContainer: {
+    flex: 1,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,

@@ -27,6 +27,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@components/splash';
+import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { RootNavigator } from '@navigation/RootNavigator';
 import type { ShareCaptureSource } from '@navigation/types';
@@ -498,23 +499,25 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          <NavigationContainer
-            ref={navigationRef}
-            linking={linking}
-            initialState={initialNavigationState}
-            onStateChange={handleNavigationStateChange}
-            onReady={handleNavigationReady}
-          >
-            <RootNavigator />
-            <StatusBar style="auto" />
-          </NavigationContainer>
-          {showSplash && (
-            <AnimatedSplash
-              isAppReady={isAppReady}
-              onAnimationComplete={handleSplashComplete}
-              onSplashVisible={handleSplashVisible}
-            />
-          )}
+          <ResponsiveProvider>
+            <NavigationContainer
+              ref={navigationRef}
+              linking={linking}
+              initialState={initialNavigationState}
+              onStateChange={handleNavigationStateChange}
+              onReady={handleNavigationReady}
+            >
+              <RootNavigator />
+              <StatusBar style="auto" />
+            </NavigationContainer>
+            {showSplash && (
+              <AnimatedSplash
+                isAppReady={isAppReady}
+                onAnimationComplete={handleSplashComplete}
+                onSplashVisible={handleSplashVisible}
+              />
+            )}
+          </ResponsiveProvider>
         </SafeAreaProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

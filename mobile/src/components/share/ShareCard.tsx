@@ -246,12 +246,12 @@ const styles = StyleSheet.create({
   },
   numberGlass: {
     backgroundColor: withAlpha(colors.white, 0.85),
-    borderRadius: 16 * SCALE,
-    paddingHorizontal: 16 * SCALE,
-    paddingVertical: 10 * SCALE,
+    borderRadius: 12 * SCALE,
+    paddingHorizontal: 12 * SCALE,
+    paddingVertical: 6 * SCALE,
     borderWidth: 1 * SCALE,
     borderColor: withAlpha(colors.midnightNavy, 0.1),
-    minWidth: 60 * SCALE,
+    minWidth: 50 * SCALE,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -300,11 +300,11 @@ const styles = StyleSheet.create({
   // Watermark - aligned with number badge vertically
   watermark: {
     position: 'absolute',
-    bottom: 48 * SCALE,
+    bottom: 54 * SCALE,
     right: 32 * SCALE,
     width: 120 * SCALE,
     height: 36 * SCALE,
-    opacity: 0.8,
+    opacity: 1,
   },
 
   // ============ PHOTO MODE STYLES ============

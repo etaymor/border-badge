@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton } from '@components/ui';
+import { GlassBackButton, Text } from '@components/ui';
+import { useResponsive } from '@hooks/useResponsive';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
@@ -33,6 +34,7 @@ const DEFAULT_BACKGROUND = colors.warmCream;
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
   const { addVisitedContinent, visitedContinents } = useOnboardingStore();
+  const { isSmallScreen } = useResponsive();
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
@@ -122,7 +124,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
-      navigation.navigate('ContinentIntro', {
+      // Use push instead of navigate to add to stack history for back navigation
+      navigation.push('ContinentIntro', {
         region: REGIONS[nextIndex],
         regionIndex: nextIndex,
       });
@@ -151,23 +154,29 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           ]}
         >
           <View style={styles.navBar}>
-            {canGoBack ? (
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            ) : (
-              <View style={styles.backButtonPlaceholder} />
-            )}
+            <View style={styles.backButtonContainer}>
+              {canGoBack ? (
+                <GlassBackButton onPress={() => navigation.goBack()} />
+              ) : (
+                <View style={styles.backButtonPlaceholder} />
+              )}
+            </View>
             <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.title}>Visited {region}?</Text>
+          <Text variant="title" style={[styles.title, !isSmallScreen && styles.titleLarge]}>
+            Visited {region}?
+          </Text>
         </Animated.View>
 
         {/* Video container with overlaid buttons */}
         <Animated.View
           style={[
             styles.videoContainer,
+            isSmallScreen && styles.videoContainerSmall,
+            !isSmallScreen && styles.videoContainerLarge,
             {
               opacity: contentOpacity,
               transform: [{ scale: videoScale }],
@@ -234,8 +243,13 @@ const styles = StyleSheet.create({
   },
   navBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    left: 0,
   },
   backButtonPlaceholder: {
     width: 44,
@@ -246,6 +260,8 @@ const styles = StyleSheet.create({
     height: 40,
   },
   loginButton: {
+    position: 'absolute',
+    right: 0,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -255,16 +271,25 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   title: {
-    fontSize: 32,
-    fontFamily: fonts.playfair.bold,
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: 12,
+  },
+  titleLarge: {
+    fontSize: 36,
+    lineHeight: 44,
+    marginTop: 24,
   },
   videoContainer: {
     flex: 1,
     position: 'relative',
     marginTop: -60,
+  },
+  videoContainerSmall: {
+    marginTop: -30,
+  },
+  videoContainerLarge: {
+    marginTop: -40,
   },
   video: {
     width: '100%',

@@ -17,6 +17,7 @@ import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { CelebrationAnimationRefs } from '@hooks/useCountrySelectionAnimations';
+import { useResponsive } from '@hooks/useResponsive';
 
 export interface CelebrationOverlayProps {
   visible: boolean;
@@ -130,7 +131,12 @@ export default function CelebrationOverlay({
   onSkip,
 }: CelebrationOverlayProps) {
   const { width } = useWindowDimensions();
+  const { isSmallScreen } = useResponsive();
   const { selectionScale, selectionOpacity, flagScale, flagRotate } = animationRefs;
+
+  // Calculate responsive image size based on screen dimensions
+  // Use smaller size on compact screens (iPhone SE, etc.)
+  const imageSize = isSmallScreen ? Math.min(width * 0.35, 120) : Math.min(width * 0.4, 160);
 
   const flagRotateInterpolation = useMemo(
     () =>
@@ -160,8 +166,12 @@ export default function CelebrationOverlay({
           },
         ]}
       >
-        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+        {/* Background blur layer - isolated in its own container */}
+        <View style={styles.blurContainer} pointerEvents="none">
+          <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+        </View>
 
+        {/* Content layer - elevated above blur */}
         <Animated.View
           style={[
             styles.celebrationContent,
@@ -175,6 +185,7 @@ export default function CelebrationOverlay({
           <Animated.View
             style={[
               styles.imageContainer,
+              isSmallScreen && styles.imageContainerSmall,
               {
                 transform: [{ scale: flagScale }, { rotate: flagRotateInterpolation }],
               },
@@ -185,7 +196,10 @@ export default function CelebrationOverlay({
                 source={imageSource}
                 style={[
                   type === 'home' ? styles.stampImage : styles.illustrationImage,
-                  { width: width * 0.75 },
+                  {
+                    width: imageSize,
+                    height: type === 'home' ? imageSize : imageSize / 1.5,
+                  },
                 ]}
                 resizeMode="contain"
               />
@@ -197,10 +211,16 @@ export default function CelebrationOverlay({
           </Animated.View>
 
           <View style={styles.textContainer}>
-            <Text variant="heading" style={styles.titleText}>
+            <Text
+              variant="heading"
+              style={[styles.titleText, isSmallScreen && styles.titleTextSmall]}
+            >
               {type === 'home' ? 'Home Sweet Home' : 'Dream Big!'}
             </Text>
-            <Text variant="body" style={styles.subtitleText}>
+            <Text
+              variant="body"
+              style={[styles.subtitleText, isSmallScreen && styles.subtitleTextSmall]}
+            >
               {countryName} {type === 'home' ? 'is set as your home' : 'added to your list'}
             </Text>
           </View>
@@ -215,31 +235,33 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 100,
+  },
+  blurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   celebrationContent: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
     width: '100%',
+    zIndex: 2,
+    elevation: 2,
   },
   imageContainer: {
-    marginBottom: 32,
+    marginBottom: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+  },
+  imageContainerSmall: {
+    marginBottom: 28,
   },
   stampImage: {
-    height: 240,
-    aspectRatio: 1,
+    // Size controlled dynamically via inline styles
   },
   illustrationImage: {
-    height: 240,
-    aspectRatio: 1.5,
+    // Size controlled dynamically via inline styles
   },
   fallbackContainer: {
     width: 150,
@@ -261,6 +283,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 40,
     fontFamily: fonts.playfair.bold,
+    lineHeight: 48,
+  },
+  titleTextSmall: {
+    fontSize: 28,
+    lineHeight: 34,
   },
   subtitleText: {
     color: colors.warmCream,
@@ -268,6 +295,9 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     fontSize: 18,
     fontFamily: fonts.openSans.regular,
+  },
+  subtitleTextSmall: {
+    fontSize: 15,
   },
   particle: {
     position: 'absolute',

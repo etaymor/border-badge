@@ -4,6 +4,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ResponsiveProvider } from '@contexts/ResponsiveContext';
+
 /**
  * Creates a fresh QueryClient for each test to avoid state leakage.
  * Configured with no retries and no caching for predictable test behavior.
@@ -36,11 +38,13 @@ interface ExtendedRenderOptions extends Omit<RenderOptions, 'wrapper'> {
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: WrapperProps) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          <NavigationContainer>{children}</NavigationContainer>
-        </SafeAreaProvider>
-      </QueryClientProvider>
+      <ResponsiveProvider>
+        <QueryClientProvider client={queryClient}>
+          <SafeAreaProvider>
+            <NavigationContainer>{children}</NavigationContainer>
+          </SafeAreaProvider>
+        </QueryClientProvider>
+      </ResponsiveProvider>
     );
   };
 }

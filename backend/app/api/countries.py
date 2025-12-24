@@ -218,6 +218,7 @@ async def get_user_countries(
                 country_code=country_code or "",
                 status=row["status"],
                 created_at=row["created_at"],
+                added_during_onboarding=row.get("added_during_onboarding", False),
             )
         )
     return result
@@ -288,6 +289,7 @@ async def set_user_country(
         country_code=country_code,
         status=row["status"],
         created_at=row["created_at"],
+        added_during_onboarding=row.get("added_during_onboarding", False),
     )
 
 
@@ -335,6 +337,7 @@ async def set_user_countries_batch(
             "user_id": user.id,
             "country_id": str(country_ids[country_data.country_code.upper()]),
             "status": country_data.status.value,
+            "added_during_onboarding": country_data.added_during_onboarding,
         }
         for country_data in data.countries
     ]
@@ -364,6 +367,7 @@ async def set_user_countries_batch(
             country_code=id_to_code.get(row["country_id"], ""),
             status=row["status"],
             created_at=row["created_at"],
+            added_during_onboarding=row.get("added_during_onboarding", False),
         )
         for row in rows
     ]

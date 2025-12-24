@@ -6,15 +6,15 @@ import {
   Image,
   ImageSourcePropType,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton } from '@components/ui';
+import { GlassBackButton, Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useResponsive } from '@hooks/useResponsive';
 import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
@@ -32,6 +32,7 @@ const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
   const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
+  const { isSmallScreen } = useResponsive();
 
   // Animation values
   const contentOpacity = useRef(new Animated.Value(0)).current;
@@ -123,13 +124,16 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.title}>Been to Antarctica?</Text>
+          <Text variant="title" style={styles.title}>
+            Been to Antarctica?
+          </Text>
         </Animated.View>
 
         {/* Image container with overlaid buttons */}
         <Animated.View
           style={[
             styles.imageContainer,
+            isSmallScreen && styles.imageContainerSmall,
             {
               opacity: contentOpacity,
               transform: [{ scale: imageScale }],
@@ -207,16 +211,17 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   title: {
-    fontSize: 32,
-    fontFamily: fonts.playfair.bold,
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: 12,
   },
   imageContainer: {
     flex: 1,
     position: 'relative',
     marginTop: -60,
+  },
+  imageContainerSmall: {
+    marginTop: -30,
   },
   image: {
     width: '100%',

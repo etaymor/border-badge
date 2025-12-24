@@ -7,6 +7,7 @@ import {
   FlatList,
   Image,
   Keyboard,
+  Modal,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -201,7 +202,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
       </View>
 
       <View style={styles.content}>
-        {/* Title */}
+        {/* Title - Text component handles responsive sizing */}
         <Animated.View
           style={[
             styles.header,
@@ -351,9 +352,9 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
         </Animated.View>
       </View>
 
-      {/* Selection Celebration Overlay */}
-      {showSelection && !!selectedCountryData && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]} pointerEvents="box-none">
+      {/* Selection Celebration Overlay - Using Modal for guaranteed overlay above all content */}
+      {showSelection && selectedCountryData && (
+        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
           <CelebrationOverlay
             visible={true}
             countryCode={selectedCountryData.code}
@@ -362,7 +363,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             animationRefs={refs}
             onSkip={handleNavigateNext}
           />
-        </View>
+        </Modal>
       )}
     </SafeAreaView>
   );
@@ -403,11 +404,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    marginBottom: 48,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 32,
-    lineHeight: 40,
     color: colors.midnightNavy,
   },
   searchContainer: {

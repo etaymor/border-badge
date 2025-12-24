@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
+import { useResponsive } from '@hooks/useResponsive';
 import { Text } from './Text';
 
 // Curated color palette for selected chips - brand-aligned colors
@@ -24,6 +25,8 @@ interface ChipProps {
 }
 
 export function Chip({ label, selected, onPress, style }: ChipProps) {
+  const { isSmallScreen } = useResponsive();
+
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   // Generate a consistent random color based on the label
@@ -58,7 +61,11 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
       <Pressable
-        style={[styles.chip, selected && { backgroundColor: chipColor, borderColor: chipColor }]}
+        style={[
+          styles.chip,
+          isSmallScreen && styles.chipSmall,
+          selected && { backgroundColor: chipColor, borderColor: chipColor },
+        ]}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
@@ -66,7 +73,14 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
         accessibilityLabel={label}
         accessibilityState={{ selected }}
       >
-        <Text variant="label" style={[styles.chipText, selected && styles.chipTextSelected]}>
+        <Text
+          variant="label"
+          style={[
+            styles.chipText,
+            isSmallScreen && styles.chipTextSmall,
+            selected && styles.chipTextSelected,
+          ]}
+        >
           {label}
         </Text>
       </Pressable>
@@ -90,8 +104,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  chipSmall: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
   chipText: {
     color: colors.textPrimary,
+  },
+  chipTextSmall: {
+    fontSize: 13,
   },
   chipTextSelected: {
     color: colors.white,
