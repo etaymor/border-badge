@@ -231,7 +231,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 100,
   },
   celebrationContent: {
     alignItems: 'center',

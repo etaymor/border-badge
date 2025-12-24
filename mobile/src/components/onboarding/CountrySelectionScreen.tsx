@@ -7,6 +7,7 @@ import {
   FlatList,
   Image,
   Keyboard,
+  Modal,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -351,9 +352,14 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
         </Animated.View>
       </View>
 
-      {/* Selection Celebration Overlay */}
-      {showSelection && !!selectedCountryData && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]} pointerEvents="box-none">
+      {/* Selection Celebration Overlay - Using Modal for guaranteed overlay above all content */}
+      <Modal
+        visible={showSelection && !!selectedCountryData}
+        transparent={true}
+        animationType="none"
+        statusBarTranslucent={true}
+      >
+        {selectedCountryData && (
           <CelebrationOverlay
             visible={true}
             countryCode={selectedCountryData.code}
@@ -362,8 +368,8 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             animationRefs={refs}
             onSkip={handleNavigateNext}
           />
-        </View>
-      )}
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }

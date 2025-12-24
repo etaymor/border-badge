@@ -124,7 +124,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
-      navigation.navigate('ContinentIntro', {
+      // Use push instead of navigate to add to stack history for back navigation
+      navigation.push('ContinentIntro', {
         region: REGIONS[nextIndex],
         regionIndex: nextIndex,
       });
@@ -153,17 +154,22 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           ]}
         >
           <View style={styles.navBar}>
-            {canGoBack ? (
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            ) : (
-              <View style={styles.backButtonPlaceholder} />
-            )}
+            <View style={styles.backButtonContainer}>
+              {canGoBack ? (
+                <GlassBackButton onPress={() => navigation.goBack()} />
+              ) : (
+                <View style={styles.backButtonPlaceholder} />
+              )}
+            </View>
             <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
             <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text variant="title" style={styles.title}>
+          <Text
+            variant="title"
+            style={[styles.title, !isSmallScreen && styles.titleLarge]}
+          >
             Visited {region}?
           </Text>
         </Animated.View>
@@ -173,6 +179,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           style={[
             styles.videoContainer,
             isSmallScreen && styles.videoContainerSmall,
+            !isSmallScreen && styles.videoContainerLarge,
             {
               opacity: contentOpacity,
               transform: [{ scale: videoScale }],
@@ -239,8 +246,13 @@ const styles = StyleSheet.create({
   },
   navBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    left: 0,
   },
   backButtonPlaceholder: {
     width: 44,
@@ -251,6 +263,8 @@ const styles = StyleSheet.create({
     height: 40,
   },
   loginButton: {
+    position: 'absolute',
+    right: 0,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -264,6 +278,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
   },
+  titleLarge: {
+    fontSize: 36,
+    lineHeight: 44,
+    marginTop: 24,
+  },
   videoContainer: {
     flex: 1,
     position: 'relative',
@@ -271,6 +290,9 @@ const styles = StyleSheet.create({
   },
   videoContainerSmall: {
     marginTop: -30,
+  },
+  videoContainerLarge: {
+    marginTop: -40,
   },
   video: {
     width: '100%',

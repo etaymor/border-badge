@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, useWindowDimensions, ViewStyle } from 'react-native';
+import { Animated, Pressable, StyleSheet, ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
+import { useResponsive } from '@hooks/useResponsive';
 import { Text } from './Text';
 
 // Curated color palette for selected chips - brand-aligned colors
@@ -24,9 +25,7 @@ interface ChipProps {
 }
 
 export function Chip({ label, selected, onPress, style }: ChipProps) {
-  const { height } = useWindowDimensions();
-  // iPhone SE has height ~667, use smaller chips on smaller screens
-  const isSmallScreen = height < 700;
+  const { isSmallScreen } = useResponsive();
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
