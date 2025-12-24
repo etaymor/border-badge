@@ -163,7 +163,9 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text variant="title" style={styles.title}>Visited {region}?</Text>
+          <Text variant="title" style={styles.title}>
+            Visited {region}?
+          </Text>
         </Animated.View>
 
         {/* Video container with overlaid buttons */}

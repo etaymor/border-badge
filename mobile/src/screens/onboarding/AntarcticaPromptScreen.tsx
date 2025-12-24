@@ -124,7 +124,9 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text variant="title" style={styles.title}>Been to Antarctica?</Text>
+          <Text variant="title" style={styles.title}>
+            Been to Antarctica?
+          </Text>
         </Animated.View>
 
         {/* Image container with overlaid buttons */}

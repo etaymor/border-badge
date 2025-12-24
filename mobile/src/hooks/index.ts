@@ -77,4 +77,4 @@ export type {
 } from './useCountrySelectionAnimations';
 
 export { useResponsive } from './useResponsive';
-export type { ScreenSize } from './useResponsive';
+export type { ScreenSize, ResponsiveValues } from './useResponsive';

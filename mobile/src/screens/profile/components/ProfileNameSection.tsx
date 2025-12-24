@@ -52,7 +52,11 @@ export function ProfileNameSection({
               accessibilityRole="button"
               accessibilityLabel="Cancel editing"
             >
-              <Text style={[styles.cancelButtonText, isSmallScreen && styles.cancelButtonTextSmall]}>Cancel</Text>
+              <Text
+                style={[styles.cancelButtonText, isSmallScreen && styles.cancelButtonTextSmall]}
+              >
+                Cancel
+              </Text>
             </Pressable>
             <Button
               title={isSaving ? 'Saving...' : 'Save'}
@@ -70,7 +74,9 @@ export function ProfileNameSection({
           accessibilityLabel="Edit display name"
           accessibilityHint="Double tap to edit your display name"
         >
-          <Text style={[styles.displayName, isSmallScreen && styles.displayNameSmall]}>{displayName}</Text>
+          <Text style={[styles.displayName, isSmallScreen && styles.displayNameSmall]}>
+            {displayName}
+          </Text>
           <Ionicons
             name="pencil-outline"
             size={20}

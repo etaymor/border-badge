@@ -33,13 +33,17 @@ export function ProfileInfoSection({
     <View style={styles.container}>
       {/* Passport Details Section */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>PASSPORT DETAILS</Text>
+        <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>
+          PASSPORT DETAILS
+        </Text>
         <View style={styles.card}>
           <View style={styles.cardRow}>
             <View>
               <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Email</Text>
             </View>
-            <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>{formattedEmail}</Text>
+            <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>
+              {formattedEmail}
+            </Text>
           </View>
 
           <View style={styles.divider} />
@@ -47,7 +51,9 @@ export function ProfileInfoSection({
           {homeCountryDisplay && (
             <>
               <View style={styles.cardRow}>
-                <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Home Country</Text>
+                <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                  Home Country
+                </Text>
                 <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>
                   {homeCountryDisplay.flag} {homeCountryDisplay.name}
                 </Text>
@@ -57,15 +63,21 @@ export function ProfileInfoSection({
           )}
 
           <View style={styles.cardRow}>
-            <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Member Since</Text>
-            <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>{memberSince}</Text>
+            <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+              Member Since
+            </Text>
+            <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>
+              {memberSince}
+            </Text>
           </View>
         </View>
       </View>
 
       {/* Preferences Section */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>PREFERENCES & DATA</Text>
+        <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>
+          PREFERENCES & DATA
+        </Text>
         <View style={styles.card}>
           <Pressable
             onPress={onOpenTrackingModal}
@@ -74,9 +86,13 @@ export function ProfileInfoSection({
             accessibilityLabel="Change country tracking preference"
           >
             <View style={styles.cardRow}>
-              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Country Tracking</Text>
+              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                Country Tracking
+              </Text>
               <View style={styles.rowValueContainer}>
-                <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>{trackingPreferenceDisplay.name}</Text>
+                <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>
+                  {trackingPreferenceDisplay.name}
+                </Text>
                 <Ionicons
                   name="chevron-forward"
                   size={16}
@@ -101,7 +117,9 @@ export function ProfileInfoSection({
                 accessibilityLabel="Export your country list"
               >
                 <View style={styles.cardRow}>
-                  <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Export Countries</Text>
+                  <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                    Export Countries
+                  </Text>
                   <View style={styles.rowValueContainer}>
                     <Text style={[styles.rowValue, isSmallScreen && styles.rowValueSmall]}>
                       {visitedCount} {visitedCount === 1 ? 'country' : 'countries'}
@@ -121,8 +139,14 @@ export function ProfileInfoSection({
 
           <View style={styles.cardRow}>
             <View style={styles.toggleLabelContainer}>
-              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>Clipboard Detection</Text>
-              <Text style={[styles.toggleDescription, isSmallScreen && styles.toggleDescriptionSmall]}>Detect TikTok/Instagram links</Text>
+              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                Clipboard Detection
+              </Text>
+              <Text
+                style={[styles.toggleDescription, isSmallScreen && styles.toggleDescriptionSmall]}
+              >
+                Detect TikTok/Instagram links
+              </Text>
             </View>
             <Switch
               value={clipboardDetectionEnabled}

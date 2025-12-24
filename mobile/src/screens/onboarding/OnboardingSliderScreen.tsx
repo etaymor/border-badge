@@ -2,7 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FlatListProps } from 'react-native';
-import { FlatList, Image, StyleSheet, TouchableOpacity, View, type ListRenderItem, type ViewToken } from 'react-native';
+import {
+  FlatList,
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  type ListRenderItem,
+  type ViewToken,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
@@ -146,13 +154,9 @@ export function OnboardingSliderScreen({ navigation }: Props) {
           ]}
         >
           {/* Shadow layer behind for stacked effect */}
-          <View
-            style={[styles.postcardShadow, { width: postcardWidth, height: postcardHeight }]}
-          />
+          <View style={[styles.postcardShadow, { width: postcardWidth, height: postcardHeight }]} />
           {/* Main postcard frame */}
-          <View
-            style={[styles.postcardFrame, { width: postcardWidth, height: postcardHeight }]}
-          >
+          <View style={[styles.postcardFrame, { width: postcardWidth, height: postcardHeight }]}>
             <VideoView
               player={players[index]}
               style={styles.video}

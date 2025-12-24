@@ -326,7 +326,9 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         {/* Header with back button */}
         <View style={styles.header}>
           <GlassBackButton onPress={handleGoBack} testID="profile-back-button" />
-          <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>Profile</Text>
+          <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>
+            Profile
+          </Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -362,7 +364,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
         <View style={styles.divider} />
 
-        <SignOutSection onSignOut={handleSignOut} isPending={signOut.isPending} isSmallScreen={isSmallScreen} />
+        <SignOutSection
+          onSignOut={handleSignOut}
+          isPending={signOut.isPending}
+          isSmallScreen={isSmallScreen}
+        />
       </ScrollView>
 
       <TrackingPreferenceModal

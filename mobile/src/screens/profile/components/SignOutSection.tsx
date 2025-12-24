@@ -23,7 +23,9 @@ export function SignOutSection({ onSignOut, isPending, isSmallScreen }: SignOutS
         {isPending ? (
           <ActivityIndicator size="small" color={colors.adobeBrick} />
         ) : (
-          <Text style={[styles.signOutText, isSmallScreen && styles.signOutTextSmall]}>Sign Out</Text>
+          <Text style={[styles.signOutText, isSmallScreen && styles.signOutTextSmall]}>
+            Sign Out
+          </Text>
         )}
       </Pressable>
     </View>
