@@ -12,7 +12,7 @@ import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScre
 // LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
 // import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
-import { TrackingPreferenceScreen } from '@screens/onboarding/TrackingPreferenceScreen';
+import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
 import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
 
 import type { OnboardingStackParamList } from './types';

@@ -116,7 +116,7 @@ const PresetCard = memo(function PresetCard({
   );
 });
 
-export function TrackingPreferenceScreen({ navigation }: Props) {
+function TrackingPreferenceScreen({ navigation }: Props) {
   const { trackingPreference, setTrackingPreference } = useOnboardingStore();
   const { isSmallScreen } = useResponsive();
 
@@ -439,3 +439,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export default TrackingPreferenceScreen;

@@ -353,13 +353,13 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
       </View>
 
       {/* Selection Celebration Overlay - Using Modal for guaranteed overlay above all content */}
-      <Modal
-        visible={showSelection && !!selectedCountryData}
-        transparent={true}
-        animationType="none"
-        statusBarTranslucent={true}
-      >
-        {selectedCountryData && (
+      {showSelection && selectedCountryData && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="none"
+          statusBarTranslucent={true}
+        >
           <CelebrationOverlay
             visible={true}
             countryCode={selectedCountryData.code}
@@ -368,8 +368,8 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             animationRefs={refs}
             onSkip={handleNavigateNext}
           />
-        )}
-      </Modal>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
