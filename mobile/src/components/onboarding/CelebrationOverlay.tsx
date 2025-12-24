@@ -136,7 +136,7 @@ export default function CelebrationOverlay({
 
   // Calculate responsive image size based on screen dimensions
   // Use smaller size on compact screens (iPhone SE, etc.)
-  const imageSize = isSmallScreen ? Math.min(width * 0.35, 120) : Math.min(width * 0.4, 160);
+  const imageSize = isSmallScreen ? Math.min(width * 0.4, 140) : Math.min(width * 0.5, 200);
 
   const flagRotateInterpolation = useMemo(
     () =>
@@ -198,7 +198,7 @@ export default function CelebrationOverlay({
                   type === 'home' ? styles.stampImage : styles.illustrationImage,
                   {
                     width: imageSize,
-                    height: type === 'home' ? imageSize : imageSize / 1.5,
+                    height: type === 'home' ? imageSize : imageSize * 0.85,
                   },
                 ]}
                 resizeMode="contain"
@@ -245,17 +245,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+    paddingBottom: 80,
     width: '100%',
     zIndex: 2,
     elevation: 2,
   },
   imageContainer: {
-    marginBottom: 40,
+    marginBottom: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   imageContainerSmall: {
-    marginBottom: 28,
+    marginBottom: 32,
   },
   stampImage: {
     // Size controlled dynamically via inline styles

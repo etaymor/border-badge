@@ -32,7 +32,7 @@ const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
   const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
-  const { isSmallScreen } = useResponsive();
+  const { isSmallScreen, isLargeScreen } = useResponsive();
 
   // Animation values
   const contentOpacity = useRef(new Animated.Value(0)).current;
@@ -124,7 +124,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text variant="title" style={styles.title}>
+          <Text variant="title" style={[styles.title, isLargeScreen && styles.titleLarge]}>
             Been to Antarctica?
           </Text>
         </Animated.View>
@@ -134,6 +134,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
           style={[
             styles.imageContainer,
             isSmallScreen && styles.imageContainerSmall,
+            isLargeScreen && styles.imageContainerLarge,
             {
               opacity: contentOpacity,
               transform: [{ scale: imageScale }],
@@ -215,6 +216,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
   },
+  titleLarge: {
+    fontSize: 36,
+    lineHeight: 44,
+    marginTop: 24,
+  },
   imageContainer: {
     flex: 1,
     position: 'relative',
@@ -222,6 +228,9 @@ const styles = StyleSheet.create({
   },
   imageContainerSmall: {
     marginTop: -30,
+  },
+  imageContainerLarge: {
+    marginTop: 0,
   },
   image: {
     width: '100%',
