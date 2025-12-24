@@ -166,10 +166,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
-          <Text
-            variant="title"
-            style={[styles.title, !isSmallScreen && styles.titleLarge]}
-          >
+          <Text variant="title" style={[styles.title, !isSmallScreen && styles.titleLarge]}>
             Visited {region}?
           </Text>
         </Animated.View>
