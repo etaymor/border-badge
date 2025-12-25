@@ -1,0 +1,1747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atlasi — Stamp Your Passport for Every Country You Visit</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Brand Colors from Styleguide */
+            --midnight-navy: #172A3A;
+            --warm-cream: #FDF6ED;
+            --sunset-gold: #F4C24E;
+            --sunset-gold-hover: #e0aa2e;
+            --adobe-brick: #C1543E;
+            --lake-blue: #A0CDEB;
+            --moss-green: #547A5F;
+            --paper-beige: #F5ECE0;
+            --dusty-coral: #F39B8B;
+            --storm-gray: #666D7A;
+            --cloud-white: #FFFFFF;
+            
+            /* Typography */
+            --font-display: 'Playfair Display', Georgia, serif;
+            --font-body: 'Source Serif 4', Georgia, serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            
+            /* Spacing */
+            --space-xs: 0.5rem;
+            --space-sm: 1rem;
+            --space-md: 2rem;
+            --space-lg: 4rem;
+            --space-xl: 8rem;
+            
+            /* Transitions */
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        body {
+            font-family: var(--font-body);
+            background-color: var(--warm-cream);
+            color: var(--midnight-navy);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        /* Paper Texture Overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        
+        /* Utility Classes */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 var(--space-md);
+        }
+        
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s var(--ease-out-expo), transform 0.8s var(--ease-out-expo);
+        }
+        
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: var(--space-sm) var(--space-md);
+            background: linear-gradient(to bottom, var(--warm-cream) 0%, transparent 100%);
+            transition: background 0.3s ease;
+        }
+        
+        .nav.scrolled {
+            background: var(--warm-cream);
+            box-shadow: 0 2px 20px rgba(23, 42, 58, 0.08);
+        }
+        
+        .nav-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--midnight-navy);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--sunset-gold);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: var(--space-md);
+            align-items: center;
+        }
+        
+        .nav-links a {
+            font-family: var(--font-body);
+            font-size: 0.95rem;
+            color: var(--storm-gray);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        
+        .nav-links a:hover {
+            color: var(--midnight-navy);
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-family: var(--font-body);
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .btn-primary {
+            background: var(--sunset-gold);
+            color: var(--midnight-navy);
+        }
+        
+        .btn-primary:hover {
+            background: var(--sunset-gold-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(244, 194, 78, 0.4);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: var(--midnight-navy);
+            border: 2px solid var(--midnight-navy);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--midnight-navy);
+            color: var(--cloud-white);
+        }
+        
+        .btn-nav {
+            padding: 10px 20px;
+            font-size: 0.9rem;
+        }
+        
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: var(--space-xl) 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-bg {
+            position: absolute;
+            top: 0;
+            right: -10%;
+            width: 60%;
+            height: 100%;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+        
+        .hero-bg svg {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .hero-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-lg);
+            align-items: center;
+        }
+        
+        .hero-text {
+            max-width: 560px;
+        }
+        
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 8px 16px;
+            background: var(--paper-beige);
+            border-radius: 100px;
+            font-size: 0.85rem;
+            color: var(--moss-green);
+            margin-bottom: var(--space-md);
+            border: 1px solid rgba(84, 122, 95, 0.2);
+            animation: fadeInUp 0.8s var(--ease-out-expo) 0.2s both;
+        }
+        
+        .hero-badge::before {
+            content: '✦';
+            color: var(--sunset-gold);
+        }
+        
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 600;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            margin-bottom: var(--space-md);
+            animation: fadeInUp 0.8s var(--ease-out-expo) 0.4s both;
+        }
+        
+        .hero h1 .highlight {
+            color: var(--adobe-brick);
+            position: relative;
+        }
+        
+        .hero h1 .highlight::after {
+            content: '';
+            position: absolute;
+            bottom: 0.1em;
+            left: 0;
+            width: 100%;
+            height: 0.15em;
+            background: var(--sunset-gold);
+            opacity: 0.6;
+            z-index: -1;
+        }
+        
+        .hero-description {
+            font-size: 1.25rem;
+            color: var(--storm-gray);
+            margin-bottom: var(--space-md);
+            max-width: 480px;
+            animation: fadeInUp 0.8s var(--ease-out-expo) 0.6s both;
+        }
+        
+        .hero-cta {
+            display: flex;
+            gap: var(--space-sm);
+            flex-wrap: wrap;
+            animation: fadeInUp 0.8s var(--ease-out-expo) 0.8s both;
+        }
+        
+        .trust-signals {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            margin-top: var(--space-lg);
+            padding-top: var(--space-md);
+            border-top: 1px solid rgba(23, 42, 58, 0.1);
+            animation: fadeInUp 0.8s var(--ease-out-expo) 1s both;
+        }
+        
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--storm-gray);
+        }
+        
+        .trust-item svg {
+            width: 20px;
+            height: 20px;
+            color: var(--moss-green);
+        }
+        
+        /* Interactive Passport Demo */
+        .passport-demo {
+            position: relative;
+            animation: fadeInUp 0.8s var(--ease-out-expo) 0.6s both;
+        }
+        
+        .passport-frame {
+            background: var(--midnight-navy);
+            border-radius: 24px;
+            padding: var(--space-md);
+            box-shadow: 
+                0 40px 80px rgba(23, 42, 58, 0.3),
+                0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+            transform: perspective(1000px) rotateY(-5deg) rotateX(2deg);
+            transition: transform 0.5s var(--ease-out-expo);
+        }
+        
+        .passport-frame:hover {
+            transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
+        }
+        
+        .passport-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-sm);
+            padding-bottom: var(--space-sm);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .passport-title {
+            font-family: var(--font-display);
+            color: var(--cloud-white);
+            font-size: 1.1rem;
+        }
+        
+        .passport-count {
+            font-family: var(--font-mono);
+            color: var(--sunset-gold);
+            font-size: 0.9rem;
+        }
+        
+        .passport-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+        }
+        
+        .stamp {
+            aspect-ratio: 1;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s var(--ease-out-expo);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stamp::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--sunset-gold);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .stamp:hover::before {
+            opacity: 0.1;
+        }
+        
+        .stamp.visited {
+            background: linear-gradient(135deg, var(--adobe-brick) 0%, var(--dusty-coral) 100%);
+            animation: stampIn 0.4s var(--ease-out-expo);
+        }
+        
+        .stamp.visited::after {
+            content: '✓';
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            font-size: 0.6rem;
+            color: var(--cloud-white);
+            opacity: 0.8;
+        }
+        
+        @keyframes stampIn {
+            0% { transform: scale(0.5) rotate(-10deg); opacity: 0; }
+            50% { transform: scale(1.2) rotate(5deg); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        
+        .passport-instruction {
+            text-align: center;
+            margin-top: var(--space-sm);
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.5);
+            font-style: italic;
+        }
+        
+        /* Problem/Solution Section */
+        .problem-section {
+            padding: var(--space-xl) 0;
+            background: var(--midnight-navy);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .problem-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 120px;
+            background: linear-gradient(to bottom, var(--warm-cream), transparent);
+            pointer-events: none;
+        }
+        
+        .problem-content {
+            max-width: 900px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .section-label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--sunset-gold);
+            margin-bottom: var(--space-sm);
+        }
+        
+        .problem-content h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+            color: var(--cloud-white);
+            margin-bottom: var(--space-lg);
+            line-height: 1.2;
+        }
+        
+        .problem-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: var(--space-md);
+            text-align: left;
+        }
+        
+        .problem-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: var(--space-md);
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .problem-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: var(--sunset-gold);
+            transform: translateY(-4px);
+        }
+        
+        .problem-card.solution {
+            background: linear-gradient(135deg, rgba(84, 122, 95, 0.2) 0%, rgba(84, 122, 95, 0.05) 100%);
+            border-color: var(--moss-green);
+        }
+        
+        .problem-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: var(--space-sm);
+            font-size: 1.5rem;
+        }
+        
+        .problem-card:not(.solution) .problem-icon {
+            background: rgba(193, 84, 62, 0.2);
+        }
+        
+        .problem-card.solution .problem-icon {
+            background: rgba(84, 122, 95, 0.3);
+        }
+        
+        .problem-card h3 {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            color: var(--cloud-white);
+            margin-bottom: var(--space-xs);
+        }
+        
+        .problem-card p {
+            font-size: 0.95rem;
+            color: rgba(255, 255, 255, 0.6);
+            line-height: 1.6;
+        }
+        
+        /* Features Section */
+        .features-section {
+            padding: var(--space-xl) 0;
+            background: var(--paper-beige);
+        }
+        
+        .features-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto var(--space-lg);
+        }
+        
+        .features-header h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+            margin-bottom: var(--space-sm);
+        }
+        
+        .features-header p {
+            font-size: 1.1rem;
+            color: var(--storm-gray);
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-md);
+        }
+        
+        .feature-card {
+            background: var(--warm-cream);
+            border-radius: 20px;
+            padding: var(--space-md);
+            border: 1px solid rgba(23, 42, 58, 0.08);
+            transition: all 0.4s var(--ease-out-expo);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--sunset-gold);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s var(--ease-out-expo);
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(23, 42, 58, 0.12);
+        }
+        
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .feature-emoji {
+            font-size: 2.5rem;
+            margin-bottom: var(--space-sm);
+            display: block;
+        }
+        
+        .feature-card h3 {
+            font-family: var(--font-display);
+            font-size: 1.35rem;
+            margin-bottom: var(--space-xs);
+        }
+        
+        .feature-card p {
+            font-size: 0.95rem;
+            color: var(--storm-gray);
+            line-height: 1.6;
+        }
+        
+        .feature-tag {
+            display: inline-block;
+            padding: 4px 10px;
+            background: var(--lake-blue);
+            color: var(--midnight-navy);
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: var(--space-sm);
+        }
+        
+        /* How It Works */
+        .how-section {
+            padding: var(--space-xl) 0;
+            background: var(--warm-cream);
+        }
+        
+        .how-header {
+            text-align: center;
+            margin-bottom: var(--space-lg);
+        }
+        
+        .how-header h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+        }
+        
+        .how-steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: var(--space-md);
+            position: relative;
+        }
+        
+        .how-steps::before {
+            content: '';
+            position: absolute;
+            top: 48px;
+            left: 10%;
+            right: 10%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--sunset-gold), var(--adobe-brick), var(--moss-green), var(--lake-blue));
+            z-index: 0;
+        }
+        
+        .step {
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .step-number {
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: var(--cloud-white);
+            border: 3px solid var(--sunset-gold);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            margin: 0 auto var(--space-sm);
+            box-shadow: 0 8px 24px rgba(244, 194, 78, 0.2);
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .step:hover .step-number {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 12px 32px rgba(244, 194, 78, 0.3);
+        }
+        
+        .step h3 {
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            margin-bottom: var(--space-xs);
+        }
+        
+        .step p {
+            font-size: 0.9rem;
+            color: var(--storm-gray);
+            max-width: 200px;
+            margin: 0 auto;
+        }
+        
+        /* Social Proof */
+        .testimonials-section {
+            padding: var(--space-xl) 0;
+            background: linear-gradient(180deg, var(--paper-beige) 0%, var(--warm-cream) 100%);
+        }
+        
+        .testimonials-header {
+            text-align: center;
+            margin-bottom: var(--space-lg);
+        }
+        
+        .testimonials-header h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+        }
+        
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: var(--space-md);
+            margin-bottom: var(--space-lg);
+        }
+        
+        .stat {
+            text-align: center;
+            padding: var(--space-md);
+            background: var(--cloud-white);
+            border-radius: 16px;
+            border: 1px solid rgba(23, 42, 58, 0.08);
+        }
+        
+        .stat-number {
+            font-family: var(--font-display);
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--adobe-brick);
+            display: block;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--storm-gray);
+        }
+        
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-md);
+        }
+        
+        .testimonial {
+            background: var(--cloud-white);
+            border-radius: 20px;
+            padding: var(--space-md);
+            border: 1px solid rgba(23, 42, 58, 0.08);
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .testimonial:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 32px rgba(23, 42, 58, 0.1);
+        }
+        
+        .testimonial-quote {
+            font-size: 1.05rem;
+            line-height: 1.7;
+            margin-bottom: var(--space-md);
+            font-style: italic;
+            position: relative;
+        }
+        
+        .testimonial-quote::before {
+            content: '"';
+            font-family: var(--font-display);
+            font-size: 4rem;
+            color: var(--sunset-gold);
+            opacity: 0.3;
+            position: absolute;
+            top: -1rem;
+            left: -0.5rem;
+            line-height: 1;
+        }
+        
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+        
+        .author-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--lake-blue), var(--moss-green));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+        
+        .author-info h4 {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            margin-bottom: 2px;
+        }
+        
+        .author-info span {
+            font-size: 0.85rem;
+            color: var(--storm-gray);
+        }
+        
+        /* CTA Section */
+        .cta-section {
+            padding: var(--space-xl) 0;
+            background: var(--midnight-navy);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--sunset-gold) 0%, transparent 70%);
+            opacity: 0.08;
+            pointer-events: none;
+        }
+        
+        .cta-content {
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .cta-content h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+            color: var(--cloud-white);
+            margin-bottom: var(--space-sm);
+        }
+        
+        .cta-content p {
+            font-size: 1.15rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: var(--space-md);
+        }
+        
+        .cta-form {
+            display: flex;
+            gap: var(--space-sm);
+            max-width: 500px;
+            margin: 0 auto var(--space-md);
+        }
+        
+        .cta-form input {
+            flex: 1;
+            padding: 16px 20px;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--cloud-white);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .cta-form input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+        
+        .cta-form input:focus {
+            outline: none;
+            border-color: var(--sunset-gold);
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .app-badges {
+            display: flex;
+            justify-content: center;
+            gap: var(--space-sm);
+            margin-top: var(--space-md);
+        }
+        
+        .app-badge {
+            background: var(--cloud-white);
+            color: var(--midnight-navy);
+            padding: 12px 24px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .app-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        
+        .app-badge-icon {
+            font-size: 1.5rem;
+        }
+        
+        .app-badge-text {
+            text-align: left;
+        }
+        
+        .app-badge-text span {
+            display: block;
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+        
+        .app-badge-text strong {
+            font-size: 1rem;
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--midnight-navy);
+            padding: var(--space-lg) 0 var(--space-md);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .footer-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: var(--space-lg);
+            margin-bottom: var(--space-lg);
+        }
+        
+        .footer-brand {
+            max-width: 280px;
+        }
+        
+        .footer-brand .logo {
+            color: var(--cloud-white);
+            margin-bottom: var(--space-sm);
+        }
+        
+        .footer-brand p {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        
+        .footer-col h4 {
+            font-family: var(--font-display);
+            color: var(--cloud-white);
+            font-size: 1rem;
+            margin-bottom: var(--space-sm);
+        }
+        
+        .footer-col ul {
+            list-style: none;
+        }
+        
+        .footer-col ul li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .footer-col ul li a {
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+        
+        .footer-col ul li a:hover {
+            color: var(--sunset-gold);
+        }
+        
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: var(--space-md);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .footer-bottom p {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.85rem;
+        }
+        
+        .social-links {
+            display: flex;
+            gap: var(--space-sm);
+        }
+        
+        .social-links a {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--cloud-white);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+        
+        .social-links a:hover {
+            background: var(--sunset-gold);
+            color: var(--midnight-navy);
+        }
+        
+        /* Updated App Badge */
+        .app-badge-large {
+            padding: 16px 32px;
+            font-size: 1.1rem;
+        }
+        
+        .app-badge-icon-svg {
+            width: 32px;
+            height: 32px;
+        }
+        
+        /* FAQ Section */
+        .faq-section {
+            padding: var(--space-xl) 0;
+            background: var(--warm-cream);
+        }
+        
+        .faq-header {
+            text-align: center;
+            margin-bottom: var(--space-lg);
+        }
+        
+        .faq-header h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 4vw, 3rem);
+            margin-bottom: var(--space-xs);
+        }
+        
+        .faq-header p {
+            font-size: 1.1rem;
+            color: var(--storm-gray);
+        }
+        
+        .faq-grid {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+        
+        .faq-item {
+            background: var(--cloud-white);
+            border-radius: 16px;
+            border: 1px solid rgba(23, 42, 58, 0.08);
+            overflow: hidden;
+            transition: all 0.3s var(--ease-out-expo);
+        }
+        
+        .faq-item:hover {
+            border-color: var(--sunset-gold);
+            box-shadow: 0 8px 24px rgba(244, 194, 78, 0.15);
+        }
+        
+        .faq-question {
+            width: 100%;
+            padding: var(--space-md);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            color: var(--midnight-navy);
+            text-align: left;
+            transition: all 0.3s ease;
+        }
+        
+        .faq-question:hover {
+            color: var(--adobe-brick);
+        }
+        
+        .faq-icon {
+            font-size: 1.5rem;
+            font-weight: 300;
+            color: var(--sunset-gold);
+            transition: transform 0.3s var(--ease-out-expo);
+            flex-shrink: 0;
+            margin-left: var(--space-sm);
+        }
+        
+        .faq-item.active .faq-icon {
+            transform: rotate(45deg);
+        }
+        
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s var(--ease-out-expo), padding 0.4s var(--ease-out-expo);
+        }
+        
+        .faq-item.active .faq-answer {
+            max-height: 300px;
+        }
+        
+        .faq-answer p {
+            padding: 0 var(--space-md) var(--space-md);
+            color: var(--storm-gray);
+            line-height: 1.7;
+            font-size: 1rem;
+        }
+        
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .hero-text {
+                max-width: 100%;
+            }
+            
+            .hero-cta {
+                justify-content: center;
+            }
+            
+            .trust-signals {
+                justify-content: center;
+            }
+            
+            .passport-demo {
+                max-width: 400px;
+                margin: 0 auto;
+            }
+            
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .how-steps {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .how-steps::before {
+                display: none;
+            }
+            
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .testimonials-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .footer-content {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .problem-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .how-steps {
+                grid-template-columns: 1fr;
+                gap: var(--space-lg);
+            }
+            
+            .cta-form {
+                flex-direction: column;
+            }
+            
+            .app-badges {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .footer-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .footer-brand {
+                max-width: 100%;
+            }
+            
+            .footer-bottom {
+                flex-direction: column;
+                gap: var(--space-sm);
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .passport-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav" id="nav">
+        <div class="nav-inner">
+            <a href="#" class="logo">
+                <span class="logo-icon">🗺️</span>
+                Atlasi
+            </a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="#faq">FAQ</a>
+                <a href="#download" class="btn btn-primary btn-nav">Download Free</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-bg">
+            <svg viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="400" cy="400" r="300" stroke="#172A3A" stroke-width="1" fill="none" opacity="0.3"/>
+                <circle cx="400" cy="400" r="200" stroke="#172A3A" stroke-width="1" fill="none" opacity="0.2"/>
+                <circle cx="400" cy="400" r="100" stroke="#172A3A" stroke-width="1" fill="none" opacity="0.1"/>
+                <path d="M100,400 Q250,200 400,400 T700,400" stroke="#C1543E" stroke-width="2" fill="none" opacity="0.2"/>
+                <path d="M100,450 Q250,650 400,450 T700,450" stroke="#547A5F" stroke-width="2" fill="none" opacity="0.2"/>
+            </svg>
+        </div>
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-text">
+                    <span class="hero-badge">Your Travel Story, Beautifully Captured</span>
+                    <h1>Stamp your <span class="highlight">passport</span> for every country you visit</h1>
+                    <p class="hero-description">Turn scattered travel memories into a stunning visual collection. Track countries, log trips, and share your journey with the world.</p>
+                    <div class="hero-cta">
+                        <a href="#download" class="btn btn-primary">Start Collecting Free →</a>
+                        <a href="#features" class="btn btn-secondary">See How It Works</a>
+                    </div>
+                    <div class="trust-signals">
+                        <div class="trust-item">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>227 Countries</span>
+                        </div>
+                        <div class="trust-item">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <span>Privacy-First</span>
+                        </div>
+                        <div class="trust-item">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                            <span>Free Forever</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="passport-demo">
+                    <div class="passport-frame">
+                        <div class="passport-header">
+                            <span class="passport-title">Your Passport Grid</span>
+                            <span class="passport-count" id="stamp-count">0 / 15 visited</span>
+                        </div>
+                        <div class="passport-grid" id="passport-grid">
+                            <!-- Generated by JS -->
+                        </div>
+                        <p class="passport-instruction">Tap countries to collect stamps ✦</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem/Solution Section -->
+    <section class="problem-section">
+        <div class="container">
+            <div class="problem-content reveal">
+                <span class="section-label">The Traveler's Dilemma</span>
+                <h2>Your adventures deserve more than scattered photos and forgotten memories</h2>
+                <div class="problem-grid">
+                    <div class="problem-card">
+                        <div class="problem-icon">😔</div>
+                        <h3>Lost in the Feed</h3>
+                        <p>Travel photos get buried in social media. That incredible sunset in Santorini? Gone in a scroll.</p>
+                    </div>
+                    <div class="problem-card solution">
+                        <div class="problem-icon">🗺️</div>
+                        <h3>Visual Passport Grid</h3>
+                        <p>Every country becomes a collectible stamp. Your travel history, beautifully organized at a glance.</p>
+                    </div>
+                    <div class="problem-card">
+                        <div class="problem-icon">😩</div>
+                        <h3>Scattered Recommendations</h3>
+                        <p>That amazing restaurant your friend told you about? It's somewhere in a text thread from 2022.</p>
+                    </div>
+                    <div class="problem-card solution">
+                        <div class="problem-icon">📍</div>
+                        <h3>Rich Trip Entries</h3>
+                        <p>Log places, food, stays, and experiences. Every memory tied to a location, never lost again.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-section" id="features">
+        <div class="container">
+            <div class="features-header reveal">
+                <span class="section-label">Everything You Need</span>
+                <h2>Built for travelers who want to remember every moment</h2>
+                <p>From stamping your first country to sharing curated lists with friends, Atlasi makes every step delightful.</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">🌍</span>
+                    <h3>Passport Grid</h3>
+                    <p>227 countries and territories displayed as collectible stamps. Watch your grid fill up with every adventure.</p>
+                    <span class="feature-tag">Core Feature</span>
+                </div>
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">📸</span>
+                    <h3>Trip Logging</h3>
+                    <p>Create rich trip entries with photos, notes, and locations. Places, food, stays, experiences—all organized beautifully.</p>
+                    <span class="feature-tag">Photo Galleries</span>
+                </div>
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">📲</span>
+                    <h3>Save from Social</h3>
+                    <p>See a TikTok of an amazing restaurant? Save it directly to your wishlist. AI detects the location automatically.</p>
+                    <span class="feature-tag">TikTok + Instagram</span>
+                </div>
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">🔗</span>
+                    <h3>Shareable Lists</h3>
+                    <p>Curate your best recommendations and share them with friends. Be the go-to travel expert in your group.</p>
+                    <span class="feature-tag">Public URLs</span>
+                </div>
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">🏆</span>
+                    <h3>Milestone Celebrations</h3>
+                    <p>Hit 10, 25, 50 countries? Get beautiful shareable cards celebrating your achievements.</p>
+                    <span class="feature-tag">Brag-Worthy</span>
+                </div>
+                <div class="feature-card reveal">
+                    <span class="feature-emoji">👯</span>
+                    <h3>Travel with Friends</h3>
+                    <p>Tag friends on shared trips. Compare maps, reminisce together, and plan your next adventure.</p>
+                    <span class="feature-tag">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-section" id="how-it-works">
+        <div class="container">
+            <div class="how-header reveal">
+                <span class="section-label">Simple as 1-2-3-4</span>
+                <h2>Start your collection in minutes</h2>
+            </div>
+            <div class="how-steps">
+                <div class="step reveal">
+                    <div class="step-number">📱</div>
+                    <h3>Download</h3>
+                    <p>Get Atlasi free on iOS. No credit card, no catch.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-number">✅</div>
+                    <h3>Mark Countries</h3>
+                    <p>Select everywhere you've been. Watch your grid come alive.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-number">📝</div>
+                    <h3>Log Your Trips</h3>
+                    <p>Add photos, notes, and places to each journey.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-number">🎉</div>
+                    <h3>Share & Celebrate</h3>
+                    <p>Show off your travels with beautiful share cards.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Social Proof -->
+    <section class="testimonials-section" id="testimonials">
+        <div class="container">
+            <div class="testimonials-header reveal">
+                <span class="section-label">Loved by Travelers</span>
+                <h2>Join thousands of explorers worldwide</h2>
+            </div>
+            <div class="stats-row reveal">
+                <div class="stat">
+                    <span class="stat-number">227</span>
+                    <span class="stat-label">Countries Tracked</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">50K+</span>
+                    <span class="stat-label">Stamps Collected</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">10K+</span>
+                    <span class="stat-label">Trips Logged</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">4.9★</span>
+                    <span class="stat-label">App Store Rating</span>
+                </div>
+            </div>
+            <div class="testimonials-grid">
+                <div class="testimonial reveal">
+                    <p class="testimonial-quote">Finally, a way to show my travel history without scrolling through years of Instagram posts. The passport grid is addictive!</p>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">👩‍🎨</div>
+                        <div class="author-info">
+                            <h4>Ava M.</h4>
+                            <span>Designer, 17 countries</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial reveal">
+                    <p class="testimonial-quote">My friends literally ask me for my Atlasi lists whenever they travel. It's become my go-to way to share recommendations.</p>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">👨‍💻</div>
+                        <div class="author-info">
+                            <h4>Ben K.</h4>
+                            <span>Product Manager, 24 countries</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial reveal">
+                    <p class="testimonial-quote">As a digital nomad, I was losing track of everywhere I'd been. Now I have this beautiful visual record of my journey.</p>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">🧳</div>
+                        <div class="author-info">
+                            <h4>Dee S.</h4>
+                            <span>Entrepreneur, 31 countries</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="download">
+        <div class="container">
+            <div class="cta-content reveal">
+                <span class="section-label">Ready to Start?</span>
+                <h2>Your next adventure awaits</h2>
+                <p>Join thousands of travelers who've already started their collection. Free forever, no strings attached.</p>
+                <div class="app-badges">
+                    <a href="https://apps.apple.com/app/atlasi" class="app-badge app-badge-large">
+                        <svg class="app-badge-icon-svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                        </svg>
+                        <div class="app-badge-text">
+                            <span>Download on the</span>
+                            <strong>App Store</strong>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq-section" id="faq">
+        <div class="container">
+            <div class="faq-header reveal">
+                <span class="section-label">Questions & Answers</span>
+                <h2>Frequently Asked Questions</h2>
+                <p>Everything you need to know about tracking your travels with Atlasi.</p>
+            </div>
+            <div class="faq-grid">
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>Is Atlasi really free to use?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Yes! Atlasi is completely free to download and use. You can track unlimited countries, create trips, and log entries without paying anything. We believe everyone should be able to document their travel journey beautifully.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>How many countries can I track in the app?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Atlasi includes all 227 countries and territories recognized worldwide. From major nations to remote territories like Svalbard and the Faroe Islands, every destination counts toward your travel collection.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>Can I import places from TikTok and Instagram?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Absolutely! When you find a travel video on TikTok or Instagram, simply share it to Atlasi. Our AI automatically detects the location mentioned in the content and saves it to your wishlist or trip log. No more losing track of recommendations.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>What's the difference between trips and entries?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Trips are your overall journeys to a country (like "Summer 2024 in Japan"). Entries are the specific places within that trip—restaurants you ate at, hotels you stayed in, attractions you visited, and experiences you had. This organization keeps everything searchable and shareable.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>How do shareable lists work?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>You can curate your best entries into shareable lists—like "Best Ramen in Tokyo" or "Hidden Gems in Lisbon." Each list gets a unique public URL you can send to friends, post on social media, or save for your own future reference.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>Is my travel data private and secure?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Your privacy is our priority. All data is encrypted and stored securely. Your passport grid, trips, and entries are private by default—only you can see them unless you explicitly choose to share a list or trip via public link.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>Can I use Atlasi offline while traveling?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Currently, Atlasi requires an internet connection to sync your data. Full offline mode is on our roadmap and coming soon—so you'll be able to log entries even in remote locations without WiFi.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal">
+                    <button class="faq-question" aria-expanded="false">
+                        <span>What devices and platforms is Atlasi available on?</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Atlasi is currently available for iPhone and iPad on the Apple App Store. An Android version is in development. Your account syncs across all your Apple devices automatically.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <a href="#" class="logo">
+                        <span class="logo-icon">🗺️</span>
+                        Atlasi
+                    </a>
+                    <p>A field guide for the modern wanderer. Track your travels, celebrate your journey, and share your story with the world.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#how-it-works">How It Works</a></li>
+                        <li><a href="#download">Download</a></li>
+                        <li><a href="#">Roadmap</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="#">About</a></li>
+                        <li><a href="#">Blog</a></li>
+                        <li><a href="#">Press Kit</a></li>
+                        <li><a href="#">Careers</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Legal</h4>
+                    <ul>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
+                        <li><a href="#">Cookie Policy</a></li>
+                        <li><a href="#">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>© 2024 Atlasi. Made with ❤️ for explorers everywhere.</p>
+                <div class="social-links">
+                    <a href="#" aria-label="Twitter">𝕏</a>
+                    <a href="#" aria-label="Instagram">📷</a>
+                    <a href="#" aria-label="TikTok">🎵</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Navigation scroll effect
+        const nav = document.getElementById('nav');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+        });
+
+        // Interactive Passport Demo
+        const countries = [
+            { flag: '🇫🇷', name: 'France' },
+            { flag: '🇯🇵', name: 'Japan' },
+            { flag: '🇮🇹', name: 'Italy' },
+            { flag: '🇬🇧', name: 'UK' },
+            { flag: '🇪🇸', name: 'Spain' },
+            { flag: '🇬🇷', name: 'Greece' },
+            { flag: '🇹🇭', name: 'Thailand' },
+            { flag: '🇲🇽', name: 'Mexico' },
+            { flag: '🇦🇺', name: 'Australia' },
+            { flag: '🇧🇷', name: 'Brazil' },
+            { flag: '🇵🇹', name: 'Portugal' },
+            { flag: '🇳🇱', name: 'Netherlands' },
+            { flag: '🇨🇭', name: 'Switzerland' },
+            { flag: '🇳🇿', name: 'New Zealand' },
+            { flag: '🇮🇸', name: 'Iceland' }
+        ];
+
+        const passportGrid = document.getElementById('passport-grid');
+        const stampCount = document.getElementById('stamp-count');
+        let visited = 0;
+
+        countries.forEach((country, index) => {
+            const stamp = document.createElement('div');
+            stamp.className = 'stamp';
+            stamp.innerHTML = country.flag;
+            stamp.title = country.name;
+            stamp.addEventListener('click', () => {
+                if (!stamp.classList.contains('visited')) {
+                    stamp.classList.add('visited');
+                    visited++;
+                    stampCount.textContent = `${visited} / 15 visited`;
+                    
+                    // Add haptic-like visual feedback
+                    stamp.style.transform = 'scale(1.2)';
+                    setTimeout(() => {
+                        stamp.style.transform = 'scale(1)';
+                    }, 150);
+                }
+            });
+            passportGrid.appendChild(stamp);
+        });
+
+        // Scroll-triggered reveal animations
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.1
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    // Add staggered delay for multiple elements
+                    const siblings = entry.target.parentElement.querySelectorAll('.reveal');
+                    const elementIndex = Array.from(siblings).indexOf(entry.target);
+                    entry.target.style.transitionDelay = `${elementIndex * 100}ms`;
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Pre-stamp some countries for visual interest after a delay
+        setTimeout(() => {
+            const stamps = document.querySelectorAll('.stamp');
+            [0, 2, 4, 8].forEach((index, i) => {
+                setTimeout(() => {
+                    if (!stamps[index].classList.contains('visited')) {
+                        stamps[index].click();
+                    }
+                }, i * 300);
+            });
+        }, 2000);
+
+        // FAQ Accordion
+        document.querySelectorAll('.faq-question').forEach(button => {
+            button.addEventListener('click', () => {
+                const faqItem = button.parentElement;
+                const isActive = faqItem.classList.contains('active');
+                
+                // Close all other FAQ items
+                document.querySelectorAll('.faq-item').forEach(item => {
+                    item.classList.remove('active');
+                    item.querySelector('.faq-question').setAttribute('aria-expanded', 'false');
+                });
+                
+                // Toggle current item
+                if (!isActive) {
+                    faqItem.classList.add('active');
+                    button.setAttribute('aria-expanded', 'true');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

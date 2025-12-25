@@ -84,12 +84,19 @@
         <a href="/" class="logo">
           <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="logo-image">
         </a>
-        <a
-          href="{{ app_store_url | safe_external_url or '#download' }}"
-          class="cta-button cta-button--header"
-          onclick="typeof gtag !== 'undefined' && gtag('event', 'click_app_store', {'location': 'header'})"
-          >Download App</a
-        >
+        {% block nav_links %}
+        <nav class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How It Works</a>
+          <a href="#faq">FAQ</a>
+          <a
+            href="{{ app_store_url | safe_external_url or '#download' }}"
+            class="cta-button"
+            onclick="typeof gtag !== 'undefined' && gtag('event', 'click_app_store', {'location': 'header'})"
+            >Download Free</a
+          >
+        </nav>
+        {% endblock %}
       </div>
     </header>
 
@@ -106,10 +113,26 @@
           >
         </div>
         {% endblock %}
-        <p class="footer-copyright">
-          &copy; 2024 Atlasi. All rights reserved.
-        </p>
+        {% block footer_main %}
+        <div class="footer-main">
+          <a href="/">
+            <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+          </a>
+          <nav class="footer-links">
+            <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link">Download App</a>
+            <a href="https://atlasi.app/privacy" class="footer-link">Privacy</a>
+            <a href="https://atlasi.app/terms" class="footer-link">Terms</a>
+          </nav>
+        </div>
+        {% endblock %}
+        <div class="footer-bottom">
+          <p class="footer-copyright">
+            &copy; {{ current_year or '2024' }} Atlasi. All rights reserved.
+          </p>
+        </div>
       </div>
     </footer>
+
+    {% block scripts %}{% endblock %}
   </body>
 </html>
