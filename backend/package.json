@@ -1,0 +1,14 @@
+{
+  "name": "atlasi-backend",
+  "version": "1.0.0",
+  "description": "Atlasi backend static asset build tools",
+  "private": true,
+  "scripts": {
+    "css:build": "node scripts/build-css.js",
+    "css:watch": "node scripts/build-css.js --watch",
+    "build": "npm run css:build"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
