@@ -95,12 +95,19 @@ Add `location_name` column to entry table.
 
 ## Acceptance Criteria
 
-- [ ] `e.name` replaced with `e.title` in both functions
-- [ ] `e.entry_type` replaced with `e.type` in both functions
-- [ ] `e.location_name` replaced with `NULL::TEXT` or derived value
+- [x] `e.name` replaced with `e.title` in both functions
+- [x] `e.entry_type` replaced with `e.type` in both functions
+- [x] `e.location_name` replaced with `NULL::TEXT` or derived value
 - [ ] Feed endpoint returns data without errors
 - [ ] User feed endpoint returns data without errors
 - [ ] Mobile app displays feed correctly
+
+## Implementation Summary
+
+**Fixed in commit ce53f80:**
+- `0034_feed_function.sql`: Changed `e.name` → `e.title`, `e.entry_type::TEXT` → `e.type::TEXT as entry_type`, `e.location_name` → `NULL::TEXT as location_name`
+- `0039_user_activity_feed.sql`: Applied same column name fixes
+- Also fixed media_files references: `mf.url` → `mf.file_path`, `status = 'completed'` → `status = 'uploaded'`
 
 ## Work Log
 

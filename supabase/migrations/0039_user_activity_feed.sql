@@ -94,13 +94,13 @@ BEGIN
     NULL::TEXT as country_name,
     NULL::TEXT as country_code,
     e.id as entry_id,
-    e.name as entry_name,
-    e.entry_type::TEXT,
-    e.location_name,
+    e.title as entry_name,
+    e.type::TEXT as entry_type,
+    NULL::TEXT as location_name,
     (
-      SELECT mf.url FROM media_files mf
+      SELECT mf.file_path FROM media_files mf
       WHERE mf.entry_id = e.id
-        AND mf.status = 'completed'
+        AND mf.status = 'uploaded'
       ORDER BY mf.created_at
       LIMIT 1
     ) as entry_image_url

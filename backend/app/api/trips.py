@@ -407,14 +407,16 @@ async def _update_tag_status(
                     return
 
                 trip_owner_id = trips[0]["user_id"]
+                follower_id = str(user_id)
+                following_id = str(trip_owner_id)
 
                 # Skip if already following
                 existing_follow = await admin_db.get(
                     "user_follow",
                     {
                         "select": "id",
-                        "follower_id": f"eq.{user_id}",
-                        "following_id": f"eq.{trip_owner_id}",
+                        "follower_id": f"eq.{follower_id}",
+                        "following_id": f"eq.{following_id}",
                     },
                 )
                 if existing_follow:
@@ -425,8 +427,8 @@ async def _update_tag_status(
                     "user_block",
                     {
                         "select": "id",
-                        "or": f"(blocker_id.eq.{user_id},blocked_id.eq.{trip_owner_id}),"
-                        f"(blocker_id.eq.{trip_owner_id},blocked_id.eq.{user_id})",
+                        "or": f"(blocker_id.eq.{follower_id},blocked_id.eq.{following_id}),"
+                        f"(blocker_id.eq.{following_id},blocked_id.eq.{follower_id})",
                     },
                 )
                 if blocks:
@@ -435,7 +437,7 @@ async def _update_tag_status(
                 # Create mutual follow
                 await admin_db.post(
                     "user_follow",
-                    {"follower_id": user_id, "following_id": trip_owner_id},
+                    {"follower_id": follower_id, "following_id": following_id},
                 )
 
                 # Get trip owner's push token to notify
@@ -443,7 +445,7 @@ async def _update_tag_status(
                     "user_profile",
                     {
                         "select": "push_token,display_name",
-                        "user_id": f"eq.{trip_owner_id}",
+                        "user_id": f"eq.{following_id}",
                     },
                 )
                 if owner_profile and owner_profile[0].get("push_token"):
@@ -451,7 +453,7 @@ async def _update_tag_status(
                         "user_profile",
                         {
                             "select": "username,display_name",
-                            "user_id": f"eq.{user_id}",
+                            "user_id": f"eq.{follower_id}",
                         },
                     )
                     if tagged_user:
@@ -466,7 +468,7 @@ async def _update_tag_status(
                             body=f"{tagged_name} accepted your trip tag and is now following you",
                             data={
                                 "screen": "UserProfile",
-                                "userId": user_id,
+                                "userId": follower_id,
                                 "username": tagged_user[0].get("username", ""),
                             },
                         )

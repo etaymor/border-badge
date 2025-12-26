@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     marginHorizontal: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.backgroundCard,
     borderRadius: 12,
     marginTop: 8,
   },
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.text,
+    color: colors.textPrimary,
     paddingHorizontal: 16,
     paddingTop: 20,
     paddingBottom: 4,
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.backgroundCard,
     marginHorizontal: 16,
     marginTop: 12,
     borderRadius: 12,
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   displayName: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.text,
+    color: colors.textPrimary,
   },
   username: {
     fontFamily: fonts.openSans.regular,
