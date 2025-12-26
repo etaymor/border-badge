@@ -4,10 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from '@stores/authStore';
 
 import { AuthNavigator } from './AuthNavigator';
-// LAUNCH_SIMPLIFICATION: Tab bar hidden for initial launch
-// TODO: Re-enable MainTabNavigator when ready to add Dreams, Trips List, and Friends features
-// import { MainTabNavigator } from './MainTabNavigator';
-import { PassportNavigator } from './PassportNavigator';
+import { MainTabNavigator } from './MainTabNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
 import type { RootStackParamList } from './types';
 
@@ -42,10 +39,7 @@ export function RootNavigator() {
           <Stack.Screen name="Auth" component={AuthNavigator} />
         </>
       ) : (
-        // LAUNCH_SIMPLIFICATION: Using PassportNavigator directly instead of MainTabNavigator
-        // This hides the tab bar and simplifies the app for initial launch
-        // TODO: Replace with MainTabNavigator when ready to re-enable Dreams, Trips List, and Friends
-        <Stack.Screen name="Main" component={PassportNavigator} />
+        <Stack.Screen name="Main" component={MainTabNavigator} />
       )}
     </Stack.Navigator>
   );

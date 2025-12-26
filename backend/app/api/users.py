@@ -1,8 +1,9 @@
 """User search and username management endpoints."""
 
 import logging
+from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -11,6 +12,7 @@ from app.main import limiter
 from app.schemas.users import (
     UsernameCheckRequest,
     UsernameCheckResponse,
+    UserProfileDB,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,3 +119,55 @@ async def search_users(
     results = await db.execute(query, f"{q}%", user.id)
 
     return results or []
+
+
+@router.get("/{user_id}", response_model=UserProfileDB)
+@limiter.limit("60/minute")
+async def get_user_profile(
+    request: Request,
+    user_id: UUID,
+    user: CurrentUser,
+) -> UserProfileDB:
+    """
+    Get a user's public profile by ID.
+
+    Returns enriched profile with:
+    - country_count: Number of countries visited
+    - follower_count/following_count: Follow statistics
+    - is_following: Whether current user follows this user
+
+    Security: Only public profile data is returned.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Fetch user profile with enriched data
+    query = """
+    SELECT
+        up.id,
+        up.username,
+        up.avatar_url,
+        COUNT(DISTINCT uc.country_id) as country_count,
+        COUNT(DISTINCT followers.id) as follower_count,
+        COUNT(DISTINCT following.id) as following_count,
+        EXISTS (
+            SELECT 1 FROM user_follow
+            WHERE follower_id = $2 AND following_id = $1
+        ) as is_following
+    FROM user_profile up
+    LEFT JOIN user_countries uc ON uc.user_id = up.user_id AND uc.status = 'visited'
+    LEFT JOIN user_follow followers ON followers.following_id = up.user_id
+    LEFT JOIN user_follow following ON following.follower_id = up.user_id
+    WHERE up.user_id = $1
+    GROUP BY up.id, up.username, up.avatar_url;
+    """
+
+    results = await db.execute(query, user_id, user.id)
+
+    if not results:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    return UserProfileDB(**results[0])
