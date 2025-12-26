@@ -1,0 +1,292 @@
+/* ==============================================
+   RESPONSIVE STYLES
+   ============================================== */
+
+/* ==============================================
+   TABLET (max-width: 1024px)
+   ============================================== */
+
+@media (max-width: 1024px) {
+  .landing-hero-content {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .landing-hero-text {
+    max-width: 100%;
+  }
+
+  .hero-cta-group {
+    justify-content: center;
+  }
+
+  .trust-signals {
+    justify-content: center;
+  }
+
+  .passport-demo {
+    max-width: 400px;
+    margin: 0 auto;
+  }
+
+  .features-grid-enhanced {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .how-steps {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-xl);
+  }
+
+  .how-steps::before {
+    display: none;
+  }
+
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ==============================================
+   MOBILE (max-width: 768px)
+   ============================================== */
+
+@media (max-width: 768px) {
+  /* List/Trip Pages */
+  .list-title {
+    font-size: 2rem;
+  }
+
+  .list-info-card {
+    padding: var(--spacing-lg);
+  }
+
+  .hero-section {
+    height: 40vh;
+  }
+
+  .entries-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .list-info-container {
+    margin-top: -60px;
+  }
+
+  .hero-title {
+    font-size: 2.5rem;
+  }
+
+  .footer-main {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .footer-links {
+    gap: var(--spacing-md);
+  }
+
+  /* Landing Page */
+  .nav-links {
+    display: none;
+  }
+
+  .landing-hero {
+    padding-top: 100px;
+    min-height: auto;
+    padding-bottom: var(--spacing-xl);
+  }
+
+  .landing-hero h1 {
+    font-size: 2rem;
+  }
+
+  .landing-hero-description {
+    font-size: 1rem;
+  }
+
+  .hero-cta-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-cta-group .cta-button {
+    text-align: center;
+  }
+
+  .problem-section {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .problem-content h2 {
+    font-size: 1.5rem;
+  }
+
+  .problem-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+
+  .problem-card {
+    padding: var(--spacing-md);
+  }
+
+  .features-section {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .features-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .features-grid-enhanced {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+
+  .feature-card-enhanced {
+    padding: var(--spacing-md);
+  }
+
+  .how-section {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .how-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .how-steps {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-lg);
+  }
+
+  .step-number {
+    width: 72px;
+    height: 72px;
+  }
+
+  .step-number svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .passport-frame {
+    transform: none;
+    padding: var(--spacing-md);
+  }
+
+  .passport-frame:hover {
+    transform: none;
+  }
+
+  .passport-grid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+
+  .stamp:nth-child(n) {
+    transform: rotate(0deg);
+  }
+
+  .cta-section-enhanced {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .cta-content-enhanced h2 {
+    font-size: 1.5rem;
+  }
+
+  .app-badges {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .app-badge {
+    width: 100%;
+    max-width: 250px;
+    justify-content: center;
+  }
+
+  .faq-section {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .faq-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .faq-question {
+    padding: var(--spacing-md);
+    font-size: 1rem;
+  }
+
+  .faq-answer p {
+    padding: 0 var(--spacing-md) var(--spacing-md);
+    font-size: 0.9rem;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .footer-brand {
+    max-width: 100%;
+  }
+
+  .footer-bottom-enhanced {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .trust-signals {
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    justify-content: center;
+  }
+
+  .trust-item {
+    font-size: 0.8rem;
+  }
+
+  .section-label {
+    font-size: 0.7rem;
+  }
+
+  .footer-simple-wrapper {
+    padding: var(--spacing-md) 0;
+  }
+
+  .footer-simple-nav {
+    gap: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .footer-simple-nav a {
+    font-size: 0.85rem;
+  }
+}
+
+/* ==============================================
+   SMALL MOBILE (max-width: 480px)
+   ============================================== */
+
+@media (max-width: 480px) {
+  .landing-hero h1 {
+    font-size: 1.75rem;
+  }
+
+  .passport-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stamp::after {
+    display: none;
+  }
+
+  .hero-badge {
+    font-size: 0.75rem;
+    padding: 6px 12px;
+  }
+}

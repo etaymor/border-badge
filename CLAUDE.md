@@ -377,6 +377,16 @@ poetry run ruff format --check . # Must pass
 poetry run pytest              # Must pass all tests
 ```
 
+### CSS (if modifying public page styles)
+
+```bash
+cd backend
+node scripts/build-css.js      # Rebuild styles.css and styles.min.css from src/
+git diff app/static/css/       # Verify generated files are committed
+```
+
+**Note:** The CSS source files are in `backend/app/static/css/src/`. After editing, run the build script to regenerate `styles.css` and `styles.min.css`. Always commit the generated files.
+
 **Common lint issues to avoid:**
 - Unused imports (remove them)
 - `require()` style imports in TypeScript (use ES6 `import` instead)

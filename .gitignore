@@ -73,3 +73,6 @@ coverage/
 
 # Build outputs
 *.log
+
+# Playwright MCP
+.playwright-mcp/

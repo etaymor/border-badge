@@ -1,0 +1,110 @@
+/* ==============================================
+   LIST & TRIP DETAIL PAGE STYLES
+   ============================================== */
+
+/* List Info Card (Floating Glass) */
+.list-info-container {
+  max-width: var(--max-width);
+  margin: -100px auto 0;
+  padding: 0 var(--spacing-lg);
+  position: relative;
+  z-index: 10;
+  animation: fadeInUp 0.8s ease-out 0.4s backwards;
+}
+
+.list-info-card {
+  background: var(--color-bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-glass);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  box-shadow: var(--shadow-soft);
+  text-align: center;
+}
+
+.list-title {
+  font-family: var(--font-family-title);
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--color-midnight-navy);
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.1;
+}
+
+.list-meta {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  color: var(--color-storm-gray);
+  font-family: var(--font-family-body);
+  font-size: 0.95rem;
+  margin-bottom: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-description {
+  font-size: 1.125rem;
+  color: var(--color-text-main);
+  max-width: 700px;
+  margin: 0 auto var(--spacing-lg);
+}
+
+.creator-pill {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(23, 42, 58, 0.1);
+  border-radius: 50px;
+  padding: 4px 12px 4px 4px;
+  font-size: 0.9rem;
+  color: var(--color-midnight-navy);
+  font-weight: 600;
+}
+
+.creator-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-lake-blue);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  margin-right: 8px;
+}
+
+/* Grid Layout */
+.entries-container {
+  max-width: var(--max-width);
+  margin: var(--spacing-2xl) auto;
+  padding: 0 var(--spacing-lg);
+}
+
+.entries-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--spacing-lg);
+  align-items: start;
+}
+
+/* Features Section */
+.features {
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  background: var(--color-warm-cream);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-xl);
+  max-width: var(--max-width);
+  margin: 0 auto;
+}

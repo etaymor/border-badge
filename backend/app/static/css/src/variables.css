@@ -1,0 +1,58 @@
+/* ==============================================
+   CSS VARIABLES (Design Tokens)
+   ============================================== */
+
+:root {
+  /* Colors - Primary */
+  --color-midnight-navy: #172a3a;
+  --color-warm-cream: #fdf6ed;
+  --color-sunset-gold: #f4c24e;
+  --color-adobe-brick: #c1543e;
+  --color-lake-blue: #a0cdeb;
+  --color-moss-green: #547a5f;
+
+  /* Colors - Secondary */
+  --color-paper-beige: #f5ece0;
+  --color-dusty-coral: #f39b8b;
+  --color-storm-gray: #666d7a;
+  --color-cloud-white: #ffffff;
+
+  /* Semantic Colors */
+  --color-text-main: var(--color-midnight-navy);
+  --color-text-secondary: var(--color-storm-gray);
+  --color-bg-body: var(--color-warm-cream);
+  --color-bg-card: rgba(255, 255, 255, 0.65);
+  --color-border-glass: rgba(255, 255, 255, 0.5);
+  --color-primary-action: var(--color-sunset-gold);
+  --color-primary-action-hover: #e0aa2e;
+
+  /* Typography */
+  --font-family-title: "Playfair Display", serif;
+  --font-family-body: "Open Sans", sans-serif;
+  --font-family-hand: "Dawning of a New Day", cursive;
+
+  /* Spacing */
+  --spacing-xs: 0.25rem; /* 4px */
+  --spacing-sm: 0.5rem; /* 8px */
+  --spacing-md: 1rem; /* 16px */
+  --spacing-lg: 1.5rem; /* 24px */
+  --spacing-xl: 2.5rem; /* 40px */
+  --spacing-2xl: 4rem; /* 64px */
+
+  /* Layout */
+  --max-width: 1200px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  /* Effects */
+  --shadow-soft: 0 10px 40px -10px rgba(23, 42, 58, 0.08);
+  --shadow-hover: 0 20px 40px -10px rgba(23, 42, 58, 0.12);
+  --glass-blur: blur(12px);
+  --transition-base: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+
+  /* Animation Timing */
+  --anim-duration: 0.8s;
+  --anim-stagger: 0.1s;
+}
