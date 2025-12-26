@@ -1610,7 +1610,7 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>© 2024 Atlasi. Made with ❤️ for explorers everywhere.</p>
+                <p>© 2026 Atlasi. Made with ❤️ for explorers everywhere.</p>
                 <div class="social-links">
                     <a href="#" aria-label="Twitter">𝕏</a>
                     <a href="#" aria-label="Instagram">📷</a>
@@ -1659,17 +1659,32 @@
             stamp.className = 'stamp';
             stamp.innerHTML = country.flag;
             stamp.title = country.name;
-            stamp.addEventListener('click', () => {
+            stamp.setAttribute('role', 'button');
+            stamp.setAttribute('tabindex', '0');
+            stamp.setAttribute('aria-label', `Mark ${country.name} as visited`);
+            stamp.setAttribute('aria-pressed', 'false');
+
+            const handleStampActivation = () => {
                 if (!stamp.classList.contains('visited')) {
                     stamp.classList.add('visited');
+                    stamp.setAttribute('aria-pressed', 'true');
+                    stamp.setAttribute('aria-label', `${country.name} - visited`);
                     visited++;
                     stampCount.textContent = `${visited} / 15 visited`;
-                    
+
                     // Add haptic-like visual feedback
                     stamp.style.transform = 'scale(1.2)';
                     setTimeout(() => {
                         stamp.style.transform = 'scale(1)';
                     }, 150);
+                }
+            };
+
+            stamp.addEventListener('click', handleStampActivation);
+            stamp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleStampActivation();
                 }
             });
             passportGrid.appendChild(stamp);

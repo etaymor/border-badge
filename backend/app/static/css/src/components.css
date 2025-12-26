@@ -66,6 +66,13 @@ body.has-hero .header .cta-button {
   color: var(--color-midnight-navy);
 }
 
+/* Header scroll effect (landing page) */
+.header.scrolled {
+  position: fixed;
+  background: var(--color-warm-cream);
+  box-shadow: 0 2px 20px rgba(23, 42, 58, 0.08);
+}
+
 /* ==============================================
    NAVIGATION
    ============================================== */

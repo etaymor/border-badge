@@ -1,5 +1,6 @@
 """Public web page endpoints (HTML rendering)."""
 
+import datetime
 import html
 import logging
 from typing import Any
@@ -110,6 +111,7 @@ async def landing_page(request: Request) -> HTMLResponse:
             "og_url": seo.canonical_url,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
+            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
@@ -252,6 +254,7 @@ async def view_public_list(
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
+            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
@@ -384,6 +387,7 @@ async def view_public_trip(
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
+            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
