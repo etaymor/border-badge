@@ -1,10 +1,9 @@
 """Invite system schemas."""
 
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, EmailStr
 
 
 class InviteRequest(BaseModel):
@@ -20,20 +19,6 @@ class InviteResponse(BaseModel):
 
     status: str
     email: str
-
-
-class PendingInvite(BaseModel):
-    """Pending invite record."""
-
-    id: UUID
-    inviter_id: UUID
-    email: str
-    invite_type: str
-    status: str
-    created_at: datetime
-    inviter_username: str | None = None
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class PendingInviteSummary(BaseModel):

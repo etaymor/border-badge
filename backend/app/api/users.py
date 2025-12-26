@@ -260,8 +260,8 @@ async def get_user_profile(
             detail="User not found",
         )
 
-    # Get country count
-    country_rows = await db.get(
+    # Execute remaining queries in parallel for better performance
+    country_task = db.get(
         "user_countries",
         {
             "select": "id",
@@ -269,30 +269,24 @@ async def get_user_profile(
             "status": "eq.visited",
         },
     )
-    country_count = len(country_rows) if country_rows else 0
 
-    # Get follower count
-    follower_rows = await db.get(
+    follower_task = db.get(
         "user_follow",
         {
             "select": "id",
             "following_id": f"eq.{target_user_id}",
         },
     )
-    follower_count = len(follower_rows) if follower_rows else 0
 
-    # Get following count
-    following_rows = await db.get(
+    following_task = db.get(
         "user_follow",
         {
             "select": "id",
             "follower_id": f"eq.{target_user_id}",
         },
     )
-    following_count = len(following_rows) if following_rows else 0
 
-    # Check if current user is following this user
-    follow_check = await db.get(
+    is_following_task = db.get(
         "user_follow",
         {
             "select": "id",
@@ -300,6 +294,15 @@ async def get_user_profile(
             "following_id": f"eq.{target_user_id}",
         },
     )
+
+    # Await all queries concurrently
+    country_rows, follower_rows, following_rows, follow_check = await asyncio.gather(
+        country_task, follower_task, following_task, is_following_task
+    )
+
+    country_count = len(country_rows) if country_rows else 0
+    follower_count = len(follower_rows) if follower_rows else 0
+    following_count = len(following_rows) if following_rows else 0
     is_following = bool(follow_check)
 
     return UserProfileResponse(

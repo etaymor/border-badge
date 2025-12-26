@@ -31,10 +31,9 @@ def test_follow_user_success(
     auth_headers: dict[str, str],
 ) -> None:
     """Test successfully following another user."""
-    # Mock responses: block check, existing follow check, target user exists
+    # Mock responses: block check, target user exists (no more "already following" check)
     mock_supabase_client.get.side_effect = [
         [],  # No blocks
-        [],  # Not already following
         [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
     ]
     mock_supabase_client.post.return_value = [
@@ -65,11 +64,15 @@ def test_follow_user_already_following(
     auth_headers: dict[str, str],
 ) -> None:
     """Test following a user you're already following returns 200 (idempotent)."""
-    # Mock responses: no blocks, already following
+    # Mock responses: no blocks, target user exists
     mock_supabase_client.get.side_effect = [
         [],  # No blocks
-        [{"id": "existing-follow"}],  # Already following
+        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
     ]
+    # Simulate duplicate key constraint violation on insert
+    mock_supabase_client.post.side_effect = Exception(
+        "duplicate key value violates unique constraint"
+    )
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -132,10 +135,9 @@ def test_follow_nonexistent_user_returns_404(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that following a nonexistent user returns 404."""
-    # Mock responses: no blocks, not following, user doesn't exist
+    # Mock responses: no blocks, user doesn't exist (no more "already following" check)
     mock_supabase_client.get.side_effect = [
         [],  # No blocks
-        [],  # Not following
         [],  # User doesn't exist
     ]
 
@@ -214,11 +216,8 @@ def test_get_follow_stats(
     auth_headers: dict[str, str],
 ) -> None:
     """Test getting follow statistics."""
-    # Mock followers and following
-    mock_supabase_client.get.side_effect = [
-        [{"id": "1"}, {"id": "2"}, {"id": "3"}],  # 3 followers
-        [{"id": "1"}, {"id": "2"}],  # 2 following
-    ]
+    # Mock count method to return follower and following counts
+    mock_supabase_client.count.side_effect = [3, 2]  # 3 followers, 2 following
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -241,7 +240,8 @@ def test_get_follow_stats_empty(
     auth_headers: dict[str, str],
 ) -> None:
     """Test getting follow statistics with no followers/following."""
-    mock_supabase_client.get.side_effect = [[], []]  # No followers or following
+    # Mock count method to return 0 for both
+    mock_supabase_client.count.side_effect = [0, 0]  # No followers or following
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

@@ -86,19 +86,6 @@ async def follow_user(
             detail="Cannot follow this user",
         )
 
-    # Check if already following
-    existing = await db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "follower_id": f"eq.{user.id}",
-            "following_id": f"eq.{user_id}",
-        },
-    )
-
-    if existing:
-        return FollowResponse(status="already_following", following_id=str(user_id))
-
     # Check if target user exists
     target_user = await db.get(
         "user_profile",
@@ -114,14 +101,21 @@ async def follow_user(
             detail="User not found",
         )
 
-    # Create follow relationship
-    await db.post(
-        "user_follow",
-        {
-            "follower_id": str(user.id),
-            "following_id": str(user_id),
-        },
-    )
+    # Create follow relationship - catch constraint violation to handle race condition
+    # This avoids TOCTOU race where check-then-insert could have another insert in between
+    try:
+        await db.post(
+            "user_follow",
+            {
+                "follower_id": str(user.id),
+                "following_id": str(user_id),
+            },
+        )
+    except Exception as e:
+        # Handle duplicate key constraint violation (already following)
+        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+            return FollowResponse(status="already_following", following_id=str(user_id))
+        raise
 
     # Send push notification to the followed user (fire and forget)
     async def notify_new_follower() -> None:
@@ -210,27 +204,21 @@ async def get_follow_stats(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Get follower count
-    followers = await db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "following_id": f"eq.{user.id}",
-        },
-    )
-
-    # Get following count
-    following = await db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "follower_id": f"eq.{user.id}",
-        },
+    # Get counts using Supabase count feature (O(1) memory, uses Content-Range header)
+    follower_count, following_count = await asyncio.gather(
+        db.count(
+            "user_follow",
+            {"following_id": f"eq.{user.id}"},
+        ),
+        db.count(
+            "user_follow",
+            {"follower_id": f"eq.{user.id}"},
+        ),
     )
 
     return FollowStats(
-        follower_count=len(followers) if followers else 0,
-        following_count=len(following) if following else 0,
+        follower_count=follower_count,
+        following_count=following_count,
     )
 
 

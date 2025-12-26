@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -18,11 +18,8 @@ import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
-type TabType = 'following' | 'followers';
-
 export function FriendsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<TabType>('following');
 
   const { data: stats, isLoading: statsLoading } = useFollowStats();
   const { data: following, isLoading: followingLoading } = useFollowing();
@@ -35,10 +32,6 @@ export function FriendsScreen({ navigation }: Props) {
     },
     [navigation]
   );
-
-  const handleTabPress = useCallback((tab: TabType) => {
-    setActiveTab(tab);
-  }, []);
 
   const handleViewFollowers = useCallback(() => {
     navigation.navigate('FollowersList');
@@ -100,56 +93,23 @@ export function FriendsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'following' && styles.activeTab]}
-            onPress={() => handleTabPress('following')}
-          >
-            <Text
-              style={[styles.tabText, activeTab === 'following' && styles.activeTabText]}
-            >
-              Following
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'followers' && styles.activeTab]}
-            onPress={() => handleTabPress('followers')}
-          >
-            <Text
-              style={[styles.tabText, activeTab === 'followers' && styles.activeTabText]}
-            >
-              Followers
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.sectionTitle}>Following</Text>
       </>
     ),
-    [
-      insets.top,
-      stats,
-      activeTab,
-      handleTabPress,
-      handleUserSelect,
-      handleViewFollowers,
-      handleViewFollowing,
-    ]
+    [insets.top, stats, handleUserSelect, handleViewFollowers, handleViewFollowing]
   );
 
   const ListEmpty = useMemo(
     () => (
       <View style={styles.emptyState}>
         <Ionicons name="people-outline" size={64} color={colors.textTertiary} />
-        <Text style={styles.emptyTitle}>
-          {activeTab === 'following' ? 'Not following anyone yet' : 'No followers yet'}
-        </Text>
+        <Text style={styles.emptyTitle}>Not following anyone yet</Text>
         <Text style={styles.emptySubtitle}>
-          {activeTab === 'following'
-            ? 'Search for friends by username to start following them'
-            : 'Share your profile to get more followers'}
+          Search for friends by username to start following them
         </Text>
       </View>
     ),
-    [activeTab]
+    []
   );
 
   if (isLoading) {
@@ -237,29 +197,13 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: colors.border,
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 8,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-  },
-  activeTab: {
-    backgroundColor: colors.primary,
-  },
-  tabText: {
+  sectionTitle: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  activeTabText: {
-    color: colors.textInverse,
+    fontSize: 16,
+    color: colors.text,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 4,
   },
   listContent: {
     paddingBottom: 100,

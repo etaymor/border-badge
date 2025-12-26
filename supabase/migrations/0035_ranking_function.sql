@@ -32,7 +32,7 @@ BEGIN
   FROM user_countries
   WHERE user_id = p_user_id AND status = 'visited';
 
-  -- Count friends and compute rank in one query
+  -- Count friends, compute rank, and get leader in one query
   WITH limited_follows AS (
     -- Limit to 1000 most recent follows for performance
     SELECT following_id
@@ -45,7 +45,8 @@ BEGIN
     SELECT
       up.user_id,
       up.username,
-      COUNT(DISTINCT uc.country_id) as total_countries
+      COUNT(DISTINCT uc.country_id) as total_countries,
+      ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT uc.country_id) DESC) as rank_by_countries
     FROM user_profile up
     JOIN limited_follows lf ON lf.following_id = up.user_id
     LEFT JOIN user_countries uc ON uc.user_id = up.user_id AND uc.status = 'visited'
@@ -53,31 +54,10 @@ BEGIN
   )
   SELECT
     COUNT(*)::INT,
-    COUNT(*) FILTER (WHERE fs.total_countries > v_my_countries)::INT + 1
-  INTO v_total_friends, v_rank
-  FROM friend_stats fs;
-
-  -- Get the leader (friend with most countries)
-  WITH limited_follows AS (
-    SELECT following_id
-    FROM user_follow
-    WHERE follower_id = p_user_id
-    ORDER BY created_at DESC
-    LIMIT 1000
-  ),
-  friend_stats AS (
-    SELECT
-      up.username,
-      COUNT(DISTINCT uc.country_id) as total_countries
-    FROM user_profile up
-    JOIN limited_follows lf ON lf.following_id = up.user_id
-    LEFT JOIN user_countries uc ON uc.user_id = up.user_id AND uc.status = 'visited'
-    GROUP BY up.user_id, up.username
-    ORDER BY total_countries DESC
-    LIMIT 1
-  )
-  SELECT fs.username, fs.total_countries
-  INTO v_leader_username, v_leader_countries
+    COUNT(*) FILTER (WHERE fs.total_countries > v_my_countries)::INT + 1,
+    MAX(CASE WHEN fs.rank_by_countries = 1 THEN fs.username END),
+    MAX(CASE WHEN fs.rank_by_countries = 1 THEN fs.total_countries END)
+  INTO v_total_friends, v_rank, v_leader_username, v_leader_countries
   FROM friend_stats fs;
 
   RETURN QUERY SELECT

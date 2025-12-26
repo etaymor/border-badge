@@ -13,6 +13,19 @@ interface InviteEmailRequest {
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const APP_URL = Deno.env.get('APP_URL') || 'https://borderbadge.app';
 
+/**
+ * Escapes HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char] || char));
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -70,11 +83,11 @@ serve(async (req: Request) => {
   <div class="container">
     <div class="card">
       <div class="logo">🌍</div>
-      <h1>${inviter_name} invited you!</h1>
+      <h1>${escapeHtml(inviter_name)} invited you!</h1>
       <p>
         ${invite_type === 'trip_tag'
-          ? `${inviter_name} has tagged you in a trip on Border Badge. Join to see the adventure and share your own travel memories.`
-          : `${inviter_name} wants to connect with you on Border Badge, the travel app where you can track countries you've visited and share your journeys.`
+          ? `${escapeHtml(inviter_name)} has tagged you in a trip on Border Badge. Join to see the adventure and share your own travel memories.`
+          : `${escapeHtml(inviter_name)} wants to connect with you on Border Badge, the travel app where you can track countries you've visited and share your journeys.`
         }
       </p>
       <a href="${inviteUrl}" class="button">Accept Invitation</a>
