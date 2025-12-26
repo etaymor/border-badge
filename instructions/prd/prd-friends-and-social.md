@@ -443,9 +443,16 @@ ALTER TABLE trip DROP COLUMN date_range;
 
 ### 4.5 Background Jobs
 
-**FR-28: Leaderboard computation**
-- Scheduled job (hourly or on-demand)
-- Computes and caches leaderboard_stats
+**FR-28: Leaderboard computation (event-driven)**
+- **Trigger**: When any user adds a country to their visited list
+- **Scope**: Recompute stats for:
+  1. The user who added the country (immediate)
+  2. All users who follow that user (background job queue)
+  3. Global leaderboard cache (async refresh)
+- **Implementation**:
+  - Database trigger on `user_countries` INSERT fires Supabase Edge Function
+  - Edge Function queues background jobs for follower stat refresh
+  - Use pg_notify or Supabase Realtime for job dispatch
 - Rarity score = sum of (1 / visitor_count) for each country
 
 **FR-29: Activity feed generation**
@@ -457,6 +464,11 @@ ALTER TABLE trip DROP COLUMN date_range;
 - On user signup, check for pending invites by email
 - Auto-create follow relationships
 - Activate pending trip tags (still need approval)
+
+**FR-31: Notification delivery**
+- Individual notifications (not batched) for launch
+- Push via Expo Push Notifications
+- Email via Resend (already integrated with Supabase)
 
 ---
 
@@ -538,9 +550,11 @@ CREATE INDEX idx_leaderboard_rarity ON leaderboard_stats(rarity_score DESC);
 - Feed: 120/minute
 
 ### Email Integration
-- Use Supabase Edge Functions or external service (SendGrid, Resend)
-- Templates: Friend invite, trip tag notification
+- **Provider**: Resend (already integrated with Supabase)
+- **Delivery**: Via Supabase Edge Functions calling Resend API
+- **Templates**: Friend invite, trip tag notification
 - Unsubscribe link required
+- Track delivery/open rates via Resend dashboard
 
 ### Migration Path
 
@@ -595,27 +609,31 @@ CREATE INDEX idx_leaderboard_rarity ON leaderboard_stats(rarity_score DESC);
 
 ---
 
-## 9. Open Questions
+## 9. Decisions Made
 
-1. **Username migration for existing users**: Should existing users be prompted to set username on next login, or auto-generate from display_name?
+The following questions have been resolved:
 
-2. **Notification frequency**: Should we batch notifications (e.g., "3 people followed you") or send individually?
+| Question | Decision |
+|----------|----------|
+| Username migration | Not needed - fresh launch, no existing users to migrate |
+| Notification frequency | Individual notifications (not batched) for launch |
+| Email provider | Resend (already integrated with Supabase) |
+| Leaderboard refresh | Event-driven: triggers when user adds country, propagates to followers via background job |
+| Push notifications | Expo Push Notifications (native to Expo/React Native stack) |
 
-3. **Feed algorithm**: Pure chronological, or any ranking/relevance scoring?
+## 10. Remaining Open Questions
 
-4. **Rarity score formula**: Exact calculation for rarity score - linear inverse of visitors, or logarithmic?
+1. **Feed algorithm**: Pure chronological, or any ranking/relevance scoring? (Recommend: chronological for MVP)
 
-5. **Leaderboard update frequency**: Real-time, hourly, or daily?
+2. **Rarity score formula**: Exact calculation - linear inverse of visitors, or logarithmic? (Recommend: linear `1/visitor_count` for simplicity)
 
-6. **Email provider**: Which email service for invites? (Supabase built-in, SendGrid, Resend?)
+3. **Profile photos for non-social-auth users**: Need to ensure avatar upload flow exists for email/password users
 
-7. **Push notification provider**: Expo Push, OneSignal, or Firebase Cloud Messaging?
-
-8. **Profile photos**: Currently avatar_url exists - ensure upload flow for non-social-auth users
+4. **Background job infrastructure**: Use Supabase Edge Functions with pg_notify, or external queue (e.g., Inngest, QStash)?
 
 ---
 
-## 10. Appendix
+## 11. Appendix
 
 ### A. Schema Diagram (Mermaid)
 
