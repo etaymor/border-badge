@@ -23,6 +23,7 @@ interface PasswordAuthInput {
   email: string;
   password: string;
   displayName?: string;
+  username?: string;
 }
 
 /**
@@ -35,12 +36,16 @@ export function useSignUpWithPassword() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
+    mutationFn: async ({ email, password, displayName, username }: PasswordAuthInput) => {
+      const userData: Record<string, string> = {};
+      if (displayName) userData.display_name = displayName;
+      if (username) userData.username = username;
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: displayName ? { display_name: displayName } : undefined,
+          data: Object.keys(userData).length > 0 ? userData : undefined,
         },
       });
 

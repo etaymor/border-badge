@@ -15,6 +15,7 @@ from app.api import (
     profile,
     public,
     trips,
+    users,
 )
 
 router = APIRouter()
@@ -35,3 +36,4 @@ router.include_router(
 )
 router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
+router.include_router(users.router, prefix="/users", tags=["users"])

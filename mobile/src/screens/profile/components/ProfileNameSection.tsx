@@ -9,6 +9,7 @@ interface ProfileNameSectionProps {
   isEditing: boolean;
   editedName: string;
   displayName: string;
+  username?: string;
   nameError?: string;
   isSaving: boolean;
   isSmallScreen?: boolean;
@@ -22,6 +23,7 @@ export function ProfileNameSection({
   isEditing,
   editedName,
   displayName,
+  username,
   nameError,
   isSaving,
   isSmallScreen,
@@ -67,23 +69,30 @@ export function ProfileNameSection({
           </View>
         </View>
       ) : (
-        <Pressable
-          onPress={onStartEditing}
-          style={styles.nameDisplay}
-          accessibilityRole="button"
-          accessibilityLabel="Edit display name"
-          accessibilityHint="Double tap to edit your display name"
-        >
-          <Text style={[styles.displayName, isSmallScreen && styles.displayNameSmall]}>
-            {displayName}
-          </Text>
-          <Ionicons
-            name="pencil-outline"
-            size={20}
-            color={colors.stormGray}
-            style={styles.editIcon}
-          />
-        </Pressable>
+        <View style={styles.nameDisplayContainer}>
+          <Pressable
+            onPress={onStartEditing}
+            style={styles.nameDisplay}
+            accessibilityRole="button"
+            accessibilityLabel="Edit display name"
+            accessibilityHint="Double tap to edit your display name"
+          >
+            <Text style={[styles.displayName, isSmallScreen && styles.displayNameSmall]}>
+              {displayName}
+            </Text>
+            <Ionicons
+              name="pencil-outline"
+              size={20}
+              color={colors.stormGray}
+              style={styles.editIcon}
+            />
+          </Pressable>
+          {username && (
+            <Text style={[styles.username, isSmallScreen && styles.usernameSmall]}>
+              @{username}
+            </Text>
+          )}
+        </View>
       )}
     </View>
   );
@@ -95,6 +104,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 4,
     paddingBottom: 16,
+  },
+  nameDisplayContainer: {
+    alignItems: 'center',
   },
   nameDisplay: {
     flexDirection: 'row',
@@ -142,5 +154,14 @@ const styles = StyleSheet.create({
   },
   displayNameSmall: {
     fontSize: 20,
+  },
+  username: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 16,
+    color: colors.stormGray,
+    marginTop: 2,
+  },
+  usernameSmall: {
+    fontSize: 14,
   },
 });

@@ -41,7 +41,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const { displayName } = useOnboardingStore();
+  const { displayName, username } = useOnboardingStore();
 
   // Track screen view
   useEffect(() => {
@@ -139,7 +139,8 @@ export function AccountCreationScreen({ navigation }: Props) {
     const credentials = {
       email: emailResult.normalizedEmail!,
       password,
-      displayName: displayName ?? undefined,
+      displayName: displayName ?? username ?? undefined,
+      username: username ?? undefined,
     };
     signUp.mutate(credentials);
   };
