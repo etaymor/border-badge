@@ -3,6 +3,7 @@
 import datetime
 import html
 import logging
+from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
@@ -24,6 +25,17 @@ from app.services.affiliate_links import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_current_year(year: int) -> int:
+    """Return the current year. Cached by year to avoid repeated datetime calls."""
+    return year
+
+
+def get_current_year() -> int:
+    """Get current year, cached per year to avoid repeated datetime calls."""
+    return _get_current_year(datetime.datetime.now(datetime.UTC).year)
 
 router = APIRouter(tags=["public"])
 
@@ -111,7 +123,7 @@ async def landing_page(request: Request) -> HTMLResponse:
             "og_url": seo.canonical_url,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
-            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
+            "current_year": get_current_year(),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
@@ -254,7 +266,7 @@ async def view_public_list(
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
-            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
+            "current_year": get_current_year(),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
@@ -387,7 +399,7 @@ async def view_public_trip(
             "og_image": seo.og_image,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
-            "current_year": datetime.datetime.now(datetime.timezone.utc).year,
+            "current_year": get_current_year(),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
