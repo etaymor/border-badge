@@ -620,20 +620,69 @@ The following questions have been resolved:
 | Email provider | Resend (already integrated with Supabase) |
 | Leaderboard refresh | Event-driven: triggers when user adds country, propagates to followers via background job |
 | Push notifications | Expo Push Notifications (native to Expo/React Native stack) |
-
-## 10. Remaining Open Questions
-
-1. **Feed algorithm**: Pure chronological, or any ranking/relevance scoring? (Recommend: chronological for MVP)
-
-2. **Rarity score formula**: Exact calculation - linear inverse of visitors, or logarithmic? (Recommend: linear `1/visitor_count` for simplicity)
-
-3. **Profile photos for non-social-auth users**: Need to ensure avatar upload flow exists for email/password users
-
-4. **Background job infrastructure**: Use Supabase Edge Functions with pg_notify, or external queue (e.g., Inngest, QStash)?
+| Feed algorithm | Pure chronological (no ranking/relevance for MVP) |
+| Rarity score formula | Linear `1/visitor_count` - rewards truly rare destinations dramatically |
+| Profile photos | Tap avatar icon in profile to upload (existing pattern) |
+| Background job infrastructure | Supabase Edge Functions + pg_notify (already in stack, simpler ops) |
 
 ---
 
-## 11. Appendix
+## 10. Technical Details: Rarity Score
+
+The rarity score rewards users who visit uncommon destinations.
+
+**Formula:**
+```
+rarity_score = Σ (1 / visitor_count) for each visited country
+```
+
+**Example:**
+| User | Countries Visited | Calculation | Score |
+|------|-------------------|-------------|-------|
+| Alice | France (10k), Spain (8k), Japan (5k) | 1/10000 + 1/8000 + 1/5000 | 0.000425 |
+| Bob | Bhutan (200), Turkmenistan (100), Mongolia (500) | 1/200 + 1/100 + 1/500 | 0.017 |
+
+Bob scores 40x higher despite fewer countries — visiting rare places is rewarded.
+
+**Implementation notes:**
+- `visitor_count` comes from aggregating `user_countries` table
+- Precompute visitor counts nightly or on-demand
+- Store in `leaderboard_stats.rarity_score`
+
+---
+
+## 11. Technical Details: Background Jobs
+
+**Architecture: Supabase Edge Functions + pg_notify**
+
+```
+user_countries INSERT (database trigger)
+        ↓
+pg_notify('leaderboard_refresh', payload)
+        ↓
+Supabase Realtime subscription (Edge Function)
+        ↓
+Edge Function executes:
+  1. Recompute triggering user's stats (immediate)
+  2. Query user's followers from user_follow
+  3. Batch update follower leaderboard_stats
+  4. Invalidate/refresh global leaderboard cache
+```
+
+**Why this approach:**
+- No additional services to manage
+- pg_notify is lightweight, built into Postgres
+- Edge Functions already used for email (Resend)
+- 150s timeout sufficient for MVP scale (<10k users)
+
+**Future scaling:**
+- If user has 10k+ followers, batch processing may exceed timeout
+- Migration path: Inngest for complex workflows if needed
+- For now, YAGNI (You Aren't Gonna Need It)
+
+---
+
+## 12. Appendix
 
 ### A. Schema Diagram (Mermaid)
 
