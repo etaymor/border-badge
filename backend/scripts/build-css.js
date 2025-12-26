@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { transform } = require('lightningcss');
 
 // Configuration
 const CSS_DIR = path.join(__dirname, '../app/static/css');
@@ -62,27 +63,15 @@ function concatenateCSS() {
 }
 
 /**
- * Simple CSS minification
- * - Removes comments
- * - Removes unnecessary whitespace
- * - Preserves content in strings and data URIs
+ * Minify CSS using lightningcss
  */
 function minifyCSS(css) {
-  // Remove multi-line comments (but preserve data URIs)
-  let minified = css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  // Remove newlines and extra spaces
-  minified = minified
-    .replace(/\s+/g, ' ') // Collapse whitespace
-    .replace(/\s*{\s*/g, '{') // Remove space around {
-    .replace(/\s*}\s*/g, '}') // Remove space around }
-    .replace(/\s*;\s*/g, ';') // Remove space around ;
-    .replace(/\s*:\s*/g, ':') // Remove space around :
-    .replace(/\s*,\s*/g, ',') // Remove space around ,
-    .replace(/;}/g, '}') // Remove last semicolon before }
-    .trim();
-
-  return minified;
+  const result = transform({
+    filename: 'styles.css',
+    code: Buffer.from(css),
+    minify: true,
+  });
+  return result.code.toString();
 }
 
 /**

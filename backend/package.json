@@ -10,5 +10,8 @@
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "lightningcss": "^1.28.2"
   }
 }

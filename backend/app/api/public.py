@@ -3,7 +3,6 @@
 import datetime
 import html
 import logging
-from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
@@ -27,15 +26,10 @@ from app.services.affiliate_links import (
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _get_current_year(year: int) -> int:
-    """Return the current year. Cached by year to avoid repeated datetime calls."""
-    return year
-
-
 def get_current_year() -> int:
-    """Get current year, cached per year to avoid repeated datetime calls."""
-    return _get_current_year(datetime.datetime.now(datetime.UTC).year)
+    """Get current year for template footer."""
+    return datetime.datetime.now(datetime.UTC).year
+
 
 router = APIRouter(tags=["public"])
 
