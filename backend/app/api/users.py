@@ -1,5 +1,6 @@
 """User-related endpoints for social features."""
 
+import asyncio
 import logging
 import re
 from typing import Annotated
