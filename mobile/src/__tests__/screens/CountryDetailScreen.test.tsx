@@ -258,9 +258,7 @@ describe('CountryDetailScreen', () => {
       mockHooksWithData({
         country,
         trips: [],
-        userCountries: [
-          createMockUserCountry({ country_code: 'JP', status: 'visited' }),
-        ],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
       });
 
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
