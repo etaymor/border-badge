@@ -178,7 +178,9 @@ async def search_users(
         "get_user_country_counts",
         {"user_ids": user_ids},
     )
-    count_map = {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
+    count_map = (
+        {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
+    )
 
     # Get follow status for each user
     follow_check = await db.get(

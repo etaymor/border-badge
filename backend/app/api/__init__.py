@@ -4,16 +4,22 @@ from fastapi import APIRouter
 
 from app.api import (
     admin,
+    blocks,
     classification,
     countries,
     entries,
+    feed,
+    follows,
     ingest,
+    invites,
     lists,
     media,
+    notifications,
     outbound,
     places,
     profile,
     public,
+    stats,
     trips,
     users,
 )
@@ -37,3 +43,11 @@ router.include_router(
 router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
 router.include_router(users.router, prefix="/users", tags=["users"])
+router.include_router(follows.router, prefix="/follows", tags=["follows"])
+router.include_router(feed.router, prefix="/feed", tags=["feed"])
+router.include_router(stats.router, prefix="/stats", tags=["stats"])
+router.include_router(blocks.router, prefix="/blocks", tags=["blocks"])
+router.include_router(invites.router, prefix="/invites", tags=["invites"])
+router.include_router(
+    notifications.router, prefix="/notifications", tags=["notifications"]
+)

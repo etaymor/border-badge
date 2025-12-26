@@ -2,9 +2,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-navigation/native';
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
-import { ProfileScreen } from '@screens/ProfileScreen';
 
 import { DreamsNavigator } from './DreamsNavigator';
+import { FriendsNavigator } from './FriendsNavigator';
 import { PassportNavigator } from './PassportNavigator';
 import { TripsNavigator } from './TripsNavigator';
 import type { MainTabParamList } from './types';
@@ -89,8 +89,18 @@ export function MainTabNavigator() {
       />
       <Tab.Screen
         name="Friends"
-        component={ProfileScreen}
-        options={{ title: 'Friends', headerShown: true, tabBarAccessibilityLabel: 'friends-tab' }}
+        component={FriendsNavigator}
+        options={{ title: 'Friends', tabBarAccessibilityLabel: 'friends-tab' }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.dispatch(
+              CommonActions.reset({
+                index: 0,
+                routes: [{ name: 'Friends' }],
+              })
+            );
+          },
+        })}
       />
     </Tab.Navigator>
   );

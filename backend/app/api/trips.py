@@ -1,5 +1,6 @@
 """Trip and trip_tags endpoints."""
 
+import asyncio
 import logging
 from datetime import UTC, date, datetime
 from uuid import UUID
@@ -8,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
+from app.core.edge_functions import send_push_notification
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -385,6 +387,93 @@ async def _update_tag_status(
             status_code=status.HTTP_409_CONFLICT,
             detail="Tag has already been responded to",
         )
+
+    # Auto-follow on approval: tagged user follows trip owner
+    if new_status == TripTagStatus.APPROVED:
+
+        async def auto_follow_trip_owner() -> None:
+            try:
+                admin_db = get_supabase_client()
+
+                # Get trip to find owner
+                trips = await admin_db.get(
+                    "trip",
+                    {
+                        "select": "user_id",
+                        "id": f"eq.{trip_id}",
+                    },
+                )
+                if not trips:
+                    return
+
+                trip_owner_id = trips[0]["user_id"]
+
+                # Skip if already following
+                existing_follow = await admin_db.get(
+                    "user_follow",
+                    {
+                        "select": "id",
+                        "follower_id": f"eq.{user_id}",
+                        "following_id": f"eq.{trip_owner_id}",
+                    },
+                )
+                if existing_follow:
+                    return
+
+                # Check for blocks
+                blocks = await admin_db.get(
+                    "user_block",
+                    {
+                        "select": "id",
+                        "or": f"(blocker_id.eq.{user_id},blocked_id.eq.{trip_owner_id}),"
+                        f"(blocker_id.eq.{trip_owner_id},blocked_id.eq.{user_id})",
+                    },
+                )
+                if blocks:
+                    return
+
+                # Create mutual follow
+                await admin_db.post(
+                    "user_follow",
+                    {"follower_id": user_id, "following_id": trip_owner_id},
+                )
+
+                # Get trip owner's push token to notify
+                owner_profile = await admin_db.get(
+                    "user_profile",
+                    {
+                        "select": "push_token,display_name",
+                        "user_id": f"eq.{trip_owner_id}",
+                    },
+                )
+                if owner_profile and owner_profile[0].get("push_token"):
+                    tagged_user = await admin_db.get(
+                        "user_profile",
+                        {
+                            "select": "username,display_name",
+                            "user_id": f"eq.{user_id}",
+                        },
+                    )
+                    if tagged_user:
+                        tagged_name = (
+                            tagged_user[0].get("display_name")
+                            or tagged_user[0].get("username")
+                            or "Someone"
+                        )
+                        await send_push_notification(
+                            tokens=[owner_profile[0]["push_token"]],
+                            title="Trip Tag Accepted",
+                            body=f"{tagged_name} accepted your trip tag and is now following you",
+                            data={
+                                "screen": "UserProfile",
+                                "userId": user_id,
+                                "username": tagged_user[0].get("username", ""),
+                            },
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to auto-follow on tag acceptance: {e}")
+
+        asyncio.create_task(auto_follow_trip_owner())
 
     return TripTagAction(
         status=new_status,

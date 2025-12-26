@@ -8,6 +8,7 @@ import {
   storeTokens,
 } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
+import { registerForPushNotifications } from '@services/pushNotifications';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -70,6 +71,12 @@ export function useSignUpWithPassword() {
           console.warn('Migration failed for new password user');
         }
 
+        // Request push notification permission and register token
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
+
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
         setSession(data.session);
@@ -119,6 +126,12 @@ export function useSignInWithPassword() {
             console.warn('Migration failed for password user');
           }
         }
+
+        // Register for push notifications (returning users may not have registered)
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
 
         setSession(data.session);
       }

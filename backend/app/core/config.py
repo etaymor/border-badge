@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     skimlinks_api_key: str = ""  # Skimlinks API key for link monetization
     skimlinks_publisher_id: str = ""  # Skimlinks publisher ID
 
+    # Social invites
+    invite_signing_secret: str = Field(
+        default="", repr=False
+    )  # HMAC secret for signing invite codes
+
+    @property
+    def INVITE_SIGNING_SECRET(self) -> str:
+        """Get invite signing secret, fallback to affiliate secret or default."""
+        return (
+            self.invite_signing_secret
+            or self.affiliate_signing_secret
+            or "dev-secret-change-in-production"
+        )
+
     # Social ingest - marked as secrets to prevent logging exposure
     instagram_oembed_token: str = Field(
         default="", repr=False

@@ -78,3 +78,5 @@ export type {
 
 export { useResponsive } from './useResponsive';
 export type { ScreenSize, ResponsiveValues } from './useResponsive';
+
+export { useUserFeed, getUserFeedItems } from './useUserFeed';

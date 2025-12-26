@@ -5,6 +5,7 @@ import { Alert } from 'react-native';
 
 import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
+import { registerForPushNotifications } from '@services/pushNotifications';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
@@ -101,6 +102,12 @@ export function useGoogleSignIn() {
             console.warn('Migration failed for Google user');
           }
         }
+
+        // Register for push notifications
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
 
         setSession(data.session);
       }

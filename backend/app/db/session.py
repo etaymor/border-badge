@@ -295,3 +295,12 @@ def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
         user_token: Optional JWT for user-scoped queries with RLS.
     """
     return SupabaseClient(user_token=user_token)
+
+
+def get_service_supabase_client() -> SupabaseClient:
+    """
+    Get a Supabase client with service role key (bypasses RLS).
+
+    Use sparingly - only for admin operations that need to bypass RLS.
+    """
+    return SupabaseClient(user_token=None)
