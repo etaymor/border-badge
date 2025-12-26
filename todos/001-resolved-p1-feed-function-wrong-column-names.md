@@ -1,7 +1,7 @@
 # Feed Function References Non-Existent Columns
 
 ---
-status: ready
+status: resolved
 priority: p1
 issue_id: "001"
 tags: [code-review, database, migration, critical]

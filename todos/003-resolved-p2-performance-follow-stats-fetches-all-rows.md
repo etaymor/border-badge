@@ -1,7 +1,7 @@
 # Follow Stats Endpoint Fetches All Rows to Count
 
 ---
-status: ready
+status: resolved
 priority: p2
 issue_id: "003"
 tags: [code-review, performance, backend]

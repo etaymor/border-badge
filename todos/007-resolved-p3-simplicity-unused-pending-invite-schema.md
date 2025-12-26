@@ -1,7 +1,7 @@
 # Unused PendingInvite Schema Class
 
 ---
-status: ready
+status: resolved
 priority: p3
 issue_id: "007"
 tags: [code-review, simplicity, cleanup]

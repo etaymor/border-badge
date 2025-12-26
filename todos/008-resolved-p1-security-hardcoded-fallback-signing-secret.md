@@ -1,7 +1,7 @@
 # Hardcoded Fallback Signing Secret in Production
 
 ---
-status: ready
+status: resolved
 priority: p1
 issue_id: "008"
 tags: [code-review, security, critical]

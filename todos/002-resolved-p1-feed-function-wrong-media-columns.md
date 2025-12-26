@@ -1,7 +1,7 @@
 # Feed Function References Wrong Media Columns
 
 ---
-status: ready
+status: resolved
 priority: p1
 issue_id: "002"
 tags: [code-review, database, migration, critical]

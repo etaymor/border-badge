@@ -1,7 +1,7 @@
 # FriendsScreen Tab UI Doesn't Work
 
 ---
-status: ready
+status: resolved
 priority: p3
 issue_id: "006"
 tags: [code-review, ui, mobile, simplicity]

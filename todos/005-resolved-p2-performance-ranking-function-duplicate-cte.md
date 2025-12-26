@@ -1,7 +1,7 @@
 # Ranking Function Runs Same CTE Twice
 
 ---
-status: ready
+status: resolved
 priority: p2
 issue_id: "005"
 tags: [code-review, performance, database]

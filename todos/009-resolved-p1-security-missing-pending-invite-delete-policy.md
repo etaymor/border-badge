@@ -1,7 +1,7 @@
 # Missing DELETE RLS Policy for pending_invite Table
 
 ---
-status: ready
+status: resolved
 priority: p1
 issue_id: "009"
 tags: [code-review, security, database]

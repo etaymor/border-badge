@@ -1,7 +1,7 @@
 # XSS Vulnerability in Invite Email Template
 
 ---
-status: ready
+status: resolved
 priority: p2
 issue_id: "010"
 tags: [code-review, security, edge-functions]
