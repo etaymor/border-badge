@@ -49,7 +49,11 @@ async def update_profile(
     data: ProfileUpdate,
     user: CurrentUser,
 ) -> Profile:
-    """Update the current user's profile preferences."""
+    """
+    Update the current user's profile preferences.
+
+    Handles race conditions for username uniqueness with suggestions.
+    """
     token = get_token_from_request(request)
     logger.debug(
         "update_profile: user.id=%s, token exists=%s", user.id, token is not None
@@ -64,16 +68,47 @@ async def update_profile(
             detail="No fields to update",
         )
 
-    rows = await db.patch(
-        "user_profile",
-        update_data,
-        {"user_id": f"eq.{user.id}"},
-    )
-
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
+    try:
+        rows = await db.patch(
+            "user_profile",
+            update_data,
+            {"user_id": f"eq.{user.id}"},
         )
 
-    return Profile(**rows[0])
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found",
+            )
+
+        return Profile(**rows[0])
+
+    except HTTPException as e:
+        # Check if it's a username uniqueness violation (HTTP 409)
+        # Supabase returns 409 for unique constraint violations
+        if (
+            e.status_code == status.HTTP_409_CONFLICT
+            and "username" in update_data
+            and "unique" in str(e.detail).lower()
+        ):
+            # Username was taken between check and claim (race condition)
+            suggestions_result = await db.execute(
+                "SELECT generate_username_suggestions($1, 3) as suggestions",
+                update_data["username"],
+            )
+            suggestions = (
+                suggestions_result[0]["suggestions"]
+                if suggestions_result and suggestions_result[0]["suggestions"]
+                else []
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "USERNAME_TAKEN",
+                    "message": f"Username '{update_data['username']}' is already taken",
+                    "suggestions": suggestions,
+                },
+            ) from e
+        # Re-raise other HTTP exceptions
+        raise

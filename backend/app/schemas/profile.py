@@ -1,10 +1,11 @@
 """Schemas for user profile endpoints."""
 
+import re
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TrackingPreference(str, Enum):
@@ -19,10 +20,25 @@ class TrackingPreference(str, Enum):
 class ProfileUpdate(BaseModel):
     """Request to update user profile preferences."""
 
+    username: str | None = None
     home_country_code: str | None = None
     travel_motives: list[str] | None = None
     persona_tags: list[str] | None = None
     tracking_preference: TrackingPreference | None = None
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str | None) -> str | None:
+        """Validate username format if provided."""
+        if v is None:
+            return None
+        if len(v) < 3 or len(v) > 30:
+            raise ValueError("Username must be 3-30 characters")
+        if not re.match(r"^[a-zA-Z0-9_]+$", v):
+            raise ValueError(
+                "Username can only contain letters, numbers, and underscores"
+            )
+        return v
 
 
 class Profile(BaseModel):
@@ -30,6 +46,7 @@ class Profile(BaseModel):
 
     id: UUID
     user_id: UUID
+    username: str | None = None
     display_name: str
     avatar_url: str | None = None
     home_country_code: str | None = None
