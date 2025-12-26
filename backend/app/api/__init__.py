@@ -7,6 +7,7 @@ from app.api import (
     classification,
     countries,
     entries,
+    feed,
     follows,
     ingest,
     lists,
@@ -29,6 +30,7 @@ router.include_router(countries.router, prefix="/countries", tags=["countries"])
 router.include_router(profile.router, prefix="/profile", tags=["profile"])
 router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(follows.router, prefix="/follows", tags=["follows"])
+router.include_router(feed.router, prefix="/feed", tags=["feed"])
 router.include_router(trips.router, prefix="/trips", tags=["trips"])
 router.include_router(entries.router, tags=["entries"])
 router.include_router(places.router, prefix="/places", tags=["places"])

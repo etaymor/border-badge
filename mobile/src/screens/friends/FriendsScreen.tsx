@@ -17,12 +17,15 @@ import { fonts } from '@constants/typography';
 import { useUserSearch } from '@hooks/useUserSearch';
 import { useFollowStats } from '@hooks/useFollows';
 import { UserSearchResultCard } from '@components/friends/UserSearchResultCard';
+import { FeedList } from '@components/friends/FeedList';
 import type { RootStackParamList } from '@navigation/types';
 
 type FriendsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type TabMode = 'feed' | 'search';
 
 export default function FriendsScreen() {
   const navigation = useNavigation<FriendsScreenNavigationProp>();
+  const [tabMode, setTabMode] = useState<TabMode>('feed');
   const [searchQuery, setSearchQuery] = useState('');
 
   const { data: searchResults = [], isLoading: isSearching } = useUserSearch(searchQuery);
@@ -57,28 +60,53 @@ export default function FriendsScreen() {
         </Pressable>
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search users by username..."
-          placeholderTextColor={colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {searchQuery.length > 0 && (
-          <Pressable onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
-          </Pressable>
-        )}
+      {/* Tab Switcher */}
+      <View style={styles.tabSwitcher}>
+        <Pressable
+          style={[styles.tab, tabMode === 'feed' && styles.activeTab]}
+          onPress={() => setTabMode('feed')}
+        >
+          <Text style={[styles.tabText, tabMode === 'feed' && styles.activeTabText]}>Feed</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, tabMode === 'search' && styles.activeTab]}
+          onPress={() => setTabMode('search')}
+        >
+          <Text style={[styles.tabText, tabMode === 'search' && styles.activeTabText]}>Search</Text>
+        </Pressable>
       </View>
 
-      {/* Search Results / Empty States */}
+      {/* Search Bar - Only show in search mode */}
+      {tabMode === 'search' && (
+        <View style={styles.searchContainer}>
+          <Ionicons
+            name="search"
+            size={20}
+            color={colors.textSecondary}
+            style={styles.searchIcon}
+          />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search users by username..."
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* Content - Feed or Search Results */}
       <View style={styles.resultsContainer}>
-        {searchQuery.length === 0 ? (
+        {tabMode === 'feed' ? (
+          <FeedList />
+        ) : searchQuery.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={64} color={colors.textSecondary} />
             <Text style={styles.emptyStateTitle}>Find Friends</Text>
@@ -151,6 +179,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.regular,
     color: colors.textSecondary,
+  },
+  tabSwitcher: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: colors.border,
+    borderRadius: 12,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  activeTab: {
+    backgroundColor: colors.cardBackground,
+  },
+  tabText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  activeTabText: {
+    color: colors.text,
   },
   searchContainer: {
     flexDirection: 'row',
