@@ -334,9 +334,11 @@ const styles = StyleSheet.create({
   photoModeMilestoneText: {
     fontFamily: fonts.oswald.medium,
     fontSize: 16 * SCALE,
+    lineHeight: 22 * SCALE,
     color: colors.white,
     textTransform: 'uppercase',
     letterSpacing: 0.5 * SCALE,
+    includeFontPadding: false,
   },
 
   // Stamp in corner
@@ -378,7 +380,9 @@ const styles = StyleSheet.create({
   stampNumberText: {
     fontFamily: fonts.oswald.bold,
     fontSize: 18 * SCALE,
+    lineHeight: 24 * SCALE,
     color: colors.midnightNavy,
+    includeFontPadding: false,
   },
 
   // Photo mode watermark - aligned with stamp vertically
@@ -389,6 +393,5 @@ const styles = StyleSheet.create({
     width: 120 * SCALE,
     height: 36 * SCALE,
     opacity: 0.9,
-    tintColor: colors.white,
   },
 });
