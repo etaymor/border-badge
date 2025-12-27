@@ -3,6 +3,8 @@
 --
 -- This function returns a user's own activities (not their followed users)
 -- Used for displaying activity on user profile pages
+--
+-- NOTE: Performance optimizations applied in migration 0045
 
 CREATE OR REPLACE FUNCTION get_user_activity_feed(
   p_viewer_id UUID,        -- The user viewing the profile

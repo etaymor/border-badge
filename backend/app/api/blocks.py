@@ -90,8 +90,8 @@ async def block_user(
     await db.delete(
         "user_follow",
         {
-            "or": f"(follower_id.eq.{user.id},following_id.eq.{user_id}),"
-            f"(follower_id.eq.{user_id},following_id.eq.{user.id})",
+            "or": f"(and(follower_id.eq.{user.id},following_id.eq.{user_id})),"
+            f"(and(follower_id.eq.{user_id},following_id.eq.{user.id}))",
         },
     )
 

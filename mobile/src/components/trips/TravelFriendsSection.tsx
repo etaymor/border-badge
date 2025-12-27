@@ -205,12 +205,7 @@ export function TravelFriendsSection({
           style={[styles.inputBlur, isFocused && styles.inputBlurFocused]}
         >
           <View style={styles.inputContainer}>
-            <Ionicons
-              name="search"
-              size={18}
-              color={colors.stormGray}
-              style={styles.searchIcon}
-            />
+            <Ionicons name="search" size={18} color={colors.stormGray} style={styles.searchIcon} />
             <TextInput
               ref={inputRef}
               style={styles.textInput}

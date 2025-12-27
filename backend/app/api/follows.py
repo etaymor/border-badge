@@ -4,7 +4,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.api.utils import get_token_from_request
@@ -49,6 +49,7 @@ async def follow_user(
     request: Request,
     user_id: UUID,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> FollowResponse:
     """
     Follow a user.
@@ -75,8 +76,8 @@ async def follow_user(
         "user_block",
         {
             "select": "id",
-            "or": f"(blocker_id.eq.{user.id},blocked_id.eq.{user_id}),"
-            f"(blocker_id.eq.{user_id},blocked_id.eq.{user.id})",
+            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{user_id})),"
+            f"(and(blocker_id.eq.{user_id},blocked_id.eq.{user.id}))",
         },
     )
 
@@ -166,7 +167,7 @@ async def follow_user(
         except Exception as e:
             logger.warning(f"Failed to send follow notification: {e}", exc_info=True)
 
-    asyncio.create_task(notify_new_follower())
+    background_tasks.add_task(notify_new_follower)
 
     return FollowResponse(status="following", following_id=str(user_id))
 
@@ -251,6 +252,7 @@ async def get_following(
         return []
 
     # Get user profiles
+    # Note: following_ids come from database query results, so they're already validated UUIDs
     following_ids = [f["following_id"] for f in follows]
     profiles = await db.get(
         "user_profile",
@@ -321,6 +323,7 @@ async def get_followers(
         return []
 
     # Get user profiles
+    # Note: follower_ids come from database query results, so they're already validated UUIDs
     follower_ids = [f["follower_id"] for f in follows]
     profiles = await db.get(
         "user_profile",

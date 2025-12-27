@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { getSocialErrorMessage } from '@utils/socialErrors';
 
 // Types
 export interface BlockedUser {
@@ -59,7 +60,7 @@ export function useBlockUser(userId: string) {
     },
 
     onError: (error) => {
-      const message = error.message || 'Failed to block user';
+      const message = getSocialErrorMessage(error, 'block');
       Alert.alert('Error', message);
     },
   });
@@ -83,7 +84,7 @@ export function useUnblockUser(userId: string) {
     },
 
     onError: (error) => {
-      const message = error.message || 'Failed to unblock user';
+      const message = getSocialErrorMessage(error, 'unblock');
       Alert.alert('Error', message);
     },
   });

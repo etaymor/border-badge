@@ -22,13 +22,22 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from app.core.config import get_settings
-from app.db.session import close_http_client, get_http_client, get_service_supabase_client
+from seed.auth import create_user  # noqa: E402
+from seed.cleanup import cleanup_test_users  # noqa: E402
+from seed.database import (  # noqa: E402
+    create_follow,
+    create_trip_tag,
+    seed_trips_for_user,
+    update_profile,
+)
+from seed.personas import PERSONAS, TEST_PASSWORD  # noqa: E402
 
-from seed.auth import create_user
-from seed.cleanup import cleanup_test_users
-from seed.database import create_follow, create_trip_tag, seed_trips_for_user, update_profile
-from seed.personas import PERSONAS, TEST_PASSWORD
+from app.core.config import get_settings  # noqa: E402
+from app.db.session import (  # noqa: E402
+    close_http_client,
+    get_http_client,
+    get_service_supabase_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,10 +145,12 @@ async def seed_all(real_user_id: str | None = None) -> None:
     logger.info("\n" + "=" * 50)
     logger.info("Done! Test users:")
     for persona in PERSONAS:
-        logger.info(f"  @{persona['username']} ({persona['username']}+test@example.com)")
+        logger.info(
+            f"  @{persona['username']} ({persona['username']}+test@example.com)"
+        )
     logger.info(f"\nPassword: {TEST_PASSWORD}")
     if real_user_id:
-        logger.info(f"\nReal user follows 4, followed by 5, tagged on 2 trips")
+        logger.info("\nReal user follows 4, followed by 5, tagged on 2 trips")
 
 
 async def main() -> None:
@@ -160,7 +171,10 @@ async def main() -> None:
             http_client = get_http_client()
             db = get_service_supabase_client()
             await cleanup_test_users(
-                db, http_client, settings.supabase_url, settings.supabase_service_role_key
+                db,
+                http_client,
+                settings.supabase_url,
+                settings.supabase_service_role_key,
             )
         else:
             await seed_all(args.real_user_id)

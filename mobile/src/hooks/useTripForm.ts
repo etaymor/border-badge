@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { useSendInvite, useTripPendingInvites } from './useInvites';
-import {
-  useAddTripTag,
-  useCreateTrip,
-  useRemoveTripTag,
-  useTrip,
-  useUpdateTrip,
-} from './useTrips';
+import { useAddTripTag, useCreateTrip, useRemoveTripTag, useTrip, useUpdateTrip } from './useTrips';
 
 export interface UseTripFormOptions {
   tripId?: string;
@@ -214,8 +208,7 @@ export function useTripForm(options: UseTripFormOptions = {}): UseTripFormResult
             name: name.trim(),
             country_code: countryCode!,
             cover_image_url: coverImageUrl.trim() || undefined,
-            tagged_user_ids:
-              selectedFriendIds.size > 0 ? Array.from(selectedFriendIds) : undefined,
+            tagged_user_ids: selectedFriendIds.size > 0 ? Array.from(selectedFriendIds) : undefined,
           });
 
           // Send email invites for non-platform users

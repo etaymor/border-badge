@@ -19,10 +19,7 @@ import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
-import {
-  generateUsernameFromName,
-  validateUsername,
-} from '@utils/usernameValidation';
+import { generateUsernameFromName, validateUsername } from '@utils/usernameValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');

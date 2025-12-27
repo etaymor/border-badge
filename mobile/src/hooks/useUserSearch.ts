@@ -19,10 +19,7 @@ interface UseUserSearchOptions {
  * Hook to search users by username prefix.
  * Requires at least 2 characters to search.
  */
-export function useUserSearch(
-  query: string,
-  options: UseUserSearchOptions = {}
-) {
+export function useUserSearch(query: string, options: UseUserSearchOptions = {}) {
   const { enabled = true, limit = 10 } = options;
 
   return useQuery<UserSearchResult[]>({

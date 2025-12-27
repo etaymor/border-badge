@@ -17,9 +17,21 @@ PERSONAS = [
                 "date_start": date(2024, 2, 1),
                 "date_end": date(2024, 2, 28),
                 "entries": [
-                    {"type": "place", "title": "Grand Palace Bangkok", "notes": "Stunning temple complex."},
-                    {"type": "food", "title": "Best Pad Thai Ever", "notes": "Street food near Khao San."},
-                    {"type": "stay", "title": "Lub d Hostel Silom", "notes": "Great social hostel."},
+                    {
+                        "type": "place",
+                        "title": "Grand Palace Bangkok",
+                        "notes": "Stunning temple complex.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Best Pad Thai Ever",
+                        "notes": "Street food near Khao San.",
+                    },
+                    {
+                        "type": "stay",
+                        "title": "Lub d Hostel Silom",
+                        "notes": "Great social hostel.",
+                    },
                 ],
             },
             {
@@ -28,8 +40,16 @@ PERSONAS = [
                 "date_start": date(2024, 5, 10),
                 "date_end": date(2024, 5, 25),
                 "entries": [
-                    {"type": "place", "title": "Machu Picchu at Sunrise", "notes": "Worth the hike."},
-                    {"type": "food", "title": "Ceviche in Lima", "notes": "Fresh and tangy."},
+                    {
+                        "type": "place",
+                        "title": "Machu Picchu at Sunrise",
+                        "notes": "Worth the hike.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Ceviche in Lima",
+                        "notes": "Fresh and tangy.",
+                    },
                 ],
             },
         ],
@@ -46,8 +66,16 @@ PERSONAS = [
                 "date_start": date(2024, 3, 15),
                 "date_end": date(2024, 3, 22),
                 "entries": [
-                    {"type": "stay", "title": "Overwater Villa", "notes": "Turquoise waters everywhere."},
-                    {"type": "experience", "title": "Sunset Dolphin Cruise", "notes": "Magical."},
+                    {
+                        "type": "stay",
+                        "title": "Overwater Villa",
+                        "notes": "Turquoise waters everywhere.",
+                    },
+                    {
+                        "type": "experience",
+                        "title": "Sunset Dolphin Cruise",
+                        "notes": "Magical.",
+                    },
                 ],
             },
             {
@@ -56,9 +84,21 @@ PERSONAS = [
                 "date_start": date(2024, 6, 5),
                 "date_end": date(2024, 6, 15),
                 "entries": [
-                    {"type": "place", "title": "Colosseum at Golden Hour", "notes": "Ancient Rome vibes."},
-                    {"type": "food", "title": "Carbonara in Trastevere", "notes": "No cream, perfection."},
-                    {"type": "food", "title": "Gelato Tour of Florence", "notes": "Pistachio won."},
+                    {
+                        "type": "place",
+                        "title": "Colosseum at Golden Hour",
+                        "notes": "Ancient Rome vibes.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Carbonara in Trastevere",
+                        "notes": "No cream, perfection.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Gelato Tour of Florence",
+                        "notes": "Pistachio won.",
+                    },
                 ],
             },
         ],
@@ -75,8 +115,16 @@ PERSONAS = [
                 "date_start": date(2024, 1, 10),
                 "date_end": date(2024, 1, 20),
                 "entries": [
-                    {"type": "experience", "title": "Northern Lights Hunt", "notes": "Green and purple aurora!"},
-                    {"type": "place", "title": "Diamond Beach Sunrise", "notes": "Ice glittering like diamonds."},
+                    {
+                        "type": "experience",
+                        "title": "Northern Lights Hunt",
+                        "notes": "Green and purple aurora!",
+                    },
+                    {
+                        "type": "place",
+                        "title": "Diamond Beach Sunrise",
+                        "notes": "Ice glittering like diamonds.",
+                    },
                 ],
             },
         ],
@@ -93,9 +141,21 @@ PERSONAS = [
                 "date_start": date(2024, 4, 20),
                 "date_end": date(2024, 5, 1),
                 "entries": [
-                    {"type": "food", "title": "Tsukiji Outer Market", "notes": "Fresh sushi for breakfast."},
-                    {"type": "food", "title": "Michelin Ramen", "notes": "Worth the 2 hour queue."},
-                    {"type": "experience", "title": "Golden Gai Bar Hopping", "notes": "Tiny bars, big character."},
+                    {
+                        "type": "food",
+                        "title": "Tsukiji Outer Market",
+                        "notes": "Fresh sushi for breakfast.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Michelin Ramen",
+                        "notes": "Worth the 2 hour queue.",
+                    },
+                    {
+                        "type": "experience",
+                        "title": "Golden Gai Bar Hopping",
+                        "notes": "Tiny bars, big character.",
+                    },
                 ],
             },
         ],
@@ -112,8 +172,16 @@ PERSONAS = [
                 "date_start": date(2024, 2, 15),
                 "date_end": date(2024, 2, 25),
                 "entries": [
-                    {"type": "place", "title": "Pyramids of Giza", "notes": "The last ancient wonder."},
-                    {"type": "place", "title": "Valley of the Kings", "notes": "Tutankhamun's tomb!"},
+                    {
+                        "type": "place",
+                        "title": "Pyramids of Giza",
+                        "notes": "The last ancient wonder.",
+                    },
+                    {
+                        "type": "place",
+                        "title": "Valley of the Kings",
+                        "notes": "Tutankhamun's tomb!",
+                    },
                 ],
             },
             {
@@ -122,8 +190,16 @@ PERSONAS = [
                 "date_start": date(2024, 5, 20),
                 "date_end": date(2024, 6, 2),
                 "entries": [
-                    {"type": "place", "title": "Acropolis at Dawn", "notes": "Parthenon in golden light."},
-                    {"type": "place", "title": "Santorini Blue Domes", "notes": "That iconic view."},
+                    {
+                        "type": "place",
+                        "title": "Acropolis at Dawn",
+                        "notes": "Parthenon in golden light.",
+                    },
+                    {
+                        "type": "place",
+                        "title": "Santorini Blue Domes",
+                        "notes": "That iconic view.",
+                    },
                 ],
             },
         ],
@@ -140,8 +216,16 @@ PERSONAS = [
                 "date_start": date(2024, 6, 15),
                 "date_end": date(2024, 6, 25),
                 "entries": [
-                    {"type": "place", "title": "Trolltunga Hike", "notes": "14 hours round trip. Worth it."},
-                    {"type": "experience", "title": "Midnight Sun Kayaking", "notes": "Paddling at 11pm."},
+                    {
+                        "type": "place",
+                        "title": "Trolltunga Hike",
+                        "notes": "14 hours round trip. Worth it.",
+                    },
+                    {
+                        "type": "experience",
+                        "title": "Midnight Sun Kayaking",
+                        "notes": "Paddling at 11pm.",
+                    },
                 ],
             },
         ],
@@ -158,9 +242,21 @@ PERSONAS = [
                 "date_start": date(2024, 7, 1),
                 "date_end": date(2024, 7, 14),
                 "entries": [
-                    {"type": "place", "title": "Uluwatu Temple Sunset", "notes": "Kecak dance with ocean backdrop."},
-                    {"type": "experience", "title": "Beach Club Day", "notes": "Potato Head vibes."},
-                    {"type": "stay", "title": "Rice Terrace Villa", "notes": "Ubud is magical."},
+                    {
+                        "type": "place",
+                        "title": "Uluwatu Temple Sunset",
+                        "notes": "Kecak dance with ocean backdrop.",
+                    },
+                    {
+                        "type": "experience",
+                        "title": "Beach Club Day",
+                        "notes": "Potato Head vibes.",
+                    },
+                    {
+                        "type": "stay",
+                        "title": "Rice Terrace Villa",
+                        "notes": "Ubud is magical.",
+                    },
                 ],
             },
         ],
@@ -177,9 +273,21 @@ PERSONAS = [
                 "date_start": date(2024, 3, 1),
                 "date_end": date(2024, 3, 31),
                 "entries": [
-                    {"type": "place", "title": "Alfama Neighborhood", "notes": "Lost in narrow streets."},
-                    {"type": "food", "title": "Pastel de Nata Hunt", "notes": "Manteigaria wins."},
-                    {"type": "experience", "title": "Co-working with Ocean View", "notes": "Best office ever."},
+                    {
+                        "type": "place",
+                        "title": "Alfama Neighborhood",
+                        "notes": "Lost in narrow streets.",
+                    },
+                    {
+                        "type": "food",
+                        "title": "Pastel de Nata Hunt",
+                        "notes": "Manteigaria wins.",
+                    },
+                    {
+                        "type": "experience",
+                        "title": "Co-working with Ocean View",
+                        "notes": "Best office ever.",
+                    },
                 ],
             },
         ],

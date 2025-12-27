@@ -6,6 +6,8 @@
 -- 2. Uses UNION ALL for country visits and entries
 -- 3. Excludes blocked users bidirectionally
 -- 4. Supports cursor-based pagination
+--
+-- NOTE: Performance optimizations applied in migration 0045
 
 --------------------------------------------------------------------------------
 -- FEED FUNCTION

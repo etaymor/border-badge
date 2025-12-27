@@ -34,16 +34,12 @@ export interface UseCountryPickerResult {
  * Hook for managing country picker state and logic.
  * Handles search, filtering, and selection of countries.
  */
-export function useCountryPicker(
-  options: UseCountryPickerOptions = {}
-): UseCountryPickerResult {
+export function useCountryPicker(options: UseCountryPickerOptions = {}): UseCountryPickerResult {
   const { initialCountryCode = null } = options;
 
   // State
   const [countrySearch, setCountrySearch] = useState('');
-  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(
-    initialCountryCode
-  );
+  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(initialCountryCode);
   const [showDropdown, setShowDropdown] = useState(false);
 
   // Fetch countries
@@ -54,11 +50,7 @@ export function useCountryPicker(
     if (!countries || !countrySearch) return [];
     const query = countrySearch.toLowerCase();
     return countries
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(query) ||
-          c.code.toLowerCase().includes(query)
-      )
+      .filter((c) => c.name.toLowerCase().includes(query) || c.code.toLowerCase().includes(query))
       .slice(0, 10);
   }, [countries, countrySearch]);
 

@@ -256,8 +256,8 @@ async def lookup_user_by_email(
         "user_block",
         {
             "select": "id",
-            "or": f"(blocker_id.eq.{user.id},blocked_id.eq.{profile['user_id']}),"
-            f"(blocker_id.eq.{profile['user_id']},blocked_id.eq.{user.id})",
+            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{profile['user_id']})),"
+            f"(and(blocker_id.eq.{profile['user_id']},blocked_id.eq.{user.id}))",
         },
     )
 
@@ -270,9 +270,7 @@ async def lookup_user_by_email(
         "get_user_country_counts",
         {"user_ids": [profile["user_id"]]},
     )
-    country_count = (
-        country_count_result[0]["count"] if country_count_result else 0
-    )
+    country_count = country_count_result[0]["count"] if country_count_result else 0
 
     # Check if following
     follow_check = await db.get(
@@ -331,8 +329,8 @@ async def get_user_profile(
         "user_block",
         {
             "select": "id",
-            "or": f"(blocker_id.eq.{user.id},blocked_id.eq.{target_user_id}),"
-            f"(blocker_id.eq.{target_user_id},blocked_id.eq.{user.id})",
+            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{target_user_id})),"
+            f"(and(blocker_id.eq.{target_user_id},blocked_id.eq.{user.id}))",
         },
     )
 

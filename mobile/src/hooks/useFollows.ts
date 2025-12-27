@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { getSocialErrorMessage } from '@utils/socialErrors';
 
 // Types
 export interface UserSummary {
@@ -124,7 +125,7 @@ export function useFollowUser(userId: string) {
         queryClient.setQueryData(STATS_KEY, context.previousStats);
       }
 
-      const message = error.message || 'Failed to follow user';
+      const message = getSocialErrorMessage(error, 'follow');
       Alert.alert('Error', message);
     },
 
@@ -176,7 +177,7 @@ export function useUnfollowUser(userId: string) {
         queryClient.setQueryData(STATS_KEY, context.previousStats);
       }
 
-      const message = error.message || 'Failed to unfollow user';
+      const message = getSocialErrorMessage(error, 'unfollow');
       Alert.alert('Error', message);
     },
 

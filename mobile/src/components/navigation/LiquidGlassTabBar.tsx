@@ -94,12 +94,7 @@ const TAB_LABELS: Record<string, string> = {
 };
 
 // Screens where tab bar should be hidden (form/editing overlay modes)
-const HIDDEN_TAB_BAR_SCREENS = new Set([
-  'TripForm',
-  'EntryForm',
-  'ListCreate',
-  'ListEdit',
-]);
+const HIDDEN_TAB_BAR_SCREENS = new Set(['TripForm', 'EntryForm', 'ListCreate', 'ListEdit']);
 
 /**
  * Recursively finds the deepest focused route name in a navigation state.

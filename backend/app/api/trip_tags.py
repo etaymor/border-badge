@@ -131,8 +131,8 @@ async def _auto_follow_trip_owner(trip_id: UUID, follower_user_id: str) -> None:
             "user_block",
             {
                 "select": "id",
-                "or": f"(blocker_id.eq.{follower_id},blocked_id.eq.{following_id}),"
-                f"(blocker_id.eq.{following_id},blocked_id.eq.{follower_id})",
+                "or": f"(and(blocker_id.eq.{follower_id},blocked_id.eq.{following_id})),"
+                f"(and(blocker_id.eq.{following_id},blocked_id.eq.{follower_id}))",
             },
         )
         if blocks:

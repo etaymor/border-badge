@@ -14,7 +14,9 @@ async def get_country_id(db: SupabaseClient, country_code: str) -> str:
     return result[0]["id"]
 
 
-async def update_profile(db: SupabaseClient, user_id: str, data: dict[str, Any]) -> None:
+async def update_profile(
+    db: SupabaseClient, user_id: str, data: dict[str, Any]
+) -> None:
     """Update user_profile."""
     await db.patch("user_profile", data, {"user_id": f"eq.{user_id}"})
 
@@ -76,7 +78,9 @@ async def create_user_country(
             raise
 
 
-async def create_follow(db: SupabaseClient, follower_id: str, following_id: str) -> None:
+async def create_follow(
+    db: SupabaseClient, follower_id: str, following_id: str
+) -> None:
     """Create follow relationship."""
     try:
         await db.post(

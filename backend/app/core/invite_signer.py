@@ -20,7 +20,7 @@ def generate_invite_code(inviter_id: UUID, email: str) -> str:
     - Includes nonce to prevent replay attacks
     - Email is hashed in the code to prevent leaking
     """
-    timestamp = int(datetime.utcnow().timestamp())
+    timestamp = int(datetime.now(UTC).timestamp())
     nonce = secrets.token_hex(8)
     email_hash = hashlib.sha256(email.lower().encode()).hexdigest()[:16]
 
@@ -37,7 +37,7 @@ def generate_invite_code(inviter_id: UUID, email: str) -> str:
 
 def verify_invite_code(code: str, expected_email: str | None = None) -> dict | None:
     """
-    Verify invite code signature and expiration (30 days).
+    Verify invite code signature and expiration.
 
     Args:
         code: The invite code to verify
@@ -65,9 +65,11 @@ def verify_invite_code(code: str, expected_email: str | None = None) -> dict | N
         if not hmac.compare_digest(signature, expected_sig):
             return None
 
-        # Check expiration (30 days)
+        # Check expiration
         invite_time = datetime.fromtimestamp(int(timestamp), tz=UTC)
-        if datetime.now(UTC) - invite_time > timedelta(days=30):
+        if datetime.now(UTC) - invite_time > timedelta(
+            days=settings.invite_expiration_days
+        ):
             return None
 
         # Optionally verify email matches

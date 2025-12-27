@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     invite_signing_secret: str = Field(
         default="", repr=False
     )  # HMAC secret for signing invite codes
+    invite_expiration_days: int = 30  # How long invite codes remain valid
 
     @property
     def INVITE_SIGNING_SECRET(self) -> str:

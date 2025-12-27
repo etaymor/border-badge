@@ -2,8 +2,8 @@
 
 ## Summary
 
-- **Total TODOs Found**: 4
-- **Resolved**: 4
+- **Total TODOs Found**: 6
+- **Resolved**: 6
 - **Remaining**: 0
 
 ## TODOs
@@ -42,3 +42,47 @@
 **Original**: `// TODO: Add login step and ensure trip exists`
 **Status**: Placeholder - Requires testIDs to be added to components first
 **Action**: Keep as-is until E2E test implementation phase
+
+### 5. [RESOLVED] 0034_feed_function.sql - Feed performance (4 issues)
+
+**File**: `supabase/migrations/0034_feed_function.sql`
+**Original Issues**:
+1. N+1 correlated subquery for media_files lookup
+2. Block check per row with NOT IN subquery
+3. Missing composite index for media lookup
+4. No materialized view for high-activity feeds
+
+**Status**: Fixed - Created migration 0045_feed_performance_optimizations.sql
+**Changes**:
+- Added partial index `idx_media_files_entry_feed` on (entry_id, status, created_at)
+- Replaced correlated subquery with LATERAL JOIN for media lookup
+- Pre-filter blocked users in CTE instead of per-row NOT IN check
+- Added `SET search_path = public` for security
+**Date**: 2024-12-27
+
+### 6. [RESOLVED] 0039_user_activity_feed.sql - Feed performance (2 issues)
+
+**File**: `supabase/migrations/0039_user_activity_feed.sql`
+**Original Issues**:
+1. N+1 correlated subquery for media_files lookup
+2. Missing composite index for media lookup
+
+**Status**: Fixed - Included in migration 0045_feed_performance_optimizations.sql
+**Changes**:
+- Replaced correlated subquery with LATERAL JOIN for media lookup
+- Uses same index created for get_activity_feed
+- Added `SET search_path = public` for security
+**Date**: 2024-12-27
+
+---
+
+## Migration 0045 - Run in Supabase
+
+Since migrations 0034 and 0039 have already been run, apply migration 0045 directly:
+
+```sql
+-- File: supabase/migrations/0045_feed_performance_optimizations.sql
+-- Run this in your Supabase SQL Editor
+```
+
+The migration file is ready at `supabase/migrations/0045_feed_performance_optimizations.sql`.

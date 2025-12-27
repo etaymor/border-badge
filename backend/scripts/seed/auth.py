@@ -35,7 +35,9 @@ async def create_user(
         error = response.json()
         if "already been registered" in str(error):
             logger.info(f"  User {email} exists, fetching ID...")
-            return await get_user_id_by_email(client, supabase_url, service_role_key, email)
+            return await get_user_id_by_email(
+                client, supabase_url, service_role_key, email
+            )
         raise Exception(f"Failed to create user: {error}")
 
     if response.status_code >= 400:

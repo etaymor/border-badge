@@ -1,8 +1,12 @@
 """Helper functions to call Supabase Edge Functions."""
 
+import logging
+
 import httpx
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 async def call_edge_function(
@@ -42,10 +46,14 @@ async def call_edge_function(
             return response.json()
     except httpx.HTTPError as e:
         # Log error but don't raise - edge functions are best effort
-        import logging
-
-        logging.getLogger(__name__).warning(
-            f"Edge function '{function_name}' call failed: {e}"
+        logger.warning(
+            f"Edge function '{function_name}' call failed",
+            extra={
+                "function_name": function_name,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            },
+            exc_info=True,
         )
         return None
 

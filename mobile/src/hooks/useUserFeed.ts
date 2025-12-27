@@ -43,9 +43,7 @@ export function useUserFeed(userId: string, options?: { limit?: number }) {
 /**
  * Get all user feed items from all pages as a flat array.
  */
-export function getUserFeedItems(
-  data: ReturnType<typeof useUserFeed>['data']
-): FeedItem[] {
+export function getUserFeedItems(data: ReturnType<typeof useUserFeed>['data']): FeedItem[] {
   if (!data?.pages) return [];
   return data.pages.flatMap((page) => page.items);
 }
