@@ -18,6 +18,7 @@ import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
+import { useSendInvite } from '@hooks/useInvites';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { getFlagEmoji } from '@utils/flags';
@@ -48,6 +49,7 @@ export function TripFormScreen({ navigation, route }: Props) {
 
   // Travel companions state
   const [selectedCompanionIds, setSelectedCompanionIds] = useState<Set<string>>(new Set());
+  const [invitedEmails, setInvitedEmails] = useState<Set<string>>(new Set());
 
   // Fetch countries for picker
   const { data: countries, isLoading: loadingCountries } = useCountries();
@@ -58,6 +60,7 @@ export function TripFormScreen({ navigation, route }: Props) {
   // Mutations
   const createTrip = useCreateTrip();
   const updateTrip = useUpdateTrip();
+  const sendInvite = useSendInvite();
 
   // Filter countries based on search
   const filteredCountries = useMemo(() => {
@@ -109,6 +112,18 @@ export function TripFormScreen({ navigation, route }: Props) {
     });
   }, []);
 
+  const handleToggleEmailInvite = useCallback((email: string) => {
+    setInvitedEmails((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) {
+        next.delete(email);
+      } else {
+        next.add(email);
+      }
+      return next;
+    });
+  }, []);
+
   const validate = (): boolean => {
     let isValid = true;
 
@@ -152,6 +167,21 @@ export function TripFormScreen({ navigation, route }: Props) {
           tagged_user_ids:
             selectedCompanionIds.size > 0 ? Array.from(selectedCompanionIds) : undefined,
         });
+
+        // Send email invites for non-platform users
+        if (invitedEmails.size > 0) {
+          // Fire off invites in parallel, don't block navigation
+          const invitePromises = Array.from(invitedEmails).map((email) =>
+            sendInvite.mutateAsync({
+              email,
+              invite_type: 'trip_tag',
+              trip_id: newTrip.id,
+            })
+          );
+          // Wait for all invites but don't block on failures
+          await Promise.allSettled(invitePromises);
+        }
+
         // Navigate to trip details, replacing the form screen
         navigation.replace('TripDetail', { tripId: newTrip.id });
       }
@@ -160,7 +190,7 @@ export function TripFormScreen({ navigation, route }: Props) {
     }
   };
 
-  const isLoading = createTrip.isPending || updateTrip.isPending;
+  const isLoading = createTrip.isPending || updateTrip.isPending || sendInvite.isPending;
   const isFetching = loadingTrip && isEditing;
 
   if (isFetching) {
@@ -294,7 +324,9 @@ export function TripFormScreen({ navigation, route }: Props) {
           {!isEditing && (
             <TravelCompanionsSection
               selectedIds={selectedCompanionIds}
+              invitedEmails={invitedEmails}
               onToggleSelection={handleToggleCompanion}
+              onToggleEmailInvite={handleToggleEmailInvite}
               disabled={isLoading}
             />
           )}

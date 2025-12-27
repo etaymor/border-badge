@@ -8,21 +8,32 @@ import { fonts } from '@constants/typography';
 export type CompanionStatus = 'pending' | 'approved' | 'declined';
 
 interface CompanionChipProps {
-  user: {
+  user?: {
     id: string;
     username: string;
     avatar_url: string | null;
   };
+  email?: string;
   status?: CompanionStatus;
   onRemove?: () => void;
 }
 
-export function CompanionChip({ user, status, onRemove }: CompanionChipProps) {
+export function CompanionChip({ user, email, status, onRemove }: CompanionChipProps) {
+  const isEmailInvite = !user && email;
+  const displayLabel = user ? `@${user.username}` : email;
+  const accessibilityLabel = user ? user.username : email;
+
   return (
-    <View style={styles.chip}>
-      <UserAvatar avatarUrl={user.avatar_url} username={user.username} size={24} />
+    <View style={[styles.chip, isEmailInvite && styles.chipEmail]}>
+      {user ? (
+        <UserAvatar avatarUrl={user.avatar_url} username={user.username} size={24} />
+      ) : (
+        <View style={styles.emailIcon}>
+          <Ionicons name="mail-outline" size={16} color={colors.mossGreen} />
+        </View>
+      )}
       <Text style={styles.username} numberOfLines={1}>
-        @{user.username}
+        {displayLabel}
       </Text>
       {status && <StatusBadge status={status} />}
       {onRemove && (
@@ -31,7 +42,7 @@ export function CompanionChip({ user, status, onRemove }: CompanionChipProps) {
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={styles.removeButton}
           accessibilityRole="button"
-          accessibilityLabel={`Remove ${user.username}`}
+          accessibilityLabel={`Remove ${accessibilityLabel}`}
         >
           <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -71,6 +82,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 2,
     elevation: 1,
+  },
+  chipEmail: {
+    borderStyle: 'dashed',
+    borderColor: colors.mossGreen,
+    backgroundColor: 'rgba(84, 122, 95, 0.04)',
+  },
+  emailIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(84, 122, 95, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   username: {
     fontSize: 14,

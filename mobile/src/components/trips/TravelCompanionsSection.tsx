@@ -13,41 +13,115 @@ import {
 import { SearchInput } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useDebounce } from '@hooks/useDebounce';
 import { useFollowing } from '@hooks/useFollows';
+import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
 
 import { CompanionChip } from './CompanionChip';
 import { SelectableUserItem } from './SelectableUserItem';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 interface TravelCompanionsSectionProps {
   selectedIds: Set<string>;
+  invitedEmails: Set<string>;
   onToggleSelection: (userId: string) => void;
+  onToggleEmailInvite: (email: string) => void;
   disabled?: boolean;
+}
+
+// Convert following user to search result format
+interface FollowingUser {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+function toSearchResult(user: FollowingUser): UserSearchResult {
+  return {
+    id: user.id,
+    username: user.username,
+    avatar_url: user.avatar_url,
+    country_count: 0, // Not displayed in this context
+    is_following: true,
+  };
 }
 
 export function TravelCompanionsSection({
   selectedIds,
+  invitedEmails,
   onToggleSelection,
+  onToggleEmailInvite,
   disabled = false,
 }: TravelCompanionsSectionProps) {
   const [search, setSearch] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const { data: following = [], isLoading } = useFollowing({ limit: 100 });
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const isEmail = EMAIL_REGEX.test(search.trim());
 
-  const filteredFollowing = useMemo(() => {
-    if (!search) return following;
-    const query = search.toLowerCase();
-    return following.filter(
-      (user) =>
-        user.username.toLowerCase().includes(query) ||
-        user.display_name.toLowerCase().includes(query)
-    );
-  }, [following, search]);
+  // Fetch followed users (cached longer, shown as suggestions)
+  const { data: following = [], isLoading: loadingFollowing } = useFollowing({ limit: 100 });
 
-  // Get selected user objects for chips
+  // Search all users when query is >= 2 characters
+  const { data: searchResults = [], isLoading: searchLoading } = useUserSearch(debouncedSearch, {
+    enabled: debouncedSearch.length >= 2,
+    limit: 20,
+  });
+
+  // Combine results: followed users first, then others
+  const combinedUsers = useMemo((): UserSearchResult[] => {
+    // No search: show all followed users as suggestions
+    if (!debouncedSearch || debouncedSearch.length < 2) {
+      return following.map(toSearchResult);
+    }
+
+    const query = debouncedSearch.toLowerCase();
+
+    // Filter followed users by search query
+    const matchingFollowed = following
+      .filter(
+        (u) =>
+          u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query)
+      )
+      .map(toSearchResult);
+
+    // Deduplicate: filter out followed users from search results
+    const followedIds = new Set(matchingFollowed.map((u) => u.id));
+    const otherUsers = searchResults.filter((u) => !followedIds.has(u.id));
+
+    return [...matchingFollowed, ...otherUsers];
+  }, [following, searchResults, debouncedSearch]);
+
+  // Show invite option when email entered and no matching user found
+  const showInviteOption =
+    isEmail &&
+    !searchLoading &&
+    !loadingFollowing &&
+    combinedUsers.length === 0 &&
+    !invitedEmails.has(search.trim().toLowerCase());
+
+  // Get selected user objects for chips (from following list or search cache)
   const selectedUsers = useMemo(() => {
-    return following.filter((user) => selectedIds.has(user.id));
-  }, [following, selectedIds]);
+    const users: UserSearchResult[] = [];
+
+    // First try to get from following list
+    for (const user of following) {
+      if (selectedIds.has(user.id)) {
+        users.push(toSearchResult(user));
+      }
+    }
+
+    // Also check search results for non-followed users
+    for (const user of searchResults) {
+      if (selectedIds.has(user.id) && !users.some((u) => u.id === user.id)) {
+        users.push(user);
+      }
+    }
+
+    return users;
+  }, [following, searchResults, selectedIds]);
 
   const handleToggle = useCallback(
     (userId: string) => {
@@ -58,34 +132,39 @@ export function TravelCompanionsSection({
     [disabled, onToggleSelection]
   );
 
+  const handleInviteEmail = useCallback(() => {
+    if (!disabled) {
+      const email = search.trim().toLowerCase();
+      onToggleEmailInvite(email);
+      setSearch('');
+    }
+  }, [disabled, search, onToggleEmailInvite]);
+
+  const handleRemoveEmail = useCallback(
+    (email: string) => {
+      if (!disabled) {
+        onToggleEmailInvite(email);
+      }
+    },
+    [disabled, onToggleEmailInvite]
+  );
+
   const toggleExpanded = useCallback(() => {
     if (!disabled) {
       setIsExpanded((prev) => !prev);
     }
   }, [disabled]);
 
-  // Empty state when user follows no one
-  if (following.length === 0 && !isLoading) {
-    return (
-      <View style={styles.section}>
-        <Text style={styles.label}>TRAVEL COMPANIONS</Text>
-        <View style={styles.emptyState}>
-          <Ionicons name="people-outline" size={32} color={colors.textSecondary} />
-          <Text style={styles.emptyTitle}>No friends to tag yet</Text>
-          <Text style={styles.emptyText}>
-            Follow friends in the Friends tab to tag them as travel companions.
-          </Text>
-        </View>
-      </View>
-    );
-  }
+  const isLoading = loadingFollowing || searchLoading;
+  const totalSelected = selectedIds.size + invitedEmails.size;
+  const hasChips = selectedUsers.length > 0 || invitedEmails.size > 0;
 
   return (
     <View style={styles.section}>
       <Text style={styles.label}>TRAVEL COMPANIONS</Text>
 
-      {/* Selected companions chips */}
-      {selectedUsers.length > 0 && (
+      {/* Selected companions and email invite chips */}
+      {hasChips && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -97,6 +176,14 @@ export function TravelCompanionsSection({
               key={user.id}
               user={user}
               onRemove={disabled ? undefined : () => handleToggle(user.id)}
+            />
+          ))}
+          {Array.from(invitedEmails).map((email) => (
+            <CompanionChip
+              key={`email-${email}`}
+              email={email}
+              status="pending"
+              onRemove={disabled ? undefined : () => handleRemoveEmail(email)}
             />
           ))}
         </ScrollView>
@@ -111,9 +198,9 @@ export function TravelCompanionsSection({
       >
         <Ionicons name="people" size={20} color={colors.mossGreen} />
         <Text style={styles.pickerText}>
-          {selectedIds.size === 0
+          {totalSelected === 0
             ? 'Tag friends who traveled with you'
-            : `${selectedIds.size} companion${selectedIds.size > 1 ? 's' : ''} selected`}
+            : `${totalSelected} companion${totalSelected > 1 ? 's' : ''} selected`}
         </Text>
         <Ionicons
           name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -128,28 +215,53 @@ export function TravelCompanionsSection({
           <SearchInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search friends..."
+            placeholder="Search users or enter email..."
             style={styles.searchInput}
           />
 
-          {isLoading ? (
+          {isLoading && debouncedSearch.length >= 2 ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={colors.mossGreen} />
-              <Text style={styles.loadingText}>Loading friends...</Text>
+              <Text style={styles.loadingText}>Searching...</Text>
             </View>
-          ) : filteredFollowing.length === 0 ? (
+          ) : showInviteOption ? (
+            <View style={styles.inviteContainer}>
+              <View style={styles.inviteIconWrap}>
+                <Ionicons name="mail-outline" size={28} color={colors.sunsetGold} />
+              </View>
+              <Text style={styles.inviteTitle}>Traveler not found</Text>
+              <Text style={styles.inviteSubtitle}>Send an invite to join the trip</Text>
+              <TouchableOpacity
+                style={styles.inviteButton}
+                onPress={handleInviteEmail}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="paper-plane" size={16} color={colors.cloudWhite} />
+                <Text style={styles.inviteButtonText}>Invite {search.trim()}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : combinedUsers.length === 0 ? (
             <View style={styles.noResultsContainer}>
               <Text style={styles.noResultsText}>
-                {search ? 'No friends match your search' : 'No friends to show'}
+                {debouncedSearch.length >= 2
+                  ? 'No users found'
+                  : following.length === 0
+                    ? 'Search for travelers to tag'
+                    : 'Start typing to search'}
               </Text>
             </View>
           ) : (
             <FlatList
-              data={filteredFollowing}
+              data={combinedUsers}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <SelectableUserItem
-                  user={item}
+                  user={{
+                    id: item.id,
+                    username: item.username,
+                    display_name: item.username, // Use username as fallback
+                    avatar_url: item.avatar_url,
+                  }}
                   isSelected={selectedIds.has(item.id)}
                   onToggle={() => handleToggle(item.id)}
                 />
@@ -216,7 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
-    maxHeight: 280,
+    maxHeight: 320,
     overflow: 'hidden',
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
@@ -230,7 +342,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   list: {
-    maxHeight: 220,
+    maxHeight: 260,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -253,26 +365,51 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: fonts.openSans.regular,
   },
-  emptyState: {
-    alignItems: 'center',
+  inviteContainer: {
     padding: 24,
-    backgroundColor: 'rgba(84, 122, 95, 0.05)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(84, 122, 95, 0.1)',
-    gap: 8,
+    alignItems: 'center',
   },
-  emptyTitle: {
-    fontSize: 16,
+  inviteIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  inviteTitle: {
     fontFamily: fonts.playfair.bold,
+    fontSize: 17,
     color: colors.midnightNavy,
-    marginTop: 4,
+    marginBottom: 4,
   },
-  emptyText: {
-    fontSize: 14,
-    color: colors.textSecondary,
+  inviteSubtitle: {
     fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 20,
+    marginBottom: 16,
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    gap: 8,
+    minWidth: 140,
+    shadowColor: colors.sunsetGold,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  inviteButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
   },
 });
