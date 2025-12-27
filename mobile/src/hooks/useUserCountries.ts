@@ -21,7 +21,7 @@ function getUserCountriesKey(sessionId: string | null) {
   return ['user-countries', sessionId] as const;
 }
 
-export function useUserCountries() {
+export function useUserCountries(): import('@tanstack/react-query').UseQueryResult<UserCountry[], Error> {
   const { session, isMigrating } = useAuthStore();
   const { selectedCountries, bucketListCountries } = useOnboardingStore();
   const queryKey = getUserCountriesKey(session?.user?.id ?? null);
@@ -61,14 +61,17 @@ export function useUserCountries() {
     placeholderData: onboardingFallbackData,
   });
 
-  // During migration, if query hasn't loaded yet but we have onboarding data,
+  // During migration, if query hasn't fetched yet but we have onboarding data,
   // return that data immediately to prevent empty state flash
-  if (isMigrating && !query.data && onboardingFallbackData) {
+  // Use isFetched instead of !query.data to avoid race conditions where the query
+  // has completed but returned empty/different data
+  if (isMigrating && !query.isFetched && onboardingFallbackData) {
     return {
       ...query,
       data: onboardingFallbackData,
       isLoading: false,
-    };
+      isFetching: false,
+    } as import('@tanstack/react-query').UseQueryResult<UserCountry[], Error>;
   }
 
   return query;
