@@ -20,6 +20,7 @@ def normalize_for_comparison(text: str) -> str:
     # Keep only non-combining characters (removes accents, umlauts, etc.)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
+
 # Confidence thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.8
 MEDIUM_CONFIDENCE_THRESHOLD = 0.5
@@ -96,7 +97,14 @@ def calculate_confidence(
         query_words = set(query_normalized.replace("-", " ").split())
         name_words = set(name_normalized.replace("-", " ").split())
         # Remove common words that don't add meaning
-        stopwords = {"lake", "mount", "beach", "island", "the", "of"}
+        stopwords = {
+            "lake",
+            "mount",
+            "beach",
+            "island",
+            "the",
+            "of",
+        }
         query_words -= stopwords
         name_words -= stopwords
         overlap = len(query_words & name_words)

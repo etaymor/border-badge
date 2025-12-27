@@ -208,8 +208,14 @@ async def _extract_place_impl(
     min_confidence = settings.place_extraction_min_confidence
     if best_result.confidence < min_confidence:
         logger.info(
-            f"place_extraction_low_confidence: {best_result.name} "
-            f"confidence={best_result.confidence} < threshold={min_confidence}"
+            "place_extraction_low_confidence",
+            extra={
+                "event": "place_extraction",
+                "result": "low_confidence",
+                "place_name": best_result.name[:50] if best_result.name else None,
+                "confidence": best_result.confidence,
+                "threshold": min_confidence,
+            },
         )
         return None
 
