@@ -15,6 +15,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useDebounce } from '@hooks/useDebounce';
 import { useFollowing } from '@hooks/useFollows';
+import { useUserLookupByEmail } from '@hooks/useUserLookupByEmail';
 import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
 
 import { FriendChip } from './FriendChip';
@@ -59,19 +60,37 @@ export function TravelFriendsSection({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const debouncedSearch = useDebounce(search.trim(), 300);
-  const isEmail = EMAIL_REGEX.test(search.trim());
+
+  // Detect if input looks like an email (has @) vs a username
+  const looksLikeEmail = search.includes('@');
+  const isCompleteEmail = EMAIL_REGEX.test(search.trim());
 
   // Fetch followed users (cached longer, shown as suggestions)
   const { data: following = [], isLoading: loadingFollowing } = useFollowing({ limit: 100 });
 
-  // Search all users when query is >= 2 characters
+  // Search all users by username when NOT typing an email
   const { data: searchResults = [], isLoading: searchLoading } = useUserSearch(debouncedSearch, {
-    enabled: debouncedSearch.length >= 2,
+    enabled: debouncedSearch.length >= 2 && !looksLikeEmail,
     limit: 20,
+  });
+
+  // Look up user by email when complete email is entered
+  const { data: emailUser, isLoading: emailLoading } = useUserLookupByEmail(search.trim(), {
+    enabled: isCompleteEmail,
   });
 
   // Combine results: followed users first, then others
   const combinedUsers = useMemo((): UserSearchResult[] => {
+    // If we found a user by email, show only that user
+    if (isCompleteEmail && emailUser) {
+      return [emailUser];
+    }
+
+    // If typing an email but not complete yet, show nothing
+    if (looksLikeEmail) {
+      return [];
+    }
+
     // No search: show all followed users as suggestions
     if (!debouncedSearch || debouncedSearch.length < 2) {
       return following.map(toSearchResult);
@@ -92,17 +111,16 @@ export function TravelFriendsSection({
     const otherUsers = searchResults.filter((u) => !followedIds.has(u.id));
 
     return [...matchingFollowed, ...otherUsers];
-  }, [following, searchResults, debouncedSearch]);
+  }, [following, searchResults, debouncedSearch, isCompleteEmail, emailUser, looksLikeEmail]);
 
-  // Show invite option when email entered and no matching user found
+  // Show invite option when complete email entered and no user found
   const showInviteOption =
-    isEmail &&
-    !searchLoading &&
-    !loadingFollowing &&
-    combinedUsers.length === 0 &&
+    isCompleteEmail &&
+    !emailLoading &&
+    !emailUser &&
     !invitedEmails.has(search.trim().toLowerCase());
 
-  // Get selected user objects for chips (from following list or search cache)
+  // Get selected user objects for chips (from following list, search cache, or email lookup)
   const selectedUsers = useMemo(() => {
     const users: UserSearchResult[] = [];
 
@@ -120,8 +138,13 @@ export function TravelFriendsSection({
       }
     }
 
+    // Also check email lookup result
+    if (emailUser && selectedIds.has(emailUser.id) && !users.some((u) => u.id === emailUser.id)) {
+      users.push(emailUser);
+    }
+
     return users;
-  }, [following, searchResults, selectedIds]);
+  }, [following, searchResults, selectedIds, emailUser]);
 
   const handleToggle = useCallback(
     (userId: string) => {
@@ -155,7 +178,7 @@ export function TravelFriendsSection({
     }
   }, [disabled]);
 
-  const isLoading = loadingFollowing || searchLoading;
+  const isLoading = loadingFollowing || searchLoading || emailLoading;
   const totalSelected = selectedIds.size + invitedEmails.size;
   const hasChips = selectedUsers.length > 0 || invitedEmails.size > 0;
 
@@ -219,7 +242,7 @@ export function TravelFriendsSection({
             style={styles.searchInput}
           />
 
-          {isLoading && debouncedSearch.length >= 2 ? (
+          {(isLoading && debouncedSearch.length >= 2) || emailLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={colors.mossGreen} />
               <Text style={styles.loadingText}>Searching...</Text>
@@ -243,11 +266,13 @@ export function TravelFriendsSection({
           ) : combinedUsers.length === 0 ? (
             <View style={styles.noResultsContainer}>
               <Text style={styles.noResultsText}>
-                {debouncedSearch.length >= 2
-                  ? 'No users found'
-                  : following.length === 0
-                    ? 'Search for friends to tag'
-                    : 'Start typing to search'}
+                {looksLikeEmail && !isCompleteEmail
+                  ? 'Enter complete email address'
+                  : debouncedSearch.length >= 2
+                    ? 'No users found'
+                    : following.length === 0
+                      ? 'Search for friends to tag'
+                      : 'Start typing to search'}
               </Text>
             </View>
           ) : (

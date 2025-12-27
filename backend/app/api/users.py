@@ -210,6 +210,89 @@ async def search_users(
     return results
 
 
+@router.get("/lookup-by-email", response_model=UserSummary | None)
+@limiter.limit("10/minute")
+async def lookup_user_by_email(
+    request: Request,
+    email: Annotated[str, Query(min_length=5, max_length=255)],
+    user: CurrentUser,
+) -> UserSummary | None:
+    """
+    Look up a user by exact email match.
+
+    Returns user info if found, None if not found.
+    Rate limited to 10 requests/minute to prevent email enumeration abuse.
+
+    This endpoint requires authentication and uses service role to query
+    the auth.users table (which is not directly accessible to users).
+    """
+    # Validate email format
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return None
+
+    # Use service client to call the RPC (requires service role)
+    service_db = get_service_supabase_client()
+
+    # Look up user profile by email
+    result = await service_db.rpc(
+        "lookup_user_by_email",
+        {"email_to_lookup": email.strip().lower()},
+    )
+
+    if not result:
+        return None
+
+    profile = result[0]
+
+    # Don't return the current user
+    if profile["user_id"] == user.id:
+        return None
+
+    # Check if blocked (bidirectional) - use service client
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    block_check = await db.get(
+        "user_block",
+        {
+            "select": "id",
+            "or": f"(blocker_id.eq.{user.id},blocked_id.eq.{profile['user_id']}),"
+            f"(blocker_id.eq.{profile['user_id']},blocked_id.eq.{user.id})",
+        },
+    )
+
+    if block_check:
+        # Return None to not reveal that the user exists
+        return None
+
+    # Get country count
+    country_count_result = await db.rpc(
+        "get_user_country_counts",
+        {"user_ids": [profile["user_id"]]},
+    )
+    country_count = (
+        country_count_result[0]["count"] if country_count_result else 0
+    )
+
+    # Check if following
+    follow_check = await db.get(
+        "user_follow",
+        {
+            "select": "id",
+            "follower_id": f"eq.{user.id}",
+            "following_id": f"eq.{profile['user_id']}",
+        },
+    )
+
+    return UserSummary(
+        id=profile["id"],
+        username=profile["username"],
+        avatar_url=profile.get("avatar_url"),
+        country_count=country_count,
+        is_following=bool(follow_check),
+    )
+
+
 @router.get("/{username}/profile", response_model=UserProfileResponse)
 @limiter.limit("30/minute")
 async def get_user_profile(
