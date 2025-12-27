@@ -240,7 +240,8 @@ async def get_following(
         {
             "select": "following_id,created_at",
             "follower_id": f"eq.{user.id}",
-            "order": "created_at.desc",
+            # Secondary sort ensures deterministic pagination when created_at ties
+            "order": "created_at.desc,following_id.desc",
             "limit": limit,
             "offset": offset,
         },
@@ -271,9 +272,13 @@ async def get_following(
         {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
     )
 
-    # Build response
-    results = []
-    for profile in profiles:
+    # IMPORTANT: Preserve the follow ordering. PostgREST `in.(...)` does not guarantee order.
+    profile_map = {p["user_id"]: p for p in profiles}
+    results: list[UserSummary] = []
+    for user_id in following_ids:
+        profile = profile_map.get(user_id)
+        if not profile:
+            continue
         results.append(
             UserSummary(
                 id=profile["id"],
@@ -284,7 +289,6 @@ async def get_following(
                 country_count=count_map.get(profile["user_id"], 0),
             )
         )
-
     return results
 
 
@@ -306,7 +310,8 @@ async def get_followers(
         {
             "select": "follower_id,created_at",
             "following_id": f"eq.{user.id}",
-            "order": "created_at.desc",
+            # Secondary sort ensures deterministic pagination when created_at ties
+            "order": "created_at.desc,follower_id.desc",
             "limit": limit,
             "offset": offset,
         },
@@ -337,9 +342,13 @@ async def get_followers(
         {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
     )
 
-    # Build response
-    results = []
-    for profile in profiles:
+    # IMPORTANT: Preserve the follow ordering. PostgREST `in.(...)` does not guarantee order.
+    profile_map = {p["user_id"]: p for p in profiles}
+    results: list[UserSummary] = []
+    for user_id in follower_ids:
+        profile = profile_map.get(user_id)
+        if not profile:
+            continue
         results.append(
             UserSummary(
                 id=profile["id"],
@@ -350,5 +359,4 @@ async def get_followers(
                 country_count=count_map.get(profile["user_id"], 0),
             )
         )
-
     return results

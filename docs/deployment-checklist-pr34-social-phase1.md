@@ -298,26 +298,115 @@ WHERE tablename = 'entry' AND policyname = 'Entry visibility matches trip';
 
 ## 5. Edge Function Deployment
 
-### 5.1 Deploy Edge Functions
+### 5.1 Prerequisites: Install Supabase CLI
+
+If you don't have the Supabase CLI installed yet:
+
+**macOS (Homebrew):**
+```bash
+brew install supabase/tap/supabase
+```
+
+**npm (cross-platform):**
+```bash
+npm install supabase --save-dev
+# Then use: npx supabase <command>
+```
+
+**Verify installation:**
+```bash
+supabase --version
+# Expected: 1.x.x or higher
+```
+
+### 5.2 Login and Link Project
+
+```bash
+# Login to Supabase (opens browser for authentication)
+supabase login
+
+# Link to your project (from project root directory)
+cd /path/to/border-badge
+supabase link --project-ref bmcohizquzzmpeidzvbk
+
+# Verify connection
+supabase projects list
+```
+
+**Find your project reference:**
+1. Go to Supabase Dashboard: https://supabase.com/dashboard
+2. Select your project
+3. Go to Settings > General
+4. Copy the "Reference ID" (looks like: `bmcohizquzzmpeidzvbk`)
+
+### 5.3 Set Edge Function Secrets
+
+Edge functions need environment variables set via Supabase secrets. These are NOT the same as your local `.env` file.
+
+**Required secrets for this PR:**
+
+| Secret Name | Source | Used By |
+|-------------|--------|---------|
+| `RESEND_API_KEY` | Resend dashboard | `send-invite-email` |
+| `APP_URL` | Your app URL | `send-invite-email` |
+| `SUPABASE_URL` | Auto-injected | `process-signup-invites` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Auto-injected | `process-signup-invites` |
+
+**Set secrets:**
+```bash
+# Set email service key (get from https://resend.com/api-keys)
+supabase secrets set RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Set app URL for invite links
+supabase secrets set APP_URL=https://borderbadge.app
+
+# Verify secrets are set
+supabase secrets list
+# Expected output should show:
+#   RESEND_API_KEY
+#   APP_URL
+#   (plus auto-injected SUPABASE_URL, SUPABASE_ANON_KEY, etc.)
+```
+
+**⚠️ Resend Domain Verification:**
+Before email sending will work, you must verify your domain in Resend:
+1. Go to https://resend.com/domains
+2. Add domain: `borderbadge.app`
+3. Add the DNS records (SPF, DKIM, DMARC) to your domain
+4. Wait for verification (usually < 1 hour)
+
+### 5.4 Deploy Edge Functions
 
 ```bash
 cd supabase
 
-# Deploy all edge functions
+# Deploy each function (from project root or supabase/ directory)
 supabase functions deploy send-push-notification
 supabase functions deploy send-invite-email
 supabase functions deploy process-signup-invites
 
 # Verify deployment
 supabase functions list
+# Expected: All three functions listed with "Active" status
 ```
 
-### 5.2 Edge Function Health Checks
+**If deployment fails with "function not found":**
+```bash
+# Ensure you're in the right directory structure:
+ls supabase/functions/
+# Expected: send-push-notification/  send-invite-email/  process-signup-invites/
+
+# Each function folder should have an index.ts file:
+ls supabase/functions/send-invite-email/
+# Expected: index.ts
+```
+
+### 5.5 Edge Function Health Checks
 
 **send-push-notification:**
 ```bash
 # Test with empty request (should return 400)
-curl -X POST "https://<project>.supabase.co/functions/v1/send-push-notification" \
+curl -X POST "https://bmcohizquzzmpeidzvbk.supabase.co/functions/v1/send-push-notification" \
   -H "Authorization: Bearer <anon-key>" \
   -H "Content-Type: application/json" \
   -d '{}'
@@ -326,33 +415,151 @@ curl -X POST "https://<project>.supabase.co/functions/v1/send-push-notification"
 
 **send-invite-email:**
 ```bash
-# Test without RESEND_API_KEY configured (should return 500)
-curl -X POST "https://<project>.supabase.co/functions/v1/send-invite-email" \
+# Test missing fields (should return 400)
+curl -X POST "https://bmcohizquzzmpeidzvbk.supabase.co/functions/v1/send-invite-email" \
   -H "Authorization: Bearer <anon-key>" \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","inviter_name":"Test","invite_code":"abc"}'
-# Expected: Either success or "Email service not configured" error
+  -d '{}'
+# Expected: {"error":"Missing required fields"}
+
+# Test with valid payload (will actually send email if RESEND_API_KEY configured!)
+curl -X POST "https://bmcohizquzzmpeidzvbk.supabase.co/functions/v1/send-invite-email" \
+  -H "Authorization: Bearer <anon-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"your-test-email@example.com","inviter_name":"Test User","invite_code":"abc123","invite_type":"follow"}'
+# Expected: {"status":"sent","message_id":"..."}
 ```
 
-### 5.3 Database Webhook Setup (process-signup-invites)
+**process-signup-invites:**
+```bash
+# This function is triggered by webhook, not direct calls
+# Test with simulated webhook payload:
+curl -X POST "https://bmcohizquzzmpeidzvbk.supabase.co/functions/v1/process-signup-invites" \
+  -H "Authorization: Bearer <service-role-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"INSERT","table":"users","schema":"auth","record":{"id":"test-id","email":"nonexistent@test.com"}}'
+# Expected: {"status":"no_pending_invites"}
+```
 
+### 5.6 Database Webhook Setup (process-signup-invites)
+
+The `process-signup-invites` function needs to be triggered automatically when new users sign up. This requires setting up a Database Webhook in Supabase.
+
+**Step-by-step via Supabase Dashboard:**
+
+1. Go to https://supabase.com/dashboard/project/bmcohizquzzmpeidzvbk/database/hooks
+2. Click **"Create a new hook"**
+3. Configure the hook:
+
+| Setting | Value |
+|---------|-------|
+| **Name** | `process-signup-invites` |
+| **Table** | `auth.users` (select from dropdown) |
+| **Events** | ☑️ Insert (uncheck Update, Delete) |
+| **Type** | `HTTP Request` |
+| **HTTP Request Method** | `POST` |
+| **HTTP Request URL** | `https://bmcohizquzzmpeidzvbk.supabase.co/functions/v1/process-signup-invites` |
+
+4. Add HTTP Headers:
+   - Click **"Add new header"**
+   - Header name: `Authorization`
+   - Header value: `Bearer <your-service-role-key>`
+
+   **⚠️ Get your service role key:**
+   - Go to Settings > API
+   - Copy the `service_role` key (NOT the anon key)
+
+5. Click **"Create hook"**
+
+**Verify webhook is active:**
+1. Go back to Database > Hooks
+2. Confirm `process-signup-invites` is listed and enabled
+
+**Alternative: SQL setup (advanced):**
 ```sql
--- Create webhook trigger for new user signups
--- This should be configured in Supabase Dashboard > Database > Webhooks
+-- Note: Database webhooks are typically configured via Dashboard
+-- This is the underlying structure for reference only
 
--- Webhook configuration:
--- Name: process-signup-invites
--- Table: auth.users
--- Events: INSERT
--- URL: https://<project>.supabase.co/functions/v1/process-signup-invites
--- HTTP Headers: Authorization: Bearer <service-role-key>
+-- Supabase uses pg_net extension for webhooks
+-- The Dashboard method above is preferred
 ```
 
-**Pre-Deploy Check:**
+### 5.7 Testing the Full Flow
+
+After all functions are deployed and webhook is configured:
+
+1. **Create a test invite via API:**
+   ```bash
+   curl -X POST "https://api.borderbadge.app/invites" \
+     -H "Authorization: Bearer <user-token>" \
+     -H "Content-Type: application/json" \
+     -d '{"email":"test@example.com","invite_type":"follow"}'
+   ```
+
+2. **Check invite email was sent:**
+   - Check test@example.com inbox
+   - Or check Resend dashboard for sent emails
+
+3. **Sign up with invited email:**
+   - Create account with test@example.com
+   - Webhook should trigger `process-signup-invites`
+   - Check that follow relationship was created
+
+**Verify in database:**
+```sql
+-- Check pending_invite status changed
+SELECT * FROM pending_invite WHERE email = 'test@example.com';
+-- Expected: status = 'accepted'
+
+-- Check follow relationship created
+SELECT * FROM user_follow WHERE follower_id = '<new-user-id>';
+-- Expected: Row showing new user follows inviter
+```
+
+### 5.8 Troubleshooting Edge Functions
+
+**View function logs:**
+```bash
+# Stream logs in real-time
+supabase functions logs send-invite-email --scroll
+
+# View recent logs
+supabase functions logs send-invite-email
+```
+
+**Common issues:**
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `404 Not Found` | Function not deployed | Run `supabase functions deploy <name>` |
+| `Email service not configured` | RESEND_API_KEY not set | Run `supabase secrets set RESEND_API_KEY=...` |
+| `Failed to send email` | Resend domain not verified | Complete domain verification in Resend |
+| `permission denied` | Wrong auth header | Use service-role key for webhooks |
+| Webhook not firing | Hook not configured | Check Database > Hooks in dashboard |
+
+**Redeploy after fixes:**
+```bash
+# After fixing code or updating secrets
+supabase functions deploy send-invite-email
+
+# Force redeploy (clears cache)
+supabase functions deploy send-invite-email --no-verify-jwt
+```
+
+### 5.9 Pre-Deploy Checklist
+
+- [ ] Supabase CLI installed (`supabase --version`)
+- [ ] Logged in to Supabase CLI (`supabase login`)
+- [ ] Project linked (`supabase link --project-ref ...`)
+- [ ] `RESEND_API_KEY` secret set
+- [ ] `APP_URL` secret set
+- [ ] Resend domain `borderbadge.app` verified
 - [ ] Edge function `send-push-notification` deployed
 - [ ] Edge function `send-invite-email` deployed
 - [ ] Edge function `process-signup-invites` deployed
 - [ ] Database webhook configured for `auth.users` INSERT events
+- [ ] Health checks passing for all functions
+- [ ] Full invite flow tested end-to-end
 
 ---
 

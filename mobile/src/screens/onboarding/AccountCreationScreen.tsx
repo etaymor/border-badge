@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~604 lines).
+// Consider extracting:
+// - useAccountCreationForm hook for form state and validation
+// - SocialSignUpButtons component for Apple/Google buttons
+// - AccountHeader component for header and progress indicator
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';

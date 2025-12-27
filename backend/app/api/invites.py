@@ -169,6 +169,44 @@ async def get_pending_invites(
     ]
 
 
+@router.get("/trip/{trip_id}", response_model=list[PendingInviteSummary])
+@limiter.limit("30/minute")
+async def get_trip_pending_invites(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> list[PendingInviteSummary]:
+    """Get list of pending trip_tag invites for a specific trip."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    invites = await db.get(
+        "pending_invite",
+        {
+            "select": "id,email,invite_type,status,created_at",
+            "inviter_id": f"eq.{user.id}",
+            "trip_id": f"eq.{trip_id}",
+            "invite_type": "eq.trip_tag",
+            "status": "eq.pending",
+            "order": "created_at.desc",
+        },
+    )
+
+    if not invites:
+        return []
+
+    return [
+        PendingInviteSummary(
+            id=inv["id"],
+            email=inv["email"],
+            invite_type=inv["invite_type"],
+            status=inv["status"],
+            created_at=inv["created_at"],
+        )
+        for inv in invites
+    ]
+
+
 @router.delete("/{invite_id}")
 @limiter.limit("30/minute")
 async def cancel_invite(

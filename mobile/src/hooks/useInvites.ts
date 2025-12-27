@@ -46,6 +46,21 @@ export function usePendingInvites(options?: { limit?: number; offset?: number })
 }
 
 /**
+ * Hook to get pending trip_tag invites for a specific trip.
+ */
+export function useTripPendingInvites(tripId: string | undefined) {
+  return useQuery<PendingInvite[]>({
+    queryKey: [...INVITES_KEY, 'trip', tripId],
+    queryFn: async () => {
+      const response = await api.get<PendingInvite[]>(`/invites/trip/${tripId}`);
+      return response.data;
+    },
+    enabled: !!tripId,
+    staleTime: 1000 * 60, // 1 minute
+  });
+}
+
+/**
  * Hook to send an invite to a non-user.
  */
 export function useSendInvite() {

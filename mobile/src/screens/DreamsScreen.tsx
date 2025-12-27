@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~641 lines).
+// Consider extracting:
+// - useDreamsSearch hook for search state and filtering logic
+// - DreamCard component for individual card rendering
+// - EmptyDreamsState component for empty state UI
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';

@@ -148,7 +148,8 @@ async def get_blocked_users(
         {
             "select": "blocked_id,created_at",
             "blocker_id": f"eq.{user.id}",
-            "order": "created_at.desc",
+            # Secondary sort ensures deterministic pagination when created_at ties
+            "order": "created_at.desc,blocked_id.desc",
             "limit": limit,
             "offset": offset,
         },
@@ -170,12 +171,19 @@ async def get_blocked_users(
     if not profiles:
         return []
 
-    return [
-        BlockedUserSummary(
-            id=profile["id"],
-            user_id=profile["user_id"],
-            username=profile["username"],
-            avatar_url=profile.get("avatar_url"),
+    # IMPORTANT: Preserve the block ordering. PostgREST `in.(...)` does not guarantee order.
+    profile_map = {p["user_id"]: p for p in profiles}
+    results: list[BlockedUserSummary] = []
+    for user_id in blocked_ids:
+        profile = profile_map.get(user_id)
+        if not profile:
+            continue
+        results.append(
+            BlockedUserSummary(
+                id=profile["id"],
+                user_id=profile["user_id"],
+                username=profile["username"],
+                avatar_url=profile.get("avatar_url"),
+            )
         )
-        for profile in profiles
-    ]
+    return results

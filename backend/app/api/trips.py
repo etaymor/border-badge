@@ -1,15 +1,13 @@
-"""Trip and trip_tags endpoints."""
+"""Trip CRUD and sharing endpoints."""
 
-import asyncio
 import logging
-from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.trips_helpers import format_daterange, trip_from_row
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
-from app.core.edge_functions import send_push_notification
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -19,7 +17,6 @@ from app.schemas.trips import (
     Trip,
     TripCreate,
     TripTag,
-    TripTagAction,
     TripTagStatus,
     TripUpdate,
     TripWithTags,
@@ -28,32 +25,6 @@ from app.schemas.trips import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def format_daterange(start: date | None, end: date | None) -> str | None:
-    """Format start/end dates as a PostgreSQL daterange literal.
-
-    - Returns ``None`` when both bounds are missing (no date range).
-    - Supports open-ended ranges when only one bound is provided.
-    - Validates that the start date is not after the end date.
-    """
-    if start is None and end is None:
-        return None
-
-    if start is not None and end is not None:
-        if start > end:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="date_start must be on or before date_end",
-            )
-        return f"[{start.isoformat()},{end.isoformat()}]"
-
-    if start is not None:
-        # Open-ended range going forward in time
-        return f"[{start.isoformat()},infinity]"
-
-    # Only end is provided: open-ended range going back in time
-    return f"[-infinity,{end.isoformat()}]"
 
 
 @router.get("", response_model=list[Trip])
@@ -85,15 +56,7 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
-    return [
-        Trip(
-            **{k: v for k, v in row.items() if k != "country"},
-            country_code=row.get("country", {}).get("code", "")
-            if row.get("country")
-            else "",
-        )
-        for row in rows
-    ]
+    return [trip_from_row(row) for row in rows]
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
@@ -103,8 +66,7 @@ async def create_trip(
     data: TripCreate,
     user: CurrentUser,
 ) -> TripWithTags:
-    """
-    Create a new trip.
+    """Create a new trip.
 
     Optionally tag other users who will receive pending invitations.
     """
@@ -239,10 +201,7 @@ async def update_trip(
         start = update_data.pop("date_start", None)
         end = update_data.pop("date_end", None)
         if start is not None or end is not None:
-            update_data["date_range"] = format_daterange(
-                start,
-                end,
-            )
+            update_data["date_range"] = format_daterange(start, end)
 
     rows = await db.patch(
         "trip",
@@ -255,11 +214,7 @@ async def update_trip(
             detail="Trip not found or not authorized",
         )
 
-    row = rows[0]
-    country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
-    return Trip(
-        **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
-    )
+    return trip_from_row(rows[0])
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -318,169 +273,7 @@ async def restore_trip(
             detail="Trip not found or not deleted",
         )
 
-    row = rows[0]
-    country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
-    return Trip(
-        **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
-    )
-
-
-@router.post("/{trip_id}/approve", response_model=TripTagAction)
-async def approve_trip_tag(
-    request: Request,
-    trip_id: UUID,
-    user: CurrentUser,
-) -> TripTagAction:
-    """Approve a trip tag invitation."""
-    token = get_token_from_request(request)
-    return await _update_tag_status(trip_id, user.id, TripTagStatus.APPROVED, token)
-
-
-@router.post("/{trip_id}/decline", response_model=TripTagAction)
-async def decline_trip_tag(
-    request: Request,
-    trip_id: UUID,
-    user: CurrentUser,
-) -> TripTagAction:
-    """Decline a trip tag invitation."""
-    token = get_token_from_request(request)
-    return await _update_tag_status(trip_id, user.id, TripTagStatus.DECLINED, token)
-
-
-async def _update_tag_status(
-    trip_id: UUID,
-    user_id: str,
-    new_status: TripTagStatus,
-    token: str | None,
-) -> TripTagAction:
-    """Update trip tag status for the current user."""
-    db = get_supabase_client(user_token=token)
-
-    # Find the user's tag for this trip
-    tags = await db.get(
-        "trip_tags",
-        {"trip_id": f"eq.{trip_id}", "tagged_user_id": f"eq.{user_id}"},
-    )
-
-    if not tags:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found",
-        )
-
-    tag = tags[0]
-
-    # Use optimistic locking - include status in WHERE clause to prevent race conditions
-    responded_at = datetime.now(UTC).isoformat()
-    rows = await db.patch(
-        "trip_tags",
-        {"status": new_status.value, "responded_at": responded_at},
-        {
-            "id": f"eq.{tag['id']}",
-            "status": f"eq.{TripTagStatus.PENDING.value}",  # Only update if still pending
-        },
-    )
-
-    if not rows:
-        # Either tag doesn't exist or status already changed
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Tag has already been responded to",
-        )
-
-    # Auto-follow on approval: tagged user follows trip owner
-    if new_status == TripTagStatus.APPROVED:
-
-        async def auto_follow_trip_owner() -> None:
-            try:
-                admin_db = get_supabase_client()
-
-                # Get trip to find owner
-                trips = await admin_db.get(
-                    "trip",
-                    {
-                        "select": "user_id",
-                        "id": f"eq.{trip_id}",
-                    },
-                )
-                if not trips:
-                    return
-
-                trip_owner_id = trips[0]["user_id"]
-                follower_id = str(user_id)
-                following_id = str(trip_owner_id)
-
-                # Skip if already following
-                existing_follow = await admin_db.get(
-                    "user_follow",
-                    {
-                        "select": "id",
-                        "follower_id": f"eq.{follower_id}",
-                        "following_id": f"eq.{following_id}",
-                    },
-                )
-                if existing_follow:
-                    return
-
-                # Check for blocks
-                blocks = await admin_db.get(
-                    "user_block",
-                    {
-                        "select": "id",
-                        "or": f"(blocker_id.eq.{follower_id},blocked_id.eq.{following_id}),"
-                        f"(blocker_id.eq.{following_id},blocked_id.eq.{follower_id})",
-                    },
-                )
-                if blocks:
-                    return
-
-                # Create mutual follow
-                await admin_db.post(
-                    "user_follow",
-                    {"follower_id": follower_id, "following_id": following_id},
-                )
-
-                # Get trip owner's push token to notify
-                owner_profile = await admin_db.get(
-                    "user_profile",
-                    {
-                        "select": "push_token,display_name",
-                        "user_id": f"eq.{following_id}",
-                    },
-                )
-                if owner_profile and owner_profile[0].get("push_token"):
-                    tagged_user = await admin_db.get(
-                        "user_profile",
-                        {
-                            "select": "username,display_name",
-                            "user_id": f"eq.{follower_id}",
-                        },
-                    )
-                    if tagged_user:
-                        tagged_name = (
-                            tagged_user[0].get("display_name")
-                            or tagged_user[0].get("username")
-                            or "Someone"
-                        )
-                        await send_push_notification(
-                            tokens=[owner_profile[0]["push_token"]],
-                            title="Trip Tag Accepted",
-                            body=f"{tagged_name} accepted your trip tag and is now following you",
-                            data={
-                                "screen": "UserProfile",
-                                "userId": follower_id,
-                                "username": tagged_user[0].get("username", ""),
-                            },
-                        )
-            except Exception as e:
-                logger.warning(f"Failed to auto-follow on tag acceptance: {e}")
-
-        asyncio.create_task(auto_follow_trip_owner())
-
-    return TripTagAction(
-        status=new_status,
-        responded_at=datetime.fromisoformat(rows[0]["responded_at"]),
-    )
+    return trip_from_row(rows[0])
 
 
 @router.post("/{trip_id}/share", response_model=TripShareResponse)

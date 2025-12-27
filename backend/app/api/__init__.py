@@ -20,6 +20,7 @@ from app.api import (
     profile,
     public,
     stats,
+    trip_tags,
     trips,
     users,
 )
@@ -33,6 +34,7 @@ router.include_router(outbound.router, tags=["outbound"])
 router.include_router(countries.router, prefix="/countries", tags=["countries"])
 router.include_router(profile.router, prefix="/profile", tags=["profile"])
 router.include_router(trips.router, prefix="/trips", tags=["trips"])
+router.include_router(trip_tags.router, prefix="/trips", tags=["trip_tags"])
 router.include_router(entries.router, tags=["entries"])
 router.include_router(places.router, prefix="/places", tags=["places"])
 router.include_router(media.router, prefix="/media/files", tags=["media"])

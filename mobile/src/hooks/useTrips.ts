@@ -75,11 +75,11 @@ export function useTripsByCountry(countryId: string) {
   });
 }
 
-// Fetch a single trip by ID
+// Fetch a single trip by ID (includes tags)
 export function useTrip(tripId: string) {
   return useQuery({
     queryKey: [...TRIPS_QUERY_KEY, tripId],
-    queryFn: async (): Promise<Trip> => {
+    queryFn: async (): Promise<TripWithTags> => {
       const response = await api.get(`/trips/${tripId}`);
       return response.data;
     },
@@ -180,6 +180,55 @@ export function useRestoreTrip() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to restore trip';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Add a tag to an existing trip
+export function useAddTripTag() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      taggedUserId,
+    }: {
+      tripId: string;
+      taggedUserId: string;
+    }): Promise<TripTag> => {
+      const response = await api.post(`/trips/${tripId}/tags/${taggedUserId}`);
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to add friend';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Remove a tag from a trip
+export function useRemoveTripTag() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      taggedUserId,
+    }: {
+      tripId: string;
+      taggedUserId: string;
+    }): Promise<void> => {
+      await api.delete(`/trips/${tripId}/tags/${taggedUserId}`);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to remove friend';
       Alert.alert('Error', message);
     },
   });

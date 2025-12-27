@@ -1,24 +1,32 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~545 lines).
+// Consider extracting:
+// - useFriendSearch hook for search state and query logic
+// - SelectedFriendCard component for friend display rows
+// - FriendSearchResults component for autocomplete dropdown
+
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { BlurView } from 'expo-blur';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-import { SearchInput } from '@components/ui';
+import { UserAvatar } from '@components/friends/UserAvatar';
 import { colors } from '@constants/colors';
+import { GLASS_CONFIG, liquidGlass } from '@constants/glass';
 import { fonts } from '@constants/typography';
 import { useDebounce } from '@hooks/useDebounce';
 import { useFollowing } from '@hooks/useFollows';
 import { useUserLookupByEmail } from '@hooks/useUserLookupByEmail';
 import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
 
-import { FriendChip } from './FriendChip';
 import { SelectableUserItem } from './SelectableUserItem';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -45,7 +53,7 @@ function toSearchResult(user: FollowingUser): UserSearchResult {
     id: user.id,
     username: user.username,
     avatar_url: user.avatar_url,
-    country_count: 0, // Not displayed in this context
+    country_count: 0,
     is_following: true,
   };
 }
@@ -59,7 +67,8 @@ export function TravelFriendsSection({
   disabled = false,
 }: TravelFriendsSectionProps) {
   const [search, setSearch] = useState('');
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const debouncedSearch = useDebounce(search.trim(), 300);
 
@@ -122,7 +131,7 @@ export function TravelFriendsSection({
     !emailUser &&
     !invitedEmails.has(search.trim().toLowerCase());
 
-  // Get selected user objects for chips (from following list, search cache, or email lookup)
+  // Get selected user objects (from following list, search cache, or email lookup)
   const selectedUsers = useMemo(() => {
     const users: UserSearchResult[] = [];
 
@@ -174,77 +183,110 @@ export function TravelFriendsSection({
     [disabled, onToggleEmailInvite]
   );
 
-  const toggleExpanded = useCallback(() => {
-    if (!disabled) {
-      setIsExpanded((prev) => !prev);
-    }
-  }, [disabled]);
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+    onSearchFocus?.();
+  }, [onSearchFocus]);
 
   const isLoading = loadingFollowing || searchLoading || emailLoading;
-  const totalSelected = selectedIds.size + invitedEmails.size;
-  const hasChips = selectedUsers.length > 0 || invitedEmails.size > 0;
+  const hasSelections = selectedUsers.length > 0 || invitedEmails.size > 0;
+  const showResults = isFocused || search.length > 0;
 
   return (
     <View style={styles.section}>
+      {/* Section Header */}
       <Text style={styles.label}>TAG FRIENDS</Text>
 
-      {/* Selected friends and email invite chips */}
-      {hasChips && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipsContainer}
-          contentContainerStyle={styles.chipsContent}
+      {/* Search Input - Liquid Glass Style */}
+      <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
+        <BlurView
+          intensity={GLASS_CONFIG.intensity.medium}
+          tint={GLASS_CONFIG.tint}
+          style={[styles.inputBlur, isFocused && styles.inputBlurFocused]}
         >
-          {selectedUsers.map((user) => (
-            <FriendChip
-              key={user.id}
-              user={user}
-              onRemove={disabled ? undefined : () => handleToggle(user.id)}
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="search"
+              size={18}
+              color={colors.stormGray}
+              style={styles.searchIcon}
             />
-          ))}
-          {Array.from(invitedEmails).map((email) => (
-            <FriendChip
-              key={`email-${email}`}
-              email={email}
-              status="pending"
-              onRemove={disabled ? undefined : () => handleRemoveEmail(email)}
+            <TextInput
+              ref={inputRef}
+              style={styles.textInput}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search by username or email..."
+              placeholderTextColor={colors.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              onFocus={handleFocus}
+              editable={!disabled}
             />
-          ))}
-        </ScrollView>
+            {isLoading && (
+              <ActivityIndicator size="small" color={colors.sunsetGold} style={styles.loader} />
+            )}
+            {!isLoading && search.length > 0 && (
+              <Pressable onPress={() => setSearch('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={20} color={colors.stormGray} />
+              </Pressable>
+            )}
+          </View>
+        </BlurView>
+      </View>
+
+      {/* Selected Friends List - Wide Card Layout */}
+      {hasSelections && (
+        <View style={styles.selectedSection}>
+          <Text style={styles.selectedLabel}>Tagged on this trip</Text>
+          <View style={styles.selectedList}>
+            {selectedUsers.map((user) => (
+              <View key={user.id} style={styles.selectedCard}>
+                <UserAvatar avatarUrl={user.avatar_url} username={user.username} size={36} />
+                <View style={styles.selectedInfo}>
+                  <Text style={styles.selectedName}>@{user.username}</Text>
+                  {user.is_following && <Text style={styles.selectedMeta}>Following</Text>}
+                </View>
+                {!disabled && (
+                  <TouchableOpacity
+                    onPress={() => handleToggle(user.id)}
+                    style={styles.removeButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={16} color={colors.stormGray} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+            {Array.from(invitedEmails).map((email) => (
+              <View key={`email-${email}`} style={[styles.selectedCard, styles.selectedCardInvite]}>
+                <View style={styles.emailAvatarPlaceholder}>
+                  <Ionicons name="mail-outline" size={18} color={colors.sunsetGold} />
+                </View>
+                <View style={styles.selectedInfo}>
+                  <Text style={styles.selectedName} numberOfLines={1}>
+                    {email}
+                  </Text>
+                  <Text style={styles.inviteBadge}>Invite pending</Text>
+                </View>
+                {!disabled && (
+                  <TouchableOpacity
+                    onPress={() => handleRemoveEmail(email)}
+                    style={styles.removeButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={16} color={colors.stormGray} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
       )}
 
-      {/* Expandable picker trigger */}
-      <TouchableOpacity
-        style={[styles.pickerTrigger, disabled && styles.pickerTriggerDisabled]}
-        onPress={toggleExpanded}
-        disabled={disabled}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="people" size={20} color={colors.mossGreen} />
-        <Text style={styles.pickerText}>
-          {totalSelected === 0
-            ? 'Tag friends who traveled with you'
-            : `${totalSelected} friend${totalSelected > 1 ? 's' : ''} selected`}
-        </Text>
-        <Ionicons
-          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-          size={20}
-          color={colors.textSecondary}
-        />
-      </TouchableOpacity>
-
-      {/* Expanded picker content */}
-      {isExpanded && (
-        <View style={styles.pickerContent}>
-          <SearchInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search users or enter email..."
-            onFocus={onSearchFocus}
-            style={styles.searchInput}
-          />
-
+      {/* Search Results */}
+      {showResults && (
+        <View style={styles.resultsContainer}>
           {(isLoading && debouncedSearch.length >= 2) || emailLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={colors.mossGreen} />
@@ -253,52 +295,53 @@ export function TravelFriendsSection({
           ) : showInviteOption ? (
             <View style={styles.inviteContainer}>
               <View style={styles.inviteIconWrap}>
-                <Ionicons name="mail-outline" size={28} color={colors.sunsetGold} />
+                <Ionicons name="mail-outline" size={24} color={colors.sunsetGold} />
               </View>
-              <Text style={styles.inviteTitle}>Friend not found</Text>
-              <Text style={styles.inviteSubtitle}>Send an invite to join the trip</Text>
+              <View style={styles.inviteTextWrap}>
+                <Text style={styles.inviteTitle}>User not found</Text>
+                <Text style={styles.inviteSubtitle}>Send an invite to {search.trim()}</Text>
+              </View>
               <TouchableOpacity
                 style={styles.inviteButton}
                 onPress={handleInviteEmail}
                 activeOpacity={0.8}
               >
-                <Ionicons name="paper-plane" size={16} color={colors.cloudWhite} />
-                <Text style={styles.inviteButtonText}>Invite {search.trim()}</Text>
+                <Ionicons name="paper-plane" size={14} color={colors.midnightNavy} />
+                <Text style={styles.inviteButtonText}>Invite</Text>
               </TouchableOpacity>
             </View>
-          ) : combinedUsers.length === 0 ? (
-            <View style={styles.noResultsContainer}>
-              <Text style={styles.noResultsText}>
+          ) : combinedUsers.length === 0 && !hasSelections ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
                 {looksLikeEmail && !isCompleteEmail
                   ? 'Enter complete email address'
                   : debouncedSearch.length >= 2
                     ? 'No users found'
-                    : following.length === 0
-                      ? 'Search for friends to tag'
-                      : 'Start typing to search'}
+                    : 'Search for friends to tag'}
               </Text>
             </View>
-          ) : (
-            <FlatList
-              data={combinedUsers}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
+          ) : combinedUsers.length > 0 ? (
+            <ScrollView
+              style={styles.list}
+              keyboardShouldPersistTaps="always"
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
+              {combinedUsers.map((item) => (
                 <SelectableUserItem
+                  key={item.id}
                   user={{
                     id: item.id,
                     username: item.username,
-                    display_name: item.username, // Use username as fallback
+                    display_name: item.username,
                     avatar_url: item.avatar_url,
                   }}
                   isSelected={selectedIds.has(item.id)}
                   onToggle={() => handleToggle(item.id)}
                 />
-              )}
-              style={styles.list}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            />
-          )}
+              ))}
+            </ScrollView>
+          ) : null}
         </View>
       )}
     </View>
@@ -313,61 +356,121 @@ const styles = StyleSheet.create({
     fontFamily: fonts.oswald.medium,
     fontSize: 12,
     color: colors.midnightNavy,
-    marginBottom: 10,
     letterSpacing: 1.5,
+    marginBottom: 10,
     opacity: 0.7,
-    textTransform: 'uppercase',
   },
-  chipsContainer: {
-    marginBottom: 12,
+  inputWrapper: {
+    ...liquidGlass.input,
+    overflow: 'hidden',
   },
-  chipsContent: {
-    gap: 8,
-    paddingRight: 4,
+  inputWrapperFocused: {
+    ...liquidGlass.floatingCard,
+    borderRadius: 12,
+    transform: [{ scale: 1.01 }],
   },
-  pickerTrigger: {
+  inputBlur: {
+    minHeight: 48,
+  },
+  inputBlurFocused: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    gap: 10,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    minHeight: 48,
   },
-  pickerTriggerDisabled: {
-    opacity: 0.6,
+  searchIcon: {
+    marginRight: 10,
+    opacity: 0.7,
   },
-  pickerText: {
+  textInput: {
     flex: 1,
     fontSize: 16,
-    color: colors.midnightNavy,
     fontFamily: fonts.openSans.regular,
+    color: colors.textPrimary,
+    paddingVertical: 12,
   },
-  pickerContent: {
+  loader: {
+    marginLeft: 8,
+  },
+  selectedSection: {
+    marginTop: 16,
+  },
+  selectedLabel: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 11,
+    color: colors.stormGray,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  selectedList: {
+    gap: 8,
+  },
+  selectedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.cloudWhite,
+    paddingVertical: 10,
+    paddingLeft: 10,
+    paddingRight: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(84, 122, 95, 0.15)',
+    gap: 12,
+  },
+  selectedCardInvite: {
+    borderStyle: 'dashed',
+    borderColor: colors.sunsetGold,
+    backgroundColor: 'rgba(244, 194, 78, 0.04)',
+  },
+  selectedInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectedName: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
+  },
+  selectedMeta: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.mossGreen,
+    marginTop: 1,
+  },
+  inviteBadge: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.sunsetGold,
+    marginTop: 1,
+  },
+  emailAvatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(102, 109, 122, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultsContainer: {
     marginTop: 12,
-    backgroundColor: '#fff',
+    backgroundColor: colors.cloudWhite,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    maxHeight: 320,
+    borderColor: 'rgba(23, 42, 58, 0.06)',
+    maxHeight: 280,
     overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  searchInput: {
-    borderRadius: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   list: {
     maxHeight: 260,
@@ -376,68 +479,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
-    gap: 8,
+    padding: 24,
+    gap: 10,
   },
   loadingText: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.stormGray,
     fontFamily: fonts.openSans.regular,
   },
-  noResultsContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  noResultsText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-  },
-  inviteContainer: {
+  emptyContainer: {
     padding: 24,
     alignItems: 'center',
   },
+  emptyText: {
+    fontSize: 14,
+    color: colors.stormGray,
+    fontFamily: fonts.openSans.regular,
+    textAlign: 'center',
+  },
+  inviteContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
   inviteIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.paperBeige,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(244, 194, 78, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+  },
+  inviteTextWrap: {
+    flex: 1,
   },
   inviteTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 17,
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
     color: colors.midnightNavy,
-    marginBottom: 4,
   },
   inviteSubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.stormGray,
-    textAlign: 'center',
-    marginBottom: 16,
+    marginTop: 2,
   },
   inviteButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.sunsetGold,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-    gap: 8,
-    minWidth: 140,
-    shadowColor: colors.sunsetGold,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 6,
   },
   inviteButtonText: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
+    fontSize: 13,
     color: colors.midnightNavy,
   },
 });

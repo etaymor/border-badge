@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~576 lines).
+// Consider extracting:
+// - TripHeader component for cover image and trip info
+// - TripEntriesList component for entries section
+// - TripActionBar component for bottom action buttons
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';

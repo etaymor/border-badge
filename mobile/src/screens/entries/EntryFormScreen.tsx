@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~616 lines).
+// Consider extracting:
+// - useEntryForm hook for form state, validation, and mutations
+// - PlacePickerSection component for Google Places integration
+// - EntryTypeSelector component for entry type tabs
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,

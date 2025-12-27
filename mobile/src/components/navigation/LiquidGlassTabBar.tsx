@@ -93,6 +93,57 @@ const TAB_LABELS: Record<string, string> = {
   Friends: 'Friends',
 };
 
+// Screens where tab bar should be hidden (form/editing overlay modes)
+const HIDDEN_TAB_BAR_SCREENS = new Set([
+  'TripForm',
+  'EntryForm',
+  'ListCreate',
+  'ListEdit',
+]);
+
+/**
+ * Recursively finds the deepest focused route name in a navigation state.
+ * This handles nested navigators (e.g., Passport → Trips → TripForm).
+ *
+ * Also checks route params for initial route info when navigating with
+ * navigate('Navigator', { screen: 'TargetScreen', params: {...} }).
+ */
+function getDeepestRouteName(route: {
+  name?: string;
+  state?: { routes: Array<{ name: string; state?: unknown }>; index?: number };
+  params?: { screen?: string; params?: unknown };
+}): string | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let current: any = route;
+
+  while (current) {
+    // First check if there's nested state (already navigated)
+    if (current.state?.routes) {
+      const index = current.state.index ?? 0;
+      current = current.state.routes[index];
+      continue;
+    }
+
+    // Then check if there's an initial screen in params (initial navigation)
+    // This handles navigate('Navigator', { screen: 'Screen', params: {...} })
+    if (current.params?.screen) {
+      const screenName = current.params.screen;
+      const nestedParams = current.params.params;
+      // Check if the nested params also have a screen (deeply nested)
+      if (nestedParams && typeof nestedParams === 'object' && 'screen' in nestedParams) {
+        current = { params: nestedParams };
+        continue;
+      }
+      return screenName;
+    }
+
+    // No more nesting, return current route name
+    return current.name;
+  }
+
+  return undefined;
+}
+
 interface TabItemProps {
   route: string;
   label: string; // Used for accessibility
@@ -172,20 +223,12 @@ function LiquidGlassTabBar({ state, descriptors, navigation }: BottomTabBarProps
     return PADDING_LARGE;
   }, [width]);
 
-  // Check if tab bar should be hidden based on current route's tabBarStyle
-  // Use StyleSheet.flatten to handle array-style StyleProp values
+  // Check if tab bar should be hidden based on the deepest focused screen
+  // This handles nested navigators (e.g., Passport → Trips → TripForm)
   const focusedRoute = state.routes[state.index];
-  const focusedDescriptor = descriptors[focusedRoute.key];
-  const flattenedTabBarStyle = StyleSheet.flatten(focusedDescriptor.options.tabBarStyle);
+  const deepestRouteName = getDeepestRouteName(focusedRoute);
 
-  // Type guard: check if flattened style has display property
-  const isHidden =
-    flattenedTabBarStyle &&
-    typeof flattenedTabBarStyle === 'object' &&
-    'display' in flattenedTabBarStyle &&
-    flattenedTabBarStyle.display === 'none';
-
-  if (isHidden) {
+  if (deepestRouteName && HIDDEN_TAB_BAR_SCREENS.has(deepestRouteName)) {
     return null;
   }
 
