@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~674 lines).
+// Consider extracting:
+// - useListForm hook for form state, validation, and mutations
+// - EntrySelector component for entry selection UI
+// - ListHeader component for list metadata input
+
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import {
   ActivityIndicator,

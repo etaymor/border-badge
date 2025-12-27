@@ -50,6 +50,21 @@ class Settings(BaseSettings):
     skimlinks_api_key: str = ""  # Skimlinks API key for link monetization
     skimlinks_publisher_id: str = ""  # Skimlinks publisher ID
 
+    # Social invites
+    invite_signing_secret: str = Field(
+        default="", repr=False
+    )  # HMAC secret for signing invite codes
+    invite_expiration_days: int = 30  # How long invite codes remain valid
+
+    @property
+    def INVITE_SIGNING_SECRET(self) -> str:
+        """Get invite signing secret with strict production requirements."""
+        if self.env == "production":
+            if not self.invite_signing_secret:
+                raise ValueError("INVITE_SIGNING_SECRET must be set in production")
+            return self.invite_signing_secret
+        return self.invite_signing_secret or "dev-secret-change-in-production"
+
     # Social ingest - marked as secrets to prevent logging exposure
     instagram_oembed_token: str = Field(
         default="", repr=False

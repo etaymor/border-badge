@@ -19,6 +19,7 @@ def sample_profile(user_id: str = TEST_USER_ID) -> dict[str, Any]:
     return {
         "id": "550e8400-e29b-41d4-a716-446655440100",
         "user_id": user_id,
+        "username": "testuser",
         "display_name": "Test User",
         "avatar_url": None,
         "home_country_code": "US",

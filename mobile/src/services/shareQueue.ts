@@ -1,6 +1,12 @@
 /**
  * Share Queue Service
  *
+ * TODO: Refactor - this file exceeds 500 lines (currently ~540 lines).
+ * Consider splitting into smaller modules:
+ * - shareQueueStorage.ts: AsyncStorage persistence layer
+ * - shareQueueRetry.ts: Retry logic and backoff algorithms
+ * - shareQueueProcessor.ts: Queue processing and submission
+ *
  * Provides a persistent queue for failed share submissions with exponential backoff.
  * Shares are stored in AsyncStorage and automatically retried when the app comes
  * to the foreground or network connectivity is restored.

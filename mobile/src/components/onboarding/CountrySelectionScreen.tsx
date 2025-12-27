@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~562 lines).
+// Consider extracting:
+// - useCountrySelection hook for selection state and filtering
+// - CountryListItem component for individual country rows
+// - RegionSelector component for region filter tabs
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';

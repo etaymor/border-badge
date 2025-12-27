@@ -51,7 +51,7 @@ def test_409_conflict_error_format(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(
                 f"/trips/{trip_id}/approve",

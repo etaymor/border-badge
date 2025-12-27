@@ -338,6 +338,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           isEditing={isEditing}
           editedName={editedName}
           displayName={profile?.display_name ?? 'Set your name'}
+          username={profile?.username}
           nameError={nameError}
           isSaving={updateDisplayName.isPending}
           isSmallScreen={isSmallScreen}

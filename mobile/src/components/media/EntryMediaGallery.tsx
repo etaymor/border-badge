@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~586 lines).
+// Consider extracting:
+// - useMediaGallery hook for gallery state and upload logic
+// - MediaThumbnail component for individual media items
+// - FullscreenViewer component for modal preview
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,

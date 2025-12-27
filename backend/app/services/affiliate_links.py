@@ -1,4 +1,11 @@
-"""Affiliate links service for outbound redirect management."""
+"""Affiliate links service for outbound redirect management.
+
+TODO: Refactor - this file exceeds 500 lines (currently ~834 lines).
+Consider splitting into smaller modules:
+- affiliate_links_core.py: Core link generation and signing
+- affiliate_links_providers.py: Provider-specific adapters (Skimlinks, etc.)
+- affiliate_links_analytics.py: Analytics and tracking logic
+"""
 
 import asyncio
 import hashlib

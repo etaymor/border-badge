@@ -256,6 +256,48 @@ class SupabaseClient:
             self._handle_request_error(e)
         return []
 
+    async def count(
+        self,
+        table: str,
+        params: dict[str, Any] | None = None,
+    ) -> int:
+        """
+        Count records in a table using Supabase's count feature.
+
+        Uses the Prefer: count=exact header to get count without fetching rows.
+
+        Args:
+            table: The table name to query
+            params: Optional query parameters (filters)
+
+        Returns:
+            The count of matching records
+        """
+        try:
+            client = get_http_client()
+            headers = {
+                **self.headers,
+                "Prefer": "count=exact",
+            }
+            # Only select minimal data, we just need the count from headers
+            query_params = {**(params or {}), "select": "id", "limit": "0"}
+            response = await client.get(
+                f"{self.rest_url}/{table}",
+                headers=headers,
+                params=query_params,
+            )
+            response.raise_for_status()
+            # Count is returned in the Content-Range header: "0-0/123" or "*/123"
+            content_range = response.headers.get("Content-Range", "")
+            if "/" in content_range:
+                return int(content_range.split("/")[-1])
+            return 0
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e)
+        except httpx.RequestError as e:
+            self._handle_request_error(e)
+        return 0  # Never reached, but satisfies type checker
+
     async def rpc(
         self,
         function: str,
@@ -295,3 +337,12 @@ def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
         user_token: Optional JWT for user-scoped queries with RLS.
     """
     return SupabaseClient(user_token=user_token)
+
+
+def get_service_supabase_client() -> SupabaseClient:
+    """
+    Get a Supabase client with service role key (bypasses RLS).
+
+    Use sparingly - only for admin operations that need to bypass RLS.
+    """
+    return SupabaseClient(user_token=None)

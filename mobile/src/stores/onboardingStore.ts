@@ -17,6 +17,7 @@ interface OnboardingState {
   bucketListCountries: string[]; // Countries added to bucket list during onboarding
   visitedContinents: string[]; // Tracks which continents user said "Yes" to
   displayName: string | null; // User's display name for account creation
+  username: string | null; // User's unique username (replaces display_name as primary identifier)
   trackingPreference: TrackingPreset; // Country tracking preference
 
   // Actions - existing
@@ -36,6 +37,7 @@ interface OnboardingState {
   addVisitedContinent: (region: string) => void;
   removeVisitedContinent: (region: string) => void;
   setDisplayName: (name: string | null) => void;
+  setUsername: (username: string | null) => void;
   setTrackingPreference: (preference: TrackingPreset) => void;
 }
 
@@ -49,6 +51,7 @@ const initialState = {
   bucketListCountries: [] as string[],
   visitedContinents: [] as string[],
   displayName: null as string | null,
+  username: null as string | null,
   trackingPreference: 'full_atlas' as TrackingPreset,
 };
 
@@ -116,6 +119,8 @@ export const useOnboardingStore = create<OnboardingState>()(
 
       setDisplayName: (name) => set({ displayName: name }),
 
+      setUsername: (username) => set({ username }),
+
       setTrackingPreference: (preference) => set({ trackingPreference: preference }),
 
       reset: () => set(initialState),
@@ -137,4 +142,5 @@ export const selectDreamDestination = (state: OnboardingState) => state.dreamDes
 export const selectBucketListCountries = (state: OnboardingState) => state.bucketListCountries;
 export const selectVisitedContinents = (state: OnboardingState) => state.visitedContinents;
 export const selectDisplayName = (state: OnboardingState) => state.displayName;
+export const selectUsername = (state: OnboardingState) => state.username;
 export const selectTrackingPreference = (state: OnboardingState) => state.trackingPreference;

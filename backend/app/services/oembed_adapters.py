@@ -1,4 +1,11 @@
-"""oEmbed adapters for TikTok and Instagram with caching."""
+"""oEmbed adapters for TikTok and Instagram with caching.
+
+TODO: Refactor - this file exceeds 500 lines (currently ~507 lines).
+Consider splitting into smaller modules:
+- oembed_base.py: Base adapter class and caching logic
+- oembed_tiktok.py: TikTok-specific adapter
+- oembed_instagram.py: Instagram-specific adapter
+"""
 
 import html
 import logging

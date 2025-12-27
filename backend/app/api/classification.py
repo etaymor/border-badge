@@ -1,4 +1,11 @@
-"""Traveler classification endpoint using OpenRouter LLM."""
+"""Traveler classification endpoint using OpenRouter LLM.
+
+TODO: Refactor - this file exceeds 500 lines (currently ~599 lines).
+Consider splitting into smaller modules:
+- classification_prompts.py: LLM prompts and templates
+- classification_types.py: Type-specific classification logic
+- classification_parser.py: Response parsing and validation
+"""
 
 import json
 import logging

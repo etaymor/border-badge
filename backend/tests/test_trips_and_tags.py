@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.api.trips import format_daterange
+from app.api.trips_helpers import format_daterange
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import mock_auth_dependency
@@ -247,7 +247,7 @@ def test_approve_trip_tag(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
         assert response.status_code == 200
@@ -280,7 +280,7 @@ def test_decline_trip_tag(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(f"/trips/{trip_id}/decline", headers=auth_headers)
         assert response.status_code == 200
@@ -311,7 +311,7 @@ def test_approve_already_actioned_tag_returns_409(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
         assert response.status_code == 409

@@ -19,7 +19,7 @@ import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
-import { validateDisplayName } from '@utils/displayNameValidation';
+import { generateUsernameFromName, validateUsername } from '@utils/usernameValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
@@ -28,9 +28,17 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 type Props = OnboardingStackScreenProps<'NameEntry'>;
 
 export function NameEntryScreen({ navigation }: Props) {
-  const { displayName, setDisplayName } = useOnboardingStore();
-  const [name, setName] = useState(displayName ?? '');
+  const { username, setUsername, displayName, setDisplayName } = useOnboardingStore();
+  const [usernameInput, setUsernameInput] = useState(username ?? '');
   const [error, setError] = useState('');
+
+  // Generate username suggestion from display name if we have one
+  useEffect(() => {
+    if (!usernameInput && displayName) {
+      const suggested = generateUsernameFromName(displayName);
+      setUsernameInput(suggested);
+    }
+  }, [displayName, usernameInput]);
 
   // Animation values
   const titleAnim = useRef(new Animated.Value(0)).current;
@@ -71,7 +79,7 @@ export function NameEntryScreen({ navigation }: Props) {
   }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
 
   const handleContinue = () => {
-    const validation = validateDisplayName(name);
+    const validation = validateUsername(usernameInput);
 
     if (!validation.isValid) {
       setError(validation.error ?? '');
@@ -79,8 +87,11 @@ export function NameEntryScreen({ navigation }: Props) {
     }
 
     setError('');
-    // Store the display name
-    setDisplayName(validation.trimmedValue);
+    // Store the username (also used as display name if not separately set)
+    setUsername(validation.value);
+    if (!displayName) {
+      setDisplayName(validation.value);
+    }
 
     // Navigate to account creation
     navigation.navigate('AccountCreation');
@@ -126,7 +137,7 @@ export function NameEntryScreen({ navigation }: Props) {
             }}
           >
             <Text variant="title" style={styles.title}>
-              What should we call you?
+              Choose your username
             </Text>
           </Animated.View>
 
@@ -140,7 +151,7 @@ export function NameEntryScreen({ navigation }: Props) {
               },
             ]}
           >
-            Your adventure awaits
+            How friends will find you
           </Animated.Text>
 
           {/* Input section - Liquid Glass Style */}
@@ -153,24 +164,28 @@ export function NameEntryScreen({ navigation }: Props) {
             <View style={styles.inputGlassWrapper}>
               <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
                 <View style={[styles.inputWrapper, error && styles.inputWrapperError]}>
+                  <Text style={styles.atSymbol}>@</Text>
                   <TextInput
                     style={styles.glassInput}
-                    value={name}
+                    value={usernameInput}
                     onChangeText={(text) => {
-                      setName(text);
+                      // Remove spaces and special characters as user types
+                      const cleaned = text.replace(/[^a-zA-Z0-9_]/g, '');
+                      setUsernameInput(cleaned);
                       if (error) setError('');
                     }}
-                    placeholder="Your Name"
+                    placeholder="username"
                     placeholderTextColor={colors.stormGray}
-                    autoCapitalize="words"
-                    autoComplete="name"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="username"
                     autoFocus
-                    testID="name-entry-input"
+                    testID="username-entry-input"
                   />
-                  {name.length > 0 && (
+                  {usernameInput.length > 0 && (
                     <TouchableOpacity
                       onPress={() => {
-                        setName('');
+                        setUsernameInput('');
                         if (error) setError('');
                       }}
                       style={styles.clearButton}
@@ -187,7 +202,7 @@ export function NameEntryScreen({ navigation }: Props) {
               </Text>
             )}
             <Text variant="caption" style={styles.helperText}>
-              This is how you&apos;ll appear to friends
+              Letters, numbers, and underscores only
             </Text>
           </Animated.View>
         </View>
@@ -207,7 +222,7 @@ export function NameEntryScreen({ navigation }: Props) {
               activeOpacity={0.9}
               accessibilityRole="button"
               accessibilityLabel="Continue to next step"
-              testID="name-entry-continue"
+              testID="username-entry-continue"
             >
               <Text style={styles.continueButtonText}>Continue</Text>
             </TouchableOpacity>
@@ -276,6 +291,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
     backgroundColor: 'transparent',
+  },
+  atSymbol: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.stormGray,
+    marginRight: 2,
   },
   inputWrapperError: {
     borderColor: colors.error,

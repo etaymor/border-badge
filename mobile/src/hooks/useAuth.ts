@@ -8,6 +8,7 @@ import {
   storeTokens,
 } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
+import { registerForPushNotifications } from '@services/pushNotifications';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -23,6 +24,7 @@ interface PasswordAuthInput {
   email: string;
   password: string;
   displayName?: string;
+  username?: string;
 }
 
 /**
@@ -35,12 +37,16 @@ export function useSignUpWithPassword() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
+    mutationFn: async ({ email, password, displayName, username }: PasswordAuthInput) => {
+      const userData: Record<string, string> = {};
+      if (displayName) userData.display_name = displayName;
+      if (username) userData.username = username;
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: displayName ? { display_name: displayName } : undefined,
+          data: Object.keys(userData).length > 0 ? userData : undefined,
         },
       });
 
@@ -64,6 +70,12 @@ export function useSignUpWithPassword() {
         } catch {
           console.warn('Migration failed for new password user');
         }
+
+        // Request push notification permission and register token
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
 
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
@@ -114,6 +126,12 @@ export function useSignInWithPassword() {
             console.warn('Migration failed for password user');
           }
         }
+
+        // Register for push notifications (returning users may not have registered)
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
 
         setSession(data.session);
       }

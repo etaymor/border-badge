@@ -19,6 +19,8 @@ class TrackingPreference(str, Enum):
 class ProfileUpdate(BaseModel):
     """Request to update user profile preferences."""
 
+    username: str | None = None
+    display_name: str | None = None
     home_country_code: str | None = None
     travel_motives: list[str] | None = None
     persona_tags: list[str] | None = None
@@ -30,6 +32,7 @@ class Profile(BaseModel):
 
     id: UUID
     user_id: UUID
+    username: str
     display_name: str
     avatar_url: str | None = None
     home_country_code: str | None = None
