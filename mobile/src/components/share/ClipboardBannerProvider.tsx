@@ -5,6 +5,7 @@
  * - Listening for TikTok/Instagram URLs on clipboard when app comes to foreground
  * - Displaying the ClipboardBanner overlay on any screen
  * - Navigating to ShareCaptureScreen when user taps "Save"
+ * - Showing permission guidance banner when clipboard access is denied
  *
  * Must be rendered inside a NavigationContainer to have access to navigation.
  */
@@ -15,14 +16,17 @@ import { CommonActions, useNavigation } from '@react-navigation/native';
 
 import { useClipboardListener } from '@hooks/useClipboardListener';
 import ClipboardBanner from './ClipboardBanner';
+import ClipboardPermissionBanner from './ClipboardPermissionBanner';
 
 /**
  * Standalone overlay component that can be rendered anywhere inside the navigation tree.
- * Renders an absolutely positioned banner when a clipboard URL is detected.
+ * Renders an absolutely positioned banner when a clipboard URL is detected,
+ * or a permission guidance banner when clipboard access is denied.
  */
 export function ClipboardBannerOverlay() {
   const navigation = useNavigation();
-  const { detectedUrl, dismiss, clear } = useClipboardListener();
+  const { detectedUrl, dismiss, clear, hasPermissionError, acknowledgePermissionError } =
+    useClipboardListener();
 
   const handleSave = useCallback(() => {
     if (!detectedUrl) return;
@@ -43,11 +47,24 @@ export function ClipboardBannerOverlay() {
     );
   }, [detectedUrl, clear, navigation]);
 
-  if (!detectedUrl) return null;
+  // Show permission error banner if clipboard access was denied
+  if (hasPermissionError) {
+    return (
+      <ClipboardPermissionBanner
+        onOpenSettings={acknowledgePermissionError}
+        onDismiss={acknowledgePermissionError}
+      />
+    );
+  }
 
-  return (
-    <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />
-  );
+  // Show detected URL banner
+  if (detectedUrl) {
+    return (
+      <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />
+    );
+  }
+
+  return null;
 }
 
 interface ProviderProps {

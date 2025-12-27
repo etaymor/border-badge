@@ -28,6 +28,7 @@ import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
+import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -83,6 +84,9 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clipboard permission modal state
+  const [clipboardPermissionModalVisible, setClipboardPermissionModalVisible] = useState(false);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -195,6 +199,15 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     },
     [setClipboardDetectionEnabled]
   );
+
+  const handleOpenClipboardPermissionModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setClipboardPermissionModalVisible(true);
+  }, []);
+
+  const handleCloseClipboardPermissionModal = useCallback(() => {
+    setClipboardPermissionModalVisible(false);
+  }, []);
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
@@ -360,6 +373,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenTrackingModal={handleOpenTrackingModal}
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
+          onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
         />
 
         <View style={styles.divider} />
@@ -385,6 +399,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         onShare={handleShareExport}
         onCopy={handleCopyExport}
         copyFeedback={copyFeedback}
+      />
+
+      <ClipboardPermissionModal
+        visible={clipboardPermissionModalVisible}
+        onClose={handleCloseClipboardPermissionModal}
       />
     </SafeAreaView>
   );

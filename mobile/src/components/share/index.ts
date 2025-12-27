@@ -1,5 +1,7 @@
 export { default as ClipboardBanner } from './ClipboardBanner';
 export { ClipboardBannerOverlay, ClipboardBannerProvider } from './ClipboardBannerProvider';
+export { ClipboardPasteButton } from './ClipboardPasteButton';
+export { default as ClipboardPermissionBanner } from './ClipboardPermissionBanner';
 export { InlineTripForm } from './InlineTripForm';
 export { MilestoneBadge } from './MilestoneBadge';
 export {
