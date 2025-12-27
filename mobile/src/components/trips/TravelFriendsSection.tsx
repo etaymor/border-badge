@@ -17,12 +17,12 @@ import { useDebounce } from '@hooks/useDebounce';
 import { useFollowing } from '@hooks/useFollows';
 import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
 
-import { CompanionChip } from './CompanionChip';
+import { FriendChip } from './FriendChip';
 import { SelectableUserItem } from './SelectableUserItem';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-interface TravelCompanionsSectionProps {
+interface TravelFriendsSectionProps {
   selectedIds: Set<string>;
   invitedEmails: Set<string>;
   onToggleSelection: (userId: string) => void;
@@ -48,13 +48,13 @@ function toSearchResult(user: FollowingUser): UserSearchResult {
   };
 }
 
-export function TravelCompanionsSection({
+export function TravelFriendsSection({
   selectedIds,
   invitedEmails,
   onToggleSelection,
   onToggleEmailInvite,
   disabled = false,
-}: TravelCompanionsSectionProps) {
+}: TravelFriendsSectionProps) {
   const [search, setSearch] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -161,9 +161,9 @@ export function TravelCompanionsSection({
 
   return (
     <View style={styles.section}>
-      <Text style={styles.label}>TRAVEL COMPANIONS</Text>
+      <Text style={styles.label}>TAG FRIENDS</Text>
 
-      {/* Selected companions and email invite chips */}
+      {/* Selected friends and email invite chips */}
       {hasChips && (
         <ScrollView
           horizontal
@@ -172,14 +172,14 @@ export function TravelCompanionsSection({
           contentContainerStyle={styles.chipsContent}
         >
           {selectedUsers.map((user) => (
-            <CompanionChip
+            <FriendChip
               key={user.id}
               user={user}
               onRemove={disabled ? undefined : () => handleToggle(user.id)}
             />
           ))}
           {Array.from(invitedEmails).map((email) => (
-            <CompanionChip
+            <FriendChip
               key={`email-${email}`}
               email={email}
               status="pending"
@@ -200,7 +200,7 @@ export function TravelCompanionsSection({
         <Text style={styles.pickerText}>
           {totalSelected === 0
             ? 'Tag friends who traveled with you'
-            : `${totalSelected} companion${totalSelected > 1 ? 's' : ''} selected`}
+            : `${totalSelected} friend${totalSelected > 1 ? 's' : ''} selected`}
         </Text>
         <Ionicons
           name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -229,7 +229,7 @@ export function TravelCompanionsSection({
               <View style={styles.inviteIconWrap}>
                 <Ionicons name="mail-outline" size={28} color={colors.sunsetGold} />
               </View>
-              <Text style={styles.inviteTitle}>Traveler not found</Text>
+              <Text style={styles.inviteTitle}>Friend not found</Text>
               <Text style={styles.inviteSubtitle}>Send an invite to join the trip</Text>
               <TouchableOpacity
                 style={styles.inviteButton}
@@ -246,7 +246,7 @@ export function TravelCompanionsSection({
                 {debouncedSearch.length >= 2
                   ? 'No users found'
                   : following.length === 0
-                    ? 'Search for travelers to tag'
+                    ? 'Search for friends to tag'
                     : 'Start typing to search'}
               </Text>
             </View>

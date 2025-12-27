@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
-import { TravelCompanionsSection } from '@components/trips';
+import { TravelFriendsSection } from '@components/trips';
 import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -47,8 +47,8 @@ export function TripFormScreen({ navigation, route }: Props) {
   const [nameError, setNameError] = useState('');
   const [countryError, setCountryError] = useState('');
 
-  // Travel companions state
-  const [selectedCompanionIds, setSelectedCompanionIds] = useState<Set<string>>(new Set());
+  // Tagged friends state
+  const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [invitedEmails, setInvitedEmails] = useState<Set<string>>(new Set());
 
   // Fetch countries for picker
@@ -100,8 +100,8 @@ export function TripFormScreen({ navigation, route }: Props) {
     Keyboard.dismiss();
   };
 
-  const handleToggleCompanion = useCallback((userId: string) => {
-    setSelectedCompanionIds((prev) => {
+  const handleToggleFriend = useCallback((userId: string) => {
+    setSelectedFriendIds((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) {
         next.delete(userId);
@@ -164,8 +164,7 @@ export function TripFormScreen({ navigation, route }: Props) {
           name: name.trim(),
           country_code: selectedCountryCode!,
           cover_image_url: coverImageUrl.trim() || undefined,
-          tagged_user_ids:
-            selectedCompanionIds.size > 0 ? Array.from(selectedCompanionIds) : undefined,
+          tagged_user_ids: selectedFriendIds.size > 0 ? Array.from(selectedFriendIds) : undefined,
         });
 
         // Send email invites for non-platform users
@@ -320,12 +319,12 @@ export function TripFormScreen({ navigation, route }: Props) {
             />
           </View>
 
-          {/* Travel Companions - only for new trips */}
+          {/* Tag Friends - only for new trips */}
           {!isEditing && (
-            <TravelCompanionsSection
-              selectedIds={selectedCompanionIds}
+            <TravelFriendsSection
+              selectedIds={selectedFriendIds}
               invitedEmails={invitedEmails}
-              onToggleSelection={handleToggleCompanion}
+              onToggleSelection={handleToggleFriend}
               onToggleEmailInvite={handleToggleEmailInvite}
               disabled={isLoading}
             />

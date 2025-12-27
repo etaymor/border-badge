@@ -5,20 +5,20 @@ import { UserAvatar } from '@components/friends/UserAvatar';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
-export type CompanionStatus = 'pending' | 'approved' | 'declined';
+export type FriendStatus = 'pending' | 'approved' | 'declined';
 
-interface CompanionChipProps {
+interface FriendChipProps {
   user?: {
     id: string;
     username: string;
     avatar_url: string | null;
   };
   email?: string;
-  status?: CompanionStatus;
+  status?: FriendStatus;
   onRemove?: () => void;
 }
 
-export function CompanionChip({ user, email, status, onRemove }: CompanionChipProps) {
+export function FriendChip({ user, email, status, onRemove }: FriendChipProps) {
   const isEmailInvite = !user && email;
   const displayLabel = user ? `@${user.username}` : email;
   const accessibilityLabel = user ? user.username : email;
@@ -51,7 +51,7 @@ export function CompanionChip({ user, email, status, onRemove }: CompanionChipPr
   );
 }
 
-function StatusBadge({ status }: { status: CompanionStatus }) {
+function StatusBadge({ status }: { status: FriendStatus }) {
   const config = {
     pending: { color: colors.sunsetGold, label: 'Pending' },
     approved: { color: colors.mossGreen, label: 'Approved' },

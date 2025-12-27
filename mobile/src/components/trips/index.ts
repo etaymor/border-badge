@@ -1,3 +1,3 @@
-export { CompanionChip, type CompanionStatus } from './CompanionChip';
+export { FriendChip, type FriendStatus } from './FriendChip';
 export { SelectableUserItem } from './SelectableUserItem';
-export { TravelCompanionsSection } from './TravelCompanionsSection';
+export { TravelFriendsSection } from './TravelFriendsSection';
