@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Keyboard,
@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
+import { TravelCompanionsSection } from '@components/trips';
 import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -44,6 +45,9 @@ export function TripFormScreen({ navigation, route }: Props) {
   // Validation state
   const [nameError, setNameError] = useState('');
   const [countryError, setCountryError] = useState('');
+
+  // Travel companions state
+  const [selectedCompanionIds, setSelectedCompanionIds] = useState<Set<string>>(new Set());
 
   // Fetch countries for picker
   const { data: countries, isLoading: loadingCountries } = useCountries();
@@ -93,6 +97,18 @@ export function TripFormScreen({ navigation, route }: Props) {
     Keyboard.dismiss();
   };
 
+  const handleToggleCompanion = useCallback((userId: string) => {
+    setSelectedCompanionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  }, []);
+
   const validate = (): boolean => {
     let isValid = true;
 
@@ -133,6 +149,8 @@ export function TripFormScreen({ navigation, route }: Props) {
           name: name.trim(),
           country_code: selectedCountryCode!,
           cover_image_url: coverImageUrl.trim() || undefined,
+          tagged_user_ids:
+            selectedCompanionIds.size > 0 ? Array.from(selectedCompanionIds) : undefined,
         });
         // Navigate to trip details, replacing the form screen
         navigation.replace('TripDetail', { tripId: newTrip.id });
@@ -272,21 +290,14 @@ export function TripFormScreen({ navigation, route }: Props) {
             />
           </View>
 
-          {/* Travel Companions Feature Teaser */}
-          <View style={styles.visaStampContainer}>
-            <View style={styles.visaStampBorder}>
-              <View style={styles.comingSoonHeader}>
-                <Ionicons name="people" size={20} color={colors.mossGreen} />
-                <Text style={styles.comingSoonTitle}>Travel Companions</Text>
-              </View>
-              <Text style={styles.comingSoonText}>
-                Tagging friends is coming in the next update.
-              </Text>
-              <View style={styles.stampBadge}>
-                <Text style={styles.stampBadgeText}>VISA PENDING</Text>
-              </View>
-            </View>
-          </View>
+          {/* Travel Companions - only for new trips */}
+          {!isEditing && (
+            <TravelCompanionsSection
+              selectedIds={selectedCompanionIds}
+              onToggleSelection={handleToggleCompanion}
+              disabled={isLoading}
+            />
+          )}
         </View>
 
         {/* Save Button - inside ScrollView for proper keyboard handling */}
@@ -489,54 +500,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
   },
 
-  // Whimsical Visa Stamp Section
-  visaStampContainer: {
-    marginTop: 12,
-    transform: [{ rotate: '-1deg' }],
-  },
-  visaStampBorder: {
-    backgroundColor: 'rgba(84, 122, 95, 0.05)', // Moss Green light
-    padding: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: 'rgba(84, 122, 95, 0.2)',
-    borderStyle: 'dashed',
-  },
-  comingSoonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  comingSoonTitle: {
-    fontSize: 18,
-    fontFamily: fonts.playfair.bold,
-    color: colors.mossGreen,
-  },
-  comingSoonText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    lineHeight: 22,
-    marginBottom: 16,
-    fontStyle: 'italic',
-  },
-  stampBadge: {
-    borderWidth: 2,
-    borderColor: colors.mossGreen,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    transform: [{ rotate: '-2deg' }],
-    opacity: 0.8,
-  },
-  stampBadgeText: {
-    color: colors.mossGreen,
-    fontSize: 12,
-    fontFamily: fonts.oswald.bold,
-    letterSpacing: 1,
-  },
   footer: {
     padding: 24,
     paddingTop: 16,
