@@ -51,13 +51,15 @@ function BlockedUserRow({ user, onRefetch }: { user: BlockedUser; onRefetch: () 
         <Text style={styles.username}>@{user.username}</Text>
       </View>
       <TouchableOpacity
-        style={styles.unblockButton}
+        style={[styles.unblockButton, unblockMutation.isPending && styles.unblockButtonDisabled]}
         onPress={handleUnblock}
         disabled={unblockMutation.isPending}
       >
-        <Text style={styles.unblockText}>
-          {unblockMutation.isPending ? 'Unblocking...' : 'Unblock'}
-        </Text>
+        {unblockMutation.isPending ? (
+          <ActivityIndicator size="small" color={colors.mossGreen} />
+        ) : (
+          <Text style={styles.unblockText}>Unblock</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -84,14 +86,22 @@ export function BlockedUsersScreen({ navigation }: Props) {
 
   const keyExtractor = useCallback((item: BlockedUser) => item.id, []);
 
+  const ListHeader = (
+    <View style={styles.listHeaderContainer}>
+      <Text style={styles.sectionTitle}>Blocked Travelers</Text>
+      <View style={styles.sectionLine} />
+    </View>
+  );
+
   const ListEmpty = useCallback(
     () => (
       <View style={styles.emptyState}>
-        <Ionicons name="shield-checkmark-outline" size={64} color={colors.textTertiary} />
-        <Text style={styles.emptyTitle}>No blocked users</Text>
+        <View style={styles.emptyIconContainer}>
+          <Ionicons name="shield-checkmark" size={48} color={colors.mossGreen} />
+        </View>
+        <Text style={styles.emptyTitle}>All clear</Text>
         <Text style={styles.emptySubtitle}>
-          Users you block will appear here. They won&apos;t be able to see your profile or follow
-          you.
+          You haven&apos;t blocked anyone.{'\n'}Your journey remains open to all.
         </Text>
       </View>
     ),
@@ -105,11 +115,20 @@ export function BlockedUsersScreen({ navigation }: Props) {
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Blocked Users</Text>
+          <View style={styles.headerCenter}>
+            <Ionicons
+              name="shield"
+              size={18}
+              color={colors.midnightNavy}
+              style={styles.headerIcon}
+            />
+            <Text style={styles.headerTitle}>Blocked</Text>
+          </View>
           <View style={styles.headerRight} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.adobeBrick} />
+          <Text style={styles.loadingText}>Checking blocked list...</Text>
         </View>
       </View>
     );
@@ -121,7 +140,10 @@ export function BlockedUsersScreen({ navigation }: Props) {
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Blocked Users</Text>
+        <View style={styles.headerCenter}>
+          <Ionicons name="shield" size={18} color={colors.midnightNavy} style={styles.headerIcon} />
+          <Text style={styles.headerTitle}>Blocked</Text>
+        </View>
         <View style={styles.headerRight} />
       </View>
 
@@ -129,6 +151,7 @@ export function BlockedUsersScreen({ navigation }: Props) {
         data={blockedUsers ?? []}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
+        ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -149,12 +172,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.lakeBlue,
     paddingBottom: 16,
     paddingHorizontal: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20,
+  },
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    marginRight: 8,
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -169,60 +203,106 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
   listContent: {
     paddingBottom: 100,
     flexGrow: 1,
   },
+  listHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 4,
+    gap: 12,
+  },
+  sectionTitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 26,
+    color: colors.adobeBrick,
+  },
+  sectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.adobeBrick,
+    opacity: 0.3,
+  },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.cloudWhite,
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.dustyCoral,
+    borderStyle: 'dashed',
   },
   userInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   username: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.text,
+    color: colors.midnightNavy,
   },
   unblockButton: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.mossGreen,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  unblockButtonDisabled: {
+    opacity: 0.7,
   },
   unblockText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    color: colors.text,
+    color: colors.cloudWhite,
   },
   emptyState: {
     flex: 1,
-    paddingVertical: 60,
+    paddingVertical: 48,
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
   },
 });

@@ -32,13 +32,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const { data: profile, isLoading, error } = useUserProfile(username);
   const blockMutation = useBlockUser(profile?.user_id ?? '');
 
-  // Fetch user's activity feed
-  const {
-    data: feedData,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
-  } = useUserFeed(userId);
+  const { data: feedData, isFetchingNextPage, hasNextPage, fetchNextPage } = useUserFeed(userId);
 
   const feedItems = useMemo(() => getUserFeedItems(feedData), [feedData]);
 
@@ -72,7 +66,8 @@ export function UserProfileScreen({ navigation, route }: Props) {
           destructiveButtonIndex: 1,
           cancelButtonIndex: 0,
           title: `@${profile.username}`,
-          message: 'Blocking will remove them from your followers and prevent them from seeing your profile.',
+          message:
+            'Blocking will remove them from your followers and prevent them from seeing your profile.',
         },
         (buttonIndex) => {
           if (buttonIndex === 1) {
@@ -128,11 +123,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
 
   const renderFeedItem = useCallback(
     ({ item }: { item: FeedItem }) => (
-      <FeedCard
-        item={item}
-        onCountryPress={handleCountryPress}
-        onEntryPress={handleEntryPress}
-      />
+      <FeedCard item={item} onCountryPress={handleCountryPress} onEntryPress={handleEntryPress} />
     ),
     [handleCountryPress, handleEntryPress]
   );
@@ -144,11 +135,12 @@ export function UserProfileScreen({ navigation, route }: Props) {
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={styles.headerTitle}>Traveler</Text>
           <View style={styles.headerRight} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.adobeBrick} />
+          <Text style={styles.loadingText}>Finding traveler...</Text>
         </View>
       </View>
     );
@@ -161,14 +153,16 @@ export function UserProfileScreen({ navigation, route }: Props) {
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={styles.headerTitle}>Traveler</Text>
           <View style={styles.headerRight} />
         </View>
         <View style={styles.errorContainer}>
-          <Ionicons name="person-outline" size={64} color={colors.textTertiary} />
-          <Text style={styles.errorTitle}>User not found</Text>
+          <View style={styles.errorIconContainer}>
+            <Ionicons name="compass-outline" size={48} color={colors.dustyCoral} />
+          </View>
+          <Text style={styles.errorTitle}>Trail gone cold</Text>
           <Text style={styles.errorSubtitle}>
-            This profile may not exist or you may be blocked
+            This traveler may have moved on,{'\n'}or perhaps they prefer solitude
           </Text>
         </View>
       </View>
@@ -193,54 +187,67 @@ export function UserProfileScreen({ navigation, route }: Props) {
         keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
         ListHeaderComponent={
           <View style={styles.profileCard}>
-            <UserAvatar
-              avatarUrl={profile.avatar_url}
-              username={profile.username}
-              size={96}
-            />
+            <View style={styles.avatarRing}>
+              <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={100} />
+            </View>
 
             <Text style={styles.displayName}>{profile.display_name}</Text>
             <Text style={styles.username}>@{profile.username}</Text>
 
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
+                <View style={styles.statIconWrap}>
+                  <Ionicons name="compass" size={16} color={colors.adobeBrick} />
+                </View>
                 <Text style={styles.statNumber}>{profile.country_count}</Text>
                 <Text style={styles.statLabel}>Countries</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
+                <View style={styles.statIconWrap}>
+                  <Ionicons name="people" size={16} color={colors.mossGreen} />
+                </View>
                 <Text style={styles.statNumber}>{profile.follower_count}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
+                <View style={styles.statIconWrap}>
+                  <Ionicons name="footsteps" size={16} color={colors.sunsetGold} />
+                </View>
                 <Text style={styles.statNumber}>{profile.following_count}</Text>
                 <Text style={styles.statLabel}>Following</Text>
               </View>
             </View>
 
             <View style={styles.actionRow}>
-              <FollowButton
-                userId={profile.user_id}
-                isFollowing={profile.is_following}
-              />
+              <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
             </View>
 
             {feedItems.length > 0 && (
-              <Text style={styles.activityTitle}>Recent Activity</Text>
+              <View style={styles.activityHeader}>
+                <Text style={styles.activityTitle}>Their Journey</Text>
+                <View style={styles.activityLine} />
+              </View>
             )}
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="newspaper-outline" size={48} color={colors.textTertiary} />
-            <Text style={styles.emptyText}>No activity yet</Text>
+            <View style={styles.emptyIconContainer}>
+              <Ionicons name="journal-outline" size={40} color={colors.dustyCoral} />
+            </View>
+            <Text style={styles.emptyTitle}>No stories yet</Text>
+            <Text style={styles.emptySubtitle}>
+              This traveler hasn&apos;t shared{'\n'}any adventures yet
+            </Text>
           </View>
         }
         ListFooterComponent={
           isFetchingNextPage ? (
             <View style={styles.footerLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
+              <ActivityIndicator size="small" color={colors.adobeBrick} />
+              <Text style={styles.footerText}>Loading more...</Text>
             </View>
           ) : null
         }
@@ -265,12 +272,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.lakeBlue,
     paddingBottom: 16,
     paddingHorizontal: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20,
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -286,11 +297,20 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
   errorContainer: {
     flex: 1,
@@ -298,18 +318,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 40,
   },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   errorTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     marginBottom: 8,
   },
   errorSubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     textAlign: 'center',
+    lineHeight: 22,
   },
   contentContainer: {
     paddingBottom: 100,
@@ -317,79 +346,139 @@ const styles = StyleSheet.create({
   profileCard: {
     alignItems: 'center',
     paddingVertical: 32,
-    paddingHorizontal: 16,
-    backgroundColor: colors.surface,
+    paddingHorizontal: 20,
+    backgroundColor: colors.cloudWhite,
     marginHorizontal: 16,
     marginTop: 16,
-    borderRadius: 16,
+    borderRadius: 20,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  avatarRing: {
+    padding: 4,
+    borderRadius: 56,
+    borderWidth: 2,
+    borderColor: colors.sunsetGold,
+    borderStyle: 'dashed',
   },
   displayName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 24,
+    fontSize: 26,
     color: colors.midnightNavy,
     marginTop: 16,
   },
   username: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     marginTop: 4,
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
-    paddingHorizontal: 16,
+    marginTop: 28,
+    paddingHorizontal: 8,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
+  statIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   statNumber: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 24,
+    fontSize: 26,
     color: colors.midnightNavy,
   },
   statLabel: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.stormGray,
-    marginTop: 4,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   statDivider: {
     width: 1,
-    height: 32,
-    backgroundColor: colors.border,
-    marginHorizontal: 16,
+    height: 50,
+    backgroundColor: colors.paperBeige,
+    marginHorizontal: 12,
   },
   actionRow: {
     flexDirection: 'row',
-    marginTop: 24,
+    marginTop: 28,
+    gap: 12,
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    marginTop: 28,
     gap: 12,
   },
   activityTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 18,
-    color: colors.midnightNavy,
-    marginTop: 24,
-    alignSelf: 'flex-start',
+    fontFamily: fonts.dawning.regular,
+    fontSize: 26,
+    color: colors.adobeBrick,
+  },
+  activityLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.adobeBrick,
+    opacity: 0.3,
   },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
     marginHorizontal: 16,
     marginTop: 16,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    borderStyle: 'dashed',
   },
-  emptyText: {
+  emptyIconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.textTertiary,
-    marginTop: 12,
+    fontSize: 14,
+    color: colors.stormGray,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   footerLoader: {
-    paddingVertical: 20,
+    paddingVertical: 24,
     alignItems: 'center',
+    gap: 8,
+  },
+  footerText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
 });

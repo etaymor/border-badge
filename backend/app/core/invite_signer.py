@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from app.core.config import get_settings
@@ -66,8 +66,8 @@ def verify_invite_code(code: str, expected_email: str | None = None) -> dict | N
             return None
 
         # Check expiration (30 days)
-        invite_time = datetime.fromtimestamp(int(timestamp))
-        if datetime.utcnow() - invite_time > timedelta(days=30):
+        invite_time = datetime.fromtimestamp(int(timestamp), tz=UTC)
+        if datetime.now(UTC) - invite_time > timedelta(days=30):
             return None
 
         # Optionally verify email matches

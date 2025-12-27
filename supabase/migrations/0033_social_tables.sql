@@ -110,11 +110,13 @@ CREATE TABLE pending_invite (
   invite_type invite_type NOT NULL,
   trip_id UUID REFERENCES trip(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  accepted_at TIMESTAMPTZ,
-
-  -- Unique constraint on inviter + email + type (with COALESCE for nullable trip_id)
-  UNIQUE(inviter_id, email, invite_type, COALESCE(trip_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  accepted_at TIMESTAMPTZ
 );
+
+-- Unique index on inviter + email + type + trip_id (using COALESCE for nullable trip_id)
+-- This prevents duplicate invites for the same email/type/trip combination
+CREATE UNIQUE INDEX idx_pending_invite_unique
+  ON pending_invite(inviter_id, LOWER(email), invite_type, COALESCE(trip_id, '00000000-0000-0000-0000-000000000000'::uuid));
 
 -- Index for looking up pending invites by email (for signup processing)
 CREATE INDEX idx_pending_invite_email ON pending_invite(LOWER(email)) WHERE accepted_at IS NULL;

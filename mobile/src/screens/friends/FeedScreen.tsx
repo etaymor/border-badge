@@ -1,13 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@components/friends';
@@ -20,15 +13,8 @@ type Props = FriendsStackScreenProps<'FeedHome'>;
 
 export function FeedScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const {
-    data,
-    isLoading,
-    isRefetching,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
-    refetch,
-  } = useFeed();
+  const { data, isLoading, isRefetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } =
+    useFeed();
 
   const feedItems = useMemo(() => getFeedItems(data), [data]);
 
@@ -41,14 +27,12 @@ export function FeedScreen({ navigation }: Props) {
 
   const handleCountryPress = useCallback(
     (countryCode: string, countryName: string) => {
-      // Navigate to Passport tab's CountryDetail screen
-      // Using getParent() to access the tab navigator, then navigate to Passport stack
       const tabNavigator = navigation.getParent();
       if (tabNavigator) {
         tabNavigator.navigate('Passport', {
           screen: 'CountryDetail',
           params: {
-            countryId: countryCode, // Using countryCode as ID since that's what CountryDetail expects
+            countryId: countryCode,
             countryName,
             countryCode,
           },
@@ -60,7 +44,6 @@ export function FeedScreen({ navigation }: Props) {
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
-      // Navigate to Trips tab's EntryDetail screen
       const tabNavigator = navigation.getParent();
       if (tabNavigator) {
         tabNavigator.navigate('Trips', {
@@ -92,8 +75,14 @@ export function FeedScreen({ navigation }: Props) {
 
   const ListHeader = useMemo(
     () => (
-      <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.headerTitle}>Activity Feed</Text>
+      <View style={[styles.headerContainer, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.headerDecoration}>
+          <View style={styles.decorLine} />
+          <Ionicons name="book" size={20} color={colors.midnightNavy} />
+          <View style={styles.decorLine} />
+        </View>
+        <Text style={styles.headerTitle}>Travel Log</Text>
+        <Text style={styles.headerSubtitle}>Stories from the trail</Text>
       </View>
     ),
     [insets.top]
@@ -102,11 +91,18 @@ export function FeedScreen({ navigation }: Props) {
   const ListEmpty = useMemo(
     () => (
       <View style={styles.emptyState}>
-        <Ionicons name="newspaper-outline" size={64} color={colors.textTertiary} />
-        <Text style={styles.emptyTitle}>No activity yet</Text>
+        <View style={styles.emptyIconContainer}>
+          <Ionicons name="map-outline" size={48} color={colors.dustyCoral} />
+        </View>
+        <Text style={styles.emptyTitle}>The trail is quiet</Text>
         <Text style={styles.emptySubtitle}>
-          Follow some friends to see their travel activity here
+          Follow fellow travelers to see their{'\n'}adventures unfold here
         </Text>
+        <View style={styles.emptyDecor}>
+          <View style={styles.decorDot} />
+          <View style={styles.decorDot} />
+          <View style={styles.decorDot} />
+        </View>
       </View>
     ),
     []
@@ -116,7 +112,8 @@ export function FeedScreen({ navigation }: Props) {
     () =>
       isFetchingNextPage ? (
         <View style={styles.footerLoader}>
-          <ActivityIndicator size="small" color={colors.primary} />
+          <ActivityIndicator size="small" color={colors.adobeBrick} />
+          <Text style={styles.footerText}>Loading more stories...</Text>
         </View>
       ) : null,
     [isFetchingNextPage]
@@ -125,11 +122,18 @@ export function FeedScreen({ navigation }: Props) {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Activity Feed</Text>
+        <View style={[styles.headerContainer, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.headerDecoration}>
+            <View style={styles.decorLine} />
+            <Ionicons name="book" size={20} color={colors.midnightNavy} />
+            <View style={styles.decorLine} />
+          </View>
+          <Text style={styles.headerTitle}>Travel Log</Text>
+          <Text style={styles.headerSubtitle}>Stories from the trail</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.adobeBrick} />
+          <Text style={styles.loadingText}>Gathering stories...</Text>
         </View>
       </View>
     );
@@ -152,7 +156,8 @@ export function FeedScreen({ navigation }: Props) {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor={colors.primary}
+            tintColor={colors.adobeBrick}
+            colors={[colors.adobeBrick]}
           />
         }
       />
@@ -167,21 +172,49 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     backgroundColor: colors.lakeBlue,
-    paddingBottom: 24,
+    paddingBottom: 28,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  headerDecoration: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  decorLine: {
+    width: 40,
+    height: 1,
+    backgroundColor: colors.midnightNavy,
+    opacity: 0.3,
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 28,
+    fontSize: 32,
     color: colors.midnightNavy,
     fontStyle: 'italic',
     letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    opacity: 0.7,
+    marginTop: 4,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
   listContent: {
     paddingBottom: 100,
@@ -189,26 +222,59 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
-    paddingVertical: 60,
+    paddingVertical: 48,
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
+    marginHorizontal: 16,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    borderStyle: 'dashed',
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
+  },
+  emptyDecor: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 24,
+  },
+  decorDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.dustyCoral,
   },
   footerLoader: {
-    paddingVertical: 20,
+    paddingVertical: 24,
     alignItems: 'center',
+    gap: 8,
+  },
+  footerText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
 });

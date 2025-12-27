@@ -8,21 +8,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FriendsRankingStats, UserAvatar, UserSearchBar } from '@components/friends';
+import { FriendsStatsGrid, UserAvatar, UserSearchBar } from '@components/friends';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useFollowing, useFollowStats } from '@hooks/useFollows';
+import { useFriendsRanking } from '@hooks/useFriendsRanking';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
 export function FriendsScreen({ navigation }: Props) {
-  const insets = useSafeAreaInsets();
-
   const { data: stats, isLoading: statsLoading } = useFollowStats();
   const { data: following, isLoading: followingLoading } = useFollowing();
+  const { data: ranking, isLoading: rankingLoading } = useFriendsRanking();
 
   const isLoading = statsLoading || followingLoading;
 
@@ -46,19 +46,16 @@ export function FriendsScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.userRow}
         onPress={() => handleUserSelect(item.user_id, item.username)}
+        activeOpacity={0.7}
       >
-        <UserAvatar
-          avatarUrl={item.avatar_url}
-          username={item.username}
-          size={48}
-        />
+        <UserAvatar avatarUrl={item.avatar_url} username={item.username} size={52} />
         <View style={styles.userInfo}>
           <Text style={styles.displayName}>{item.display_name}</Text>
           <Text style={styles.username}>@{item.username}</Text>
         </View>
         <View style={styles.countryBadge}>
+          <Ionicons name="compass" size={14} color={colors.adobeBrick} />
           <Text style={styles.countryCount}>{item.country_count}</Text>
-          <Ionicons name="globe-outline" size={14} color={colors.textSecondary} />
         </View>
       </TouchableOpacity>
     ),
@@ -68,45 +65,53 @@ export function FriendsScreen({ navigation }: Props) {
   const ListHeader = useMemo(
     () => (
       <>
-        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Friends</Text>
+        {/* Header Title */}
+        <View style={styles.headerContainer}>
+          <Text style={styles.headerTitle}>My Friends</Text>
         </View>
 
-        <FriendsRankingStats />
+        {/* Stats Grid */}
+        <FriendsStatsGrid
+          followerCount={stats?.follower_count ?? 0}
+          followingCount={stats?.following_count ?? 0}
+          rank={ranking?.rank ?? null}
+          isLoading={statsLoading || rankingLoading}
+          onFollowersPress={handleViewFollowers}
+          onFollowingPress={handleViewFollowing}
+        />
 
-        <View style={styles.searchContainer}>
-          <UserSearchBar
-            onUserSelect={handleUserSelect}
-            placeholder="Find friends by username..."
-          />
+        {/* User search for finding new travelers */}
+        <View style={styles.userSearchContainer}>
+          <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
         </View>
-
-        <View style={styles.statsRow}>
-          <TouchableOpacity style={styles.statItem} onPress={handleViewFollowers}>
-            <Text style={styles.statNumber}>{stats?.follower_count ?? 0}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </TouchableOpacity>
-          <View style={styles.statDivider} />
-          <TouchableOpacity style={styles.statItem} onPress={handleViewFollowing}>
-            <Text style={styles.statNumber}>{stats?.following_count ?? 0}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.sectionTitle}>Following</Text>
       </>
     ),
-    [insets.top, stats, handleUserSelect, handleViewFollowers, handleViewFollowing]
+    [
+      stats,
+      ranking,
+      statsLoading,
+      rankingLoading,
+      handleUserSelect,
+      handleViewFollowers,
+      handleViewFollowing,
+    ]
   );
 
   const ListEmpty = useMemo(
     () => (
       <View style={styles.emptyState}>
-        <Ionicons name="people-outline" size={64} color={colors.textTertiary} />
+        <View style={styles.emptyIconContainer}>
+          <Ionicons name="trail-sign-outline" size={48} color={colors.dustyCoral} />
+        </View>
         <Text style={styles.emptyTitle}>Not following anyone yet</Text>
         <Text style={styles.emptySubtitle}>
-          Search for friends by username to start following them
+          Every great journey is better with friends.{'\n'}Find fellow travelers to follow their
+          adventures.
         </Text>
+        <View style={styles.emptyHint}>
+          <Ionicons name="search" size={14} color={colors.stormGray} />
+          <Text style={styles.emptyHintText}>Use the search above to find travelers</Text>
+        </View>
       </View>
     ),
     []
@@ -114,19 +119,19 @@ export function FriendsScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
-        <View style={[styles.headerContainer, { paddingTop: insets.top + 16 }]}>
-          <Text style={styles.headerTitle}>Friends</Text>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.headerTitle}>My Friends</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.adobeBrick} />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <FlatList
         data={following ?? []}
         renderItem={renderUserItem}
@@ -136,7 +141,7 @@ export function FriendsScreen({ navigation }: Props) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -146,8 +151,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   headerContainer: {
-    backgroundColor: colors.lakeBlue,
-    paddingBottom: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
     alignItems: 'center',
   },
   headerTitle: {
@@ -162,48 +167,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchContainer: {
+  userSearchContainer: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 16,
-    marginHorizontal: 16,
-    backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 24,
-    color: colors.midnightNavy,
-  },
-  statLabel: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    marginTop: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: colors.border,
-  },
-  sectionTitle: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.textPrimary,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 4,
   },
   listContent: {
     paddingBottom: 100,
@@ -213,58 +180,95 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: colors.backgroundCard,
+    backgroundColor: colors.cloudWhite,
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
   userInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   displayName: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.textPrimary,
+    color: colors.midnightNavy,
   },
   username: {
     fontFamily: fonts.openSans.regular,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.stormGray,
     marginTop: 2,
   },
   countryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.background,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
+    gap: 6,
+    backgroundColor: colors.paperBeige,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   countryCount: {
-    fontFamily: fonts.openSans.semiBold,
+    fontFamily: fonts.openSans.bold,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.adobeBrick,
   },
   emptyState: {
     flex: 1,
-    paddingVertical: 60,
+    paddingVertical: 48,
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    borderStyle: 'dashed',
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
+  },
+  emptyHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.paperBeige,
+    borderRadius: 20,
+  },
+  emptyHintText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
   },
 });

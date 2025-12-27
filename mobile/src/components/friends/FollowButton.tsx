@@ -1,8 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback } from 'react';
-import { StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { useFollowUser, useUnfollowUser } from '@hooks/useFollows';
 
 interface FollowButtonProps {
@@ -35,52 +36,99 @@ export function FollowButton({
     }
   }, [isFollowing, followMutation, unfollowMutation, onFollowChange]);
 
-  const buttonStyle = isFollowing ? styles.followingButton : styles.followButton;
-  const textStyle = isFollowing ? styles.followingText : styles.followText;
+  const isSmall = size === 'small';
+
+  if (isFollowing) {
+    return (
+      <TouchableOpacity
+        style={[styles.followingButton, isSmall && styles.smallButton]}
+        onPress={handlePress}
+        disabled={isLoading}
+        activeOpacity={0.7}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color={colors.mossGreen} />
+        ) : (
+          <View style={styles.followingContent}>
+            <Ionicons name="checkmark-circle" size={isSmall ? 14 : 16} color={colors.mossGreen} />
+            <Text style={[styles.followingText, isSmall && styles.smallText]}>Following</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  }
 
   return (
-    <Button
-      title={isFollowing ? 'Following' : 'Follow'}
+    <TouchableOpacity
+      style={[styles.followButton, isSmall && styles.smallButton]}
       onPress={handlePress}
       disabled={isLoading}
-      loading={isLoading}
-      style={[styles.button, buttonStyle, size === 'small' && styles.smallButton]}
-      textStyle={[styles.text, textStyle, size === 'small' && styles.smallText]}
-    />
+      activeOpacity={0.8}
+    >
+      {isLoading ? (
+        <ActivityIndicator size="small" color={colors.cloudWhite} />
+      ) : (
+        <View style={styles.followContent}>
+          <Ionicons name="add" size={isSmall ? 14 : 16} color={colors.cloudWhite} />
+          <Text style={[styles.followText, isSmall && styles.smallText]}>Follow</Text>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
+  followButton: {
+    backgroundColor: colors.adobeBrick,
     borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.adobeBrick,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   smallButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    minWidth: 80,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 85,
   },
-  followButton: {
-    backgroundColor: colors.primary,
+  followContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  followText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.cloudWhite,
   },
   followingButton: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.mossGreen,
   },
-  text: {
+  followingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  followingText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    fontWeight: '600',
+    color: colors.mossGreen,
   },
   smallText: {
     fontSize: 12,
-  },
-  followText: {
-    color: colors.textInverse,
-  },
-  followingText: {
-    color: colors.textSecondary,
   },
 });

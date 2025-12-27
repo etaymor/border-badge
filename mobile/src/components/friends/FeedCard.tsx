@@ -15,12 +15,7 @@ interface FeedCardProps {
   onEntryPress?: (entryId: string) => void;
 }
 
-export function FeedCard({
-  item,
-  onUserPress,
-  onCountryPress,
-  onEntryPress,
-}: FeedCardProps) {
+export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: FeedCardProps) {
   const handleUserPress = useCallback(() => {
     onUserPress?.(item.user.user_id, item.user.username);
   }, [item.user, onUserPress]);
@@ -48,7 +43,7 @@ export function FeedCard({
     return date.toLocaleDateString();
   };
 
-  const getActivityIcon = (): string => {
+  const getActivityIcon = (): keyof typeof Ionicons.glyphMap => {
     if (item.activity_type === 'country_visited') {
       return 'flag';
     }
@@ -66,53 +61,80 @@ export function FeedCard({
     }
   };
 
+  const getActivityColor = (): string => {
+    if (item.activity_type === 'country_visited') {
+      return colors.adobeBrick;
+    }
+    switch (item.entry?.entry_type) {
+      case 'food':
+        return colors.sunsetGold;
+      case 'place':
+        return colors.primary;
+      case 'stay':
+        return '#5856D6';
+      case 'experience':
+        return colors.mossGreen;
+      default:
+        return colors.stormGray;
+    }
+  };
+
   const getActivityText = (): string => {
     if (item.activity_type === 'country_visited' && item.country) {
-      return `visited ${item.country.country_name}`;
+      return `planted a flag in ${item.country.country_name}`;
     }
     if (item.entry) {
-      return `added ${item.entry.entry_name}`;
+      const typeLabel =
+        {
+          food: 'discovered',
+          place: 'explored',
+          stay: 'stayed at',
+          experience: 'experienced',
+        }[item.entry.entry_type] || 'added';
+      return `${typeLabel} ${item.entry.entry_name}`;
     }
     return 'did something';
   };
 
+  const activityColor = getActivityColor();
+
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.header} onPress={handleUserPress}>
-        <UserAvatar
-          avatarUrl={item.user.avatar_url}
-          username={item.user.username}
-          size={40}
-        />
+      <TouchableOpacity style={styles.header} onPress={handleUserPress} activeOpacity={0.7}>
+        <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={44} />
         <View style={styles.headerText}>
           <Text style={styles.username}>@{item.user.username}</Text>
-          <Text style={styles.timestamp}>{formatTimeAgo(item.created_at)}</Text>
+          <View style={styles.timestampRow}>
+            <Ionicons name="time-outline" size={12} color={colors.stormGray} />
+            <Text style={styles.timestamp}>{formatTimeAgo(item.created_at)}</Text>
+          </View>
         </View>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.content} onPress={handleContentPress}>
+      <TouchableOpacity style={styles.content} onPress={handleContentPress} activeOpacity={0.7}>
         <View style={styles.activityRow}>
-          <View style={styles.iconContainer}>
-            <Ionicons
-              name={getActivityIcon() as keyof typeof Ionicons.glyphMap}
-              size={20}
-              color={colors.primary}
-            />
+          <View style={[styles.iconContainer, { backgroundColor: `${activityColor}15` }]}>
+            <Ionicons name={getActivityIcon()} size={18} color={activityColor} />
           </View>
           <Text style={styles.activityText}>{getActivityText()}</Text>
         </View>
 
         {item.entry?.image_url && (
-          <Image
-            source={{ uri: item.entry.image_url }}
-            style={styles.entryImage}
-            resizeMode="cover"
-          />
+          <View style={styles.imageContainer}>
+            <Image
+              source={{ uri: item.entry.image_url }}
+              style={styles.entryImage}
+              resizeMode="cover"
+            />
+            <View style={styles.imageOverlay} />
+          </View>
         )}
 
         {item.entry?.location_name && (
           <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={14} color={colors.textTertiary} />
+            <View style={styles.locationIconWrap}>
+              <Ionicons name="navigate" size={12} color={colors.dustyCoral} />
+            </View>
             <Text style={styles.locationText}>{item.entry.location_name}</Text>
           </View>
         )}
@@ -123,18 +145,25 @@ export function FeedCard({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 16,
     marginHorizontal: 16,
     marginBottom: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.paperBeige,
   },
   headerText: {
     marginLeft: 12,
@@ -142,52 +171,75 @@ const styles = StyleSheet.create({
   },
   username: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.text,
+    fontSize: 15,
+    color: colors.midnightNavy,
+  },
+  timestampRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
   },
   timestamp: {
     fontFamily: fonts.openSans.regular,
     fontSize: 12,
-    color: colors.textTertiary,
-    marginTop: 2,
+    color: colors.stormGray,
   },
   content: {
-    padding: 12,
+    padding: 14,
   },
   activityRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.lakeBlue,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   activityText: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.text,
+    fontSize: 15,
+    color: colors.midnightNavy,
     flex: 1,
+    lineHeight: 22,
+  },
+  imageContainer: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   entryImage: {
     width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginTop: 12,
+    height: 180,
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
+    marginTop: 12,
+    gap: 6,
+  },
+  locationIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   locationText: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 12,
-    color: colors.textTertiary,
+    fontSize: 13,
+    color: colors.stormGray,
+    flex: 1,
   },
 });

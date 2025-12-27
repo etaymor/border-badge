@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { UserAvatar } from '@components/friends';
+import { UserAvatar, UserSearchBar } from '@components/friends';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useFollowing, type UserSummary } from '@hooks/useFollows';
@@ -31,7 +31,6 @@ export function FollowingListScreen({ navigation }: Props) {
 
   const isLoading = isLoadingFollowing || isLoadingInvites;
 
-  // Filter to only follow-type invites
   const followInvites = useMemo(
     () => pendingInvites?.filter((inv) => inv.invite_type === 'follow') ?? [],
     [pendingInvites]
@@ -72,18 +71,14 @@ export function FollowingListScreen({ navigation }: Props) {
 
   const handleCancelInvite = useCallback(
     (invite: PendingInvite) => {
-      Alert.alert(
-        'Cancel Invite',
-        `Cancel the pending invite to ${invite.email}?`,
-        [
-          { text: 'Keep', style: 'cancel' },
-          {
-            text: 'Cancel Invite',
-            style: 'destructive',
-            onPress: () => cancelInviteMutation.mutate(invite.id),
-          },
-        ]
-      );
+      Alert.alert('Cancel Invite', `Cancel the pending invite to ${invite.email}?`, [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Cancel Invite',
+          style: 'destructive',
+          onPress: () => cancelInviteMutation.mutate(invite.id),
+        },
+      ]);
     },
     [cancelInviteMutation]
   );
@@ -92,18 +87,20 @@ export function FollowingListScreen({ navigation }: Props) {
     (invite: PendingInvite) => (
       <View style={styles.pendingRow} key={invite.id}>
         <View style={styles.pendingIcon}>
-          <Ionicons name="mail-outline" size={24} color={colors.primary} />
+          <Ionicons name="mail-outline" size={22} color={colors.sunsetGold} />
         </View>
         <View style={styles.userInfo}>
           <Text style={styles.pendingEmail}>{invite.email}</Text>
-          <Text style={styles.pendingStatus}>Invite sent</Text>
+          <View style={styles.pendingBadge}>
+            <Text style={styles.pendingStatus}>Invite sent</Text>
+          </View>
         </View>
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => handleCancelInvite(invite)}
           disabled={cancelInviteMutation.isPending}
         >
-          <Ionicons name="close-circle-outline" size={24} color={colors.error} />
+          <Ionicons name="close-circle" size={24} color={colors.dustyCoral} />
         </TouchableOpacity>
       </View>
     ),
@@ -115,20 +112,17 @@ export function FollowingListScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.userRow}
         onPress={() => handleUserPress(item.user_id, item.username)}
+        activeOpacity={0.7}
         key={item.id}
       >
-        <UserAvatar
-          avatarUrl={item.avatar_url}
-          username={item.username}
-          size={48}
-        />
+        <UserAvatar avatarUrl={item.avatar_url} username={item.username} size={52} />
         <View style={styles.userInfo}>
           <Text style={styles.displayName}>{item.display_name}</Text>
           <Text style={styles.username}>@{item.username}</Text>
         </View>
         <View style={styles.countryBadge}>
+          <Ionicons name="compass" size={14} color={colors.adobeBrick} />
           <Text style={styles.countryCount}>{item.country_count}</Text>
-          <Ionicons name="globe-outline" size={14} color={colors.textSecondary} />
         </View>
       </TouchableOpacity>
     ),
@@ -147,17 +141,31 @@ export function FollowingListScreen({ navigation }: Props) {
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: Section }) => (
-      <Text style={styles.sectionHeader}>{section.title}</Text>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+        <View style={styles.sectionLine} />
+      </View>
     ),
     []
   );
 
+  const ListHeader = useMemo(
+    () => (
+      <View style={styles.searchRow}>
+        <UserSearchBar onUserSelect={handleUserPress} placeholder="Find fellow travelers..." />
+      </View>
+    ),
+    [handleUserPress]
+  );
+
   const ListEmpty = (
     <View style={styles.emptyState}>
-      <Ionicons name="people-outline" size={64} color={colors.textTertiary} />
-      <Text style={styles.emptyTitle}>Not following anyone yet</Text>
+      <View style={styles.emptyIconContainer}>
+        <Ionicons name="trail-sign-outline" size={48} color={colors.dustyCoral} />
+      </View>
+      <Text style={styles.emptyTitle}>Not following anyone</Text>
       <Text style={styles.emptySubtitle}>
-        Search for friends by username to start following them
+        Find fellow travelers to follow{'\n'}and share the journey together
       </Text>
     </View>
   );
@@ -174,20 +182,24 @@ export function FollowingListScreen({ navigation }: Props) {
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.adobeBrick} />
         </View>
       ) : sections.length > 0 ? (
         <SectionList
           sections={sections}
           renderItem={renderItem}
           renderSectionHeader={renderSectionHeader}
+          ListHeaderComponent={ListHeader}
           keyExtractor={(item) => ('id' in item ? item.id : item.email)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
         />
       ) : (
-        ListEmpty
+        <>
+          {ListHeader}
+          {ListEmpty}
+        </>
       )}
     </View>
   );
@@ -202,8 +214,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.lakeBlue,
-    paddingBottom: 16,
+    backgroundColor: colors.warmCream,
+    paddingBottom: 12,
     paddingHorizontal: 16,
   },
   backButton: {
@@ -226,94 +238,139 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  searchRow: {
+    paddingTop: 8,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+  },
   listContent: {
     paddingBottom: 100,
     flexGrow: 1,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+    gap: 12,
+  },
+  sectionTitle: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 24,
+    color: colors.adobeBrick,
+  },
+  sectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.adobeBrick,
+    opacity: 0.3,
   },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.cloudWhite,
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
   userInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   displayName: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    color: colors.text,
+    color: colors.midnightNavy,
   },
   username: {
     fontFamily: fonts.openSans.regular,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.stormGray,
     marginTop: 2,
   },
   emptyState: {
     flex: 1,
-    paddingVertical: 60,
+    paddingVertical: 48,
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: colors.cloudWhite,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    borderStyle: 'dashed',
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 24,
-  },
-  sectionHeader: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginHorizontal: 16,
-    marginTop: 20,
-    marginBottom: 4,
+    lineHeight: 22,
   },
   pendingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.cloudWhite,
     marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginTop: 12,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: colors.sunsetGold,
     borderStyle: 'dashed',
   },
   pendingIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.lakeBlue,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.paperBeige,
     justifyContent: 'center',
     alignItems: 'center',
   },
   pendingEmail: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.text,
+    fontSize: 15,
+    color: colors.midnightNavy,
+  },
+  pendingBadge: {
+    backgroundColor: colors.sunsetGold,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginTop: 4,
+    alignSelf: 'flex-start',
   },
   pendingStatus: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    marginTop: 2,
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    color: colors.midnightNavy,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   cancelButton: {
     padding: 8,
@@ -321,15 +378,15 @@ const styles = StyleSheet.create({
   countryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.background,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
+    gap: 6,
+    backgroundColor: colors.paperBeige,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   countryCount: {
-    fontFamily: fonts.openSans.semiBold,
+    fontFamily: fonts.openSans.bold,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.adobeBrick,
   },
 });

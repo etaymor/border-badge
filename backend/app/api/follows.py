@@ -164,7 +164,7 @@ async def follow_user(
                 },
             )
         except Exception as e:
-            logger.warning(f"Failed to send follow notification: {e}")
+            logger.warning(f"Failed to send follow notification: {e}", exc_info=True)
 
     asyncio.create_task(notify_new_follower())
 
