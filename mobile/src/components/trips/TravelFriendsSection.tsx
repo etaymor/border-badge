@@ -28,6 +28,7 @@ interface TravelFriendsSectionProps {
   invitedEmails: Set<string>;
   onToggleSelection: (userId: string) => void;
   onToggleEmailInvite: (email: string) => void;
+  onSearchFocus?: () => void;
   disabled?: boolean;
 }
 
@@ -54,6 +55,7 @@ export function TravelFriendsSection({
   invitedEmails,
   onToggleSelection,
   onToggleEmailInvite,
+  onSearchFocus,
   disabled = false,
 }: TravelFriendsSectionProps) {
   const [search, setSearch] = useState('');
@@ -239,6 +241,7 @@ export function TravelFriendsSection({
             value={search}
             onChangeText={setSearch}
             placeholder="Search users or enter email..."
+            onFocus={onSearchFocus}
             style={styles.searchInput}
           />
 

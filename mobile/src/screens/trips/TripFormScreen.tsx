@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,6 +33,7 @@ export function TripFormScreen({ navigation, route }: Props) {
   const initialCountryName = route.params?.countryName;
   const isEditing = !!tripId;
   const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -124,6 +127,13 @@ export function TripFormScreen({ navigation, route }: Props) {
     });
   }, []);
 
+  const handleFriendsSearchFocus = useCallback(() => {
+    // Scroll to bottom so the Tag Friends section is visible above keyboard
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, []);
+
   const validate = (): boolean => {
     let isValid = true;
 
@@ -212,141 +222,154 @@ export function TripFormScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoid}
+        keyboardVerticalOffset={0}
       >
-        <View style={styles.content}>
-          <Text style={styles.headerSubtitle}>
-            {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
-          </Text>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <Text style={styles.headerSubtitle}>
+              {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
+            </Text>
 
-          {/* Country Picker - only show for new trips */}
-          {!isEditing && (
-            <View style={styles.section}>
-              <Text style={styles.label}>DESTINATION</Text>
+            {/* Country Picker - only show for new trips */}
+            {!isEditing && (
+              <View style={styles.section}>
+                <Text style={styles.label}>DESTINATION</Text>
 
-              {/* Show selected country or search input */}
-              {selectedCountry ? (
-                <TouchableOpacity
-                  style={styles.selectedCountry}
-                  onPress={() => {
-                    setSelectedCountryCode(null);
-                    setCountrySearch('');
-                  }}
-                >
-                  <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
-                  <Text style={styles.selectedName}>{selectedCountry.name}</Text>
-                  <Text style={styles.changeText}>Change</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.searchContainer}>
-                  <View style={styles.searchGlassWrapper}>
-                    <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
-                      <SearchInput
-                        value={countrySearch}
-                        onChangeText={(text) => {
-                          setCountrySearch(text);
-                          setShowDropdown(text.length > 0);
-                        }}
-                        placeholder="Search countries..."
-                        onFocus={() => setShowDropdown(countrySearch.length > 0)}
-                        testID="country-search"
-                        style={styles.searchInput}
-                      />
-                    </BlurView>
-                  </View>
-
-                  {/* Autocomplete dropdown */}
-                  {showDropdown && filteredCountries.length > 0 && (
-                    <View style={styles.dropdown}>
-                      <FlatList
-                        data={filteredCountries}
-                        keyExtractor={(item) => item.code}
-                        renderItem={({ item }) => (
-                          <TouchableOpacity
-                            style={styles.dropdownItem}
-                            onPress={() => handleSelectCountry(item)}
-                            testID={`country-option-${item.code}`}
-                          >
-                            <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
-                            <Text style={styles.countryName}>{item.name}</Text>
-                          </TouchableOpacity>
-                        )}
-                        keyboardShouldPersistTaps="handled"
-                        style={styles.dropdownList}
-                      />
+                {/* Show selected country or search input */}
+                {selectedCountry ? (
+                  <TouchableOpacity
+                    style={styles.selectedCountry}
+                    onPress={() => {
+                      setSelectedCountryCode(null);
+                      setCountrySearch('');
+                    }}
+                  >
+                    <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
+                    <Text style={styles.selectedName}>{selectedCountry.name}</Text>
+                    <Text style={styles.changeText}>Change</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.searchContainer}>
+                    <View style={styles.searchGlassWrapper}>
+                      <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
+                        <SearchInput
+                          value={countrySearch}
+                          onChangeText={(text) => {
+                            setCountrySearch(text);
+                            setShowDropdown(text.length > 0);
+                          }}
+                          placeholder="Search countries..."
+                          onFocus={() => setShowDropdown(countrySearch.length > 0)}
+                          testID="country-search"
+                          style={styles.searchInput}
+                        />
+                      </BlurView>
                     </View>
-                  )}
 
-                  {loadingCountries && <Text style={styles.loadingHint}>Loading countries...</Text>}
-                </View>
-              )}
-              {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
+                    {/* Autocomplete dropdown */}
+                    {showDropdown && filteredCountries.length > 0 && (
+                      <View style={styles.dropdown}>
+                        <FlatList
+                          data={filteredCountries}
+                          keyExtractor={(item) => item.code}
+                          renderItem={({ item }) => (
+                            <TouchableOpacity
+                              style={styles.dropdownItem}
+                              onPress={() => handleSelectCountry(item)}
+                              testID={`country-option-${item.code}`}
+                            >
+                              <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
+                              <Text style={styles.countryName}>{item.name}</Text>
+                            </TouchableOpacity>
+                          )}
+                          keyboardShouldPersistTaps="handled"
+                          style={styles.dropdownList}
+                        />
+                      </View>
+                    )}
+
+                    {loadingCountries && (
+                      <Text style={styles.loadingHint}>Loading countries...</Text>
+                    )}
+                  </View>
+                )}
+                {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
+              </View>
+            )}
+
+            {/* Show country context when editing or pre-selected */}
+            {isEditing && initialCountryName && (
+              <View style={styles.contextBanner}>
+                <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
+                <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
+              </View>
+            )}
+
+            {/* Trip Name */}
+            <View style={styles.section}>
+              <GlassInput
+                label="TRIP NAME"
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g., Spring in Kyoto"
+                error={nameError}
+                autoCapitalize="words"
+                testID="trip-name-input"
+              />
             </View>
-          )}
 
-          {/* Show country context when editing or pre-selected */}
-          {isEditing && initialCountryName && (
-            <View style={styles.contextBanner}>
-              <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
-              <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
+            {/* Cover Image */}
+            <View style={styles.section}>
+              <Text style={styles.label}>COVER PHOTO</Text>
+              <CoverImagePicker
+                value={coverImageUrl || undefined}
+                onChange={(url) => setCoverImageUrl(url || '')}
+                disabled={isLoading}
+              />
             </View>
-          )}
 
-          {/* Trip Name */}
-          <View style={styles.section}>
-            <GlassInput
-              label="TRIP NAME"
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g., Spring in Kyoto"
-              error={nameError}
-              autoCapitalize="words"
-              testID="trip-name-input"
-            />
+            {/* Tag Friends - only for new trips */}
+            {!isEditing && (
+              <TravelFriendsSection
+                selectedIds={selectedFriendIds}
+                invitedEmails={invitedEmails}
+                onToggleSelection={handleToggleFriend}
+                onToggleEmailInvite={handleToggleEmailInvite}
+                onSearchFocus={handleFriendsSearchFocus}
+                disabled={isLoading}
+              />
+            )}
           </View>
 
-          {/* Cover Image */}
-          <View style={styles.section}>
-            <Text style={styles.label}>COVER PHOTO</Text>
-            <CoverImagePicker
-              value={coverImageUrl || undefined}
-              onChange={(url) => setCoverImageUrl(url || '')}
+          {/* Save Button - inside ScrollView for proper keyboard handling */}
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+            <Button
+              title={isEditing ? 'Save Changes' : 'Create Trip'}
+              onPress={handleSave}
+              loading={isLoading}
               disabled={isLoading}
+              testID="trip-save-button"
             />
           </View>
-
-          {/* Tag Friends - only for new trips */}
-          {!isEditing && (
-            <TravelFriendsSection
-              selectedIds={selectedFriendIds}
-              invitedEmails={invitedEmails}
-              onToggleSelection={handleToggleFriend}
-              onToggleEmailInvite={handleToggleEmailInvite}
-              disabled={isLoading}
-            />
-          )}
-        </View>
-
-        {/* Save Button - inside ScrollView for proper keyboard handling */}
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-          <Button
-            title={isEditing ? 'Save Changes' : 'Create Trip'}
-            onPress={handleSave}
-            loading={isLoading}
-            disabled={isLoading}
-            testID="trip-save-button"
-          />
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoid: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
