@@ -26,36 +26,52 @@ export function useUserCountries() {
   const { selectedCountries, bucketListCountries } = useOnboardingStore();
   const queryKey = getUserCountriesKey(session?.user?.id ?? null);
 
-  return useQuery({
+  // Build fallback data from onboarding store for use during migration
+  // This provides instant feedback before the query runs
+  const onboardingFallbackData: UserCountry[] | undefined =
+    isMigrating && (selectedCountries.length > 0 || bucketListCountries.length > 0)
+      ? [
+          ...selectedCountries.map((countryCode, index) => ({
+            id: `temp-visited-${index}`,
+            user_id: session?.user?.id ?? 'temp',
+            country_code: countryCode,
+            status: 'visited' as const,
+            created_at: new Date().toISOString(),
+            added_during_onboarding: true,
+          })),
+          ...bucketListCountries.map((countryCode, index) => ({
+            id: `temp-wishlist-${index}`,
+            user_id: session?.user?.id ?? 'temp',
+            country_code: countryCode,
+            status: 'wishlist' as const,
+            created_at: new Date().toISOString(),
+            added_during_onboarding: true,
+          })),
+        ]
+      : undefined;
+
+  const query = useQuery({
     queryKey,
     queryFn: async (): Promise<UserCountry[]> => {
-      // During migration, return onboarding store data
-      // This provides instant feedback while backend sync happens in background
-      if (isMigrating) {
-        const visited = selectedCountries.map((countryCode, index) => ({
-          id: `temp-visited-${index}`,
-          user_id: session?.user?.id ?? 'temp',
-          country_code: countryCode,
-          status: 'visited' as const,
-          created_at: new Date().toISOString(),
-          added_during_onboarding: true,
-        }));
-        const wishlist = bucketListCountries.map((countryCode, index) => ({
-          id: `temp-wishlist-${index}`,
-          user_id: session?.user?.id ?? 'temp',
-          country_code: countryCode,
-          status: 'wishlist' as const,
-          created_at: new Date().toISOString(),
-          added_during_onboarding: true,
-        }));
-        return [...visited, ...wishlist];
-      }
-
       const response = await api.get('/countries/user');
       return response.data;
     },
     enabled: !!session,
+    // Use onboarding data as placeholder during migration
+    placeholderData: onboardingFallbackData,
   });
+
+  // During migration, if query hasn't loaded yet but we have onboarding data,
+  // return that data immediately to prevent empty state flash
+  if (isMigrating && !query.data && onboardingFallbackData) {
+    return {
+      ...query,
+      data: onboardingFallbackData,
+      isLoading: false,
+    };
+  }
+
+  return query;
 }
 
 interface AddUserCountryInput {
