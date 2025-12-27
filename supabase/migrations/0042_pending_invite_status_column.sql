@@ -1,19 +1,25 @@
 -- Migration: Add status column to pending_invite
 -- This column was expected by the API but missing from the original schema
 
--- Create enum for invite status
-CREATE TYPE invite_status AS ENUM ('pending', 'accepted', 'expired', 'cancelled');
+-- Create enum for invite status (if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'invite_status') THEN
+    CREATE TYPE invite_status AS ENUM ('pending', 'accepted', 'expired', 'cancelled');
+  END IF;
+END
+$$;
 
--- Add status column with default 'pending'
+-- Add status column with default 'pending' (if not exists)
 ALTER TABLE pending_invite
-ADD COLUMN status invite_status NOT NULL DEFAULT 'pending';
+ADD COLUMN IF NOT EXISTS status invite_status NOT NULL DEFAULT 'pending';
 
 -- Update existing rows: if accepted_at is set, mark as accepted
 UPDATE pending_invite
 SET status = 'accepted'
-WHERE accepted_at IS NOT NULL;
+WHERE accepted_at IS NOT NULL AND status = 'pending';
 
--- Index for querying pending invites by status
-CREATE INDEX idx_pending_invite_status
+-- Index for querying pending invites by status (if not exists)
+CREATE INDEX IF NOT EXISTS idx_pending_invite_status
   ON pending_invite(status)
   WHERE status = 'pending';

@@ -345,6 +345,81 @@ All launch simplification changes are marked with:
 - `// LAUNCH_SIMPLIFICATION:` - Indicates temporarily disabled code
 - `// TODO:` - Describes what to do when re-enabling
 
+## Test User Seeding
+
+A Python script creates test users with realistic content for demoing friend functionality, feeds, trips, and social features.
+
+### Quick Commands
+
+```bash
+cd backend
+
+# Create 8 test users with trips, entries, follows, and trip tags
+poetry run python scripts/seed_test_users.py
+
+# Connect test users to your real account (follow relationships + pending trip tags)
+poetry run python scripts/seed_test_users.py --real-user-id "YOUR-UUID-HERE"
+
+# Cleanup only (remove all test users and their data)
+poetry run python scripts/seed_test_users.py --cleanup-only
+
+# Verbose output
+poetry run python scripts/seed_test_users.py -v
+```
+
+### Test Users Created
+
+| Username | Email | Home | Travel Style |
+|----------|-------|------|--------------|
+| alex_chen | alex_chen+test@example.com | US | Backpacker |
+| sofia_travels | sofia_travels+test@example.com | ES | Luxury |
+| yuki_adventures | yuki_adventures+test@example.com | JP | Photographer |
+| marcus_j | marcus_j+test@example.com | GB | Food Explorer |
+| priya_world | priya_world+test@example.com | IN | Cultural |
+| lars_nordic | lars_nordic+test@example.com | SE | Outdoor |
+| bella_costa | bella_costa+test@example.com | BR | Beach & Party |
+| david_explores | david_explores+test@example.com | KR | Digital Nomad |
+
+**Password for all test users:** `TestUser123!`
+
+### What Gets Created
+
+- **8 users** with unique travel personas and home countries
+- **2-3 trips per user** with realistic destinations and dates
+- **3-5 entries per trip** (places, food, stays, experiences)
+- **Follow network** between test users (first 4 follow each other, others follow some)
+- **Trip tags** between users (some approved)
+- **Country visits** in `user_countries` table
+
+### Real User Integration (`--real-user-id`)
+
+When you provide your real user ID:
+- 4 test users follow you (populates your followers)
+- You follow 4 test users (populates your feed)
+- 2 test users tag you on trips with pending status (for testing tag acceptance)
+
+### How Test Users Are Identified
+
+Test users are auto-detected by the `+test@` pattern in their email. The `handle_new_user` trigger sets `is_test=true` on their `user_profile`.
+
+### Script Structure
+
+```
+backend/scripts/
+├── seed_test_users.py      # Main runner script
+└── seed/
+    ├── __init__.py
+    ├── personas.py         # 8 test user definitions with trips/entries
+    ├── auth.py             # Supabase Admin API (create/delete users)
+    ├── database.py         # DB operations (trips, entries, follows, tags)
+    └── cleanup.py          # Delete test data in FK order
+```
+
+### Cleanup Order
+
+The script cleans up in foreign key order to avoid constraint violations:
+1. `trip_tags` → 2. `entry` → 3. `trip` → 4. `user_countries` → 5. `user_follow` → 6. `pending_invite` → 7. auth users (via Admin API)
+
 ## Notes for AI Assistants
 
 1. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
@@ -354,6 +429,7 @@ All launch simplification changes are marked with:
 5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
+8. **Test Users:** Use the seed script to create test data for social features - see "Test User Seeding" section
 
 ## Pre-Commit Checklist (REQUIRED)
 

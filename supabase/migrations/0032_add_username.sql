@@ -179,12 +179,13 @@ BEGIN
     v_username := generate_username_from_name(v_display_name);
   END IF;
 
-  INSERT INTO public.user_profile (user_id, display_name, username, is_test)
+  INSERT INTO public.user_profile (user_id, display_name, username, is_test, tracking_preference)
   VALUES (
     NEW.id,
     v_display_name,
     v_username,
-    NEW.email LIKE '%+test@%'
+    NEW.email LIKE '%+test@%',
+    'full_atlas'
   );
   RETURN NEW;
 END;
