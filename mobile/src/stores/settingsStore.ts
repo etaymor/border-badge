@@ -13,7 +13,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      clipboardDetectionEnabled: true,
+      clipboardDetectionEnabled: false,
 
       setClipboardDetectionEnabled: (enabled) => set({ clipboardDetectionEnabled: enabled }),
     }),

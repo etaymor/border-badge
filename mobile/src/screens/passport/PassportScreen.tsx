@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Animated, FlatList } from 'react-native';
+import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
@@ -11,7 +11,10 @@ import {
   StampRow,
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
-import { OnboardingShareOverlay, ShareCardOverlay } from '@components/share';
+import { ClipboardPasteModal, OnboardingShareOverlay, ShareCardOverlay } from '@components/share';
+import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
+import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
+import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
 import { usePassportData } from '@hooks/usePassportData';
 import { usePassportAnimations } from '@hooks/usePassportAnimations';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
@@ -57,10 +60,20 @@ export function PassportScreen({ navigation }: Props) {
     getItemKey,
   } = animations;
 
+  // Clipboard detection setting
+  const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
+
   // Share card state
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
   const [passportShareVisible, setPassportShareVisible] = useState(false);
+
+  // Paste modal state
+  const [pasteModalVisible, setPasteModalVisible] = useState(false);
+  const [enableModalVisible, setEnableModalVisible] = useState(false);
+
+  // Settings store actions
+  const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
 
   // Handlers
   const handleCountryPress = useCallback(
@@ -145,6 +158,47 @@ export function PassportScreen({ navigation }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate('ProfileSettings');
   }, [navigation]);
+
+  const handlePastePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPasteModalVisible(true);
+  }, []);
+
+  const handlePasteModalClose = useCallback(() => {
+    setPasteModalVisible(false);
+  }, []);
+
+  const handlePasteDetect = useCallback(
+    (detected: DetectedClipboardUrl) => {
+      setPasteModalVisible(false);
+      // Navigate to ShareCapture with the detected URL
+      navigation.navigate('ShareCapture', {
+        url: detected.url,
+        source: 'clipboard',
+      });
+    },
+    [navigation]
+  );
+
+  const handlePasteInvalid = useCallback(() => {
+    Alert.alert(
+      'No Link Found',
+      'No TikTok or Instagram link was found in your clipboard. Copy a link and try again.',
+      [{ text: 'OK' }]
+    );
+  }, []);
+
+  const handleEnableAutoDetect = useCallback(() => {
+    setEnableModalVisible(true);
+  }, []);
+
+  const handleEnableModalClose = useCallback(() => {
+    setEnableModalVisible(false);
+  }, []);
+
+  const handleEnableClipboardDetection = useCallback(() => {
+    setClipboardDetectionEnabled(true);
+  }, [setClipboardDetectionEnabled]);
 
   const handleCloseFilters = useCallback(() => {
     setFilterSheetVisible(false);
@@ -241,6 +295,9 @@ export function PassportScreen({ navigation }: Props) {
     [renderStampRow, renderUnvisitedRow, passportShareContext, handlePassportShare]
   );
 
+  // Show paste button when clipboard detection is disabled (iOS only)
+  const showPasteButton = !clipboardDetectionEnabled;
+
   // List header
   const ListHeader = useMemo(
     () => (
@@ -253,6 +310,8 @@ export function PassportScreen({ navigation }: Props) {
         onSearchChange={setSearchQuery}
         onExplorePress={handleExplorePress}
         onProfilePress={handleProfilePress}
+        onPastePress={handlePastePress}
+        showPasteButton={showPasteButton}
       />
     ),
     [
@@ -264,6 +323,8 @@ export function PassportScreen({ navigation }: Props) {
       setSearchQuery,
       handleExplorePress,
       handleProfilePress,
+      handlePastePress,
+      showPasteButton,
     ]
   );
 
@@ -318,6 +379,20 @@ export function PassportScreen({ navigation }: Props) {
         visible={passportShareVisible}
         context={passportShareContext}
         onDismiss={handlePassportShareDismiss}
+      />
+
+      <ClipboardPasteModal
+        visible={pasteModalVisible}
+        onClose={handlePasteModalClose}
+        onDetect={handlePasteDetect}
+        onInvalidContent={handlePasteInvalid}
+        onEnableAutoDetect={handleEnableAutoDetect}
+      />
+
+      <ClipboardEnableModal
+        visible={enableModalVisible}
+        onClose={handleEnableModalClose}
+        onEnable={handleEnableClipboardDetection}
       />
     </SafeAreaView>
   );

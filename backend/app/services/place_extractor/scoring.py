@@ -4,8 +4,21 @@ This module handles calculating confidence scores for place matches
 and ranking multiple results to select the best one.
 """
 
+import unicodedata
+
 from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.location_hints import LocationHint
+
+
+def normalize_for_comparison(text: str) -> str:
+    """Normalize text for comparison by removing diacritics and lowercasing.
+
+    This helps match transliterated names like "Kel Suu" to "Köl-Suu".
+    """
+    # NFD decomposition separates base characters from combining diacritics
+    nfkd = unicodedata.normalize("NFKD", text.lower())
+    # Keep only non-combining characters (removes accents, umlauts, etc.)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 # Confidence thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.8
@@ -60,24 +73,39 @@ def calculate_confidence(
     query_lower = query.lower()
     name_lower = place_name.lower()
 
+    # Also normalize for diacritics (e.g., "Kel Suu" matches "Köl-Suu")
+    query_normalized = normalize_for_comparison(query)
+    name_normalized = normalize_for_comparison(place_name)
+
     # Exact match is high confidence
-    if query_lower == name_lower:
+    if query_lower == name_lower or query_normalized == name_normalized:
         confidence = 0.95
 
-    # Query is substring of place name (or vice versa)
-    elif query_lower in name_lower or name_lower in query_lower:
+    # Query is substring of place name (or vice versa) - check both raw and normalized
+    elif (
+        query_lower in name_lower
+        or name_lower in query_lower
+        or query_normalized in name_normalized
+        or name_normalized in query_normalized
+    ):
         confidence = 0.75
 
-    # Significant word overlap
+    # Significant word overlap (using normalized words for better matching)
     else:
-        query_words = set(query_lower.split())
-        name_words = set(name_lower.split())
+        # Split on spaces and dashes for better word matching
+        query_words = set(query_normalized.replace("-", " ").split())
+        name_words = set(name_normalized.replace("-", " ").split())
+        # Remove common words that don't add meaning
+        stopwords = {"lake", "mount", "beach", "island", "the", "of"}
+        query_words -= stopwords
+        name_words -= stopwords
         overlap = len(query_words & name_words)
-        total_words = max(len(query_words), len(name_words))
-        if total_words > 0:
-            confidence = 0.5 * (overlap / total_words)
+        total_words = max(len(query_words), len(name_words), 1)
+        # Higher base confidence for word overlap since we've already
+        # matched via Google's fuzzy search
+        confidence = 0.6 * (overlap / total_words) + 0.2
 
-    # Boost for first result
+    # Boost for first result (Google's ranking is usually good)
     if is_first_result:
         confidence = min(confidence + 0.1, 1.0)
 

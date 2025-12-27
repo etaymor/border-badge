@@ -10,6 +10,7 @@ import logging
 from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
 from app.services.place_extractor.candidate_extraction import extract_place_candidates
+from app.services.place_extractor.data import COUNTRIES
 from app.services.place_extractor.google_places_client import (
     get_place_details,
     is_configured,
@@ -160,8 +161,12 @@ async def _extract_place_impl(
         )
         logger.debug(f"PLACE EXTRACTION first candidate: {first_cand!r}")
 
+    # Filter out country names - they're used for location biasing, not as search targets
+    # (Google Places API returns errors for geopolitical queries like "Kyrgyzstan")
+    filtered_candidates = [c for c in candidates if c.lower() not in COUNTRIES]
+
     # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
-    top_candidates = candidates[:MAX_PARALLEL_CANDIDATES]
+    top_candidates = filtered_candidates[:MAX_PARALLEL_CANDIDATES]
     tasks = [_try_candidate(c, location_bias=location_bias) for c in top_candidates]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -203,14 +208,8 @@ async def _extract_place_impl(
     min_confidence = settings.place_extraction_min_confidence
     if best_result.confidence < min_confidence:
         logger.info(
-            "place_extraction_low_confidence",
-            extra={
-                "event": "place_extraction",
-                "result": "below_threshold",
-                "place_name": best_result.name[:50] if best_result.name else None,
-                "confidence": best_result.confidence,
-                "threshold": min_confidence,
-            },
+            f"place_extraction_low_confidence: {best_result.name} "
+            f"confidence={best_result.confidence} < threshold={min_confidence}"
         )
         return None
 
