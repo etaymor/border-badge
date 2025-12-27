@@ -18,6 +18,7 @@ import * as useProfileModule from '@hooks/useProfile';
 import * as useUpdateDisplayNameModule from '@hooks/useUpdateDisplayName';
 import * as useAuthModule from '@hooks/useAuth';
 import { useAuthStore } from '@stores/authStore';
+import { useSettingsStore } from '@stores/settingsStore';
 import * as Clipboard from 'expo-clipboard';
 import * as ShareModule from '@utils/share';
 import type { Country } from '@hooks/useCountries';
@@ -400,6 +401,101 @@ describe('ProfileSettingsScreen', () => {
 
       // If we get here without errors, the cleanup worked
       expect(true).toBe(true);
+    });
+  });
+
+  describe('Clipboard Detection', () => {
+    beforeEach(() => {
+      // Reset settings store to default (disabled)
+      useSettingsStore.getState().setClipboardDetectionEnabled(false);
+    });
+
+    it('shows Enable button when clipboard detection is disabled', async () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Should show Enable button, not the toggle
+      expect(screen.getByLabelText('Enable clipboard detection')).toBeTruthy();
+    });
+
+    it('opens clipboard enable modal when Enable button is pressed', async () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Press Enable button
+      const enableButton = screen.getByLabelText('Enable clipboard detection');
+      fireEvent.press(enableButton);
+
+      // Enable modal should be visible
+      await waitFor(() => {
+        expect(screen.getByText('Save Links Automatically')).toBeTruthy();
+      });
+    });
+
+    it('shows toggle and Learn more link when clipboard detection is enabled', async () => {
+      // Enable clipboard detection
+      useSettingsStore.getState().setClipboardDetectionEnabled(true);
+
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Should show toggle, not Enable button
+      expect(screen.getByLabelText('Toggle clipboard URL detection')).toBeTruthy();
+      // Should show Learn more link
+      expect(screen.getByLabelText('Learn about clipboard permissions')).toBeTruthy();
+    });
+
+    it('opens clipboard permission modal when Learn more link is pressed (when enabled)', async () => {
+      // Enable clipboard detection
+      useSettingsStore.getState().setClipboardDetectionEnabled(true);
+
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Press Learn more link
+      const learnMoreLink = screen.getByLabelText('Learn about clipboard permissions');
+      fireEvent.press(learnMoreLink);
+
+      // Permission modal should be visible
+      await waitFor(() => {
+        expect(screen.getByText('Clipboard Permissions')).toBeTruthy();
+        expect(screen.getByText('How to allow permanently')).toBeTruthy();
+      });
+    });
+
+    it('closes clipboard permission modal when "Got it" button is pressed', async () => {
+      // Enable clipboard detection
+      useSettingsStore.getState().setClipboardDetectionEnabled(true);
+
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, userCountries: [] });
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // Open the modal
+      const learnMoreLink = screen.getByLabelText('Learn about clipboard permissions');
+      fireEvent.press(learnMoreLink);
+
+      await waitFor(() => {
+        expect(screen.getByText('Clipboard Permissions')).toBeTruthy();
+      });
+
+      // Press "Got it" to close
+      const gotItButton = screen.getByText('Got it');
+      fireEvent.press(gotItButton);
+
+      // Modal should be closed
+      await waitFor(() => {
+        expect(screen.queryByText('Clipboard Permissions')).toBeNull();
+      });
     });
   });
 

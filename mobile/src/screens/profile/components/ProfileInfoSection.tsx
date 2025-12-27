@@ -157,26 +157,42 @@ export function ProfileInfoSection({
               >
                 Detect TikTok/Instagram links
               </Text>
-              {Platform.OS === 'ios' && onOpenClipboardPermissionModal && (
-                <TouchableOpacity
-                  onPress={onOpenClipboardPermissionModal}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Learn about clipboard permissions"
-                >
-                  <Text style={[styles.learnMoreLink, isSmallScreen && styles.learnMoreLinkSmall]}>
-                    Learn about iOS permissions
-                  </Text>
-                </TouchableOpacity>
-              )}
+              {clipboardDetectionEnabled &&
+                Platform.OS === 'ios' &&
+                onOpenClipboardPermissionModal && (
+                  <TouchableOpacity
+                    onPress={onOpenClipboardPermissionModal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Learn about clipboard permissions"
+                    accessibilityHint="Opens a modal explaining how to configure iOS clipboard permissions"
+                  >
+                    <Text
+                      style={[styles.learnMoreLink, isSmallScreen && styles.learnMoreLinkSmall]}
+                    >
+                      Learn about iOS permissions
+                    </Text>
+                  </TouchableOpacity>
+                )}
             </View>
-            <Switch
-              value={clipboardDetectionEnabled}
-              onValueChange={onToggleClipboardDetection}
-              trackColor={{ false: colors.paperBeige, true: colors.mossGreen }}
-              thumbColor={colors.cloudWhite}
-              accessibilityLabel="Toggle clipboard URL detection"
-            />
+            {clipboardDetectionEnabled ? (
+              <Switch
+                value={clipboardDetectionEnabled}
+                onValueChange={onToggleClipboardDetection}
+                trackColor={{ false: colors.paperBeige, true: colors.mossGreen }}
+                thumbColor={colors.cloudWhite}
+                accessibilityLabel="Toggle clipboard URL detection"
+              />
+            ) : (
+              <TouchableOpacity
+                onPress={onOpenClipboardPermissionModal}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable clipboard detection"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -272,6 +288,17 @@ const styles = StyleSheet.create({
     color: colors.mossGreen,
     marginTop: 4,
     textDecorationLine: 'underline',
+  },
+  enableButton: {
+    backgroundColor: colors.mossGreen,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  enableButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.cloudWhite,
   },
   emailNote: {
     fontFamily: fonts.openSans.regular,

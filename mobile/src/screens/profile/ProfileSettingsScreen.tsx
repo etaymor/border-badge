@@ -29,6 +29,7 @@ import { SignOutSection } from './components/SignOutSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
+import { ClipboardEnableModal } from './components/ClipboardEnableModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -87,6 +88,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   // Clipboard permission modal state
   const [clipboardPermissionModalVisible, setClipboardPermissionModalVisible] = useState(false);
+  // Clipboard enable modal state (shown when user clicks Enable button)
+  const [clipboardEnableModalVisible, setClipboardEnableModalVisible] = useState(false);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -202,12 +205,27 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   const handleOpenClipboardPermissionModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setClipboardPermissionModalVisible(true);
-  }, []);
+    // If already enabled, show the permission info modal
+    // If not enabled, show the enable modal
+    if (clipboardDetectionEnabled) {
+      setClipboardPermissionModalVisible(true);
+    } else {
+      setClipboardEnableModalVisible(true);
+    }
+  }, [clipboardDetectionEnabled]);
 
   const handleCloseClipboardPermissionModal = useCallback(() => {
     setClipboardPermissionModalVisible(false);
   }, []);
+
+  const handleCloseClipboardEnableModal = useCallback(() => {
+    setClipboardEnableModalVisible(false);
+  }, []);
+
+  const handleEnableClipboard = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setClipboardDetectionEnabled(true);
+  }, [setClipboardDetectionEnabled]);
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
@@ -404,6 +422,12 @@ export function ProfileSettingsScreen({ navigation }: Props) {
       <ClipboardPermissionModal
         visible={clipboardPermissionModalVisible}
         onClose={handleCloseClipboardPermissionModal}
+      />
+
+      <ClipboardEnableModal
+        visible={clipboardEnableModalVisible}
+        onClose={handleCloseClipboardEnableModal}
+        onEnable={handleEnableClipboard}
       />
     </SafeAreaView>
   );

@@ -8,16 +8,14 @@
  */
 
 import { useCallback } from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import { StyleSheet, View, Platform } from 'react-native';
 import {
   ClipboardPasteButton as ExpoClipboardPasteButton,
   isPasteButtonAvailable,
-  type ClipboardPasteButtonProps,
 } from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 
 import { colors } from '@constants/colors';
-import { fonts } from '@constants/typography';
 import { detectSocialUrl, type DetectedClipboardUrl } from '@hooks/useClipboardListener';
 
 interface Props {
@@ -25,31 +23,41 @@ interface Props {
   onDetect: (detected: DetectedClipboardUrl) => void;
   /** Called when paste contains no valid URL */
   onInvalidContent?: () => void;
-  /** Show hint text below button */
-  showHint?: boolean;
-  /** Custom hint text */
-  hintText?: string;
-  /** Compact mode - just the button without wrapper */
+  /** Compact mode - for backwards compatibility, always renders compact */
   compact?: boolean;
 }
 
-type PasteData = Parameters<NonNullable<ClipboardPasteButtonProps['onPress']>>[0];
+/**
+ * Type for clipboard paste data received from the native UIPasteControl.
+ * Defined explicitly rather than extracting from expo-clipboard internals
+ * to avoid brittleness if the library's internal types change.
+ */
+interface PasteData {
+  /** The type of content pasted */
+  type: 'text' | 'plain-text' | 'url' | 'image' | 'html';
+  /** The text content (for text and url types) */
+  text?: string;
+}
 
 /**
  * Native paste button that works without triggering iOS permission prompts.
  * Returns null on platforms where the native paste button isn't available (iOS < 16, Android).
  */
-export function ClipboardPasteButton({
-  onDetect,
-  onInvalidContent,
-  showHint = true,
-  hintText = 'Paste a TikTok or Instagram link',
-  compact = false,
-}: Props) {
+export function ClipboardPasteButton({ onDetect, onInvalidContent }: Props) {
   const handlePaste = useCallback(
-    (data: PasteData) => {
-      if (data.type === 'plain-text' && data.text) {
-        const detected = detectSocialUrl(data.text);
+    (data: unknown) => {
+      const pasteData = data as PasteData;
+      const text = pasteData.text;
+
+      // Handle text and url content types
+      // Native button sends 'text' (not 'plain-text')
+      if (
+        (pasteData.type === 'text' ||
+          pasteData.type === 'plain-text' ||
+          pasteData.type === 'url') &&
+        text
+      ) {
+        const detected = detectSocialUrl(text);
         if (detected) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onDetect(detected);
@@ -70,45 +78,16 @@ export function ClipboardPasteButton({
     return null;
   }
 
-  // Compact mode - just the native button
-  if (compact) {
-    return (
-      <View style={styles.compactContainer}>
-        <ExpoClipboardPasteButton
-          onPress={handlePaste}
-          displayMode="iconAndLabel"
-          acceptedContentTypes={['plain-text', 'url']}
-          style={styles.compactButton}
-        />
-      </View>
-    );
-  }
-
-  // Full mode with card wrapper
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
-        {/* Icon */}
-        <View style={styles.iconContainer}>
-          <Text style={styles.iconText}>📋</Text>
-        </View>
-
-        {/* Label */}
-        {showHint && <Text style={styles.hint}>{hintText}</Text>}
-
-        {/* Native paste button */}
-        <View style={styles.buttonWrapper}>
-          <ExpoClipboardPasteButton
-            onPress={handlePaste}
-            displayMode="iconAndLabel"
-            acceptedContentTypes={['plain-text', 'url']}
-            style={styles.button}
-          />
-        </View>
-
-        {/* Helper text */}
-        <Text style={styles.helperText}>No permission popup</Text>
-      </View>
+      <ExpoClipboardPasteButton
+        onPress={handlePaste}
+        displayMode="iconAndLabel"
+        acceptedContentTypes={['plain-text', 'url']}
+        style={styles.button}
+        backgroundColor={colors.sunsetGold}
+        foregroundColor={colors.midnightNavy}
+      />
     </View>
   );
 }
@@ -116,65 +95,9 @@ export function ClipboardPasteButton({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: 8,
-  },
-  card: {
-    backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-    minWidth: 200,
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.paperBeige,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  iconText: {
-    fontSize: 20,
-  },
-  hint: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  buttonWrapper: {
-    borderRadius: 10,
-    overflow: 'hidden',
-    backgroundColor: colors.paperBeige,
-    padding: 2,
   },
   button: {
     height: 44,
-    minWidth: 100,
-  },
-  helperText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 12,
-    color: colors.stormGray,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  // Compact mode styles
-  compactContainer: {
-    alignItems: 'center',
-  },
-  compactButton: {
-    height: 40,
-    minWidth: 100,
+    minWidth: 120,
   },
 });

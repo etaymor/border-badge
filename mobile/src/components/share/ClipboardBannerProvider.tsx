@@ -47,7 +47,14 @@ export function ClipboardBannerOverlay() {
     );
   }, [detectedUrl, clear, navigation]);
 
-  // Show permission error banner if clipboard access was denied
+  // Priority order for banner display:
+  // 1. Permission error banner (if clipboard access was denied)
+  // 2. Detected URL banner (if a TikTok/Instagram URL was found)
+  //
+  // This order is intentional: if both conditions exist (rare race condition where
+  // permission is granted between checks), we prioritize showing the permission
+  // guidance first since the user needs to understand how to configure settings.
+  // Once they dismiss the permission banner, the URL detection will work normally.
   if (hasPermissionError) {
     return (
       <ClipboardPermissionBanner
@@ -57,7 +64,6 @@ export function ClipboardBannerOverlay() {
     );
   }
 
-  // Show detected URL banner
   if (detectedUrl) {
     return (
       <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />

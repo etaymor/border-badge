@@ -72,15 +72,16 @@ async def get_cached_oembed(canonical_url: str) -> OEmbedResponse | None:
     logger.debug(f"oembed_cache_hit: url={canonical_url[:50]}")
     response_data = rows[0]["response"]
 
+    # Handle both standard oEmbed keys and OpenGraph fallback keys (og:title, og:image)
     return OEmbedResponse(
-        title=response_data.get("title"),
+        title=response_data.get("title") or response_data.get("og:title"),
         author_name=response_data.get("author_name"),
         author_url=response_data.get("author_url"),
-        thumbnail_url=response_data.get("thumbnail_url"),
+        thumbnail_url=response_data.get("thumbnail_url") or response_data.get("og:image"),
         thumbnail_width=response_data.get("thumbnail_width"),
         thumbnail_height=response_data.get("thumbnail_height"),
         html=response_data.get("html"),
-        provider_name=response_data.get("provider_name"),
+        provider_name=response_data.get("provider_name") or response_data.get("og:site_name"),
         provider_url=response_data.get("provider_url"),
         raw=response_data,
     )

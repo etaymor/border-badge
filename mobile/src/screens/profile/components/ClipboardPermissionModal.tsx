@@ -37,15 +37,30 @@ function openAppSettings() {
 export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissionModalProps) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.modalHandle} />
+      <View style={styles.modalBackdrop}>
+        <Pressable
+          style={styles.backdropPressable}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close modal"
+          accessibilityHint="Tap to dismiss the clipboard permissions modal"
+        />
+        <View style={styles.modalContent}>
+          <View
+            style={styles.modalHandle}
+            accessibilityLabel="Drag handle"
+            accessibilityHint="Swipe down to close"
+          />
           <Text style={styles.modalTitle}>Clipboard Permissions</Text>
           <Text style={styles.modalSubtitle}>
             How to stop the &quot;Allow Paste&quot; popup on iOS
           </Text>
 
-          <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator={true}
+          >
             {/* Why Section */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -66,7 +81,7 @@ export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissi
                 <Text style={styles.sectionTitle}>How to allow permanently</Text>
               </View>
               <Text style={styles.sectionText}>
-                You can allow Border Badge to always read your clipboard:
+                You can allow Atlasi to always read your clipboard:
               </Text>
 
               <View style={styles.stepsList}>
@@ -84,7 +99,7 @@ export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissi
                     <Text style={styles.stepNumberText}>2</Text>
                   </View>
                   <Text style={styles.stepText}>
-                    Scroll down and tap <Text style={styles.bold}>Border Badge</Text>
+                    Scroll down and tap <Text style={styles.bold}>Atlasi</Text>
                   </Text>
                 </View>
 
@@ -111,6 +126,9 @@ export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissi
                 style={styles.openSettingsButton}
                 onPress={openAppSettings}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Open Settings"
+                accessibilityHint="Opens iOS Settings to configure clipboard permissions"
               >
                 <Ionicons name="settings-outline" size={18} color={colors.midnightNavy} />
                 <Text style={styles.openSettingsButtonText}>Open Settings</Text>
@@ -124,8 +142,8 @@ export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissi
                 <Text style={styles.sectionTitle}>Alternative</Text>
               </View>
               <Text style={styles.sectionText}>
-                You can also use the iOS Share menu to share links directly to Border Badge, or
-                disable automatic detection in profile settings.
+                You can also use the iOS Share menu to share links directly to Atlasi, or disable
+                automatic detection in profile settings.
               </Text>
             </View>
 
@@ -139,11 +157,18 @@ export function ClipboardPermissionModal({ visible, onClose }: ClipboardPermissi
             </View>
           </ScrollView>
 
-          <TouchableOpacity style={styles.modalCloseButton} onPress={onClose} activeOpacity={0.9}>
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={onClose}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Got it"
+            accessibilityHint="Close the clipboard permissions modal"
+          >
             <Text style={styles.modalCloseButtonText}>Got it</Text>
           </TouchableOpacity>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -153,6 +178,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(23, 42, 58, 0.5)',
     justifyContent: 'flex-end',
+  },
+  backdropPressable: {
+    ...StyleSheet.absoluteFillObject,
   },
   modalContent: {
     backgroundColor: colors.warmCream,
@@ -187,7 +215,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalScroll: {
-    flexGrow: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 8,
   },
   section: {
     backgroundColor: colors.cloudWhite,
