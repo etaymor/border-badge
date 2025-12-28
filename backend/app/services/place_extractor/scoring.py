@@ -9,6 +9,17 @@ import unicodedata
 from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.location_hints import LocationHint
 
+# Common words that don't add meaning for place name matching
+# Pre-computed at module level for performance
+STOPWORDS = frozenset({
+    "lake",
+    "mount",
+    "beach",
+    "island",
+    "the",
+    "of",
+})
+
 
 def normalize_for_comparison(text: str) -> str:
     """Normalize text for comparison by removing diacritics and lowercasing.
@@ -97,16 +108,8 @@ def calculate_confidence(
         query_words = set(query_normalized.replace("-", " ").split())
         name_words = set(name_normalized.replace("-", " ").split())
         # Remove common words that don't add meaning
-        stopwords = {
-            "lake",
-            "mount",
-            "beach",
-            "island",
-            "the",
-            "of",
-        }
-        query_words -= stopwords
-        name_words -= stopwords
+        query_words -= STOPWORDS
+        name_words -= STOPWORDS
         overlap = len(query_words & name_words)
         total_words = max(len(query_words), len(name_words), 1)
         # Higher base confidence for word overlap since we've already

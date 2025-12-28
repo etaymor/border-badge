@@ -42,8 +42,13 @@ function ClipboardPermissionBanner({ onOpenSettings, onDismiss }: ClipboardPermi
   const translateY = useRef(new Animated.Value(-100)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
-  // Animate in on mount
+  // Track mounted state to prevent callbacks after unmount
+  const isMountedRef = useRef(true);
+
+  // Animate in on mount, cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true;
+
     Animated.parallel([
       Animated.spring(translateY, {
         toValue: 0,
@@ -57,6 +62,13 @@ function ClipboardPermissionBanner({ onOpenSettings, onDismiss }: ClipboardPermi
         useNativeDriver: true,
       }),
     ]).start();
+
+    return () => {
+      isMountedRef.current = false;
+      // Stop any running animations on unmount
+      translateY.stopAnimation();
+      opacity.stopAnimation();
+    };
   }, [translateY, opacity]);
 
   const handleOpenSettings = useCallback(() => {
@@ -80,7 +92,10 @@ function ClipboardPermissionBanner({ onOpenSettings, onDismiss }: ClipboardPermi
         useNativeDriver: true,
       }),
     ]).start(() => {
-      onDismiss();
+      // Only call onDismiss if component is still mounted
+      if (isMountedRef.current) {
+        onDismiss();
+      }
     });
   }, [onDismiss, translateY, opacity]);
 
