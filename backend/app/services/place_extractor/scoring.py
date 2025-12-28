@@ -11,14 +11,16 @@ from app.services.place_extractor.location_hints import LocationHint
 
 # Common words that don't add meaning for place name matching
 # Pre-computed at module level for performance
-STOPWORDS = frozenset({
-    "lake",
-    "mount",
-    "beach",
-    "island",
-    "the",
-    "of",
-})
+STOPWORDS = frozenset(
+    {
+        "lake",
+        "mount",
+        "beach",
+        "island",
+        "the",
+        "of",
+    }
+)
 
 
 def normalize_for_comparison(text: str) -> str:

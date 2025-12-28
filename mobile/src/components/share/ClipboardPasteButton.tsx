@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 
 import { colors } from '@constants/colors';
 import { detectSocialUrl, type DetectedClipboardUrl } from '@hooks/useClipboardListener';
+import { Analytics } from '@services/analytics';
 
 interface Props {
   /** Called when a valid TikTok/Instagram URL is detected from paste */
@@ -59,6 +60,7 @@ export function ClipboardPasteButton({ onDetect, onInvalidContent }: Props) {
       ) {
         const detected = detectSocialUrl(text);
         if (detected) {
+          Analytics.clipboardPasteButtonUsed({ provider: detected.provider });
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onDetect(detected);
         } else {

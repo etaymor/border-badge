@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { Analytics } from '@services/analytics';
 
 interface ClipboardPermissionBannerProps {
   onOpenSettings: () => void;
@@ -45,9 +46,12 @@ function ClipboardPermissionBanner({ onOpenSettings, onDismiss }: ClipboardPermi
   // Track mounted state to prevent callbacks after unmount
   const isMountedRef = useRef(true);
 
-  // Animate in on mount, cleanup on unmount
+  // Animate in on mount, track analytics, cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
+
+    // Track banner shown
+    Analytics.clipboardPermissionBannerShown();
 
     Animated.parallel([
       Animated.spring(translateY, {
@@ -73,6 +77,7 @@ function ClipboardPermissionBanner({ onOpenSettings, onDismiss }: ClipboardPermi
 
   const handleOpenSettings = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Analytics.clipboardPermissionSettingsOpened();
     openAppSettings();
     onOpenSettings();
   }, [onOpenSettings]);
