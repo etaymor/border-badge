@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import ClipboardPermissionBanner from '@components/share/ClipboardPermissionBanner';
 
@@ -33,6 +33,8 @@ describe('ClipboardPermissionBanner', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     Platform.OS = 'ios';
+    // Mock Linking.openURL to return a resolved promise
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
   });
 
   afterEach(() => {
