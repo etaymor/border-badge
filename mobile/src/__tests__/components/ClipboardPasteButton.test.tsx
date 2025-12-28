@@ -6,7 +6,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Platform } from 'react-native';
-import { ClipboardPasteButton } from '@components/share/ClipboardPasteButton';
+import ClipboardPasteButton from '@components/share/ClipboardPasteButton';
 
 // Mock expo-clipboard
 jest.mock('expo-clipboard', () => ({

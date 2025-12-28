@@ -1,6 +1,6 @@
 export { default as ClipboardBanner } from './ClipboardBanner';
 export { ClipboardBannerOverlay, ClipboardBannerProvider } from './ClipboardBannerProvider';
-export { ClipboardPasteButton } from './ClipboardPasteButton';
+export { default as ClipboardPasteButton } from './ClipboardPasteButton';
 export { ClipboardPasteModal } from './ClipboardPasteModal';
 export { default as ClipboardPermissionBanner } from './ClipboardPermissionBanner';
 export { InlineTripForm } from './InlineTripForm';

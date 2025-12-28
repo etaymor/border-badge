@@ -41,13 +41,48 @@ interface PasteData {
 }
 
 /**
+ * Validates that paste data conforms to expected PasteData structure.
+ * Returns the validated data or null if invalid.
+ */
+function validatePasteData(data: unknown): PasteData | null {
+  if (typeof data !== 'object' || data === null) {
+    return null;
+  }
+
+  const obj = data as Record<string, unknown>;
+  const validTypes = ['text', 'plain-text', 'url', 'image', 'html'];
+
+  if (typeof obj.type !== 'string' || !validTypes.includes(obj.type)) {
+    return null;
+  }
+
+  // text is optional but must be string if present
+  if (obj.text !== undefined && typeof obj.text !== 'string') {
+    return null;
+  }
+
+  return {
+    type: obj.type as PasteData['type'],
+    text: obj.text as string | undefined,
+  };
+}
+
+/**
  * Native paste button that works without triggering iOS permission prompts.
  * Returns null on platforms where the native paste button isn't available (iOS < 16, Android).
  */
-export function ClipboardPasteButton({ onDetect, onInvalidContent }: Props) {
+function ClipboardPasteButton({ onDetect, onInvalidContent }: Props) {
   const handlePaste = useCallback(
     (data: unknown) => {
-      const pasteData = data as PasteData;
+      const pasteData = validatePasteData(data);
+
+      // Handle invalid or unexpected data format
+      if (!pasteData) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        onInvalidContent?.();
+        return;
+      }
+
       const text = pasteData.text;
 
       // Handle text and url content types
@@ -103,3 +138,5 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
 });
+
+export default ClipboardPasteButton;

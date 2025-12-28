@@ -32,7 +32,9 @@ interface ClipboardPermissionBannerProps {
 /** Opens the app's Settings page in iOS Settings app */
 function openAppSettings() {
   if (Platform.OS === 'ios') {
-    Linking.openURL('app-settings:');
+    Linking.openURL('app-settings:').catch(() => {
+      // Silently fail if settings can't be opened - no recovery action available
+    });
   }
 }
 

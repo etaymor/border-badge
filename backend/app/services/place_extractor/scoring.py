@@ -114,9 +114,14 @@ def calculate_confidence(
         name_words -= STOPWORDS
         overlap = len(query_words & name_words)
         total_words = max(len(query_words), len(name_words), 1)
-        # Higher base confidence for word overlap since we've already
-        # matched via Google's fuzzy search
-        confidence = 0.6 * (overlap / total_words) + 0.2
+
+        # Require at least some word overlap for meaningful confidence
+        if overlap == 0:
+            confidence = 0.1  # Low confidence for no word match
+        else:
+            # Scale confidence based on overlap ratio
+            # Base of 0.2 + up to 0.55 from overlap ratio
+            confidence = 0.2 + 0.55 * (overlap / total_words)
 
     # Boost for first result (Google's ranking is usually good)
     if is_first_result:
