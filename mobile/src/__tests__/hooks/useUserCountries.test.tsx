@@ -12,6 +12,7 @@
 import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { Session } from '@supabase/supabase-js';
 
 import { useUserCountries } from '@hooks/useUserCountries';
 import { api } from '@services/api';
@@ -29,7 +30,7 @@ function createWrapper(queryClient: QueryClient) {
   };
 }
 
-// Mock session for authenticated user
+// Mock session for authenticated user - cast to Session to satisfy type checking
 const mockSession = {
   user: {
     id: 'test-user-123',
@@ -42,9 +43,9 @@ const mockSession = {
   access_token: 'test-access-token',
   refresh_token: 'test-refresh-token',
   expires_in: 3600,
-  token_type: 'bearer',
+  token_type: 'bearer' as const,
   expires_at: Date.now() / 1000 + 3600,
-};
+} as unknown as Session;
 
 // Sample API response data
 const mockApiCountries = [
