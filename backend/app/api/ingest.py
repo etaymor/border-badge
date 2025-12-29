@@ -12,12 +12,13 @@ from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import Entry, EntryWithPlace, Place
 from app.schemas.social_ingest import (
+    DetectedCountry,
     SaveToTripRequest,
     SocialIngestRequest,
     SocialIngestResponse,
 )
 from app.services.oembed_adapters import fetch_oembed
-from app.services.place_extractor import extract_place
+from app.services.place_extractor import extract_location_hints, extract_place
 from app.services.url_resolver import canonicalize_url, detect_provider
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,37 @@ async def ingest_social_url(
         f"confidence={detected_place.confidence if detected_place else None}"
     )
 
+    # Step 4: Extract country hint even if place detection failed
+    # This allows the client to default trips to this country and bias autocomplete
+    detected_country: DetectedCountry | None = None
+
+    # If place was detected, use its country
+    if detected_place and detected_place.country_code:
+        detected_country = DetectedCountry(
+            country_code=detected_place.country_code,
+            country_name=detected_place.country or detected_place.country_code,
+            latitude=detected_place.latitude,
+            longitude=detected_place.longitude,
+        )
+    else:
+        # Extract location hints from text to find country
+        combined_text = " ".join(filter(None, [title, data.caption]))
+        location_hints = extract_location_hints(combined_text)
+        if location_hints:
+            hint = location_hints[0]
+            if hint.country_code:
+                # Get country name from the hint or use the hint name itself
+                country_name = hint.name.title() if hint.name else hint.country_code
+                detected_country = DetectedCountry(
+                    country_code=hint.country_code,
+                    country_name=country_name,
+                    latitude=hint.latitude,
+                    longitude=hint.longitude,
+                )
+                logger.info(
+                    f"INGEST country hint (no place): {hint.country_code} ({country_name})"
+                )
+
     logger.info(
         "ingest_social_completed",
         extra={
@@ -139,6 +171,9 @@ async def ingest_social_url(
             "has_thumbnail": bool(thumbnail_url),
             "has_place": bool(detected_place),
             "place_confidence": detected_place.confidence if detected_place else None,
+            "detected_country": detected_country.country_code
+            if detected_country
+            else None,
         },
     )
 
@@ -149,6 +184,7 @@ async def ingest_social_url(
         author_handle=author_handle,
         title=title,
         detected_place=detected_place,
+        detected_country=detected_country,
     )
 
 

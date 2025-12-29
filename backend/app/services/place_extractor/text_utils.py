@@ -94,6 +94,7 @@ NOISE_WORDS = {
 # Patterns to clean from Instagram OpenGraph titles
 INSTAGRAM_NOISE_PATTERNS = [
     r"^@[\w.]+\s+on\s+Instagram:\s*",  # "@username on Instagram: "
+    r"^[\w.]+\s+on\s+Instagram:\s*",  # "username.al on Instagram: " (no @)
     r"\s+on\s+Instagram$",  # " on Instagram" suffix
     r"\s+\|\s+Instagram$",  # " | Instagram" suffix
     r"^Instagram\s+photo\s+by\s+@?[\w.]+\s*[:\-]?\s*",  # "Instagram photo by @user: "

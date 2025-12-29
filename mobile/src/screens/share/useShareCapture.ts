@@ -122,15 +122,23 @@ export function useShareCapture({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-select matching trip
+  // Auto-select matching trip based on detected place or country hint
   useEffect(() => {
     if (selectedTripId || trips.length === 0) return;
 
-    const matchingTrips = findMatchingTrips(trips, ingestResult?.detected_place?.country_code);
+    // Use detected place country first, then fall back to detected country hint
+    const countryCode =
+      ingestResult?.detected_place?.country_code ?? ingestResult?.detected_country?.country_code;
+    const matchingTrips = findMatchingTrips(trips, countryCode);
     if (matchingTrips.length > 0) {
       setSelectedTripId(matchingTrips[0].id);
     }
-  }, [ingestResult?.detected_place?.country_code, trips, selectedTripId]);
+  }, [
+    ingestResult?.detected_place?.country_code,
+    ingestResult?.detected_country?.country_code,
+    trips,
+    selectedTripId,
+  ]);
 
   const handleTypeSelect = useCallback(
     (type: EntryType) => {
@@ -314,6 +322,7 @@ export function useShareCapture({
       author_handle: null,
       title: null,
       detected_place: null,
+      detected_country: null,
     });
     setIsManualEntryMode(true);
     setError(null);

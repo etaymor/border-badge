@@ -52,6 +52,19 @@ class DetectedPlace(BaseModel):
     google_photo_url: str | None = None
 
 
+class DetectedCountry(BaseModel):
+    """Country detected from social media content via location hints.
+
+    Returned even when a specific place couldn't be detected, allowing the
+    client to default trips to this country and bias place autocomplete.
+    """
+
+    country_code: str = Field(..., min_length=2, max_length=2)
+    country_name: str
+    latitude: float | None = None
+    longitude: float | None = None
+
+
 class SocialIngestResponse(BaseModel):
     """Response from social media ingest.
 
@@ -65,6 +78,8 @@ class SocialIngestResponse(BaseModel):
     author_handle: str | None = None
     title: str | None = None
     detected_place: DetectedPlace | None = None
+    # Country hint even when place detection fails (for trip defaulting & autocomplete bias)
+    detected_country: DetectedCountry | None = None
 
 
 class OEmbedCacheEntry(BaseModel):

@@ -135,7 +135,11 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               value={selectedPlace}
               onSelect={handlePlaceSelect}
               placeholder="Search for a place..."
-              countryCode={ingestResult?.detected_place?.country_code ?? undefined}
+              countryCode={
+                ingestResult?.detected_place?.country_code ??
+                ingestResult?.detected_country?.country_code ??
+                undefined
+              }
               onDropdownOpen={(isOpen) => {
                 setScrollEnabled(!isOpen);
                 if (isOpen) {
@@ -157,6 +161,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               countryCode={
                 selectedPlace?.country_code ??
                 ingestResult?.detected_place?.country_code ??
+                ingestResult?.detected_country?.country_code ??
                 undefined
               }
               onCreateTrip={handleCreateTrip}

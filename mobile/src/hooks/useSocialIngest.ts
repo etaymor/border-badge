@@ -35,6 +35,14 @@ export interface SocialIngestRequest {
   caption?: string;
 }
 
+// Country detected from location hints (when place detection fails)
+export interface DetectedCountry {
+  country_code: string;
+  country_name: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
 // Response from social ingest (no longer includes saved_source_id)
 export interface SocialIngestResponse {
   provider: SocialProvider;
@@ -43,6 +51,8 @@ export interface SocialIngestResponse {
   author_handle: string | null;
   title: string | null;
   detected_place: DetectedPlace | null;
+  // Country hint even when place detection fails (for trip defaulting & autocomplete bias)
+  detected_country: DetectedCountry | null;
 }
 
 // Request to save ingest data to a trip (includes full ingest data)
