@@ -59,8 +59,9 @@ export interface ShareCaptureHandlers {
 
 /**
  * Find matching trips for a country code, sorted by most recent.
+ * Exported for testing purposes.
  */
-function findMatchingTrips(trips: Trip[], countryCode: string | null | undefined): Trip[] {
+export function findMatchingTrips(trips: Trip[], countryCode: string | null | undefined): Trip[] {
   if (!countryCode) return [];
   return trips
     .filter((t) => t.country_code === countryCode)
