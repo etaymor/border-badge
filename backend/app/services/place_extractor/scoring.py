@@ -62,6 +62,10 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     Each query word is checked against all name words for fuzzy similarity.
     This handles transliteration differences like "Express" vs "Ekspres".
 
+    Optimized with early exit: exact matches are checked first using set
+    intersection (O(min(Q,N))), then fuzzy matching is only done for
+    remaining unmatched words.
+
     Args:
         query_words: Set of words from the search query
         name_words: Set of words from the place name
@@ -69,9 +73,24 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     Returns:
         Number of query words that have a fuzzy match in name words
     """
-    return sum(
-        1 for qw in query_words if any(_words_similar(qw, nw) for nw in name_words)
+    # Fast path: count exact matches via set intersection
+    exact_matches = query_words & name_words
+    exact_count = len(exact_matches)
+
+    # Only do expensive fuzzy matching for non-exact-match words
+    remaining_query_words = query_words - exact_matches
+    if not remaining_query_words:
+        return exact_count
+
+    # Fuzzy match remaining words (skip name words that were exact matches)
+    remaining_name_words = name_words - exact_matches
+    fuzzy_count = sum(
+        1
+        for qw in remaining_query_words
+        if any(_words_similar(qw, nw) for nw in remaining_name_words)
     )
+
+    return exact_count + fuzzy_count
 
 
 def normalize_for_comparison(text: str) -> str:
