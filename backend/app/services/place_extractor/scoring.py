@@ -6,6 +6,8 @@ and ranking multiple results to select the best one.
 
 import unicodedata
 
+from rapidfuzz import fuzz
+
 from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.location_hints import LocationHint
 
@@ -21,6 +23,55 @@ STOPWORDS = frozenset(
         "of",
     }
 )
+
+# Minimum word length for fuzzy matching (shorter words require exact match)
+MIN_FUZZY_WORD_LENGTH = 4
+
+# Similarity threshold for fuzzy word matching (0-100)
+# Set to 70 to catch common transliterations like "Express" -> "Ekspres" (71.4%)
+FUZZY_WORD_THRESHOLD = 70.0
+
+
+def _words_similar(
+    word1: str, word2: str, threshold: float = FUZZY_WORD_THRESHOLD
+) -> bool:
+    """Check if two words are similar using fuzzy matching.
+
+    Short words (< 4 chars) require exact match to avoid false positives
+    like "bar" matching "car" or "the" matching "tea".
+
+    Args:
+        word1: First word to compare
+        word2: Second word to compare
+        threshold: Minimum similarity score (0-100) to consider a match
+
+    Returns:
+        True if words are similar enough
+    """
+    if word1 == word2:
+        return True
+    # Short words require exact match to avoid false positives
+    if len(word1) < MIN_FUZZY_WORD_LENGTH or len(word2) < MIN_FUZZY_WORD_LENGTH:
+        return False
+    return fuzz.ratio(word1, word2) >= threshold
+
+
+def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
+    """Calculate fuzzy word overlap between query and place name.
+
+    Each query word is checked against all name words for fuzzy similarity.
+    This handles transliteration differences like "Express" vs "Ekspres".
+
+    Args:
+        query_words: Set of words from the search query
+        name_words: Set of words from the place name
+
+    Returns:
+        Number of query words that have a fuzzy match in name words
+    """
+    return sum(
+        1 for qw in query_words if any(_words_similar(qw, nw) for nw in name_words)
+    )
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -112,7 +163,9 @@ def calculate_confidence(
         # Remove common words that don't add meaning
         query_words -= STOPWORDS
         name_words -= STOPWORDS
-        overlap = len(query_words & name_words)
+        # Use fuzzy matching for word overlap to handle transliterations
+        # e.g., "Express" matches "Ekspres", "Tower" matches "Tauer"
+        overlap = _calculate_word_overlap(query_words, name_words)
         total_words = max(len(query_words), len(name_words), 1)
 
         # Require at least some word overlap for meaningful confidence
