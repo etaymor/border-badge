@@ -1,5 +1,13 @@
 import React from 'react';
-import { View, Text, Pressable, Switch, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  Switch,
+  StyleSheet,
+  Platform,
+  TouchableOpacity,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -15,6 +23,7 @@ interface ProfileInfoSectionProps {
   onOpenTrackingModal: () => void;
   onOpenExportModal: () => void;
   onToggleClipboardDetection: (enabled: boolean) => void;
+  onOpenClipboardPermissionModal?: () => void;
 }
 
 export function ProfileInfoSection({
@@ -28,6 +37,7 @@ export function ProfileInfoSection({
   onOpenTrackingModal,
   onOpenExportModal,
   onToggleClipboardDetection,
+  onOpenClipboardPermissionModal,
 }: ProfileInfoSectionProps) {
   return (
     <View style={styles.container}>
@@ -147,14 +157,42 @@ export function ProfileInfoSection({
               >
                 Detect TikTok/Instagram links
               </Text>
+              {clipboardDetectionEnabled &&
+                Platform.OS === 'ios' &&
+                onOpenClipboardPermissionModal && (
+                  <TouchableOpacity
+                    onPress={onOpenClipboardPermissionModal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Learn about clipboard permissions"
+                    accessibilityHint="Opens a modal explaining how to configure iOS clipboard permissions"
+                  >
+                    <Text
+                      style={[styles.learnMoreLink, isSmallScreen && styles.learnMoreLinkSmall]}
+                    >
+                      Learn about iOS permissions
+                    </Text>
+                  </TouchableOpacity>
+                )}
             </View>
-            <Switch
-              value={clipboardDetectionEnabled}
-              onValueChange={onToggleClipboardDetection}
-              trackColor={{ false: colors.paperBeige, true: colors.mossGreen }}
-              thumbColor={colors.cloudWhite}
-              accessibilityLabel="Toggle clipboard URL detection"
-            />
+            {clipboardDetectionEnabled ? (
+              <Switch
+                value={clipboardDetectionEnabled}
+                onValueChange={onToggleClipboardDetection}
+                trackColor={{ false: colors.paperBeige, true: colors.mossGreen }}
+                thumbColor={colors.cloudWhite}
+                accessibilityLabel="Toggle clipboard URL detection"
+              />
+            ) : (
+              <TouchableOpacity
+                onPress={onOpenClipboardPermissionModal}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable clipboard detection"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -244,6 +282,24 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     marginTop: 2,
   },
+  learnMoreLink: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.mossGreen,
+    marginTop: 4,
+    textDecorationLine: 'underline',
+  },
+  enableButton: {
+    backgroundColor: colors.mossGreen,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  enableButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.cloudWhite,
+  },
   emailNote: {
     fontFamily: fonts.openSans.regular,
     fontSize: 11,
@@ -262,6 +318,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   toggleDescriptionSmall: {
+    fontSize: 11,
+  },
+  learnMoreLinkSmall: {
     fontSize: 11,
   },
 });

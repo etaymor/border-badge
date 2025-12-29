@@ -252,4 +252,12 @@ export const Analytics = {
 
   clipboardPromptDismissed: (props: { url: string }) =>
     track('clipboard_prompt_dismissed', { url: sanitizeUrlForAnalytics(props.url) }),
+
+  // Clipboard permission events
+  clipboardPermissionBannerShown: () => track('clipboard_permission_banner_shown'),
+
+  clipboardPermissionSettingsOpened: () => track('clipboard_permission_settings_opened'),
+
+  clipboardPasteButtonUsed: (props: { provider: string }) =>
+    track('clipboard_paste_button_used', { provider: props.provider }),
 };
