@@ -31,6 +31,11 @@ MIN_FUZZY_WORD_LENGTH = 4
 # Set to 70 to catch common transliterations like "Express" -> "Ekspres" (71.4%)
 FUZZY_WORD_THRESHOLD = 70.0
 
+# Maximum words to fuzzy match to prevent O(Q×N) explosion
+# With 5×5 = 25 max comparisons, this keeps fuzzy matching bounded
+# Place names rarely have more than 5 meaningful words anyway
+MAX_WORDS_FOR_FUZZY = 5
+
 
 def _words_similar(
     word1: str, word2: str, threshold: float = FUZZY_WORD_THRESHOLD
@@ -62,9 +67,10 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     Each query word is checked against all name words for fuzzy similarity.
     This handles transliteration differences like "Express" vs "Ekspres".
 
-    Optimized with early exit: exact matches are checked first using set
-    intersection (O(min(Q,N))), then fuzzy matching is only done for
-    remaining unmatched words.
+    Optimized with:
+    1. Early exit: exact matches checked first via set intersection O(min(Q,N))
+    2. Word limit: fuzzy matching capped at MAX_WORDS_FOR_FUZZY per side to
+       prevent O(Q×N) explosion with very long names
 
     Args:
         query_words: Set of words from the search query
@@ -84,6 +90,14 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
 
     # Fuzzy match remaining words (skip name words that were exact matches)
     remaining_name_words = name_words - exact_matches
+
+    # Limit words to prevent quadratic explosion with very long names
+    # Take first N words (set iteration order is arbitrary but consistent)
+    if len(remaining_query_words) > MAX_WORDS_FOR_FUZZY:
+        remaining_query_words = set(list(remaining_query_words)[:MAX_WORDS_FOR_FUZZY])
+    if len(remaining_name_words) > MAX_WORDS_FOR_FUZZY:
+        remaining_name_words = set(list(remaining_name_words)[:MAX_WORDS_FOR_FUZZY])
+
     fuzzy_count = sum(
         1
         for qw in remaining_query_words
