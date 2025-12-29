@@ -4,12 +4,15 @@ This module handles calculating confidence scores for place matches
 and ranking multiple results to select the best one.
 """
 
+import logging
 import unicodedata
 
 from rapidfuzz import fuzz
 
 from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.location_hints import LocationHint
+
+logger = logging.getLogger(__name__)
 
 # Common words that don't add meaning for place name matching
 # Pre-computed at module level for performance
@@ -26,22 +29,29 @@ STOPWORDS = frozenset(
 )
 
 # Minimum word length for fuzzy matching (shorter words require exact match)
-MIN_FUZZY_WORD_LENGTH = 4
+MIN_FUZZY_WORD_LENGTH: int = 4
 
 # Similarity threshold for fuzzy word matching (0-100)
 # Set to 70 to catch common transliterations like "Express" -> "Ekspres" (71.4%)
-FUZZY_WORD_THRESHOLD = 70.0
+FUZZY_WORD_THRESHOLD: float = 70.0
 
 # Maximum words to fuzzy match to prevent O(Q×N) explosion
 # With 5×5 = 25 max comparisons, this keeps fuzzy matching bounded
 # Place names rarely have more than 5 meaningful words anyway
-MAX_WORDS_FOR_FUZZY = 5
+MAX_WORDS_FOR_FUZZY: int = 5
+
+# Maximum allowed word set size before truncation (DoS protection)
+# Prevents malicious input with hundreds of words from causing excessive processing
+MAX_INPUT_WORD_SIZE: int = 100
 
 
 def _words_similar(
     word1: str, word2: str, threshold: float = FUZZY_WORD_THRESHOLD
 ) -> bool:
     """Check if two words are similar using fuzzy matching.
+
+    Uses token_ratio which handles word order differences and extra tokens better
+    than simple ratio. For example, "Tokyo Tower" vs "Tower Tokyo" scores 100%.
 
     Short words (< 4 chars) require exact match to avoid false positives
     like "bar" matching "car" or "the" matching "tea".
@@ -59,7 +69,8 @@ def _words_similar(
     # Short words require exact match to avoid false positives
     if len(word1) < MIN_FUZZY_WORD_LENGTH or len(word2) < MIN_FUZZY_WORD_LENGTH:
         return False
-    return fuzz.ratio(word1, word2) >= threshold
+    # token_ratio handles word order and extra tokens better for place names
+    return fuzz.token_ratio(word1, word2) >= threshold
 
 
 def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
@@ -69,8 +80,9 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     This handles transliteration differences like "Express" vs "Ekspres".
 
     Optimized with:
-    1. Early exit: exact matches checked first via set intersection O(min(Q,N))
-    2. Word limit: fuzzy matching capped at MAX_WORDS_FOR_FUZZY per side to
+    1. Input validation: empty sets return 0, oversized sets are truncated
+    2. Early exit: exact matches checked first via set intersection O(min(Q,N))
+    3. Word limit: fuzzy matching capped at MAX_WORDS_FOR_FUZZY per side to
        prevent O(Q×N) explosion with very long names
 
     Args:
@@ -80,6 +92,24 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     Returns:
         Number of query words that have a fuzzy match in name words
     """
+    # Validate inputs - empty sets have no overlap
+    if not query_words or not name_words:
+        return 0
+
+    # Guard against excessively large input (DoS protection)
+    # This is belt-and-suspenders with MAX_WORDS_FOR_FUZZY limit below
+    if len(query_words) > MAX_INPUT_WORD_SIZE or len(name_words) > MAX_INPUT_WORD_SIZE:
+        logger.warning(
+            "Abnormally large word sets in overlap calculation",
+            extra={
+                "query_words_count": len(query_words),
+                "name_words_count": len(name_words),
+            },
+        )
+        # Truncate to reasonable size before processing
+        query_words = set(sorted(query_words)[:MAX_INPUT_WORD_SIZE])
+        name_words = set(sorted(name_words)[:MAX_INPUT_WORD_SIZE])
+
     # Fast path: count exact matches via set intersection
     exact_matches = query_words & name_words
     exact_count = len(exact_matches)
@@ -119,9 +149,26 @@ def normalize_for_comparison(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _normalized_words(text: str) -> set[str]:
+    """Extract normalized words from text for comparison.
+
+    Normalizes text (removes diacritics, lowercases), splits on spaces and dashes,
+    and removes stopwords.
+
+    Args:
+        text: Input text to extract words from
+
+    Returns:
+        Set of normalized words with stopwords removed
+    """
+    normalized = normalize_for_comparison(text)
+    words = set(normalized.replace("-", " ").split())
+    return words - STOPWORDS
+
+
 # Confidence thresholds
-HIGH_CONFIDENCE_THRESHOLD = 0.8
-MEDIUM_CONFIDENCE_THRESHOLD = 0.5
+HIGH_CONFIDENCE_THRESHOLD: float = 0.8
+MEDIUM_CONFIDENCE_THRESHOLD: float = 0.5
 
 # Place types that are often false matches (e.g., tour agencies matching place names)
 LOW_VALUE_PLACE_TYPES = {
@@ -191,12 +238,9 @@ def calculate_confidence(
 
     # Significant word overlap (using normalized words for better matching)
     else:
-        # Split on spaces and dashes for better word matching
-        query_words = set(query_normalized.replace("-", " ").split())
-        name_words = set(name_normalized.replace("-", " ").split())
-        # Remove common words that don't add meaning
-        query_words -= STOPWORDS
-        name_words -= STOPWORDS
+        # Extract normalized word sets for comparison
+        query_words = _normalized_words(query)
+        name_words = _normalized_words(place_name)
         # Use fuzzy matching for word overlap to handle transliterations
         # e.g., "Express" matches "Ekspres", "Tower" matches "Tauer"
         overlap = _calculate_word_overlap(query_words, name_words)

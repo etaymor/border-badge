@@ -71,7 +71,7 @@ class TestExtractPlaceCandidates:
 
     def test_instagram_title_with_parenthetical(self):
         """Full integration test: Instagram title with parenthetical place name."""
-        title = "AlbView.al on Instagram: \"Skanderbeg Building (Tirana's Rock) 🌆"
+        title = 'AlbView.al on Instagram: "Skanderbeg Building (Tirana\'s Rock) 🌆"'
         candidates = extract_place_candidates(title, None, None)
         # Should extract both the main name and the parenthetical alias
         assert "Tirana's Rock" in candidates

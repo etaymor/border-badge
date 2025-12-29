@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 # HTTP caching headers.
 _country_code_cache: dict[str, tuple[str, datetime]] = {}
 _country_code_lock = asyncio.Lock()
+_country_name_cache: dict[str, tuple[str | None, datetime]] = {}
+_country_name_lock = asyncio.Lock()
 CACHE_TTL = timedelta(hours=24)
 
 # Cached regions and subregions (static reference data)
@@ -79,7 +81,48 @@ async def get_country_id_by_code(country_code: str) -> str | None:
 def clear_country_code_cache() -> None:
     """Clear the country code cache (used after country data changes)."""
     _country_code_cache.clear()
-    # No expiry map to clear; entries include their expiry.
+    _country_name_cache.clear()
+
+
+async def get_country_name_by_code(country_code: str) -> str | None:
+    """Resolve a country code to its name using an in-memory cache.
+
+    Args:
+        country_code: Two-letter ISO country code (e.g., "JP", "AL")
+
+    Returns:
+        Country name or None if not found
+    """
+    code = country_code.upper()
+
+    cached = _country_name_cache.get(code)
+    if cached:
+        name, expiry = cached
+        if datetime.now(UTC) < expiry:
+            return name
+        _country_name_cache.pop(code, None)
+
+    async with _country_name_lock:
+        # Re-check inside lock to avoid duplicate fetches.
+        cached = _country_name_cache.get(code)
+        if cached:
+            name, expiry = cached
+            if datetime.now(UTC) < expiry:
+                return name
+            _country_name_cache.pop(code, None)
+
+        db = get_supabase_client()
+        rows = await db.get(
+            "country",
+            {"code": eq(code), "select": "name"},
+        )
+        if not rows:
+            _country_name_cache[code] = (None, datetime.now(UTC) + CACHE_TTL)
+            return None
+
+        name = rows[0]["name"]
+        _country_name_cache[code] = (name, datetime.now(UTC) + CACHE_TTL)
+        return name
 
 
 def _matches_country_search(row: dict[str, Any], term: str) -> bool:

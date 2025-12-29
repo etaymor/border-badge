@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from app.api.countries import get_country_name_by_code
 from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
 from app.core.security import CurrentUser
 from app.core.urls import safe_google_photo_url
@@ -150,8 +151,11 @@ async def ingest_social_url(
         if location_hints:
             hint = location_hints[0]
             if hint.country_code:
-                # Get country name from the hint or use the hint name itself
-                country_name = hint.name.title() if hint.name else hint.country_code
+                # Look up proper country name from database
+                # Fallback to hint name (city/region) or code if not found
+                country_name = await get_country_name_by_code(hint.country_code)
+                if not country_name:
+                    country_name = hint.name.title() if hint.name else hint.country_code
                 detected_country = DetectedCountry(
                     country_code=hint.country_code,
                     country_name=country_name,
