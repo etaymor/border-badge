@@ -82,8 +82,11 @@ def extract_place_candidates(
     # Process title - often contains the best place info
     if title:
         # Look for quoted place names (handles straight and smart quotes)
-        # Also handles parenthetical content like (Tirana's Rock)
-        quoted = re.findall(r'[""\'"]([^""\'\"]{3,50})[""\'"]', title)
+        # Includes: " " " ' ' ' (straight double, smart double, straight single, smart single)
+        quoted = re.findall(
+            r'[""\u201c\u201d\'\u2018\u2019]([^""\u201c\u201d\'\u2018\u2019]{3,50})[""\u201c\u201d\'\u2018\u2019]',
+            title,
+        )
         candidates.extend(quoted)
 
         # Look for parenthetical place names like "(Tirana's Rock)"

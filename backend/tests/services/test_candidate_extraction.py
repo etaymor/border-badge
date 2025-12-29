@@ -39,10 +39,22 @@ class TestExtractPlaceCandidates:
         assert "Tirana's Rock" in candidates
 
     def test_extracts_quoted_place_name(self):
-        """Extracts place name from quotes."""
+        """Extracts place name from straight quotes."""
         title = 'Visit "Tokyo Tower" today'
         candidates = extract_place_candidates(title, None, None)
         assert "Tokyo Tower" in candidates
+
+    def test_extracts_smart_double_quoted_place_name(self):
+        """Extracts place name from smart double quotes (" ")."""
+        title = 'Visit "Lake Como" today'
+        candidates = extract_place_candidates(title, None, None)
+        assert "Lake Como" in candidates
+
+    def test_extracts_smart_single_quoted_place_name(self):
+        """Extracts place name from smart single quotes (' ')."""
+        title = "Check out 'Mount Fuji' soon"
+        candidates = extract_place_candidates(title, None, None)
+        assert "Mount Fuji" in candidates
 
     def test_extracts_proper_nouns(self):
         """Extracts capitalized multi-word phrases."""

@@ -13,14 +13,15 @@ from app.services.place_extractor.location_hints import LocationHint
 
 # Common words that don't add meaning for place name matching
 # Pre-computed at module level for performance
+# NOTE: Geographic terms (lake, beach, island, mount) are intentionally NOT
+# included as they're meaningful descriptors (e.g., "Lake Como" vs "Como")
 STOPWORDS = frozenset(
     {
-        "lake",
-        "mount",
-        "beach",
-        "island",
         "the",
         "of",
+        "and",
+        "a",
+        "an",
     }
 )
 
@@ -92,11 +93,11 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
     remaining_name_words = name_words - exact_matches
 
     # Limit words to prevent quadratic explosion with very long names
-    # Take first N words (set iteration order is arbitrary but consistent)
+    # Use sorted() for deterministic selection across runs
     if len(remaining_query_words) > MAX_WORDS_FOR_FUZZY:
-        remaining_query_words = set(list(remaining_query_words)[:MAX_WORDS_FOR_FUZZY])
+        remaining_query_words = set(sorted(remaining_query_words)[:MAX_WORDS_FOR_FUZZY])
     if len(remaining_name_words) > MAX_WORDS_FOR_FUZZY:
-        remaining_name_words = set(list(remaining_name_words)[:MAX_WORDS_FOR_FUZZY])
+        remaining_name_words = set(sorted(remaining_name_words)[:MAX_WORDS_FOR_FUZZY])
 
     fuzzy_count = sum(
         1
