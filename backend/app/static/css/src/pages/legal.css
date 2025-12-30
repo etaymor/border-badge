@@ -1,0 +1,115 @@
+/* ==============================================
+   LEGAL PAGES STYLES (Privacy Policy, Terms)
+   ============================================== */
+
+.legal-page {
+  padding: 140px var(--spacing-lg) var(--spacing-2xl);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.legal-content {
+  background: var(--color-cloud-white);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid rgba(23, 42, 58, 0.05);
+}
+
+.legal-content h1 {
+  font-family: var(--font-family-title);
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--color-midnight-navy);
+  margin-bottom: var(--spacing-xl);
+  line-height: 1.2;
+}
+
+.legal-content h2 {
+  font-family: var(--font-family-title);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-midnight-navy);
+  margin-top: var(--spacing-xl);
+  margin-bottom: var(--spacing-md);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid rgba(23, 42, 58, 0.08);
+}
+
+.legal-content h2:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.legal-content h3 {
+  font-family: var(--font-family-title);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-midnight-navy);
+  margin-top: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.legal-content p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-main);
+  margin-bottom: var(--spacing-md);
+}
+
+.legal-content ul {
+  margin-bottom: var(--spacing-md);
+  padding-left: var(--spacing-lg);
+}
+
+.legal-content ul li {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-main);
+  margin-bottom: var(--spacing-sm);
+}
+
+.legal-content ul li strong {
+  color: var(--color-midnight-navy);
+}
+
+.legal-content a {
+  color: var(--color-adobe-brick);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal-content a:hover {
+  color: var(--color-midnight-navy);
+}
+
+/* ==============================================
+   RESPONSIVE - LEGAL PAGES
+   ============================================== */
+
+@media (max-width: 768px) {
+  .legal-page {
+    padding: 100px var(--spacing-md) var(--spacing-xl);
+  }
+
+  .legal-content {
+    padding: var(--spacing-lg);
+  }
+
+  .legal-content h1 {
+    font-size: 1.75rem;
+  }
+
+  .legal-content h2 {
+    font-size: 1.25rem;
+  }
+
+  .legal-content h3 {
+    font-size: 1rem;
+  }
+
+  .legal-content p,
+  .legal-content ul li {
+    font-size: 0.95rem;
+  }
+}

@@ -400,6 +400,48 @@ async def view_public_trip(
     return response
 
 
+@router.get("/privacy", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def privacy_policy(request: Request) -> HTMLResponse:
+    """Render the privacy policy page."""
+    settings = get_settings()
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="privacy.html",
+        context={
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": "Privacy Policy - Atlasi",
+            "og_description": "Privacy Policy for the Atlasi travel tracking application",
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@router.get("/terms", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def terms_conditions(request: Request) -> HTMLResponse:
+    """Render the terms and conditions page."""
+    settings = get_settings()
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="terms.html",
+        context={
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": "Terms & Conditions - Atlasi",
+            "og_description": "Terms and Conditions for the Atlasi travel tracking application",
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 @router.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt() -> PlainTextResponse:
     """Return robots.txt for search engines."""
