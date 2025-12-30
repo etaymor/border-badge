@@ -39,7 +39,15 @@ export function usePassportData() {
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
   const trackingPreference = profile?.tracking_preference ?? 'full_atlas';
-  const isLoading = loadingUserCountries || loadingCountries || loadingTrips || loadingProfile;
+
+  // Consider loading if any query is still loading OR if essential data isn't available yet
+  // This prevents showing empty state flash before data loads
+  const isLoading =
+    loadingUserCountries ||
+    loadingCountries ||
+    loadingTrips ||
+    loadingProfile ||
+    userCountries === undefined;
 
   // Track passport view only when visited count changes
   const lastTrackedCountRef = useRef<number | null>(null);
@@ -269,7 +277,14 @@ export function usePassportData() {
       items.push({ type: 'section-header', title: "Where you've been", key: 'header-visited' });
     }
 
-    if (!searchQuery && displayItems.length === 0 && stats.stampedCount === 0) {
+    // Only show empty state when we've confirmed data loaded and user truly has no countries
+    // This prevents empty state flash during loading/transition
+    if (
+      !searchQuery &&
+      displayItems.length === 0 &&
+      stats.stampedCount === 0 &&
+      userCountries !== undefined
+    ) {
       items.push({ type: 'empty-state', key: 'empty-state' });
     }
 
