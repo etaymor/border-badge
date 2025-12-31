@@ -130,17 +130,21 @@ export async function processAuthCallback(url: string): Promise<AuthCallbackResu
     if (onboarded) {
       authStore.setHasCompletedOnboarding(true);
       await storeOnboardingComplete();
+      authStore.setSession(session);
     } else {
-      // New user - attempt migration
+      // New user - set isMigrating before session to prevent empty state flash
+      authStore.setIsMigrating(true);
+      authStore.setSession(session);
+
+      // Attempt migration and always clear isMigrating when done
       try {
         await migrateGuestData(session);
       } catch {
-        console.warn('Migration failed for magic link user');
+        console.warn('Migration failed for auth callback user');
+      } finally {
+        authStore.setIsMigrating(false);
       }
     }
-
-    // Update auth store with session
-    authStore.setSession(session);
     return { success: true };
   } catch (error) {
     // Use sanitized logging to prevent token exposure in error messages

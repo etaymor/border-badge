@@ -68,12 +68,9 @@ export function useSignUpWithPassword() {
         setSession(data.session);
 
         // Migrate in background - isMigrating will be cleared when done
-        // If migration fails, user sees onboarding data until they retry
-        migrateGuestData(data.session).catch(() => {
-          console.warn('Migration failed for new password user');
-          // Clear isMigrating on error so user doesn't get stuck
-          setIsMigrating(false);
-        });
+        migrateGuestData(data.session)
+          .catch(() => console.warn('Migration failed for new password user'))
+          .finally(() => setIsMigrating(false));
       }
     },
     onError: (error) => {

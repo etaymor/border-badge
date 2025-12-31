@@ -79,7 +79,6 @@ function CountryHeroComponent({
           <Text style={styles.flagEmoji}>{flagEmoji}</Text>
         </View>
       </Animated.View>
-
     </Animated.View>
   );
 }
