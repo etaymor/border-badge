@@ -71,6 +71,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Cache Jest
+        uses: actions/cache@v4
+        with:
+          path: mobile/.jest-cache
+          key: ${{ runner.os }}-jest-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-jest-
+
       - name: Run linting
         run: npm run lint
 
@@ -79,6 +87,8 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
   mobile-typecheck:
     name: Mobile TypeScript Check

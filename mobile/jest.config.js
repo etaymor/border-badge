@@ -12,4 +12,16 @@ module.exports = {
     '!**/coverage/**',
     '!**/*.config.js',
   ],
+  // Memory optimization: Limit concurrent workers and enable cache
+  maxWorkers: '50%',
+  cache: true,
+  cacheDirectory: '.jest-cache',
+  // Force garbage collection between test suites to prevent memory buildup
+  globals: {
+    'ts-jest': {
+      isolatedModules: true,
+    },
+  },
+  // Bail on first failure in CI to save resources
+  bail: process.env.CI ? 1 : false,
 };
