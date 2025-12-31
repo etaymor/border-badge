@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
+import ErrorBoundary from '@components/ui/ErrorBoundary';
 import { useAuthStore } from '@stores/authStore';
 
 import { AuthNavigator } from './AuthNavigator';
@@ -34,25 +35,27 @@ export function RootNavigator() {
   const shouldShowOnboarding = isUnauthenticated && !hasCompletedOnboarding;
 
   return (
-    <Stack.Navigator
-      screenOptions={{
-        ...SlideWithScalePreset,
-      }}
-    >
-      {isUnauthenticated ? (
-        <>
-          {shouldShowOnboarding && (
-            <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
-          )}
-          <Stack.Screen name="Auth" component={AuthNavigator} />
-        </>
-      ) : (
-        // LAUNCH_SIMPLIFICATION: Using PassportNavigator directly instead of MainTabNavigator
-        // This hides the tab bar and simplifies the app for initial launch
-        // TODO: Replace with MainTabNavigator when ready to re-enable Dreams, Trips List, and Friends
-        <Stack.Screen name="Main" component={PassportNavigator} />
-      )}
-    </Stack.Navigator>
+    <ErrorBoundary>
+      <Stack.Navigator
+        screenOptions={{
+          ...SlideWithScalePreset,
+        }}
+      >
+        {isUnauthenticated ? (
+          <>
+            {shouldShowOnboarding && (
+              <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+            )}
+            <Stack.Screen name="Auth" component={AuthNavigator} />
+          </>
+        ) : (
+          // LAUNCH_SIMPLIFICATION: Using PassportNavigator directly instead of MainTabNavigator
+          // This hides the tab bar and simplifies the app for initial launch
+          // TODO: Replace with MainTabNavigator when ready to re-enable Dreams, Trips List, and Friends
+          <Stack.Screen name="Main" component={PassportNavigator} />
+        )}
+      </Stack.Navigator>
+    </ErrorBoundary>
   );
 }
 

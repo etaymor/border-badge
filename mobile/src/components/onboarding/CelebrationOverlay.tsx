@@ -18,6 +18,7 @@ import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { CelebrationAnimationRefs } from '@hooks/useCountrySelectionAnimations';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 
 export interface CelebrationOverlayProps {
@@ -46,7 +47,7 @@ const BURST_PARTICLES = Array.from({ length: 24 }, (_, i) => {
   };
 });
 
-function BurstAnimation({ visible }: { visible: boolean }) {
+function BurstAnimation({ visible, reduceMotion }: { visible: boolean; reduceMotion: boolean }) {
   // Lazy initialization - only create Animated.Value instances once
   const animsRef = useRef<Animated.Value[] | null>(null);
   if (!animsRef.current) {
@@ -57,7 +58,7 @@ function BurstAnimation({ visible }: { visible: boolean }) {
   useEffect(() => {
     let staggeredAnimation: Animated.CompositeAnimation | null = null;
 
-    if (visible) {
+    if (visible && !reduceMotion) {
       const animations = BURST_PARTICLES.map((particle, i) => {
         anims[i].setValue(0);
         return Animated.timing(anims[i], {
@@ -81,7 +82,7 @@ function BurstAnimation({ visible }: { visible: boolean }) {
       }
       anims.forEach((anim) => anim.stopAnimation());
     };
-  }, [visible, anims]);
+  }, [visible, reduceMotion, anims]);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -240,6 +241,7 @@ export default function CelebrationOverlay({
 }: CelebrationOverlayProps) {
   const { width } = useWindowDimensions();
   const { isSmallScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
   const {
     selectionScale,
     selectionOpacity,
@@ -297,15 +299,17 @@ export default function CelebrationOverlay({
             },
           ]}
         >
-          <BurstAnimation visible={visible} />
+          <BurstAnimation visible={visible} reduceMotion={reduceMotion} />
 
-          {/* Ripple effect for HomeCountry (pin drop) */}
-          {type === 'home' && (
+          {/* Ripple effect for HomeCountry (pin drop) - skip if reduce motion enabled */}
+          {type === 'home' && !reduceMotion && (
             <RippleEffect scale={rippleScale} opacity={rippleOpacity} color={colors.dustyCoral} />
           )}
 
-          {/* Sparkle effect for DreamDestination */}
-          {type === 'dream' && <SparkleEffect scale={sparkleScale} rotate={sparkleRotate} />}
+          {/* Sparkle effect for DreamDestination - skip if reduce motion enabled */}
+          {type === 'dream' && !reduceMotion && (
+            <SparkleEffect scale={sparkleScale} rotate={sparkleRotate} />
+          )}
 
           <Animated.View
             style={[

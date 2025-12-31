@@ -6,16 +6,15 @@
  * stamps to give them a subtle "living" quality.
  *
  * Usage:
- * const { breathingScale, startBreathing, stopBreathing } = useBreathingAnimation();
+ * const { breathingScale, startBreathing, stopBreathing, isBreathing } = useBreathingAnimation();
  * <Animated.View style={{ transform: [{ scale: breathingScale }] }}>
  *   ...
  * </Animated.View>
  *
- * Note: This hook does not expose an isBreathing state. If you need to track
- * animation state, manage it externally in your component.
+ * The isBreathing state can be used to track whether the animation is currently running.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing } from 'react-native';
 import { useReducedMotion } from './useReducedMotion';
 
@@ -37,6 +36,8 @@ export interface UseBreathingAnimationResult {
   startBreathing: () => void;
   /** Stop the breathing animation */
   stopBreathing: () => void;
+  /** Whether the breathing animation is currently running */
+  isBreathing: boolean;
 }
 
 /**
@@ -55,21 +56,21 @@ export function useBreathingAnimation(
 
   const breathingScale = useRef(new Animated.Value(minScale)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const isBreathingRef = useRef(false);
+  const [isBreathing, setIsBreathing] = useState(false);
 
   const stopBreathing = useCallback(() => {
     if (animationRef.current) {
       animationRef.current.stop();
       animationRef.current = null;
     }
-    isBreathingRef.current = false;
+    setIsBreathing(false);
     breathingScale.setValue(minScale);
   }, [breathingScale, minScale]);
 
   const startBreathing = useCallback(() => {
-    if (isBreathingRef.current || reduceMotion) return;
+    if (isBreathing || reduceMotion) return;
 
-    isBreathingRef.current = true;
+    setIsBreathing(true);
 
     // Create a looping animation: scale up then down
     const breatheIn = Animated.timing(breathingScale, {
@@ -90,7 +91,7 @@ export function useBreathingAnimation(
 
     animationRef.current = Animated.loop(breathCycle);
     animationRef.current.start();
-  }, [breathingScale, maxScale, minScale, duration, reduceMotion]);
+  }, [breathingScale, maxScale, minScale, duration, reduceMotion, isBreathing]);
 
   // Auto-start if requested (unless reduce motion is enabled)
   useEffect(() => {
@@ -111,6 +112,7 @@ export function useBreathingAnimation(
     breathingScale,
     startBreathing,
     stopBreathing,
+    isBreathing,
   };
 }
 

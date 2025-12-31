@@ -48,6 +48,9 @@ export function usePassportAnimations(_isLoading: boolean) {
   const rowAnimationValuesRef = useRef<Map<string, Animated.Value[]>>(new Map());
   // Track access order for LRU cleanup (most recent at end)
   const accessOrderRef = useRef<string[]>([]);
+  // Refs to hold current values for stable callback
+  const reduceMotionRef = useRef(reduceMotion);
+  const hasPlayedInitialAnimationRef = useRef(hasPlayedInitialAnimation);
   // Track row indices for diagonal wave calculation
   const rowIndexMapRef = useRef<Map<string, number>>(new Map());
   // Counter for assigning row indices
@@ -63,6 +66,15 @@ export function usePassportAnimations(_isLoading: boolean) {
     itemVisiblePercentThreshold: 10,
     minimumViewTime: 0,
   }).current;
+
+  // Keep refs in sync with current values
+  useEffect(() => {
+    reduceMotionRef.current = reduceMotion;
+  }, [reduceMotion]);
+
+  useEffect(() => {
+    hasPlayedInitialAnimationRef.current = hasPlayedInitialAnimation;
+  }, []);
 
   // Update access order for LRU tracking
   const updateAccessOrder = useCallback((rowKey: string) => {
@@ -147,7 +159,8 @@ export function usePassportAnimations(_isLoading: boolean) {
   const handleViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<ListItem>[] }) => {
       // Skip all animations if reduce motion is enabled or initial load has already played
-      if (reduceMotion || hasPlayedInitialAnimation) {
+      // Read from refs to get current values (avoid stale closure)
+      if (reduceMotionRef.current || hasPlayedInitialAnimationRef.current) {
         return;
       }
 
@@ -234,6 +247,7 @@ export function usePassportAnimations(_isLoading: boolean) {
       // Mark initial animation as played after first batch
       // This ensures subsequent navigations back to passport screen skip animation
       hasPlayedInitialAnimation = true;
+      hasPlayedInitialAnimationRef.current = true;
     }
   ).current;
 

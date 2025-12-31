@@ -181,8 +181,8 @@ export function useCountrySelectionAnimations(
 
     Animated.sequence(entranceSequence).start();
 
-    // Floating animation for location pin
-    if (hasLocationPin) {
+    // Floating animation for location pin (skip if reduce motion is enabled)
+    if (hasLocationPin && !reduceMotion) {
       pinBounceLoopRef.current = Animated.loop(
         Animated.sequence([
           Animated.timing(pinBounce, {
