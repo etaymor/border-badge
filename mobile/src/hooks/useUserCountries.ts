@@ -66,7 +66,7 @@ export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
     placeholderData: onboardingFallbackData,
   });
 
-  // During migration, if query hasn't fetched yet but we have onboarding data,
+  // During migration or initial load, if query has no data but we have onboarding data,
   // return that data immediately to prevent empty state flash.
   //
   // Migration lifecycle (see guestMigration.ts):
@@ -80,17 +80,15 @@ export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
   // We only show fallback data during the brief window between account creation
   // and cache population. If there's an actual API error, we preserve that state
   // so the user sees the error rather than stale placeholder data.
-  if (isMigrating && !query.isFetched && onboardingFallbackData) {
-    // Don't override if there's an actual error from the API
-    if (query.isError) {
-      return query;
-    }
+  if (!query.data && onboardingFallbackData && !query.isError) {
     return {
       ...query,
       data: onboardingFallbackData,
       isLoading: false,
-      isFetching: false,
-    } as UseQueryResult<UserCountry[], Error>;
+      isFetching: true, // Still fetching real data in background
+      isPending: false,
+      isSuccess: true,
+    } as unknown as UseQueryResult<UserCountry[], Error>;
   }
 
   return query;

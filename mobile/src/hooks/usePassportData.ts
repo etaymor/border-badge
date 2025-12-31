@@ -172,12 +172,31 @@ export function usePassportData() {
 
   // Compute all stats
   const stats: PassportStats = useMemo(() => {
+    // If countries haven't loaded yet, use visited/wishlist counts directly
+    // This prevents 0s flash during migration when userCountries has data but countries is loading
+    if (!countries || countries.length === 0) {
+      const stampedCount = visitedCountries.length;
+      const dreamsCount = wishlistCountries.length;
+      const totalCountries = getCountryCountForPreference(trackingPreference);
+      const worldPercentage =
+        totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
+
+      return {
+        stampedCount,
+        dreamsCount,
+        totalCountries,
+        worldPercentage,
+        regionsCount: 0, // Unknown until countries load
+        travelStatus: getTravelTier(stampedCount).status,
+      };
+    }
+
     const allowedVisitedCountries = visitedCountries.filter((uc) => {
-      const country = countries?.find((c) => c.code === uc.country_code);
+      const country = countries.find((c) => c.code === uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
     const allowedWishlistCountries = wishlistCountries.filter((uc) => {
-      const country = countries?.find((c) => c.code === uc.country_code);
+      const country = countries.find((c) => c.code === uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
 
@@ -188,7 +207,7 @@ export function usePassportData() {
       totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
     const visitedCodesSet = new Set(allowedVisitedCountries.map((uc) => uc.country_code));
-    const visitedCountryDetails = countries?.filter((c) => visitedCodesSet.has(c.code)) || [];
+    const visitedCountryDetails = countries.filter((c) => visitedCodesSet.has(c.code));
     const uniqueRegions = new Set(visitedCountryDetails.map((c) => c.region));
     const regionsCount = uniqueRegions.size;
 
