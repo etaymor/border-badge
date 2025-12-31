@@ -341,10 +341,10 @@ export function PassportScreen({ navigation }: Props) {
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={true}
-          maxToRenderPerBatch={20}
-          windowSize={11}
-          initialNumToRender={15}
-          updateCellsBatchingPeriod={30}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
         />

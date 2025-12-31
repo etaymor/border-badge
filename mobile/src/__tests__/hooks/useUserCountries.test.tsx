@@ -247,8 +247,9 @@ describe('useUserCountries', () => {
 
       // During migration with placeholder data, isLoading should be false
       // to prevent loading spinners when we have data to show
+      // However, isFetching is true because real data is still loading in background
       expect(result.current.isLoading).toBe(false);
-      expect(result.current.isFetching).toBe(false);
+      expect(result.current.isFetching).toBe(true);
       expect(result.current.data).toBeDefined();
 
       // Cleanup

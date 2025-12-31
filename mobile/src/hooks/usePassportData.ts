@@ -77,13 +77,32 @@ export function usePassportData() {
   }, [trackingPreference, filters.recognitionGroups]);
 
   // Compute visited and wishlist countries
+  // Memoize based on country codes to avoid recalculation when transitioning from fallback to real data
+  const visitedCountryCodes = useMemo(() => {
+    if (!userCountries) return '';
+    return userCountries
+      .filter((uc) => uc.status === 'visited')
+      .map((uc) => uc.country_code)
+      .sort()
+      .join(',');
+  }, [userCountries]);
+
+  const wishlistCountryCodes = useMemo(() => {
+    if (!userCountries) return '';
+    return userCountries
+      .filter((uc) => uc.status === 'wishlist')
+      .map((uc) => uc.country_code)
+      .sort()
+      .join(',');
+  }, [userCountries]);
+
   const { visitedCountries, wishlistCountries } = useMemo(() => {
     if (!userCountries) return { visitedCountries: [], wishlistCountries: [] };
     return {
       visitedCountries: userCountries.filter((uc) => uc.status === 'visited'),
       wishlistCountries: userCountries.filter((uc) => uc.status === 'wishlist'),
     };
-  }, [userCountries]);
+  }, [userCountries, visitedCountryCodes, wishlistCountryCodes]);
 
   // Pre-compute visited, wishlist, and trip code sets
   const { visitedCodes, wishlistCodes, countriesWithTrips } = useMemo(() => {
