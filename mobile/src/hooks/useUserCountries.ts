@@ -23,7 +23,7 @@ function getUserCountriesKey(sessionId: string | null) {
 }
 
 export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
-  const { session, isMigrating } = useAuthStore();
+  const { session } = useAuthStore();
   const { selectedCountries, bucketListCountries } = useOnboardingStore();
   const queryKey = getUserCountriesKey(session?.user?.id ?? null);
   const userId = session?.user?.id;
@@ -32,9 +32,12 @@ export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
   // This provides instant feedback before the query runs
   // Memoized to avoid unnecessary array creation on every render
   const onboardingFallbackData = useMemo<UserCountry[] | undefined>(() => {
-    if (!isMigrating || (selectedCountries.length === 0 && bucketListCountries.length === 0)) {
+    // If there's no onboarding data, don't create fallback
+    if (selectedCountries.length === 0 && bucketListCountries.length === 0) {
       return undefined;
     }
+    // Create fallback data from onboarding store regardless of isMigrating flag
+    // This ensures data is available even if component renders before isMigrating is set
     return [
       ...selectedCountries.map((countryCode, index) => ({
         id: `temp-visited-${index}`,
@@ -53,7 +56,7 @@ export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
         added_during_onboarding: true,
       })),
     ];
-  }, [isMigrating, selectedCountries, bucketListCountries, userId]);
+  }, [selectedCountries, bucketListCountries, userId]);
 
   const query = useQuery({
     queryKey,
