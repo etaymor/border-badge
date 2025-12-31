@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, ViewStyle } from 'react-native';
 import { STAGGER_DELAY_DEFAULT, STAGGER_MAX_DURATION } from '../navigation/transitionConfig';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface UseStaggeredEntranceOptions {
   /** Number of items to animate */
@@ -83,24 +84,29 @@ export function useStaggeredEntrance(
     slideDistance = 20,
   } = options;
 
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
+
   // Track completion state
   const isCompleteRef = useRef(false);
   const timeoutIdsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
-  // Create animation values for each item - start at 0 (hidden)
+  // Create animation values for each item
+  // If reduce motion is enabled, start at 1 (visible), otherwise start at 0 (hidden)
   const animationValues = useRef<Animated.Value[]>([]).current;
 
   // Ensure we have the right number of animation values
   useMemo(() => {
+    const initialValue = reduceMotion ? 1 : 0;
     // Add new values if needed
     while (animationValues.length < itemCount) {
-      animationValues.push(new Animated.Value(0));
+      animationValues.push(new Animated.Value(initialValue));
     }
     // Remove extra values if count decreased
     while (animationValues.length > itemCount) {
       animationValues.pop();
     }
-  }, [itemCount, animationValues]);
+  }, [itemCount, animationValues, reduceMotion]);
 
   // Memoize interpolation configurations to prevent recreation
   const opacityInterpolation = useMemo(
@@ -152,6 +158,13 @@ export function useStaggeredEntrance(
 
   // Start the stagger animation
   const startAnimation = useCallback(() => {
+    // Skip animation if reduce motion is enabled - just set all values to 1
+    if (reduceMotion) {
+      animationValues.forEach((animValue) => animValue.setValue(1));
+      isCompleteRef.current = true;
+      return;
+    }
+
     isCompleteRef.current = false;
 
     // Clear any pending timeouts
@@ -200,7 +213,7 @@ export function useStaggeredEntrance(
         timeoutIdsRef.current.add(timeoutId);
       }
     });
-  }, [animationValues, staggerDelay, maxDuration, springFriction, springTension]);
+  }, [animationValues, staggerDelay, maxDuration, springFriction, springTension, reduceMotion]);
 
   // Reset all animations to initial state
   const resetAnimation = useCallback(() => {
@@ -217,12 +230,12 @@ export function useStaggeredEntrance(
     isCompleteRef.current = false;
   }, [animationValues]);
 
-  // Auto-start animation on mount if enabled
+  // Auto-start animation on mount if enabled (unless reduce motion is enabled)
   useEffect(() => {
     if (autoStart && itemCount > 0) {
       startAnimation();
     }
-  }, [autoStart, itemCount, startAnimation]);
+  }, [autoStart, itemCount, startAnimation, reduceMotion]);
 
   // Cleanup on unmount
   useEffect(() => {

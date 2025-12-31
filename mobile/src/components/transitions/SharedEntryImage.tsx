@@ -56,6 +56,10 @@ interface SharedEntryPressableProps extends SharedEntryImageProps {
   onPress?: () => void;
   /** Handler for long press events */
   onLongPress?: () => void;
+  /** Handler for press in events (for animations) */
+  onPressIn?: () => void;
+  /** Handler for press out events (for animations) */
+  onPressOut?: () => void;
   /** Accessibility role for the pressable element */
   accessibilityRole?: 'button' | 'link' | 'none';
   /** Accessibility label for screen readers */
@@ -69,6 +73,8 @@ export function SharedEntryPressable({
   testID,
   onPress,
   onLongPress,
+  onPressIn,
+  onPressOut,
   accessibilityRole,
   accessibilityLabel,
 }: SharedEntryPressableProps) {
@@ -81,6 +87,8 @@ export function SharedEntryPressable({
       testID={testID}
       onPress={onPress}
       onLongPress={onLongPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
     >

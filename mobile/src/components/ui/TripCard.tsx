@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +6,7 @@ import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { colors } from '@constants/colors';
 import { isDevelopment } from '@config/env';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
 
 export interface TripCardTrip {
   id: string;
@@ -71,42 +71,15 @@ export function TripCard({
   testID,
   enableSharedElement = true,
 }: TripCardProps) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
   const dateStr = formatDateRange(trip.date_range);
 
-  // Cleanup: stop any running animation and reset value on unmount
-  useEffect(() => {
-    return () => {
-      scaleAnim.stopAnimation();
-      scaleAnim.setValue(1);
-    };
-  }, [scaleAnim]);
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.98,
-      friction: 8,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 8,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View style={[styles.container, { transform: [{ scale: scaleValue }] }]}>
       <Pressable
         style={styles.pressable}
         onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
+        {...pressHandlers}
         testID={testID}
         accessibilityRole="button"
         accessibilityLabel={`View trip: ${trip.name}`}

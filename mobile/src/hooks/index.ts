@@ -87,3 +87,11 @@ export type {
   UseBreathingAnimationOptions,
   UseBreathingAnimationResult,
 } from './useBreathingAnimation';
+
+export { useStaggeredEntrance, StaggeredEntrancePresets } from './useStaggeredEntrance';
+export type {
+  UseStaggeredEntranceOptions,
+  UseStaggeredEntranceResult,
+} from './useStaggeredEntrance';
+
+export { useReducedMotion } from './useReducedMotion';

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { Animated, Easing } from 'react-native';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface CelebrationAnimationRefs {
   selectionScale: Animated.Value;
@@ -45,6 +46,9 @@ export function useCountrySelectionAnimations(
 ): UseCountrySelectionAnimationsReturn {
   const { hasLocationPin = false, hasBackButton = false, celebrationHoldDuration = 600 } = options;
 
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
+
   // Track mounted state to prevent callbacks after unmount
   const isMountedRef = useRef(true);
 
@@ -85,6 +89,21 @@ export function useCountrySelectionAnimations(
 
   // Entrance animations
   useEffect(() => {
+    // If reduce motion is enabled, skip animations and set all values to final state
+    if (reduceMotion) {
+      if (hasBackButton) backButtonOpacity.setValue(1);
+      titleOpacity.setValue(1);
+      titleTranslate.setValue(0);
+      searchOpacity.setValue(1);
+      searchTranslate.setValue(0);
+      if (hasLocationPin) {
+        pinOpacity.setValue(1);
+        pinScale.setValue(1);
+      }
+      buttonOpacity.setValue(1);
+      return;
+    }
+
     const entranceSequence: Animated.CompositeAnimation[] = [];
 
     // Back button fade in (if present)
@@ -193,6 +212,7 @@ export function useCountrySelectionAnimations(
   }, [
     hasBackButton,
     hasLocationPin,
+    reduceMotion,
     titleOpacity,
     titleTranslate,
     searchOpacity,
@@ -207,6 +227,18 @@ export function useCountrySelectionAnimations(
   // Dropdown animation
   const animateDropdown = useCallback(
     (show: boolean) => {
+      if (reduceMotion) {
+        // Skip animation if reduce motion is enabled
+        if (show) {
+          dropdownOpacity.setValue(1);
+          dropdownTranslate.setValue(0);
+        } else {
+          dropdownOpacity.setValue(0);
+          dropdownTranslate.setValue(-10);
+        }
+        return;
+      }
+
       if (show) {
         Animated.parallel([
           Animated.timing(dropdownOpacity, {
@@ -226,12 +258,20 @@ export function useCountrySelectionAnimations(
         dropdownTranslate.setValue(-10);
       }
     },
-    [dropdownOpacity, dropdownTranslate]
+    [dropdownOpacity, dropdownTranslate, reduceMotion]
   );
 
   // Celebration animation with enhanced effects
   const playCelebration = useCallback(
     (onComplete: () => void) => {
+      // If reduce motion is enabled, skip animation and call onComplete immediately
+      if (reduceMotion) {
+        if (isMountedRef.current) {
+          onComplete();
+        }
+        return;
+      }
+
       // Reset animation values
       selectionScale.setValue(0);
       selectionOpacity.setValue(0);
@@ -316,6 +356,7 @@ export function useCountrySelectionAnimations(
     },
     [
       celebrationHoldDuration,
+      reduceMotion,
       selectionScale,
       selectionOpacity,
       flagScale,

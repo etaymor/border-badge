@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { CountryCard } from '@components/ui';
 import { AnimatedCardWrapper } from './AnimatedCardWrapper';
@@ -12,36 +12,71 @@ interface CountryRowProps {
   onToggleWishlist: (countryCode: string) => void;
 }
 
-export function CountryRow({
+interface CountryItemProps {
+  country: UnvisitedCountry;
+  animValue: Animated.Value;
+  onCountryPress: (country: UnvisitedCountry) => void;
+  onAddVisited: (countryCode: string) => void;
+  onToggleWishlist: (countryCode: string) => void;
+}
+
+const CountryItem = React.memo<CountryItemProps>(function CountryItem({
+  country,
+  animValue,
+  onCountryPress,
+  onAddVisited,
+  onToggleWishlist,
+}) {
+  const handlePress = useCallback(() => {
+    onCountryPress(country);
+  }, [onCountryPress, country]);
+
+  const handleAddVisited = useCallback(() => {
+    onAddVisited(country.code);
+  }, [onAddVisited, country.code]);
+
+  const handleToggleWishlist = useCallback(() => {
+    onToggleWishlist(country.code);
+  }, [onToggleWishlist, country.code]);
+
+  return (
+    <AnimatedCardWrapper animValue={animValue} style={styles.countryCardWrapper}>
+      <CountryCard
+        code={country.code}
+        name={country.name}
+        isVisited={false}
+        isWishlisted={country.isWishlisted}
+        hasTrips={country.hasTrips}
+        onPress={handlePress}
+        onAddVisited={handleAddVisited}
+        onToggleWishlist={handleToggleWishlist}
+      />
+    </AnimatedCardWrapper>
+  );
+});
+
+export const CountryRow = React.memo<CountryRowProps>(function CountryRow({
   countries,
   animValues,
   onCountryPress,
   onAddVisited,
   onToggleWishlist,
-}: CountryRowProps) {
+}) {
   return (
     <View style={styles.unvisitedRow}>
       {countries.map((country, index) => (
-        <AnimatedCardWrapper
+        <CountryItem
           key={country.code}
+          country={country}
           animValue={animValues[index]}
-          style={styles.countryCardWrapper}
-        >
-          <CountryCard
-            code={country.code}
-            name={country.name}
-            isVisited={false}
-            isWishlisted={country.isWishlisted}
-            hasTrips={country.hasTrips}
-            onPress={() => onCountryPress(country)}
-            onAddVisited={() => onAddVisited(country.code)}
-            onToggleWishlist={() => onToggleWishlist(country.code)}
-          />
-        </AnimatedCardWrapper>
+          onCountryPress={onCountryPress}
+          onAddVisited={onAddVisited}
+          onToggleWishlist={onToggleWishlist}
+        />
       ))}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   unvisitedRow: {

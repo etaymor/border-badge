@@ -21,6 +21,7 @@ import {
   SPRING_TENSION_OUT,
   SCALE_PRESS,
 } from '../navigation/transitionConfig';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface UseAnimatedPressOptions {
   /** Scale factor when pressed (default: 0.96 from transitionConfig) */
@@ -52,6 +53,9 @@ export interface UseAnimatedPressResult {
 export function useAnimatedPress(options: UseAnimatedPressOptions = {}): UseAnimatedPressResult {
   const { pressedScale = SCALE_PRESS, disabled = false } = options;
 
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
+
   const scaleValue = useRef(new Animated.Value(1)).current;
 
   // Cleanup: stop any running animation and reset value on unmount
@@ -63,7 +67,7 @@ export function useAnimatedPress(options: UseAnimatedPressOptions = {}): UseAnim
   }, [scaleValue]);
 
   const animatePressIn = useCallback(() => {
-    if (disabled) return;
+    if (disabled || reduceMotion) return;
 
     Animated.spring(scaleValue, {
       toValue: pressedScale,
@@ -71,10 +75,10 @@ export function useAnimatedPress(options: UseAnimatedPressOptions = {}): UseAnim
       tension: SPRING_TENSION_IN,
       useNativeDriver: true,
     }).start();
-  }, [scaleValue, pressedScale, disabled]);
+  }, [scaleValue, pressedScale, disabled, reduceMotion]);
 
   const animatePressOut = useCallback(() => {
-    if (disabled) return;
+    if (disabled || reduceMotion) return;
 
     Animated.spring(scaleValue, {
       toValue: 1,
@@ -82,7 +86,7 @@ export function useAnimatedPress(options: UseAnimatedPressOptions = {}): UseAnim
       tension: SPRING_TENSION_OUT,
       useNativeDriver: true,
     }).start();
-  }, [scaleValue, disabled]);
+  }, [scaleValue, disabled, reduceMotion]);
 
   // Memoize press handlers to prevent unnecessary re-renders
   const pressHandlers = useMemo(

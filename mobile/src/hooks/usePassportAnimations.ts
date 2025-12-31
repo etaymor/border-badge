@@ -3,6 +3,7 @@ import { Animated, type ViewToken } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { ROW_HEIGHTS } from '../screens/passport/passportConstants';
 import type { ListItem } from '../screens/passport/passportTypes';
+import { useReducedMotion } from './useReducedMotion';
 
 // ============ ANIMATION CONSTANTS ============
 
@@ -38,6 +39,9 @@ export function hasInitialAnimationPlayed(): boolean {
 }
 
 export function usePassportAnimations(_isLoading: boolean) {
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
+
   // Track which rows have animated (prevent re-animation on scroll back)
   const animatedRowKeysRef = useRef<Set<string>>(new Set());
   // Store animation values per row with LRU-style tracking
@@ -111,8 +115,8 @@ export function usePassportAnimations(_isLoading: boolean) {
         rowIndexMapRef.current.set(rowKey, nextRowIndexRef.current++);
       }
 
-      // If initial animation already played, start all values at 1 (fully visible)
-      if (hasPlayedInitialAnimation) {
+      // If reduce motion is enabled or initial animation already played, start all values at 1 (fully visible)
+      if (reduceMotion || hasPlayedInitialAnimation) {
         const values = Array.from({ length: cardCount }, () => new Animated.Value(1));
         rowAnimationValuesRef.current.set(rowKey, values);
         animatedRowKeysRef.current.add(rowKey);
@@ -134,21 +138,16 @@ export function usePassportAnimations(_isLoading: boolean) {
       cleanupIfNeeded();
       return values;
     },
-    [updateAccessOrder, cleanupIfNeeded]
+    [updateAccessOrder, cleanupIfNeeded, reduceMotion]
   );
-
-  // No longer needed but kept for interface compatibility
-  const ensureRowVisible = useCallback((_rowKey: string, _animValues: Animated.Value[]) => {
-    // Not needed with new approach
-  }, []);
 
   // Handle row visibility changes - animate rows when they become visible
   // Implements diagonal wave stagger pattern (top-left to bottom-right)
   // Must be a stable ref for FlatList
   const handleViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<ListItem>[] }) => {
-      // Skip all animations if initial load has already played
-      if (hasPlayedInitialAnimation) {
+      // Skip all animations if reduce motion is enabled or initial load has already played
+      if (reduceMotion || hasPlayedInitialAnimation) {
         return;
       }
 
@@ -266,11 +265,27 @@ export function usePassportAnimations(_isLoading: boolean) {
     };
   }, []);
 
+  // Stop all animations when reduce motion is enabled
+  useEffect(() => {
+    if (reduceMotion) {
+      // Clear any pending animations
+      timeoutIdsRef.current.forEach((id) => clearTimeout(id));
+      timeoutIdsRef.current.clear();
+
+      // Set all animation values to 1 (fully visible)
+      rowAnimationValuesRef.current.forEach((values) => {
+        values.forEach((value) => {
+          value.stopAnimation();
+          value.setValue(1);
+        });
+      });
+    }
+  }, [reduceMotion]);
+
   return {
     fadeAnim,
     viewabilityConfig,
     getRowAnimationValues,
-    ensureRowVisible,
     handleViewableItemsChanged,
     computeLayoutData,
     getItemKey,

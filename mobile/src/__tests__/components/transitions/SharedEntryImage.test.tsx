@@ -89,6 +89,34 @@ describe('SharedEntryImage', () => {
       expect(onLongPressMock).toHaveBeenCalledTimes(1);
     });
 
+    it('calls onPressIn handler', () => {
+      const onPressInMock = jest.fn();
+      render(
+        <SharedEntryPressable entryId="entry-press-in" testID="pressable" onPressIn={onPressInMock}>
+          <Text>Press In</Text>
+        </SharedEntryPressable>
+      );
+
+      fireEvent(screen.getByTestId('pressable'), 'pressIn');
+      expect(onPressInMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls onPressOut handler', () => {
+      const onPressOutMock = jest.fn();
+      render(
+        <SharedEntryPressable
+          entryId="entry-press-out"
+          testID="pressable"
+          onPressOut={onPressOutMock}
+        >
+          <Text>Press Out</Text>
+        </SharedEntryPressable>
+      );
+
+      fireEvent(screen.getByTestId('pressable'), 'pressOut');
+      expect(onPressOutMock).toHaveBeenCalledTimes(1);
+    });
+
     it('passes accessibility props correctly', () => {
       render(
         <SharedEntryPressable

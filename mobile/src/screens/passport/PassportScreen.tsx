@@ -54,7 +54,6 @@ export function PassportScreen({ navigation }: Props) {
     fadeAnim,
     viewabilityConfig,
     getRowAnimationValues,
-    ensureRowVisible,
     handleViewableItemsChanged,
     computeLayoutData,
     getItemKey,
@@ -233,18 +232,16 @@ export function PassportScreen({ navigation }: Props) {
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, stamps.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <StampRow stamps={stamps} animValues={animValues} onCountryPress={handleCountryPress} />
       );
     },
-    [getRowAnimationValues, ensureRowVisible, handleCountryPress]
+    [getRowAnimationValues, handleCountryPress]
   );
 
   const renderUnvisitedRow = useCallback(
     (countries: UnvisitedCountry[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, countries.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <CountryRow
           countries={countries}
@@ -257,7 +254,6 @@ export function PassportScreen({ navigation }: Props) {
     },
     [
       getRowAnimationValues,
-      ensureRowVisible,
       handleUnvisitedCountryPress,
       handleAddVisited,
       handleToggleWishlist,

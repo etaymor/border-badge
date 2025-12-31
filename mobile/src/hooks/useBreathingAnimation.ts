@@ -10,10 +10,14 @@
  * <Animated.View style={{ transform: [{ scale: breathingScale }] }}>
  *   ...
  * </Animated.View>
+ *
+ * Note: This hook does not expose an isBreathing state. If you need to track
+ * animation state, manage it externally in your component.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface UseBreathingAnimationOptions {
   /** Minimum scale (default: 1.0) */
@@ -33,8 +37,6 @@ export interface UseBreathingAnimationResult {
   startBreathing: () => void;
   /** Stop the breathing animation */
   stopBreathing: () => void;
-  /** Whether the animation is currently running */
-  isBreathing: boolean;
 }
 
 /**
@@ -47,6 +49,9 @@ export function useBreathingAnimation(
   options: UseBreathingAnimationOptions = {}
 ): UseBreathingAnimationResult {
   const { minScale = 1.0, maxScale = 1.01, duration = 3000, autoStart = false } = options;
+
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
 
   const breathingScale = useRef(new Animated.Value(minScale)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -62,7 +67,7 @@ export function useBreathingAnimation(
   }, [breathingScale, minScale]);
 
   const startBreathing = useCallback(() => {
-    if (isBreathingRef.current) return;
+    if (isBreathingRef.current || reduceMotion) return;
 
     isBreathingRef.current = true;
 
@@ -85,25 +90,27 @@ export function useBreathingAnimation(
 
     animationRef.current = Animated.loop(breathCycle);
     animationRef.current.start();
-  }, [breathingScale, maxScale, minScale, duration]);
+  }, [breathingScale, maxScale, minScale, duration, reduceMotion]);
 
-  // Auto-start if requested
+  // Auto-start if requested (unless reduce motion is enabled)
   useEffect(() => {
-    if (autoStart) {
+    if (autoStart && !reduceMotion) {
       startBreathing();
+    } else if (reduceMotion) {
+      // Stop any running animation if reduce motion is enabled
+      stopBreathing();
     }
 
     // Cleanup on unmount
     return () => {
       stopBreathing();
     };
-  }, [autoStart, startBreathing, stopBreathing]);
+  }, [autoStart, reduceMotion, startBreathing, stopBreathing]);
 
   return {
     breathingScale,
     startBreathing,
     stopBreathing,
-    isBreathing: isBreathingRef.current,
   };
 }
 
