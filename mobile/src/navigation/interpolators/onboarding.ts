@@ -29,6 +29,17 @@ type ScreenStyleInterpolatorParams = {
   };
 };
 
+type ScreenStyleInterpolatorResult = {
+  contentStyle: {
+    transform: Array<Record<string, number>>;
+    opacity: number;
+  };
+  overlayStyle?: {
+    backgroundColor: string;
+    opacity: number;
+  };
+};
+
 // ============ TRANSITION SPECS ============
 
 /** Gentle spec for reflective transitions */
@@ -55,7 +66,7 @@ const TRANSITION_SPEC_BOUNCY = {
 export const parallaxSlideInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // Incoming slides from right at full speed
@@ -83,7 +94,7 @@ export const parallaxSlideInterpolator = ({
 export const zoomRevealInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // Incoming screen fades in and scales up slightly
@@ -113,7 +124,7 @@ export const zoomRevealInterpolator = ({
 export const slideWithLeadInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // Slide from right with slight overshoot feel
@@ -139,7 +150,7 @@ export const slideWithLeadInterpolator = ({
 export const continentZoomInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // New screen zooms in from slightly smaller
@@ -175,7 +186,7 @@ export const continentZoomInterpolator = ({
 export const dramaticRevealInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // New screen scales up from smaller with fade in
@@ -212,7 +223,7 @@ export const dramaticRevealInterpolator = ({
 export const collectInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   // Gentle slide from right
@@ -235,7 +246,7 @@ export const collectInterpolator = ({
 export const onboardingSlideInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams) => {
+}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
   'worklet';
 
   const translateX = interpolate(progress, [0, 1, 2], [screen.width, 0, -screen.width * 0.3]);

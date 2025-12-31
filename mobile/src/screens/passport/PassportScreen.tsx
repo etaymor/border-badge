@@ -252,12 +252,7 @@ export function PassportScreen({ navigation }: Props) {
         />
       );
     },
-    [
-      getRowAnimationValues,
-      handleUnvisitedCountryPress,
-      handleAddVisited,
-      handleToggleWishlist,
-    ]
+    [getRowAnimationValues, handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
   );
 
   const renderItem = useCallback(

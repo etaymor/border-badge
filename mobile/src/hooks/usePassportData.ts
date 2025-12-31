@@ -304,7 +304,7 @@ export function usePassportData() {
     }
 
     return items;
-  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount]);
+  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount, userCountries]);
 
   const activeFilterCount = countActiveFilters(filters);
   const filtersActive = hasActiveFilters(filters);
