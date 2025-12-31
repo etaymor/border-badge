@@ -163,12 +163,12 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
             toValue: 1.15,
             friction: 3,
             tension: 150,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
           Animated.spring(completionScale, {
             toValue: 1,
             friction: 4,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
         ]),
       ]).start(() => {
@@ -343,15 +343,6 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
                       backgroundColor: completionGlow.interpolate({
                         inputRange: [0, 1],
                         outputRange: [colors.midnightNavy, colors.mossGreen],
-                      }),
-                      shadowColor: colors.mossGreen,
-                      shadowOpacity: completionGlow.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 0.8],
-                      }),
-                      shadowRadius: completionGlow.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 12],
                       }),
                     },
                   ]}
