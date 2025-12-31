@@ -105,6 +105,7 @@ export function usePassportData() {
       visitedCountries: userCountries.filter((uc) => uc.status === 'visited'),
       wishlistCountries: userCountries.filter((uc) => uc.status === 'wishlist'),
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally depend on code strings for stable memoization
   }, [userCountries, visitedCountryCodes, wishlistCountryCodes]);
 
   // Pre-compute visited, wishlist, and trip code sets

@@ -301,7 +301,6 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         displayName={displayName}
         subregion={subregion}
         flagEmoji={flagEmoji}
-        countryCode={code}
         countryImage={countryImage}
         heroHeight={HERO_HEIGHT}
         insetTop={insets.top}
