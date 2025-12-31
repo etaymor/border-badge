@@ -273,7 +273,7 @@ export const SlideWithLeadPreset: BlankStackNavigationOptions = {
 /** DreamDestination → ContinentIntro: Globe rotation / continent zoom effect */
 export const ContinentZoomPreset: BlankStackNavigationOptions = {
   screenStyleInterpolator: continentZoomInterpolator,
-  transitionSpec: TRANSITION_SPEC_GENTLE,
+  transitionSpec: TRANSITION_SPEC_DEFAULT,
   gestureEnabled: true,
   gestureDirection: 'horizontal',
 };
