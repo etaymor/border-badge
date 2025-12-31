@@ -179,12 +179,14 @@ describe('PassportScreen', () => {
       expect(screen.queryByText('Your Passport')).toBeNull();
     });
 
-    it('handles empty countries list gracefully', () => {
+    it('shows loading skeleton when countries list is empty', () => {
+      // When countries array is empty (SQLite still loading), show skeleton
+      // This prevents showing empty state / 0s before data loads
       mockHooksWithData({ countries: [], userCountries: [] });
       render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
 
-      // Should show 0 for stats (may appear multiple times)
-      expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
+      // Should show skeleton (loading state), not 0s
+      expect(screen.queryByText('Your Passport')).toBeNull();
     });
 
     it('handles no visited countries', () => {

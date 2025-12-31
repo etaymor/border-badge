@@ -42,12 +42,15 @@ export function usePassportData() {
 
   // Consider loading if any query is still loading OR if essential data isn't available yet
   // This prevents showing empty state flash before data loads
+  // CRITICAL: Check both loading flags AND actual data availability
+  // After onboarding, userCountries may be set but countries SQLite may still be loading
   const isLoading =
     loadingUserCountries ||
     loadingCountries ||
     loadingTrips ||
     loadingProfile ||
-    userCountries === undefined;
+    userCountries === undefined ||
+    (countries !== undefined && countries.length === 0); // SQLite countries not yet loaded
 
   // Track passport view only when visited count changes
   const lastTrackedCountRef = useRef<number | null>(null);
@@ -172,23 +175,7 @@ export function usePassportData() {
 
   // Combine visited countries with country metadata for display
   const displayItems = useMemo((): CountryDisplayItem[] => {
-    if (!visitedCountries.length) return [];
-
-    // If countries haven't loaded yet, show visited countries with minimal metadata
-    // This prevents empty state flash while SQLite countries are loading
-    if (!filteredCountries.length && countries && countries.length === 0) {
-      const query = searchQuery.toLowerCase().trim();
-      return visitedCountries
-        .filter((uc) => !query || uc.country_code.toLowerCase().includes(query))
-        .map((uc) => ({
-          code: uc.country_code,
-          name: uc.country_code, // Fallback to code until countries load
-          region: 'Unknown' as any, // Will be replaced when countries load
-          status: 'visited' as const,
-          hasTrips: countriesWithTrips.has(uc.country_code),
-        }))
-        .sort((a, b) => a.code.localeCompare(b.code));
-    }
+    if (!visitedCountries.length || !filteredCountries.length) return [];
 
     const query = searchQuery.toLowerCase().trim();
 
@@ -203,7 +190,7 @@ export function usePassportData() {
         hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips, visitedCodes, countries]);
+  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips, visitedCodes]);
 
   // Compute all stats
   const stats: PassportStats = useMemo(() => {
