@@ -53,6 +53,8 @@ export const StampCard = React.memo(function StampCard({
   const { scaleValue: pressScale, pressHandlers } = useAnimatedPress(AnimatedPressPresets.default);
 
   // Breathing animation for "alive" feel - only for visited stamps (which have stamp images)
+  // Performance note: Uses native-driven animation (runs on UI thread) and FlatList
+  // virtualization ensures only ~15-30 stamps are mounted simultaneously
   const { breathingScale, startBreathing, stopBreathing } = useBreathingAnimation(
     BreathingPresets.subtle
   );

@@ -57,6 +57,18 @@ export function useBreathingAnimation(
   const breathingScale = useRef(new Animated.Value(minScale)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
   const [isBreathing, setIsBreathing] = useState(false);
+  // Use refs for values we read in callbacks to avoid recreating callbacks
+  const isBreathingRef = useRef(false);
+  const reduceMotionRef = useRef(reduceMotion);
+
+  // Keep refs in sync with state/props
+  useEffect(() => {
+    isBreathingRef.current = isBreathing;
+  }, [isBreathing]);
+
+  useEffect(() => {
+    reduceMotionRef.current = reduceMotion;
+  }, [reduceMotion]);
 
   const stopBreathing = useCallback(() => {
     if (animationRef.current) {
@@ -68,7 +80,8 @@ export function useBreathingAnimation(
   }, [breathingScale, minScale]);
 
   const startBreathing = useCallback(() => {
-    if (isBreathing || reduceMotion) return;
+    // Read from refs to avoid dependency on state/props
+    if (isBreathingRef.current || reduceMotionRef.current) return;
 
     setIsBreathing(true);
 
@@ -91,7 +104,7 @@ export function useBreathingAnimation(
 
     animationRef.current = Animated.loop(breathCycle);
     animationRef.current.start();
-  }, [breathingScale, maxScale, minScale, duration, reduceMotion, isBreathing]);
+  }, [breathingScale, maxScale, minScale, duration]);
 
   // Auto-start if requested (unless reduce motion is enabled)
   useEffect(() => {
