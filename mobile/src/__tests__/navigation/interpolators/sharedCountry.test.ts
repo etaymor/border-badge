@@ -3,17 +3,66 @@ import {
   SharedCountryPreset,
 } from '@navigation/interpolators/sharedCountry';
 import { SCALE_PREVIOUS_SCREEN, OPACITY_BACKGROUND } from '@navigation/transitionConfig';
+import type { ScreenInterpolationProps } from 'react-native-screen-transitions';
 
 describe('sharedCountryInterpolator', () => {
+  // Ensure interpolator is defined before running tests
+  beforeAll(() => {
+    if (!sharedCountryInterpolator) {
+      throw new Error('sharedCountryInterpolator is undefined');
+    }
+  });
+
   const mockScreen = { width: 400, height: 800 };
-  const createContext = (progress: number) => ({
-    progress,
+  const createContext = (progressValue: number): ScreenInterpolationProps => ({
+    progress: progressValue,
+    stackProgress: progressValue,
     layouts: { screen: mockScreen },
+    insets: { top: 0, right: 0, bottom: 0, left: 0 },
+    previous: undefined,
+    current: {
+      progress: progressValue,
+      closing: 0,
+      entering: 1,
+      animating: 0,
+      gesture: {
+        x: 0,
+        y: 0,
+        normalizedX: 0,
+        normalizedY: 0,
+        isDragging: 0,
+        isDismissing: 0,
+        direction: 'horizontal' as const,
+      },
+      route: { key: 'test', name: 'Test' },
+    },
+    next: undefined,
+    focused: true,
+    bounds: (() => null) as unknown as ScreenInterpolationProps['bounds'],
+    active: {
+      progress: progressValue,
+      closing: 0,
+      entering: 1,
+      animating: 0,
+      gesture: {
+        x: 0,
+        y: 0,
+        normalizedX: 0,
+        normalizedY: 0,
+        isDragging: 0,
+        isDismissing: 0,
+        direction: 'horizontal' as const,
+      },
+      route: { key: 'test', name: 'Test' },
+    },
+    inactive: undefined,
+    isActiveTransitioning: false,
+    isDismissing: false,
   });
 
   describe('content transitions', () => {
     it('positions incoming screen off-screen right at progress 0', () => {
-      const result = sharedCountryInterpolator(createContext(0));
+      const result = sharedCountryInterpolator!(createContext(0));
       const transform = result.contentStyle?.transform as Array<{ translateX?: number }>;
       const translateX = transform?.find((t) => 'translateX' in t)?.translateX;
 
@@ -21,7 +70,7 @@ describe('sharedCountryInterpolator', () => {
     });
 
     it('positions screen at center at progress 1', () => {
-      const result = sharedCountryInterpolator(createContext(1));
+      const result = sharedCountryInterpolator!(createContext(1));
       const transform = result.contentStyle?.transform as Array<{ translateX?: number }>;
       const translateX = transform?.find((t) => 'translateX' in t)?.translateX;
 
@@ -29,7 +78,7 @@ describe('sharedCountryInterpolator', () => {
     });
 
     it('positions previous screen to the left at progress 2', () => {
-      const result = sharedCountryInterpolator(createContext(2));
+      const result = sharedCountryInterpolator!(createContext(2));
       const transform = result.contentStyle?.transform as Array<{ translateX?: number }>;
       const translateX = transform?.find((t) => 'translateX' in t)?.translateX;
 
@@ -39,10 +88,10 @@ describe('sharedCountryInterpolator', () => {
 
   describe('scale transitions', () => {
     it('maintains full scale at progress 0 and 1', () => {
-      const result0 = sharedCountryInterpolator(createContext(0));
-      const result1 = sharedCountryInterpolator(createContext(1));
+      const result0 = sharedCountryInterpolator!(createContext(0));
+      const result1 = sharedCountryInterpolator!(createContext(1));
 
-      const getScale = (result: ReturnType<typeof sharedCountryInterpolator>) => {
+      const getScale = (result: ReturnType<NonNullable<typeof sharedCountryInterpolator>>) => {
         const transform = result.contentStyle?.transform as Array<{ scale?: number }>;
         return transform?.find((t) => 'scale' in t)?.scale;
       };
@@ -52,7 +101,7 @@ describe('sharedCountryInterpolator', () => {
     });
 
     it('scales down previous screen at progress 2', () => {
-      const result = sharedCountryInterpolator(createContext(2));
+      const result = sharedCountryInterpolator!(createContext(2));
       const transform = result.contentStyle?.transform as Array<{ scale?: number }>;
       const scale = transform?.find((t) => 'scale' in t)?.scale;
 
@@ -62,44 +111,44 @@ describe('sharedCountryInterpolator', () => {
 
   describe('opacity transitions', () => {
     it('maintains full opacity at progress 0 and 1', () => {
-      const result0 = sharedCountryInterpolator(createContext(0));
-      const result1 = sharedCountryInterpolator(createContext(1));
+      const result0 = sharedCountryInterpolator!(createContext(0));
+      const result1 = sharedCountryInterpolator!(createContext(1));
 
       expect(result0.contentStyle?.opacity).toBe(1);
       expect(result1.contentStyle?.opacity).toBe(1);
     });
 
     it('fades previous screen at progress 2', () => {
-      const result = sharedCountryInterpolator(createContext(2));
+      const result = sharedCountryInterpolator!(createContext(2));
       expect(result.contentStyle?.opacity).toBe(OPACITY_BACKGROUND);
     });
   });
 
   describe('overlay transitions', () => {
     it('has no overlay at progress 0', () => {
-      const result = sharedCountryInterpolator(createContext(0));
+      const result = sharedCountryInterpolator!(createContext(0));
       expect(result.overlayStyle?.opacity).toBe(0);
     });
 
     it('shows subtle overlay at progress 1', () => {
-      const result = sharedCountryInterpolator(createContext(1));
+      const result = sharedCountryInterpolator!(createContext(1));
       expect(result.overlayStyle?.opacity).toBe(0.15);
     });
 
     it('hides overlay at progress 2', () => {
-      const result = sharedCountryInterpolator(createContext(2));
+      const result = sharedCountryInterpolator!(createContext(2));
       expect(result.overlayStyle?.opacity).toBe(0);
     });
 
     it('overlay is black', () => {
-      const result = sharedCountryInterpolator(createContext(1));
+      const result = sharedCountryInterpolator!(createContext(1));
       expect(result.overlayStyle?.backgroundColor).toBe('black');
     });
   });
 
   describe('interpolation at midpoints', () => {
     it('interpolates smoothly at progress 0.5', () => {
-      const result = sharedCountryInterpolator(createContext(0.5));
+      const result = sharedCountryInterpolator!(createContext(0.5));
       const transform = result.contentStyle?.transform as Array<{
         translateX?: number;
         scale?: number;
@@ -111,7 +160,7 @@ describe('sharedCountryInterpolator', () => {
     });
 
     it('interpolates smoothly at progress 1.5', () => {
-      const result = sharedCountryInterpolator(createContext(1.5));
+      const result = sharedCountryInterpolator!(createContext(1.5));
       const transform = result.contentStyle?.transform as Array<{ scale?: number }>;
       const scale = transform?.find((t) => 'scale' in t)?.scale;
 

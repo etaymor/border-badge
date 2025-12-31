@@ -83,10 +83,12 @@ describe('useReducedMotion', () => {
     it('should update when reduce motion setting changes', async () => {
       let changeCallback: ((enabled: boolean) => void) | null = null;
 
-      (AccessibilityInfo.addEventListener as jest.Mock).mockImplementation((event, callback) => {
-        changeCallback = callback;
-        return { remove: mockRemove };
-      });
+      (AccessibilityInfo.addEventListener as jest.Mock).mockImplementation(
+        (_event: string, callback: (enabled: boolean) => void) => {
+          changeCallback = callback;
+          return { remove: mockRemove };
+        }
+      );
 
       const { result } = renderHook(() => useReducedMotion());
 
@@ -96,18 +98,14 @@ describe('useReducedMotion', () => {
       });
 
       // Simulate reduce motion being enabled
-      if (changeCallback) {
-        changeCallback(true);
-      }
+      changeCallback!(true);
 
       await waitFor(() => {
         expect(result.current).toBe(true);
       });
 
       // Simulate reduce motion being disabled again
-      if (changeCallback) {
-        changeCallback(false);
-      }
+      changeCallback!(false);
 
       await waitFor(() => {
         expect(result.current).toBe(false);
@@ -147,10 +145,12 @@ describe('useReducedMotion', () => {
     it('should handle multiple rapid changes', async () => {
       let changeCallback: ((enabled: boolean) => void) | null = null;
 
-      (AccessibilityInfo.addEventListener as jest.Mock).mockImplementation((event, callback) => {
-        changeCallback = callback;
-        return { remove: mockRemove };
-      });
+      (AccessibilityInfo.addEventListener as jest.Mock).mockImplementation(
+        (_event: string, callback: (enabled: boolean) => void) => {
+          changeCallback = callback;
+          return { remove: mockRemove };
+        }
+      );
 
       const { result } = renderHook(() => useReducedMotion());
 
@@ -159,11 +159,9 @@ describe('useReducedMotion', () => {
       });
 
       // Rapidly toggle the setting
-      if (changeCallback) {
-        changeCallback(true);
-        changeCallback(false);
-        changeCallback(true);
-      }
+      changeCallback!(true);
+      changeCallback!(false);
+      changeCallback!(true);
 
       await waitFor(() => {
         expect(result.current).toBe(true);
@@ -180,7 +178,7 @@ describe('useReducedMotion', () => {
       });
 
       // Force re-render
-      rerender();
+      rerender({});
 
       // State should be maintained
       expect(result.current).toBe(true);

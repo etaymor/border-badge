@@ -21,24 +21,7 @@ import {
 } from '../transitionConfig';
 
 import type { BlankStackNavigationOptions } from 'react-native-screen-transitions/blank-stack';
-
-type ScreenStyleInterpolatorParams = {
-  progress: number;
-  layouts: {
-    screen: { width: number; height: number };
-  };
-};
-
-type ScreenStyleInterpolatorResult = {
-  contentStyle: {
-    transform: Array<Record<string, number>>;
-    opacity: number;
-  };
-  overlayStyle?: {
-    backgroundColor: string;
-    opacity: number;
-  };
-};
+import type { ScreenInterpolationProps } from 'react-native-screen-transitions';
 
 // ============ TRANSITION SPECS ============
 
@@ -66,7 +49,7 @@ const TRANSITION_SPEC_BOUNCY = {
 export const parallaxSlideInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // Incoming slides from right at full speed
@@ -94,7 +77,7 @@ export const parallaxSlideInterpolator = ({
 export const zoomRevealInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // Incoming screen fades in and scales up slightly
@@ -124,7 +107,7 @@ export const zoomRevealInterpolator = ({
 export const slideWithLeadInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // Slide from right with slight overshoot feel
@@ -150,7 +133,7 @@ export const slideWithLeadInterpolator = ({
 export const continentZoomInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // New screen zooms in from slightly smaller
@@ -186,7 +169,7 @@ export const continentZoomInterpolator = ({
 export const dramaticRevealInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // New screen scales up from smaller with fade in
@@ -223,7 +206,7 @@ export const dramaticRevealInterpolator = ({
 export const collectInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   // Gentle slide from right
@@ -246,7 +229,7 @@ export const collectInterpolator = ({
 export const onboardingSlideInterpolator = ({
   progress,
   layouts: { screen },
-}: ScreenStyleInterpolatorParams): ScreenStyleInterpolatorResult => {
+}: ScreenInterpolationProps) => {
   'worklet';
 
   const translateX = interpolate(progress, [0, 1, 2], [screen.width, 0, -screen.width * 0.3]);
