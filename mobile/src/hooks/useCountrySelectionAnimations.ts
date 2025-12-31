@@ -6,6 +6,11 @@ export interface CelebrationAnimationRefs {
   selectionOpacity: Animated.Value;
   flagScale: Animated.Value;
   flagRotate: Animated.Value;
+  // Enhanced celebration effects
+  rippleScale: Animated.Value;
+  rippleOpacity: Animated.Value;
+  sparkleScale: Animated.Value;
+  sparkleRotate: Animated.Value;
 }
 
 export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs {
@@ -64,12 +69,19 @@ export function useCountrySelectionAnimations(
   const pinOpacity = useRef(new Animated.Value(0)).current;
   const pinScale = useRef(new Animated.Value(0.8)).current;
   const pinBounce = useRef(new Animated.Value(0)).current;
+  const pinBounceLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Celebration animation refs
   const selectionScale = useRef(new Animated.Value(0)).current;
   const selectionOpacity = useRef(new Animated.Value(0)).current;
   const flagScale = useRef(new Animated.Value(0.5)).current;
   const flagRotate = useRef(new Animated.Value(0)).current;
+
+  // Enhanced celebration effects
+  const rippleScale = useRef(new Animated.Value(0)).current;
+  const rippleOpacity = useRef(new Animated.Value(0)).current;
+  const sparkleScale = useRef(new Animated.Value(0)).current;
+  const sparkleRotate = useRef(new Animated.Value(0)).current;
 
   // Entrance animations
   useEffect(() => {
@@ -152,7 +164,7 @@ export function useCountrySelectionAnimations(
 
     // Floating animation for location pin
     if (hasLocationPin) {
-      Animated.loop(
+      pinBounceLoopRef.current = Animated.loop(
         Animated.sequence([
           Animated.timing(pinBounce, {
             toValue: -8,
@@ -167,8 +179,17 @@ export function useCountrySelectionAnimations(
             useNativeDriver: true,
           }),
         ])
-      ).start();
+      );
+      pinBounceLoopRef.current.start();
     }
+
+    // Cleanup loop animation on unmount
+    return () => {
+      if (pinBounceLoopRef.current) {
+        pinBounceLoopRef.current.stop();
+        pinBounceLoopRef.current = null;
+      }
+    };
   }, [
     hasBackButton,
     hasLocationPin,
@@ -208,7 +229,7 @@ export function useCountrySelectionAnimations(
     [dropdownOpacity, dropdownTranslate]
   );
 
-  // Celebration animation
+  // Celebration animation with enhanced effects
   const playCelebration = useCallback(
     (onComplete: () => void) => {
       // Reset animation values
@@ -216,6 +237,10 @@ export function useCountrySelectionAnimations(
       selectionOpacity.setValue(0);
       flagScale.setValue(0.5);
       flagRotate.setValue(0);
+      rippleScale.setValue(0);
+      rippleOpacity.setValue(0.8);
+      sparkleScale.setValue(0);
+      sparkleRotate.setValue(0);
 
       Animated.sequence([
         // Fade in backdrop and scale up container with flag animation
@@ -243,6 +268,36 @@ export function useCountrySelectionAnimations(
             easing: Easing.out(Easing.back(1.5)),
             useNativeDriver: true,
           }),
+          // Ripple effect: expands outward and fades
+          Animated.parallel([
+            Animated.timing(rippleScale, {
+              toValue: 3,
+              duration: 800,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.timing(rippleOpacity, {
+              toValue: 0,
+              duration: 800,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+          ]),
+          // Sparkle effect: scales up with rotation
+          Animated.parallel([
+            Animated.spring(sparkleScale, {
+              toValue: 1,
+              friction: 5,
+              tension: 120,
+              useNativeDriver: true,
+            }),
+            Animated.timing(sparkleRotate, {
+              toValue: 1,
+              duration: 600,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+          ]),
         ]),
         // Hold for a moment
         Animated.delay(celebrationHoldDuration),
@@ -259,7 +314,17 @@ export function useCountrySelectionAnimations(
         }
       });
     },
-    [celebrationHoldDuration, selectionScale, selectionOpacity, flagScale, flagRotate]
+    [
+      celebrationHoldDuration,
+      selectionScale,
+      selectionOpacity,
+      flagScale,
+      flagRotate,
+      rippleScale,
+      rippleOpacity,
+      sparkleScale,
+      sparkleRotate,
+    ]
   );
 
   return {
@@ -279,6 +344,10 @@ export function useCountrySelectionAnimations(
       selectionOpacity,
       flagScale,
       flagRotate,
+      rippleScale,
+      rippleOpacity,
+      sparkleScale,
+      sparkleRotate,
     },
     animateDropdown,
     playCelebration,

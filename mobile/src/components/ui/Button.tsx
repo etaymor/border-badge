@@ -1,14 +1,17 @@
+import { useEffect, useRef } from 'react';
 import {
-  TouchableOpacity,
-  Text,
+  Animated,
   StyleSheet,
   ActivityIndicator,
   ViewStyle,
   TextStyle,
+  Pressable,
+  Text,
 } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress } from '@hooks/useAnimatedPress';
 
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
 
@@ -35,32 +38,84 @@ export function Button({
 }: ButtonProps) {
   const isDisabled = disabled || loading;
 
+  // Press animation - scale 0.97 for button feedback
+  const { scaleValue: pressScale, pressHandlers } = useAnimatedPress({ pressedScale: 0.97 });
+
+  // Loading pulse animation - opacity pulse when loading
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (loading) {
+      // Start pulsing when loading
+      pulseRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.7,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseRef.current.start();
+    } else {
+      // Stop pulsing and reset
+      if (pulseRef.current) {
+        pulseRef.current.stop();
+        pulseRef.current = null;
+      }
+      pulseAnim.setValue(1);
+    }
+
+    return () => {
+      if (pulseRef.current) {
+        pulseRef.current.stop();
+        pulseRef.current = null;
+      }
+    };
+  }, [loading, pulseAnim]);
+
   return (
-    <TouchableOpacity
-      style={[styles.base, styles[variant], isDisabled && styles.disabled, style]}
-      onPress={onPress}
-      disabled={isDisabled}
-      activeOpacity={0.7}
-      testID={testID}
+    <Animated.View
+      style={[
+        { transform: [{ scale: pressScale }], opacity: loading ? pulseAnim : 1 },
+        isDisabled && !loading && styles.disabled,
+      ]}
     >
-      {loading ? (
-        <ActivityIndicator
-          color={variant === 'primary' ? colors.cloudWhite : colors.primary}
-          size="small"
-        />
-      ) : (
-        <Text
-          style={[
-            styles.text,
-            styles[`${variant}Text` as keyof typeof styles],
-            isDisabled && styles.disabledText,
-            textStyle,
-          ]}
-        >
-          {title}
-        </Text>
-      )}
-    </TouchableOpacity>
+      <Pressable
+        style={[styles.base, styles[variant], style]}
+        onPress={onPress}
+        onPressIn={pressHandlers.onPressIn}
+        onPressOut={pressHandlers.onPressOut}
+        disabled={isDisabled}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isDisabled }}
+      >
+        {loading ? (
+          <ActivityIndicator
+            color={variant === 'primary' ? colors.cloudWhite : colors.primary}
+            size="small"
+          />
+        ) : (
+          <Text
+            style={[
+              styles.text,
+              styles[`${variant}Text` as keyof typeof styles],
+              isDisabled && styles.disabledText,
+              textStyle,
+            ]}
+          >
+            {title}
+          </Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 

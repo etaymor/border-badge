@@ -1,11 +1,41 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Animated, type ViewToken } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { ROW_HEIGHTS } from '../screens/passport/passportConstants';
 import type { ListItem } from '../screens/passport/passportTypes';
+
+// ============ ANIMATION CONSTANTS ============
 
 // Maximum cached animation values before cleanup triggers
 // ~100 rows covers most scrolling patterns without excessive memory
 const MAX_CACHED_ANIMATION_VALUES = 100;
+
+// Diagonal wave stagger timing
+/** Delay between cards within a row (ms) */
+export const CARD_STAGGER_DELAY = 50;
+/** Additional delay between rows for diagonal wave effect (ms) */
+export const ROW_STAGGER_DELAY = 30;
+/** Maximum total duration for stagger sequence (ms) */
+export const STAGGER_MAX_DURATION = 1500;
+
+// ============ FIRST-LOAD-ONLY STATE ============
+// Module-level variable to track if initial animation has played
+// Survives navigation but resets on app restart
+let hasPlayedInitialAnimation = false;
+
+/**
+ * Reset the initial animation flag (useful for testing or dev refresh)
+ */
+export function resetInitialAnimationFlag(): void {
+  hasPlayedInitialAnimation = false;
+}
+
+/**
+ * Check if initial animation has already played
+ */
+export function hasInitialAnimationPlayed(): boolean {
+  return hasPlayedInitialAnimation;
+}
 
 export function usePassportAnimations(_isLoading: boolean) {
   // Track which rows have animated (prevent re-animation on scroll back)
@@ -14,6 +44,12 @@ export function usePassportAnimations(_isLoading: boolean) {
   const rowAnimationValuesRef = useRef<Map<string, Animated.Value[]>>(new Map());
   // Track access order for LRU cleanup (most recent at end)
   const accessOrderRef = useRef<string[]>([]);
+  // Track row indices for diagonal wave calculation
+  const rowIndexMapRef = useRef<Map<string, number>>(new Map());
+  // Counter for assigning row indices
+  const nextRowIndexRef = useRef(0);
+  // Track setTimeout IDs for cleanup
+  const timeoutIdsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // Fade animation for container (always visible)
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -58,6 +94,7 @@ export function usePassportAnimations(_isLoading: boolean) {
 
   // Get or create animation values for a row
   // Values start at 0 and wait for visibility callback to animate
+  // If first-load animation has already played, start at 1 (no animation)
   const getRowAnimationValues = useCallback(
     (rowKey: string, cardCount: number): Animated.Value[] => {
       // Update access order for LRU tracking
@@ -67,6 +104,20 @@ export function usePassportAnimations(_isLoading: boolean) {
       const existing = rowAnimationValuesRef.current.get(rowKey);
       if (existing) {
         return existing;
+      }
+
+      // Assign row index for diagonal wave calculation
+      if (!rowIndexMapRef.current.has(rowKey)) {
+        rowIndexMapRef.current.set(rowKey, nextRowIndexRef.current++);
+      }
+
+      // If initial animation already played, start all values at 1 (fully visible)
+      if (hasPlayedInitialAnimation) {
+        const values = Array.from({ length: cardCount }, () => new Animated.Value(1));
+        rowAnimationValuesRef.current.set(rowKey, values);
+        animatedRowKeysRef.current.add(rowKey);
+        cleanupIfNeeded();
+        return values;
       }
 
       // Check if already animated - if so, start at 1
@@ -92,9 +143,22 @@ export function usePassportAnimations(_isLoading: boolean) {
   }, []);
 
   // Handle row visibility changes - animate rows when they become visible
+  // Implements diagonal wave stagger pattern (top-left to bottom-right)
   // Must be a stable ref for FlatList
   const handleViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<ListItem>[] }) => {
+      // Skip all animations if initial load has already played
+      if (hasPlayedInitialAnimation) {
+        return;
+      }
+
+      // Collect all rows that need animation
+      const rowsToAnimate: Array<{
+        rowKey: string;
+        rowIndex: number;
+        values: Animated.Value[];
+      }> = [];
+
       viewableItems.forEach((viewToken) => {
         const item = viewToken.item;
         if (!item || !viewToken.isViewable) return;
@@ -112,21 +176,65 @@ export function usePassportAnimations(_isLoading: boolean) {
           return;
         }
 
+        const rowIndex = rowIndexMapRef.current.get(rowKey) ?? 0;
+        rowsToAnimate.push({ rowKey, rowIndex, values });
         animatedRowKeysRef.current.add(rowKey);
+      });
 
-        // Stagger animation for cards in the row
-        Animated.stagger(
-          100,
-          values.map((value) =>
-            Animated.spring(value, {
+      if (rowsToAnimate.length === 0) return;
+
+      // Sort by row index for consistent diagonal wave
+      rowsToAnimate.sort((a, b) => a.rowIndex - b.rowIndex);
+
+      // Calculate base row delay from first visible row
+      const baseRowIndex = rowsToAnimate[0].rowIndex;
+
+      // Create all animations with diagonal wave timing
+      const allAnimations: Array<{ animation: Animated.CompositeAnimation; delay: number }> = [];
+
+      rowsToAnimate.forEach(({ rowIndex, values }) => {
+        const relativeRowIndex = rowIndex - baseRowIndex;
+        const rowDelay = relativeRowIndex * ROW_STAGGER_DELAY;
+
+        values.forEach((value, cardIndex) => {
+          // Diagonal wave: delay = rowDelay + cardDelay
+          // Cards further right start later within their row
+          const cardDelay = cardIndex * CARD_STAGGER_DELAY;
+          const totalDelay = Math.min(rowDelay + cardDelay, STAGGER_MAX_DURATION);
+
+          allAnimations.push({
+            delay: totalDelay,
+            animation: Animated.spring(value, {
               toValue: 1,
               friction: 6,
               tension: 40,
               useNativeDriver: true,
-            })
-          )
-        ).start();
+            }),
+          });
+        });
       });
+
+      // Sort by delay and start animations with setTimeout for diagonal wave effect
+      allAnimations.sort((a, b) => a.delay - b.delay);
+
+      // Trigger subtle haptic feedback at the start of the wave animation
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      allAnimations.forEach(({ animation, delay }) => {
+        if (delay === 0) {
+          animation.start();
+        } else {
+          const timeoutId = setTimeout(() => {
+            timeoutIdsRef.current.delete(timeoutId);
+            animation.start();
+          }, delay);
+          timeoutIdsRef.current.add(timeoutId);
+        }
+      });
+
+      // Mark initial animation as played after first batch
+      // This ensures subsequent navigations back to passport screen skip animation
+      hasPlayedInitialAnimation = true;
     }
   ).current;
 
@@ -148,6 +256,15 @@ export function usePassportAnimations(_isLoading: boolean) {
 
   // Get item key for FlatList
   const getItemKey = useCallback((item: ListItem) => item.key, []);
+
+  // Cleanup timeouts on unmount to prevent memory leaks
+  useEffect(() => {
+    const timeoutIds = timeoutIdsRef.current;
+    return () => {
+      timeoutIds.forEach((id) => clearTimeout(id));
+      timeoutIds.clear();
+    };
+  }, []);
 
   return {
     fadeAnim,

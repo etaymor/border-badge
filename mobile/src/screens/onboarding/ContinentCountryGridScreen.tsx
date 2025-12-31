@@ -57,6 +57,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
 
+  // Region completion glow animation
+  const completionGlow = useRef(new Animated.Value(0)).current;
+  const completionScale = useRef(new Animated.Value(1)).current;
+
   // Track screen view (fires when region changes)
   useEffect(() => {
     Analytics.viewOnboardingCountries(region);
@@ -126,6 +130,47 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleSaveAndContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Play region completion illumination effect if user selected countries
+    if (selectedInRegion > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Animate the completion glow effect
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(completionGlow, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: false, // backgroundColor requires JS driver
+          }),
+          Animated.timing(completionGlow, {
+            toValue: 0,
+            duration: 400,
+            useNativeDriver: false,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.spring(completionScale, {
+            toValue: 1.15,
+            friction: 3,
+            tension: 150,
+            useNativeDriver: true,
+          }),
+          Animated.spring(completionScale, {
+            toValue: 1,
+            friction: 4,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(() => {
+        navigateToNext();
+      });
+    } else {
+      navigateToNext();
+    }
+  };
+
+  const navigateToNext = () => {
     // Find current region index and move to next
     const currentIndex = REGIONS.indexOf(region as Region);
     const nextIndex = currentIndex + 1;
@@ -259,16 +304,46 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
         {/* Progress indicator - 6 dots for all regions including Antarctica */}
         <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((r, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                visitedContinents.includes(r) && styles.progressDotCompleted,
-                r === region && styles.progressDotActive,
-              ]}
-            />
-          ))}
+          {ALL_REGIONS.map((r, index) => {
+            const isCurrentRegion = r === region;
+            const isCompleted = visitedContinents.includes(r);
+
+            // Animate the current region's dot with glow
+            if (isCurrentRegion) {
+              return (
+                <Animated.View
+                  key={index}
+                  style={[
+                    styles.progressDot,
+                    styles.progressDotActive,
+                    {
+                      transform: [{ scale: completionScale }],
+                      backgroundColor: completionGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [colors.midnightNavy, colors.mossGreen],
+                      }),
+                      shadowColor: colors.mossGreen,
+                      shadowOpacity: completionGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 0.8],
+                      }),
+                      shadowRadius: completionGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 12],
+                      }),
+                    },
+                  ]}
+                />
+              );
+            }
+
+            return (
+              <View
+                key={index}
+                style={[styles.progressDot, isCompleted && styles.progressDotCompleted]}
+              />
+            );
+          })}
         </View>
       </Animated.View>
     </SafeAreaView>

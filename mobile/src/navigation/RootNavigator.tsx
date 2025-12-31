@@ -1,5 +1,5 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
 import { useAuthStore } from '@stores/authStore';
 
@@ -9,9 +9,10 @@ import { AuthNavigator } from './AuthNavigator';
 // import { MainTabNavigator } from './MainTabNavigator';
 import { PassportNavigator } from './PassportNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
+import { SlideWithScalePreset } from './interpolators';
 import type { RootStackParamList } from './types';
 
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const Stack = createBlankStackNavigator<RootStackParamList>();
 
 function LoadingScreen() {
   return (
@@ -33,7 +34,11 @@ export function RootNavigator() {
   const shouldShowOnboarding = isUnauthenticated && !hasCompletedOnboarding;
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      screenOptions={{
+        ...SlideWithScalePreset,
+      }}
+    >
       {isUnauthenticated ? (
         <>
           {shouldShowOnboarding && (

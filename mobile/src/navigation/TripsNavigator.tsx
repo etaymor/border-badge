@@ -11,6 +11,8 @@ import { colors } from '@constants/colors';
 
 import type { TripsStackParamList } from './types';
 
+// Note: TripsNavigator uses native stack for native header support
+// Shared element transitions for trips will be handled differently in Phase 3
 const Stack = createNativeStackNavigator<TripsStackParamList>();
 
 // Placeholder for EntryDetail screen (deferred to later phase)

@@ -78,3 +78,12 @@ export type {
 
 export { useResponsive } from './useResponsive';
 export type { ScreenSize, ResponsiveValues } from './useResponsive';
+
+export { useAnimatedPress, AnimatedPressPresets } from './useAnimatedPress';
+export type { UseAnimatedPressOptions, UseAnimatedPressResult } from './useAnimatedPress';
+
+export { useBreathingAnimation, BreathingPresets } from './useBreathingAnimation';
+export type {
+  UseBreathingAnimationOptions,
+  UseBreathingAnimationResult,
+} from './useBreathingAnimation';

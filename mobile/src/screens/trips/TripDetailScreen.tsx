@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EntryGridCard } from '@components/entries';
+import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -166,11 +167,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
       {hasCoverPhoto ? (
         // WITH COVER PHOTO - Hero Section
         <View style={styles.heroContainer}>
-          <Image
-            source={{ uri: trip.cover_image_url! }}
-            style={styles.coverImage}
-            onError={() => setCoverImageError(true)}
-          />
+          <SharedTripImage tripId={tripId} style={styles.sharedImageContainer}>
+            <Image
+              source={{ uri: trip.cover_image_url! }}
+              style={styles.coverImage}
+              onError={() => setCoverImageError(true)}
+            />
+          </SharedTripImage>
 
           {/* Gradient overlay */}
           <LinearGradient
@@ -341,6 +344,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 8,
+  },
+  sharedImageContainer: {
+    width: '100%',
+    height: 320,
   },
   coverImage: {
     width: '100%',

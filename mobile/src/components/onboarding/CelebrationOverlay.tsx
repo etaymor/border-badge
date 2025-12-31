@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useEffect, useMemo, useRef } from 'react';
 import {
@@ -122,6 +123,113 @@ function BurstAnimation({ visible }: { visible: boolean }) {
   );
 }
 
+/**
+ * RippleEffect - Expanding ring effect for HomeCountry pin drop
+ * Creates concentric ripple rings that expand outward and fade
+ */
+interface RippleEffectProps {
+  scale: Animated.Value;
+  opacity: Animated.Value;
+  color?: string;
+}
+
+function RippleEffect({ scale, opacity, color = colors.sunsetGold }: RippleEffectProps) {
+  return (
+    <View style={styles.rippleContainer} pointerEvents="none">
+      {/* Primary ripple ring */}
+      <Animated.View
+        style={[
+          styles.rippleRing,
+          {
+            borderColor: color,
+            opacity,
+            transform: [{ scale }],
+          },
+        ]}
+      />
+      {/* Secondary ripple ring (slightly delayed feel via smaller base) */}
+      <Animated.View
+        style={[
+          styles.rippleRing,
+          styles.rippleRingSecondary,
+          {
+            borderColor: color,
+            opacity: opacity.interpolate({
+              inputRange: [0, 0.5, 1],
+              outputRange: [0.6, 0.3, 0],
+            }),
+            transform: [
+              {
+                scale: scale.interpolate({
+                  inputRange: [0, 3],
+                  outputRange: [0, 2.2],
+                }),
+              },
+            ],
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+/**
+ * SparkleEffect - Animated sparkle/star burst for DreamDestination
+ * Creates rotating star icons that scale in with the celebration
+ */
+interface SparkleEffectProps {
+  scale: Animated.Value;
+  rotate: Animated.Value;
+}
+
+// Pre-calculate sparkle positions for consistent layout
+const SPARKLE_POSITIONS = [
+  { x: -80, y: -100, size: 24, delay: 0 },
+  { x: 90, y: -80, size: 20, delay: 0.1 },
+  { x: -100, y: 40, size: 22, delay: 0.15 },
+  { x: 70, y: 90, size: 26, delay: 0.05 },
+  { x: 0, y: -130, size: 18, delay: 0.2 },
+  { x: -60, y: 110, size: 20, delay: 0.12 },
+  { x: 110, y: 20, size: 16, delay: 0.08 },
+];
+
+function SparkleEffect({ scale, rotate }: SparkleEffectProps) {
+  const rotateInterpolation = useMemo(
+    () =>
+      rotate.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '45deg'],
+      }),
+    [rotate]
+  );
+
+  return (
+    <View style={styles.sparkleContainer} pointerEvents="none">
+      {SPARKLE_POSITIONS.map((pos, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.sparkle,
+            {
+              left: '50%',
+              top: '50%',
+              marginLeft: pos.x - pos.size / 2,
+              marginTop: pos.y - pos.size / 2,
+              opacity: scale.interpolate({
+                inputRange: [0, 0.3, 0.8, 1],
+                outputRange: [0, 1, 0.8, 0.6],
+              }),
+              transform: [{ scale }, { rotate: rotateInterpolation }],
+            },
+          ]}
+        >
+          <Ionicons name="sparkles" size={pos.size} color={colors.sunsetGold} />
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
 export default function CelebrationOverlay({
   visible,
   countryCode,
@@ -132,7 +240,16 @@ export default function CelebrationOverlay({
 }: CelebrationOverlayProps) {
   const { width } = useWindowDimensions();
   const { isSmallScreen } = useResponsive();
-  const { selectionScale, selectionOpacity, flagScale, flagRotate } = animationRefs;
+  const {
+    selectionScale,
+    selectionOpacity,
+    flagScale,
+    flagRotate,
+    rippleScale,
+    rippleOpacity,
+    sparkleScale,
+    sparkleRotate,
+  } = animationRefs;
 
   // Calculate responsive image size based on screen dimensions
   // Use smaller size on compact screens (iPhone SE, etc.)
@@ -181,6 +298,14 @@ export default function CelebrationOverlay({
           ]}
         >
           <BurstAnimation visible={visible} />
+
+          {/* Ripple effect for HomeCountry (pin drop) */}
+          {type === 'home' && (
+            <RippleEffect scale={rippleScale} opacity={rippleOpacity} color={colors.dustyCoral} />
+          )}
+
+          {/* Sparkle effect for DreamDestination */}
+          {type === 'dream' && <SparkleEffect scale={sparkleScale} rotate={sparkleRotate} />}
 
           <Animated.View
             style={[
@@ -309,5 +434,33 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  // Ripple effect styles
+  rippleContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rippleRing: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+  },
+  rippleRingSecondary: {
+    borderWidth: 2,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  // Sparkle effect styles
+  sparkleContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sparkle: {
+    position: 'absolute',
   },
 });

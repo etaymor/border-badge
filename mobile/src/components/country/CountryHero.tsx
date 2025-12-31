@@ -1,7 +1,9 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { SharedCountryImage } from '@components/transitions/SharedCountryImage';
+import { getStampImage } from '../../assets/stampImages';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useResponsive } from '@hooks/useResponsive';
@@ -10,6 +12,8 @@ interface CountryHeroProps {
   displayName: string;
   subregion: string;
   flagEmoji: string;
+  /** ISO country code for shared element transition */
+  countryCode: string;
   countryImage: ReturnType<typeof require> | null;
   heroHeight: number;
   insetTop: number;
@@ -23,6 +27,7 @@ function CountryHeroComponent({
   displayName,
   subregion,
   flagEmoji,
+  countryCode,
   countryImage,
   heroHeight,
   insetTop,
@@ -32,6 +37,7 @@ function CountryHeroComponent({
   titleOpacity,
 }: CountryHeroProps) {
   const { isSmallScreen } = useResponsive();
+  const stampImage = useMemo(() => getStampImage(countryCode), [countryCode]);
 
   return (
     <Animated.View
@@ -79,6 +85,13 @@ function CountryHeroComponent({
           <Text style={styles.flagEmoji}>{flagEmoji}</Text>
         </View>
       </Animated.View>
+
+      {/* Shared element stamp - destination for transition from passport grid */}
+      {stampImage && (
+        <SharedCountryImage countryId={countryCode} style={styles.sharedStampContainer}>
+          <Image source={stampImage} style={styles.sharedStamp} resizeMode="contain" />
+        </SharedCountryImage>
+      )}
     </Animated.View>
   );
 }
@@ -145,5 +158,18 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(255, 255, 255, 0.3)',
     textShadowOffset: { width: 0, height: 4 },
     textShadowRadius: 8,
+  },
+  sharedStampContainer: {
+    position: 'absolute',
+    bottom: 60,
+    right: 20,
+    width: 120,
+    height: 120,
+    // Hidden but positioned for shared element transition endpoint
+    opacity: 0,
+  },
+  sharedStamp: {
+    width: '100%',
+    height: '100%',
   },
 });

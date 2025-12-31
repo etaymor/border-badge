@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Image,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import atlasLogo from '../../../assets/atlasi-logo.png';
@@ -18,11 +26,77 @@ const MOTIVATION_TAGS = ['Adventure', 'Food', 'Culture', 'Relax', 'Nightlife', '
 // "I Am A..." persona tags
 const PERSONA_TAGS = ['Explorer', 'Storyteller', 'Foodie', 'Minimalist', 'Social Butterfly'];
 
+// Pre-calculate random rotations for sticker-like placement
+const STICKER_ROTATIONS = [
+  ...MOTIVATION_TAGS.map((_, i) => (i % 2 === 0 ? 1 : -1) * (2 + ((i * 1.5) % 4))),
+  ...PERSONA_TAGS.map((_, i) => (i % 2 === 0 ? -1 : 1) * (1.5 + ((i * 2) % 3))),
+];
+
+// Floating sticker animation component for individual chips
+interface FloatingChipProps {
+  tag: string;
+  selected: boolean;
+  onPress: () => void;
+  index: number;
+  delay: number;
+}
+
+function FloatingChip({ tag, selected, onPress, index, delay }: FloatingChipProps) {
+  const animValue = useRef(new Animated.Value(0)).current;
+  const rotation = STICKER_ROTATIONS[index] || 0;
+
+  useEffect(() => {
+    // Stagger the animation start based on delay
+    const timeoutId = setTimeout(() => {
+      Animated.spring(animValue, {
+        toValue: 1,
+        friction: 6,
+        tension: 80,
+        useNativeDriver: true,
+      }).start();
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [animValue, delay]);
+
+  // Interpolate for floating sticker effect
+  const translateY = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [30, 0],
+  });
+
+  const scale = animValue.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.8, 1.05, 1],
+  });
+
+  const opacity = animValue.interpolate({
+    inputRange: [0, 0.3, 1],
+    outputRange: [0, 0.8, 1],
+  });
+
+  const rotate = animValue.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [`${rotation * 2}deg`, `${-rotation * 0.5}deg`, `${rotation * 0.3}deg`],
+  });
+
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        transform: [{ translateY }, { scale }, { rotate }],
+      }}
+    >
+      <Chip label={tag} selected={selected} onPress={onPress} />
+    </Animated.View>
+  );
+}
+
 export function MotivationScreen({ navigation }: Props) {
   const { motivationTags, toggleMotivationTag, personaTags, togglePersonaTag } =
     useOnboardingStore();
 
-  // Staggered fade-in animations
+  // Section header animations
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslate = useRef(new Animated.Value(20)).current;
   const section1Opacity = useRef(new Animated.Value(0)).current;
@@ -37,8 +111,9 @@ export function MotivationScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
-    // Staggered entrance animations
+    // Staggered entrance for title and section headers
     Animated.sequence([
+      // Main title
       Animated.parallel([
         Animated.timing(titleOpacity, {
           toValue: 1,
@@ -48,33 +123,41 @@ export function MotivationScreen({ navigation }: Props) {
         Animated.timing(titleTranslate, {
           toValue: 0,
           duration: 400,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]),
+      // Section 1 title and translate
       Animated.parallel([
         Animated.timing(section1Opacity, {
           toValue: 1,
-          duration: 400,
+          duration: 300,
           useNativeDriver: true,
         }),
         Animated.timing(section1Translate, {
           toValue: 0,
-          duration: 400,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]),
+      // Delay for chips to start floating in (chips animate themselves)
+      Animated.delay(400),
+      // Section 2 title and translate
       Animated.parallel([
         Animated.timing(section2Opacity, {
           toValue: 1,
-          duration: 400,
+          duration: 300,
           useNativeDriver: true,
         }),
         Animated.timing(section2Translate, {
           toValue: 0,
-          duration: 400,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]),
+      // Button
       Animated.timing(buttonOpacity, {
         toValue: 1,
         duration: 300,
@@ -143,12 +226,14 @@ export function MotivationScreen({ navigation }: Props) {
               Why I Travel
             </Text>
             <View style={styles.chipContainer}>
-              {MOTIVATION_TAGS.map((tag) => (
-                <Chip
+              {MOTIVATION_TAGS.map((tag, index) => (
+                <FloatingChip
                   key={tag}
-                  label={tag}
+                  tag={tag}
                   selected={motivationTags.includes(tag)}
                   onPress={() => toggleMotivationTag(tag)}
+                  index={index}
+                  delay={index * 60}
                 />
               ))}
             </View>
@@ -168,12 +253,14 @@ export function MotivationScreen({ navigation }: Props) {
               I am a . . .
             </Text>
             <View style={styles.chipContainer}>
-              {PERSONA_TAGS.map((tag) => (
-                <Chip
+              {PERSONA_TAGS.map((tag, index) => (
+                <FloatingChip
                   key={tag}
-                  label={tag}
+                  tag={tag}
                   selected={personaTags.includes(tag)}
                   onPress={() => togglePersonaTag(tag)}
+                  index={MOTIVATION_TAGS.length + index}
+                  delay={600 + index * 60}
                 />
               ))}
             </View>
