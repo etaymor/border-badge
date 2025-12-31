@@ -57,10 +57,6 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
 
-  // Region completion glow animation
-  const completionGlow = useRef(new Animated.Value(0)).current;
-  const completionScale = useRef(new Animated.Value(1)).current;
-
   // Staggered entrance animation for country cards (40ms delay for smooth wave)
   const { getAnimatedStyle, startAnimation, resetAnimation } = useStaggeredEntrance({
     itemCount: regionCountries.length,
@@ -140,43 +136,13 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const handleSaveAndContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Play region completion illumination effect if user selected countries
+    // Play region completion haptic if user selected countries
     if (selectedInRegion > 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Animate the completion glow effect
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(completionGlow, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: false, // backgroundColor requires JS driver
-          }),
-          Animated.timing(completionGlow, {
-            toValue: 0,
-            duration: 400,
-            useNativeDriver: false,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.spring(completionScale, {
-            toValue: 1.15,
-            friction: 3,
-            tension: 150,
-            useNativeDriver: false,
-          }),
-          Animated.spring(completionScale, {
-            toValue: 1,
-            friction: 4,
-            useNativeDriver: false,
-          }),
-        ]),
-      ]).start(() => {
-        navigateToNext();
-      });
-    } else {
-      navigateToNext();
     }
+
+    // Navigate immediately for snappy UX
+    navigateToNext();
   };
 
   const navigateToNext = () => {
@@ -330,30 +296,14 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
             const isCurrentRegion = r === region;
             const isCompleted = visitedContinents.includes(r);
 
-            // Animate the current region's dot with glow
-            if (isCurrentRegion) {
-              return (
-                <Animated.View
-                  key={index}
-                  style={[
-                    styles.progressDot,
-                    styles.progressDotActive,
-                    {
-                      transform: [{ scale: completionScale }],
-                      backgroundColor: completionGlow.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [colors.midnightNavy, colors.mossGreen],
-                      }),
-                    },
-                  ]}
-                />
-              );
-            }
-
             return (
               <View
                 key={index}
-                style={[styles.progressDot, isCompleted && styles.progressDotCompleted]}
+                style={[
+                  styles.progressDot,
+                  isCurrentRegion && styles.progressDotActive,
+                  isCompleted && styles.progressDotCompleted,
+                ]}
               />
             );
           })}
