@@ -172,7 +172,23 @@ export function usePassportData() {
 
   // Combine visited countries with country metadata for display
   const displayItems = useMemo((): CountryDisplayItem[] => {
-    if (!visitedCountries.length || !filteredCountries.length) return [];
+    if (!visitedCountries.length) return [];
+
+    // If countries haven't loaded yet, show visited countries with minimal metadata
+    // This prevents empty state flash while SQLite countries are loading
+    if (!filteredCountries.length && countries && countries.length === 0) {
+      const query = searchQuery.toLowerCase().trim();
+      return visitedCountries
+        .filter((uc) => !query || uc.country_code.toLowerCase().includes(query))
+        .map((uc) => ({
+          code: uc.country_code,
+          name: uc.country_code, // Fallback to code until countries load
+          region: 'Unknown' as any, // Will be replaced when countries load
+          status: 'visited' as const,
+          hasTrips: countriesWithTrips.has(uc.country_code),
+        }))
+        .sort((a, b) => a.code.localeCompare(b.code));
+    }
 
     const query = searchQuery.toLowerCase().trim();
 
@@ -187,7 +203,7 @@ export function usePassportData() {
         hasTrips: countriesWithTrips.has(c.code),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips, visitedCodes]);
+  }, [visitedCountries, filteredCountries, searchQuery, countriesWithTrips, visitedCodes, countries]);
 
   // Compute all stats
   const stats: PassportStats = useMemo(() => {
