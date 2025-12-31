@@ -32,7 +32,7 @@ interface PasswordAuthInput {
  * dashboard for immediate sign-in without email verification.
  */
 export function useSignUpWithPassword() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
@@ -58,16 +58,22 @@ export function useSignUpWithPassword() {
         await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
 
-        // New user - attempt migration of guest data
-        try {
-          await migrateGuestData(data.session);
-        } catch {
-          console.warn('Migration failed for new password user');
-        }
+        // Set isMigrating BEFORE setting session to prevent empty state flash
+        // This ensures useUserCountries shows onboarding data immediately
+        setIsMigrating(true);
 
+        // Set session now so navigation can proceed
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
         setSession(data.session);
+
+        // Migrate in background - isMigrating will be cleared when done
+        // If migration fails, user sees onboarding data until they retry
+        migrateGuestData(data.session).catch(() => {
+          console.warn('Migration failed for new password user');
+          // Clear isMigrating on error so user doesn't get stuck
+          setIsMigrating(false);
+        });
       }
     },
     onError: (error) => {
@@ -83,7 +89,7 @@ export function useSignUpWithPassword() {
  * Authenticates an existing account.
  */
 export function useSignInWithPassword() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password }: PasswordAuthInput) => {
@@ -106,16 +112,17 @@ export function useSignInWithPassword() {
         if (onboarded) {
           setHasCompletedOnboarding(true);
           await storeOnboardingComplete();
+          setSession(data.session);
         } else {
-          // User exists but hasn't onboarded - attempt migration
-          try {
-            await migrateGuestData(data.session);
-          } catch {
-            console.warn('Migration failed for password user');
-          }
-        }
+          // User exists but hasn't onboarded - set isMigrating before session
+          setIsMigrating(true);
+          setSession(data.session);
 
-        setSession(data.session);
+          // Migrate in background
+          migrateGuestData(data.session)
+            .catch(() => console.warn('Migration failed for password user'))
+            .finally(() => setIsMigrating(false));
+        }
       }
     },
     onError: (error) => {

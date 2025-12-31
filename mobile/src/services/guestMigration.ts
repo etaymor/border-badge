@@ -3,7 +3,6 @@ import type { AxiosError } from 'axios';
 
 import { queryClient } from '../queryClient';
 import { api, getStoredToken, setSuppressAutoSignOut } from './api';
-import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 // Helper to delay execution (useful for rate limiting)
@@ -96,10 +95,8 @@ export interface MigrationResult {
 }
 
 export async function migrateGuestData(session: Session): Promise<MigrationResult> {
-  const { setIsMigrating } = useAuthStore.getState();
-
-  // Mark migration as in progress so UI can show onboarding store data
-  setIsMigrating(true);
+  // Note: isMigrating is set by the caller BEFORE calling this function
+  // This ensures the session is available but query shows onboarding data during migration
 
   // Suppress auto-sign-out during migration to avoid race condition where
   // a 401 during token establishment could sign out the user prematurely
@@ -115,7 +112,7 @@ export async function migrateGuestData(session: Session): Promise<MigrationResul
     return result;
   } finally {
     setSuppressAutoSignOut(false);
-    setIsMigrating(false);
+    // Caller is responsible for clearing isMigrating
   }
 }
 

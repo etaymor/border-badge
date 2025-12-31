@@ -19,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
  * Works on both iOS and Android.
  */
 export function useGoogleSignIn() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
 
   return useMutation({
     mutationFn: async () => {
@@ -93,16 +93,17 @@ export function useGoogleSignIn() {
         if (onboarded) {
           setHasCompletedOnboarding(true);
           await storeOnboardingComplete();
+          setSession(data.session);
         } else {
-          // New user - attempt migration
-          try {
-            await migrateGuestData(data.session);
-          } catch {
-            console.warn('Migration failed for Google user');
-          }
-        }
+          // New user - set isMigrating before session to prevent empty state
+          setIsMigrating(true);
+          setSession(data.session);
 
-        setSession(data.session);
+          // Migrate in background
+          migrateGuestData(data.session)
+            .catch(() => console.warn('Migration failed for Google user'))
+            .finally(() => setIsMigrating(false));
+        }
       }
     },
     onError: (error) => {
