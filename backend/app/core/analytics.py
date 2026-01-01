@@ -31,3 +31,8 @@ def log_list_viewed(slug: str) -> None:
 def log_trip_viewed(slug: str) -> None:
     """Log public trip page view."""
     log_page_view("trip", slug)
+
+
+def log_profile_viewed(username: str) -> None:
+    """Log public profile page view."""
+    log_page_view("profile", username)

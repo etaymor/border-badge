@@ -18,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
+import { getPublicProfileUrl } from '@utils/urls';
 import type { PassportStackScreenProps } from '@navigation/types';
 
 import { ProfileAvatar } from './components/ProfileAvatar';
@@ -170,6 +171,32 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
+
+  // Share profile handler
+  const handleShareProfile = useCallback(async () => {
+    if (!profile?.username) return;
+
+    const profileUrl = getPublicProfileUrl(profile.username);
+    if (!profileUrl) {
+      if (__DEV__) {
+        console.warn('EXPO_PUBLIC_WEB_BASE_URL not configured');
+      }
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await Share.share({
+        message: `Check out my travel profile on Atlasi: ${profileUrl}`,
+        url: profileUrl,
+      });
+    } catch (error) {
+      // User cancelled or share failed
+      if (__DEV__ && error instanceof Error && error.message !== 'User cancelled') {
+        console.warn('Share failed:', error);
+      }
+    }
+  }, [profile?.username]);
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.username), [profile?.username]);
@@ -325,6 +352,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
           onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
+          onShareProfile={handleShareProfile}
         />
 
         <View style={styles.divider} />

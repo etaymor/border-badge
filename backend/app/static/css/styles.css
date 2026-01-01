@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2025-12-30T00:07:18.809Z
+   Generated: 2026-01-01T22:31:24.448Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -1943,6 +1943,241 @@ body.has-hero .header .cta-button {
   .legal-content p,
   .legal-content ul li {
     font-size: 0.95rem;
+  }
+}
+
+
+/* Source: pages/profile.css */
+/* ==============================================
+   PROFILE PUBLIC PAGE
+   ============================================== */
+
+/* Profile Hero - shorter than regular hero */
+.profile-hero {
+  height: 40vh;
+  min-height: 280px;
+  max-height: 400px;
+}
+
+/* Profile Card Container - positioned to overlap hero */
+.profile-card-container {
+  max-width: 480px;
+  margin: -120px auto var(--spacing-xl);
+  padding: 0 var(--spacing-md);
+  position: relative;
+  z-index: 10;
+  animation: fadeInUp 0.8s ease-out 0.3s backwards;
+}
+
+/* Profile Card - glass morphism style */
+.profile-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xl) var(--spacing-lg);
+  text-align: center;
+  box-shadow: 0 20px 60px -20px rgba(23, 42, 58, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+/* Avatar */
+.profile-avatar-wrapper {
+  margin: -80px auto var(--spacing-md);
+  width: 120px;
+  height: 120px;
+}
+
+.profile-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid var(--color-sunset-gold);
+  box-shadow: 0 8px 24px rgba(244, 194, 78, 0.3);
+}
+
+.profile-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-midnight-navy) 0%, #2a4a5f 100%);
+  color: var(--color-cloud-white);
+  font-family: var(--font-family-title);
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+/* Name & Username */
+.profile-display-name {
+  font-family: var(--font-family-title);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-midnight-navy);
+  margin: 0 0 var(--spacing-xs);
+  line-height: 1.2;
+}
+
+.profile-username {
+  font-family: var(--font-family-body);
+  font-size: 1rem;
+  color: var(--color-storm-gray);
+  margin: 0 0 var(--spacing-sm);
+}
+
+.profile-home-country {
+  font-family: var(--font-family-body);
+  font-size: 0.9rem;
+  color: var(--color-storm-gray);
+  margin: 0 0 var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.profile-home-country svg {
+  color: var(--color-adobe-brick);
+}
+
+/* Stats Grid */
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--color-warm-cream);
+  border-radius: var(--radius-md);
+}
+
+.profile-stat {
+  text-align: center;
+}
+
+.profile-stat-value {
+  display: block;
+  font-family: var(--font-family-title);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-midnight-navy);
+  line-height: 1.2;
+}
+
+.profile-stat-label {
+  display: block;
+  font-family: var(--font-family-body);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-storm-gray);
+  margin-top: 2px;
+}
+
+.profile-stat-highlight .profile-stat-value {
+  color: var(--color-adobe-brick);
+}
+
+/* Social Stats (Followers/Following) */
+.profile-social-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.profile-social-stat {
+  text-align: center;
+}
+
+.profile-social-value {
+  font-family: var(--font-family-title);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-midnight-navy);
+  margin-right: 4px;
+}
+
+.profile-social-label {
+  font-family: var(--font-family-body);
+  font-size: 0.9rem;
+  color: var(--color-storm-gray);
+}
+
+.profile-social-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-paper-beige);
+}
+
+/* Profile CTA */
+.profile-cta {
+  margin-top: var(--spacing-md);
+}
+
+.profile-cta .cta-button {
+  width: 100%;
+  display: block;
+}
+
+.profile-cta-subtext {
+  font-family: var(--font-family-body);
+  font-size: 0.8rem;
+  color: var(--color-storm-gray);
+  margin-top: var(--spacing-sm);
+}
+
+/* ==============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================== */
+
+@media (max-width: 480px) {
+  .profile-hero {
+    height: 35vh;
+    min-height: 220px;
+    max-height: 300px;
+  }
+
+  .profile-card-container {
+    margin-top: -100px;
+    padding: 0 var(--spacing-sm);
+  }
+
+  .profile-card {
+    padding: var(--spacing-lg) var(--spacing-md);
+    border-radius: var(--radius-lg);
+  }
+
+  .profile-avatar-wrapper {
+    margin-top: -70px;
+    width: 100px;
+    height: 100px;
+  }
+
+  .profile-avatar {
+    width: 100px;
+    height: 100px;
+  }
+
+  .profile-avatar-placeholder {
+    font-size: 2.5rem;
+  }
+
+  .profile-display-name {
+    font-size: 1.5rem;
+  }
+
+  .profile-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-md);
+  }
+
+  .profile-stat-value {
+    font-size: 1.25rem;
+  }
+
+  .profile-stat-label {
+    font-size: 0.65rem;
   }
 }
 

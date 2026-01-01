@@ -47,3 +47,32 @@ class TripShareResponse(BaseModel):
 
     share_slug: str
     share_url: str
+
+
+class PublicProfileStats(BaseModel):
+    """Travel statistics for a public profile."""
+
+    country_count: int
+    continent_count: int
+    subregion_count: int
+    world_percentage: float  # Percentage of countries visited (0-100)
+
+
+class PublicProfileView(BaseModel):
+    """Public view of a user profile (accessible by username without authentication)."""
+
+    username: str
+    display_name: str
+    avatar_url: str | None = None
+    home_country_code: str | None = None
+    home_country_name: str | None = None
+    stats: PublicProfileStats
+    follower_count: int
+    following_count: int
+    created_at: datetime
+
+    @field_validator("avatar_url")
+    @classmethod
+    def validate_avatar_url(cls, v: str | None) -> str | None:
+        """Validate avatar URL uses https protocol."""
+        return validate_image_url(v)

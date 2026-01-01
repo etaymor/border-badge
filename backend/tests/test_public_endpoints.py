@@ -251,6 +251,7 @@ def test_sitemap_xml(
 ) -> None:
     """Test that sitemap.xml is generated correctly."""
     mock_supabase_client.get.side_effect = [
+        [{"username": "traveler1"}, {"username": "explorer_pro"}],  # user profiles
         [{"slug": "best-tacos-abc123"}, {"slug": "cool-spots-def456"}],  # public lists
         [{"share_slug": "summer-trip-xyz"}],  # public trips
     ]
@@ -263,6 +264,8 @@ def test_sitemap_xml(
     assert "Cache-Control" in response.headers
     assert '<?xml version="1.0"' in response.text
     assert "<urlset" in response.text
+    assert "/u/traveler1" in response.text
+    assert "/u/explorer_pro" in response.text
     assert "/l/best-tacos-abc123" in response.text
     assert "/l/cool-spots-def456" in response.text
     assert "/t/summer-trip-xyz" in response.text
@@ -274,6 +277,7 @@ def test_sitemap_xml_empty(
 ) -> None:
     """Test sitemap.xml with no public content."""
     mock_supabase_client.get.side_effect = [
+        [],  # no user profiles
         [],  # no public lists
         [],  # no public trips
     ]

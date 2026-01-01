@@ -1,5 +1,6 @@
 """Public web page endpoints (HTML rendering)."""
 
+import asyncio
 import datetime
 import html
 import logging
@@ -9,15 +10,32 @@ from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from app.api.utils import get_flag_emoji
-from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
+from app.core.analytics import (
+    log_landing_viewed,
+    log_list_viewed,
+    log_profile_viewed,
+    log_trip_viewed,
+)
 from app.core.config import get_settings
 from app.core.media import extract_media_urls
-from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
+from app.core.seo import (
+    build_landing_seo,
+    build_list_seo,
+    build_profile_seo,
+    build_trip_seo,
+)
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
+from app.schemas.classification import MAX_COUNTRIES
+from app.schemas.countries import VALID_REGIONS, VALID_SUBREGIONS
 from app.schemas.lists import PublicListEntry, PublicListView
-from app.schemas.public import PublicTripEntry, PublicTripView
+from app.schemas.public import (
+    PublicProfileStats,
+    PublicProfileView,
+    PublicTripEntry,
+    PublicTripView,
+)
 from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
@@ -121,6 +139,164 @@ async def landing_page(request: Request) -> HTMLResponse:
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
+@router.get("/u/{username}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def view_public_profile(
+    request: Request,
+    username: str = Path(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$"),
+) -> HTMLResponse:
+    """Render a public profile page by username."""
+    settings = get_settings()
+    db = get_supabase_client()
+
+    # Fetch profile by username (case-insensitive)
+    profiles = await db.get(
+        "user_profile",
+        {
+            "username": f"ilike.{username}",
+            "select": "user_id, username, display_name, avatar_url, home_country_code, created_at",
+        },
+    )
+
+    if not profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    profile = profiles[0]
+    user_id = profile["user_id"]
+    log_profile_viewed(profile["username"])
+
+    # Fetch all data in parallel
+    countries_task = db.get(
+        "user_countries",
+        {
+            "user_id": f"eq.{user_id}",
+            "status": "eq.visited",
+            "select": "country_id, country:country_id(region, subregion)",
+        },
+    )
+
+    followers_task = db.get(
+        "user_follow",
+        {
+            "following_id": f"eq.{user_id}",
+            "select": "id",
+        },
+    )
+
+    following_task = db.get(
+        "user_follow",
+        {
+            "follower_id": f"eq.{user_id}",
+            "select": "id",
+        },
+    )
+
+    # Get home country name if set
+    home_country_task = None
+    if profile.get("home_country_code"):
+        home_country_task = db.get(
+            "country",
+            {
+                "code": f"eq.{profile['home_country_code']}",
+                "select": "name",
+            },
+        )
+
+    # Execute all queries in parallel
+    if home_country_task:
+        (
+            countries_rows,
+            follower_rows,
+            following_rows,
+            home_country_rows,
+        ) = await asyncio.gather(
+            countries_task, followers_task, following_task, home_country_task
+        )
+        home_country_name = home_country_rows[0]["name"] if home_country_rows else None
+    else:
+        countries_rows, follower_rows, following_rows = await asyncio.gather(
+            countries_task, followers_task, following_task
+        )
+        home_country_name = None
+
+    # Calculate stats
+    country_count = len(countries_rows) if countries_rows else 0
+    follower_count = len(follower_rows) if follower_rows else 0
+    following_count = len(following_rows) if following_rows else 0
+
+    # Calculate continent and subregion counts
+    continents: set[str] = set()
+    subregions: set[str] = set()
+    if countries_rows:
+        for row in countries_rows:
+            country_data = row.get("country")
+            if country_data:
+                # Handle PostgREST returning array or dict
+                if isinstance(country_data, list):
+                    country_data = country_data[0] if country_data else {}
+                if isinstance(country_data, dict):
+                    region = country_data.get("region")
+                    subregion = country_data.get("subregion")
+                    if region and region in VALID_REGIONS:
+                        continents.add(region)
+                    if subregion and subregion in VALID_SUBREGIONS:
+                        subregions.add(subregion)
+
+    continent_count = len(continents)
+    subregion_count = len(subregions)
+    world_percentage = (country_count / MAX_COUNTRIES) * 100 if MAX_COUNTRIES > 0 else 0
+
+    stats = PublicProfileStats(
+        country_count=country_count,
+        continent_count=continent_count,
+        subregion_count=subregion_count,
+        world_percentage=round(world_percentage, 1),
+    )
+
+    profile_view = PublicProfileView(
+        username=profile["username"],
+        display_name=profile["display_name"],
+        avatar_url=profile.get("avatar_url"),
+        home_country_code=profile.get("home_country_code"),
+        home_country_name=home_country_name,
+        stats=stats,
+        follower_count=follower_count,
+        following_count=following_count,
+        created_at=profile["created_at"],
+    )
+
+    seo = build_profile_seo(
+        username=profile_view.username,
+        display_name=profile_view.display_name,
+        country_count=stats.country_count,
+        world_percentage=stats.world_percentage,
+        base_url=settings.base_url,
+        avatar_url=profile_view.avatar_url,
+    )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="profile_public.html",
+        context={
+            "profile": profile_view,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": seo.og_title,
+            "og_description": seo.og_description,
+            "og_url": seo.canonical_url,
+            "og_image": seo.og_image,
+            "canonical_url": seo.canonical_url,
+            "has_hero": True,
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
     return response
 
 
@@ -450,6 +626,7 @@ async def robots_txt() -> PlainTextResponse:
 Allow: /
 Allow: /l/
 Allow: /t/
+Allow: /u/
 
 Sitemap: {settings.base_url}/sitemap.xml
 """
@@ -463,6 +640,17 @@ async def sitemap_xml() -> PlainTextResponse:
     db = get_supabase_client()
 
     urls = [f"  <url><loc>{settings.base_url}</loc></url>"]
+
+    # All user profiles
+    profiles = await db.get(
+        "user_profile",
+        {
+            "select": "username",
+        },
+    )
+    for profile in profiles:
+        escaped_username = html.escape(profile["username"])
+        urls.append(f"  <url><loc>{settings.base_url}/u/{escaped_username}</loc></url>")
 
     # All lists (all lists are public)
     lists = await db.get(
