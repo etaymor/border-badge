@@ -1,11 +1,10 @@
 """Trip tag endpoints for consent workflow and friend tagging."""
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.api.trips_helpers import verify_trip_ownership
 from app.api.utils import get_token_from_request
@@ -102,10 +101,13 @@ async def approve_trip_tag(
     request: Request,
     trip_id: UUID,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> TripTagAction:
     """Approve a trip tag invitation."""
     token = get_token_from_request(request)
-    return await _update_tag_status(trip_id, user.id, TripTagStatus.APPROVED, token)
+    return await _update_tag_status(
+        trip_id, user.id, TripTagStatus.APPROVED, token, background_tasks
+    )
 
 
 @router.post("/{trip_id}/decline", response_model=TripTagAction)
@@ -124,6 +126,7 @@ async def _update_tag_status(
     user_id: str,
     new_status: TripTagStatus,
     token: str | None,
+    background_tasks: BackgroundTasks | None = None,
 ) -> TripTagAction:
     """Update trip tag status for the current user."""
     db = get_supabase_client(user_token=token)
@@ -161,8 +164,8 @@ async def _update_tag_status(
         )
 
     # Auto-follow on approval: tagged user follows trip owner
-    if new_status == TripTagStatus.APPROVED:
-        asyncio.create_task(_auto_follow_trip_owner(trip_id, user_id))
+    if new_status == TripTagStatus.APPROVED and background_tasks:
+        background_tasks.add_task(_auto_follow_trip_owner, trip_id, user_id)
 
     return TripTagAction(
         status=new_status,

@@ -1,10 +1,9 @@
 """Email invite system endpoints."""
 
-import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_invite_email
@@ -29,6 +28,7 @@ async def send_invite(
     request: Request,
     invite: InviteRequest,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> InviteResponse:
     """
     Send an email invite to a non-user.
@@ -46,8 +46,9 @@ async def send_invite(
 
     email_lower = invite.email.lower()
 
-    # Check if user already exists with this email
-    # Note: We search by email in auth.users which requires service role
+    # Check if user already exists with this email.
+    # Use service role: auth.users table requires admin access for email lookups.
+    # The RPC function 'check_email_exists' is SECURITY DEFINER and validates input.
     service_db = get_supabase_client()
     existing_user = await service_db.rpc(
         "check_email_exists",
@@ -117,7 +118,7 @@ async def send_invite(
         except Exception as e:
             logger.warning(f"Failed to send invite email: {e}")
 
-    asyncio.create_task(send_email_notification())
+    background_tasks.add_task(send_email_notification)
 
     logger.info(
         "Invite created",

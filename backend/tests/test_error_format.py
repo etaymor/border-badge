@@ -46,7 +46,9 @@ def test_409_conflict_error_format(
         "tagged_user_id": "test-user",
         "status": "approved",  # Already approved
     }
+    # First call returns the tag, second call (patch) returns empty to trigger 409
     mock_supabase_client.get.return_value = [tag]
+    mock_supabase_client.patch.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -54,7 +56,7 @@ def test_409_conflict_error_format(
             "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
             response = client.post(
-                f"/trips/{trip_id}/approve",
+                f"/trip-tags/{trip_id}/approve",
                 headers={"Authorization": "Bearer mock-token"},
             )
         assert response.status_code == 409

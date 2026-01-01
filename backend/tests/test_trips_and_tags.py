@@ -249,7 +249,9 @@ def test_approve_trip_tag(
         with patch(
             "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/approve", headers=auth_headers
+            )
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "approved"
@@ -282,7 +284,9 @@ def test_decline_trip_tag(
         with patch(
             "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/decline", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/decline", headers=auth_headers
+            )
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "declined"
@@ -306,14 +310,18 @@ def test_approve_already_actioned_tag_returns_409(
         "responded_at": "2024-01-01T00:00:00Z",
     }
 
+    # get returns tag, patch returns empty (status already changed, optimistic lock fails)
     mock_supabase_client.get.return_value = [tag]
+    mock_supabase_client.patch.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
             "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/approve", headers=auth_headers
+            )
         assert response.status_code == 409
     finally:
         app.dependency_overrides.clear()

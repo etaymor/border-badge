@@ -2,7 +2,6 @@
 
 import logging
 from datetime import datetime
-from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 
@@ -20,6 +19,30 @@ from app.schemas.feed import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
+    """Parse compound cursor into (created_at, item_id).
+
+    Cursor format: "2024-01-01T00:00:00|uuid" or just "2024-01-01T00:00:00" for backward compat.
+    """
+    if not cursor:
+        return None, None
+
+    parts = cursor.split("|", 1)
+    before_time = datetime.fromisoformat(parts[0])
+    before_id = parts[1] if len(parts) > 1 else None
+    return before_time, before_id
+
+
+def _build_cursor(row: dict) -> str:
+    """Build compound cursor from the last item."""
+    created_at = row["created_at"]
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at)
+    item_id = row.get("item_id", "")
+    return f"{created_at.isoformat()}|{item_id}"
+
 
 router = APIRouter()
 
@@ -71,9 +94,11 @@ def _build_feed_items(rows: list[dict]) -> list[FeedItem]:
 @limiter.limit("60/minute")
 async def get_user_feed(
     request: Request,
-    user_id: UUID,
+    user_id: str,
     user: CurrentUser,
-    before: datetime | None = Query(default=None, description="Cursor for pagination"),
+    before: str | None = Query(
+        default=None, description="Cursor for pagination (timestamp|id)"
+    ),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> FeedResponse:
     """
@@ -86,17 +111,22 @@ async def get_user_feed(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Parse compound cursor
+    before_time, before_id = _parse_cursor(before)
+
     result = await db.rpc(
         "get_user_activity_feed",
         {
             "p_viewer_id": str(user.id),
             "p_target_user_id": str(user_id),
-            "p_before": before.isoformat() if before else None,
+            "p_before_time": before_time.isoformat() if before_time else None,
+            "p_before_id": before_id,
             "p_limit": limit,
         },
     )
 
     if not result:
+        logger.debug(f"Empty user feed for viewer={user.id}, target={user_id}")
         return FeedResponse(items=[], next_cursor=None, has_more=False)
 
     has_more = len(result) > limit
@@ -105,8 +135,8 @@ async def get_user_feed(
     items = _build_feed_items(items_data)
 
     next_cursor = None
-    if items and has_more:
-        next_cursor = items[-1].created_at.isoformat()
+    if items_data and has_more:
+        next_cursor = _build_cursor(items_data[-1])
 
     return FeedResponse(
         items=items,
@@ -120,7 +150,9 @@ async def get_user_feed(
 async def get_feed(
     request: Request,
     user: CurrentUser,
-    before: datetime | None = Query(default=None, description="Cursor for pagination"),
+    before: str | None = Query(
+        default=None, description="Cursor for pagination (timestamp|id)"
+    ),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> FeedResponse:
     """
@@ -136,17 +168,22 @@ async def get_feed(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    # Parse compound cursor
+    before_time, before_id = _parse_cursor(before)
+
     # Call the database function
     result = await db.rpc(
         "get_activity_feed",
         {
             "p_user_id": str(user.id),
-            "p_before": before.isoformat() if before else None,
+            "p_before_time": before_time.isoformat() if before_time else None,
+            "p_before_id": before_id,
             "p_limit": limit,
         },
     )
 
     if not result:
+        logger.debug(f"Empty feed for user={user.id}")
         return FeedResponse(items=[], next_cursor=None, has_more=False)
 
     has_more = len(result) > limit
@@ -155,8 +192,8 @@ async def get_feed(
     items = _build_feed_items(items_data)
 
     next_cursor = None
-    if items and has_more:
-        next_cursor = items[-1].created_at.isoformat()
+    if items_data and has_more:
+        next_cursor = _build_cursor(items_data[-1])
 
     return FeedResponse(
         items=items,

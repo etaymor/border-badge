@@ -60,6 +60,9 @@ async def check_username_availability(
     during the onboarding flow before the user has an account.
 
     Rate limited to 30 requests per minute to prevent enumeration attacks.
+
+    TODO: Consider adding CAPTCHA for production to further mitigate bulk
+    enumeration. Current rate limit allows ~1800 checks/hour.
     """
     # Validate format
     if not USERNAME_PATTERN.match(username):
@@ -160,13 +163,20 @@ async def search_users(
 
     logger.info(f"User search: q={q}, user_id={user.id}, limit={limit}")
 
+    # Validate search query - only allow username-safe characters
+    # Strip wildcards and validate against username pattern
+    q_safe = q.replace("%", "").replace("_", "")
+    if not q_safe or not USERNAME_PATTERN.match(q_safe):
+        logger.debug(f"Invalid search query rejected: {q}")
+        return []
+
     # Search by username prefix (case-insensitive)
     # Note: ilike is case-insensitive LIKE in PostgreSQL
     rows = await db.get(
         "user_profile",
         {
             "select": "id,user_id,username,avatar_url",
-            "username": f"ilike.{q}%",
+            "username": f"ilike.{q_safe}%",
             "user_id": f"neq.{user.id}",
             "limit": limit,
         },
