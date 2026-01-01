@@ -271,22 +271,6 @@ export function TripFormScreen({ navigation, route }: Props) {
               disabled={isLoading}
             />
           </View>
-
-          {/* Travel Companions Feature Teaser */}
-          <View style={styles.visaStampContainer}>
-            <View style={styles.visaStampBorder}>
-              <View style={styles.comingSoonHeader}>
-                <Ionicons name="people" size={20} color={colors.mossGreen} />
-                <Text style={styles.comingSoonTitle}>Travel Companions</Text>
-              </View>
-              <Text style={styles.comingSoonText}>
-                Tagging friends is coming in the next update.
-              </Text>
-              <View style={styles.stampBadge}>
-                <Text style={styles.stampBadgeText}>VISA PENDING</Text>
-              </View>
-            </View>
-          </View>
         </View>
 
         {/* Save Button - inside ScrollView for proper keyboard handling */}
@@ -487,55 +471,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginLeft: 4,
     fontFamily: fonts.openSans.regular,
-  },
-
-  // Whimsical Visa Stamp Section
-  visaStampContainer: {
-    marginTop: 12,
-    transform: [{ rotate: '-1deg' }],
-  },
-  visaStampBorder: {
-    backgroundColor: 'rgba(84, 122, 95, 0.05)', // Moss Green light
-    padding: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: 'rgba(84, 122, 95, 0.2)',
-    borderStyle: 'dashed',
-  },
-  comingSoonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  comingSoonTitle: {
-    fontSize: 18,
-    fontFamily: fonts.playfair.bold,
-    color: colors.mossGreen,
-  },
-  comingSoonText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    lineHeight: 22,
-    marginBottom: 16,
-    fontStyle: 'italic',
-  },
-  stampBadge: {
-    borderWidth: 2,
-    borderColor: colors.mossGreen,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    transform: [{ rotate: '-2deg' }],
-    opacity: 0.8,
-  },
-  stampBadgeText: {
-    color: colors.mossGreen,
-    fontSize: 12,
-    fontFamily: fonts.oswald.bold,
-    letterSpacing: 1,
   },
   footer: {
     padding: 24,
