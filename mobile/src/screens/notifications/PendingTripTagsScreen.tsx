@@ -24,15 +24,18 @@ import {
 } from '@hooks/useTripTags';
 import { getFlagEmoji } from '@utils/flags';
 
-interface PendingTripTagsScreenProps {
-  onBack: () => void;
+interface Props {
+  navigation: {
+    goBack: () => void;
+  };
 }
 
 /**
  * Screen showing pending trip tag invitations.
  * Users can accept or decline invitations from here.
  */
-export function PendingTripTagsScreen({ onBack }: PendingTripTagsScreenProps) {
+export function PendingTripTagsScreen({ navigation }: Props) {
+  const onBack = navigation.goBack;
   const insets = useSafeAreaInsets();
   const { data: pendingTags, isLoading, isRefetching, refetch } = usePendingTripTags();
   const approveMutation = useApproveTripTag();

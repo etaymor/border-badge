@@ -19,87 +19,108 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
+
+// In-flight promise guard to prevent concurrent registrations
+let registrationPromise: Promise<string | null> | null = null;
 
 /**
  * Register for push notifications and save token to backend.
  *
+ * Uses an in-flight promise guard to prevent concurrent registrations.
+ *
  * @returns The Expo push token, or null if registration failed
  */
 export async function registerForPushNotifications(): Promise<string | null> {
-  // Only works on physical devices
-  if (!Device.isDevice) {
-    if (__DEV__) {
-      console.warn('Push notifications only work on physical devices');
+  // Return existing promise if registration is already in progress
+  if (registrationPromise) {
+    return registrationPromise;
+  }
+
+  registrationPromise = (async (): Promise<string | null> => {
+    // Only works on physical devices
+    if (!Device.isDevice) {
+      if (__DEV__) {
+        console.warn('Push notifications only work on physical devices');
+      }
+      return null;
     }
-    return null;
-  }
 
-  // Check/request permissions
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
+    // Check/request permissions
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
 
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') {
-    if (__DEV__) {
-      console.warn('Push notification permission denied');
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
     }
-    return null;
-  }
 
-  // Get project ID from expo config
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-
-  if (!projectId) {
-    if (__DEV__) {
-      console.warn('No projectId configured for push notifications');
+    if (finalStatus !== 'granted') {
+      if (__DEV__) {
+        console.warn('Push notification permission denied');
+      }
+      return null;
     }
-    return null;
-  }
+
+    // Get project ID from expo config
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+
+    if (!projectId) {
+      if (__DEV__) {
+        console.warn('No projectId configured for push notifications');
+      }
+      return null;
+    }
+
+    try {
+      // Get Expo push token
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId,
+      });
+      const token = tokenData.data;
+
+      // Configure Android notification channel
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#007AFF',
+        });
+
+        // Create a channel for social notifications
+        await Notifications.setNotificationChannelAsync('social', {
+          name: 'Social',
+          description: 'Notifications about followers and friends',
+          importance: Notifications.AndroidImportance.HIGH,
+        });
+      }
+
+      // Register token with backend
+      await api.post('/notifications/register', {
+        token,
+        platform: Platform.OS,
+      });
+
+      if (__DEV__) {
+        console.log('Push token registered:', token);
+      }
+
+      return token;
+    } catch (error) {
+      console.error('Failed to register push token:', error);
+      return null;
+    }
+  })();
 
   try {
-    // Get Expo push token
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
-    const token = tokenData.data;
-
-    // Configure Android notification channel
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'Default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#007AFF',
-      });
-
-      // Create a channel for social notifications
-      await Notifications.setNotificationChannelAsync('social', {
-        name: 'Social',
-        description: 'Notifications about followers and friends',
-        importance: Notifications.AndroidImportance.HIGH,
-      });
-    }
-
-    // Register token with backend
-    await api.post('/notifications/register', {
-      token,
-      platform: Platform.OS,
-    });
-
-    if (__DEV__) {
-      console.log('Push token registered:', token);
-    }
-
-    return token;
-  } catch (error) {
-    console.error('Failed to register push token:', error);
-    return null;
+    return await registrationPromise;
+  } finally {
+    // Clear promise so subsequent calls can retry
+    registrationPromise = null;
   }
 }
 

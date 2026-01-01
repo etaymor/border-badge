@@ -14,7 +14,7 @@ import { FriendsStatsGrid, UserAvatar, UserSearchBar } from '@components/friends
 import { NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useFollowing, useFollowStats } from '@hooks/useFollows';
+import { useFollowing, useFollowStats, type UserSummary } from '@hooks/useFollows';
 import { useFriendsRanking } from '@hooks/useFriendsRanking';
 import { usePendingTripTags } from '@hooks/useTripTags';
 import type { FriendsStackScreenProps } from '@navigation/types';
@@ -49,7 +49,7 @@ export function FriendsScreen({ navigation }: Props) {
   }, [navigation]);
 
   const renderUserItem = useCallback(
-    ({ item }: { item: (typeof following)[0] }) => (
+    ({ item }: { item: UserSummary }) => (
       <TouchableOpacity
         style={styles.userRow}
         onPress={() => handleUserSelect(item.user_id, item.username)}

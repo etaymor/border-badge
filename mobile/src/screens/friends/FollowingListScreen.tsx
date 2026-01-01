@@ -192,7 +192,7 @@ export function FollowingListScreen({ navigation }: Props) {
           sections={sections}
           renderItem={renderItem}
           renderSectionHeader={renderSectionHeader}
-          keyExtractor={(item) => ('id' in item ? item.id : item.email)}
+          keyExtractor={(item) => ('email' in item ? item.email : item.id)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
