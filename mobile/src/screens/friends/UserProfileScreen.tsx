@@ -229,9 +229,12 @@ export function UserProfileScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
+          </TouchableOpacity>
+          <Text style={styles.headerUsername}>@{profile.username}</Text>
+        </View>
         <TouchableOpacity style={styles.moreButton} onPress={handleBlock}>
           <Ionicons name="ellipsis-horizontal" size={24} color={colors.midnightNavy} />
         </TouchableOpacity>
@@ -245,11 +248,14 @@ export function UserProfileScreen({ navigation, route }: Props) {
           <>
             {/* Avatar and Identity */}
             <View style={styles.profileHeader}>
-              <View style={styles.avatarRing}>
-                <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={100} />
+              <View style={styles.profileRow}>
+                <View style={styles.avatarRing}>
+                  <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={60} />
+                </View>
+                <View style={styles.profileInfo}>
+                  <Text style={styles.displayName}>{profile.display_name}</Text>
+                </View>
               </View>
-              <Text style={styles.displayName}>{profile.display_name}</Text>
-              <Text style={styles.username}>@{profile.username}</Text>
               <View style={styles.actionRow}>
                 <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
               </View>
@@ -335,6 +341,16 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 16,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerUsername: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
   backButton: {
     width: 40,
     height: 40,
@@ -398,35 +414,33 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   profileHeader: {
-    alignItems: 'center',
     paddingTop: 8,
-    paddingBottom: 24,
+    paddingBottom: 20,
     paddingHorizontal: 20,
   },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   avatarRing: {
-    padding: 4,
-    borderRadius: 56,
+    padding: 3,
+    borderRadius: 36,
     borderWidth: 2,
     borderColor: colors.sunsetGold,
     borderStyle: 'dashed',
   },
+  profileInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
   displayName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 28,
+    fontSize: 22,
     color: colors.midnightNavy,
-    marginTop: 16,
     fontStyle: 'italic',
   },
-  username: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 15,
-    color: colors.stormGray,
-    marginTop: 4,
-  },
   actionRow: {
-    flexDirection: 'row',
-    marginTop: 20,
-    gap: 12,
+    marginTop: 12,
   },
   statsGrid: {
     flexDirection: 'row',

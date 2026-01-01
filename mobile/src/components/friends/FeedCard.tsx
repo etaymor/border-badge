@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { getCountryImage } from '../../assets/countryImages';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { FeedItem } from '@hooks/useFeed';
+import { getFlagEmoji } from '@utils/flags';
 
 import { UserAvatar } from './UserAvatar';
 
@@ -98,8 +100,30 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
 
   const activityColor = getActivityColor();
 
+  // Get country illustration for country_visited activities
+  const countryImage =
+    item.activity_type === 'country_visited' && item.country
+      ? getCountryImage(item.country.country_code)
+      : null;
+
   return (
     <View style={styles.container}>
+      {/* Country illustration hero for country_visited */}
+      {countryImage && (
+        <TouchableOpacity onPress={handleContentPress} activeOpacity={0.8}>
+          <View style={styles.countryHero}>
+            <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
+            <View style={styles.countryOverlay} />
+            <View style={styles.countryBadge}>
+              <Ionicons name="flag" size={14} color={colors.cloudWhite} />
+              <Text style={styles.countryBadgeText}>
+                {getFlagEmoji(item.country!.country_code)} {item.country!.country_name}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity style={styles.header} onPress={handleUserPress} activeOpacity={0.7}>
         <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={44} />
         <View style={styles.headerText}>
@@ -157,6 +181,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
+  },
+  countryHero: {
+    height: 140,
+    position: 'relative',
+  },
+  countryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  countryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  countryBadge: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.adobeBrick,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  countryBadgeText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 13,
+    color: colors.cloudWhite,
   },
   header: {
     flexDirection: 'row',

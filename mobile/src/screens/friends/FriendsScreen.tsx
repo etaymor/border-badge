@@ -3,18 +3,19 @@ import { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  RefreshControl,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FriendsStatsGrid, UserAvatar, UserSearchBar } from '@components/friends';
+import { FeedCard, FriendsStatsGrid, UserSearchBar } from '@components/friends';
 import { NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useFollowing, useFollowStats, type UserSummary } from '@hooks/useFollows';
+import { useFeed, getFeedItems, type FeedItem } from '@hooks/useFeed';
+import { useFollowStats } from '@hooks/useFollows';
 import { useFriendsRanking } from '@hooks/useFriendsRanking';
 import { usePendingTripTags } from '@hooks/useTripTags';
 import type { FriendsStackScreenProps } from '@navigation/types';
@@ -23,11 +24,20 @@ type Props = FriendsStackScreenProps<'FriendsHome'>;
 
 export function FriendsScreen({ navigation }: Props) {
   const { data: stats, isLoading: statsLoading } = useFollowStats();
-  const { data: following, isLoading: followingLoading } = useFollowing();
   const { data: ranking, isLoading: rankingLoading } = useFriendsRanking();
   const { data: pendingTags } = usePendingTripTags();
+  const {
+    data: feedData,
+    isLoading: feedLoading,
+    isRefetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useFeed();
 
-  const isLoading = statsLoading || followingLoading;
+  const feedItems = useMemo(() => getFeedItems(feedData), [feedData]);
+  const isLoading = statsLoading || feedLoading;
 
   const handleNotificationsPress = useCallback(() => {
     navigation.navigate('PendingTripTags');
@@ -48,25 +58,52 @@ export function FriendsScreen({ navigation }: Props) {
     navigation.navigate('FollowingList');
   }, [navigation]);
 
-  const renderUserItem = useCallback(
-    ({ item }: { item: UserSummary }) => (
-      <TouchableOpacity
-        style={styles.userRow}
-        onPress={() => handleUserSelect(item.user_id, item.username)}
-        activeOpacity={0.7}
-      >
-        <UserAvatar avatarUrl={item.avatar_url} username={item.username} size={52} />
-        <View style={styles.userInfo}>
-          <Text style={styles.displayName}>{item.display_name}</Text>
-          <Text style={styles.username}>@{item.username}</Text>
-        </View>
-        <View style={styles.countryBadge}>
-          <Ionicons name="compass" size={14} color={colors.adobeBrick} />
-          <Text style={styles.countryCount}>{item.country_count}</Text>
-        </View>
-      </TouchableOpacity>
+  const handleCountryPress = useCallback(
+    (countryCode: string, countryName: string) => {
+      const tabNavigator = navigation.getParent();
+      if (tabNavigator) {
+        tabNavigator.navigate('Passport', {
+          screen: 'CountryDetail',
+          params: {
+            countryId: countryCode,
+            countryName,
+            countryCode,
+          },
+        });
+      }
+    },
+    [navigation]
+  );
+
+  const handleEntryPress = useCallback(
+    (entryId: string) => {
+      const tabNavigator = navigation.getParent();
+      if (tabNavigator) {
+        tabNavigator.navigate('Trips', {
+          screen: 'EntryDetail',
+          params: { entryId },
+        });
+      }
+    },
+    [navigation]
+  );
+
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const renderFeedItem = useCallback(
+    ({ item }: { item: FeedItem }) => (
+      <FeedCard
+        item={item}
+        onUserPress={handleUserSelect}
+        onCountryPress={handleCountryPress}
+        onEntryPress={handleEntryPress}
+      />
     ),
-    [handleUserSelect]
+    [handleUserSelect, handleCountryPress, handleEntryPress]
   );
 
   const ListHeader = useMemo(
@@ -81,6 +118,15 @@ export function FriendsScreen({ navigation }: Props) {
           onFollowersPress={handleViewFollowers}
           onFollowingPress={handleViewFollowing}
         />
+        {/* Feed section header */}
+        <View style={styles.feedHeader}>
+          <View style={styles.feedHeaderDecor}>
+            <View style={styles.decorLine} />
+            <Ionicons name="compass-outline" size={16} color={colors.stormGray} />
+            <View style={styles.decorLine} />
+          </View>
+          <Text style={styles.feedHeaderTitle}>Travel Feed</Text>
+        </View>
       </>
     ),
     [stats, ranking, statsLoading, rankingLoading, handleViewFollowers, handleViewFollowing]
@@ -92,10 +138,9 @@ export function FriendsScreen({ navigation }: Props) {
         <View style={styles.emptyIconContainer}>
           <Ionicons name="trail-sign-outline" size={48} color={colors.dustyCoral} />
         </View>
-        <Text style={styles.emptyTitle}>Not following anyone yet</Text>
+        <Text style={styles.emptyTitle}>The trail is quiet</Text>
         <Text style={styles.emptySubtitle}>
-          Every great journey is better with friends.{'\n'}Find fellow travelers to follow their
-          adventures.
+          Follow fellow travelers to see their{'\n'}adventures unfold here
         </Text>
         <View style={styles.emptyHint}>
           <Ionicons name="search" size={14} color={colors.stormGray} />
@@ -104,6 +149,17 @@ export function FriendsScreen({ navigation }: Props) {
       </View>
     ),
     []
+  );
+
+  const ListFooter = useMemo(
+    () =>
+      isFetchingNextPage ? (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={colors.adobeBrick} />
+          <Text style={styles.footerText}>Loading more stories...</Text>
+        </View>
+      ) : null,
+    [isFetchingNextPage]
   );
 
   if (isLoading) {
@@ -123,6 +179,7 @@ export function FriendsScreen({ navigation }: Props) {
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.adobeBrick} />
+          <Text style={styles.loadingText}>Loading feed...</Text>
         </View>
       </SafeAreaView>
     );
@@ -147,14 +204,25 @@ export function FriendsScreen({ navigation }: Props) {
       </View>
 
       <FlatList
-        data={following ?? []}
-        renderItem={renderUserItem}
-        keyExtractor={(item) => item.id}
+        data={feedItems}
+        renderItem={renderFeedItem}
+        keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
+        ListFooterComponent={ListFooter}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         style={styles.flatList}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={colors.adobeBrick}
+            colors={[colors.adobeBrick]}
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -193,6 +261,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
   },
   userSearchContainer: {
     paddingHorizontal: 16,
@@ -208,50 +282,28 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
     flexGrow: 1,
   },
-  userRow: {
+  feedHeader: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  feedHeaderDecor: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: colors.cloudWhite,
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.paperBeige,
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 10,
+    marginBottom: 8,
   },
-  userInfo: {
-    flex: 1,
-    marginLeft: 14,
+  decorLine: {
+    width: 32,
+    height: 1,
+    backgroundColor: colors.stormGray,
+    opacity: 0.3,
   },
-  displayName: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
+  feedHeaderTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 18,
     color: colors.midnightNavy,
-  },
-  username: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    marginTop: 2,
-  },
-  countryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.paperBeige,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  countryCount: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 14,
-    color: colors.adobeBrick,
+    fontStyle: 'italic',
   },
   emptyState: {
     flex: 1,
@@ -302,5 +354,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 13,
     color: colors.stormGray,
+  },
+  footerLoader: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    fontStyle: 'italic',
   },
 });
