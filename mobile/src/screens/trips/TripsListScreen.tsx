@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TripCard } from '@components/ui';
+import { NotificationBell, TripCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { usePendingTripTags } from '@hooks/useTripTags';
 import { Trip, useTrips } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
@@ -64,7 +65,12 @@ export function TripsListScreen({ navigation }: Props) {
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
+  const { data: pendingTags } = usePendingTripTags();
   const [searchQuery, setSearchQuery] = useState('');
+
+  const handleNotificationsPress = useCallback(() => {
+    navigation.navigate('PendingTripTags');
+  }, [navigation]);
 
   // Create a set of visited country codes for quick lookup
   const visitedCountryCodes = useMemo(() => {
@@ -146,7 +152,16 @@ export function TripsListScreen({ navigation }: Props) {
       <>
         {/* Header Title */}
         <View style={styles.headerContainer}>
-          <Text style={styles.headerTitle}>My Trips</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerSpacer} />
+            <Text style={styles.headerTitle}>My Trips</Text>
+            <View style={styles.headerRight}>
+              <NotificationBell
+                count={pendingTags?.length ?? 0}
+                onPress={handleNotificationsPress}
+              />
+            </View>
+          </View>
         </View>
 
         {/* Search Bar with Liquid Glass */}
@@ -176,7 +191,7 @@ export function TripsListScreen({ navigation }: Props) {
         </View>
       </>
     ),
-    [searchQuery]
+    [searchQuery, pendingTags, handleNotificationsPress]
   );
 
   if (isLoading) {
@@ -241,7 +256,19 @@ const styles = StyleSheet.create({
   headerContainer: {
     paddingTop: 16,
     paddingBottom: 8,
+    paddingHorizontal: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  headerRight: {
+    width: 40,
+    alignItems: 'flex-end',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,

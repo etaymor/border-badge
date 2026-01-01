@@ -7,6 +7,7 @@ import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
 import { EntryListScreen, EntryFormScreen } from '@screens/entries';
 import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
+import { PendingTripTagsScreen } from '@screens/notifications/PendingTripTagsScreen';
 import { colors } from '@constants/colors';
 
 import type { TripsStackParamList } from './types';
@@ -72,6 +73,11 @@ export function TripsNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen name="ListEdit" component={ListEditScreen} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="PendingTripTags"
+        component={PendingTripTagsScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

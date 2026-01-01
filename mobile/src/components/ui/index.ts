@@ -14,6 +14,7 @@ export { GlassIconButton } from './GlassIconButton';
 export { GlassInput } from './GlassInput';
 export { Input } from './Input';
 export { Loading } from './Loading';
+export { NotificationBell } from './NotificationBell';
 export { PassportSkeleton } from './PassportSkeleton';
 export { Skeleton } from './Skeleton';
 export { Screen } from './Screen';

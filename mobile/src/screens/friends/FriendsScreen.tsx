@@ -11,10 +11,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FriendsStatsGrid, UserAvatar, UserSearchBar } from '@components/friends';
+import { NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useFollowing, useFollowStats } from '@hooks/useFollows';
 import { useFriendsRanking } from '@hooks/useFriendsRanking';
+import { usePendingTripTags } from '@hooks/useTripTags';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
@@ -23,8 +25,13 @@ export function FriendsScreen({ navigation }: Props) {
   const { data: stats, isLoading: statsLoading } = useFollowStats();
   const { data: following, isLoading: followingLoading } = useFollowing();
   const { data: ranking, isLoading: rankingLoading } = useFriendsRanking();
+  const { data: pendingTags } = usePendingTripTags();
 
   const isLoading = statsLoading || followingLoading;
+
+  const handleNotificationsPress = useCallback(() => {
+    navigation.navigate('PendingTripTags');
+  }, [navigation]);
 
   const handleUserSelect = useCallback(
     (userId: string, username: string) => {
@@ -65,11 +72,6 @@ export function FriendsScreen({ navigation }: Props) {
   const ListHeader = useMemo(
     () => (
       <>
-        {/* Header Title */}
-        <View style={styles.headerContainer}>
-          <Text style={styles.headerTitle}>My Friends</Text>
-        </View>
-
         {/* Stats Grid */}
         <FriendsStatsGrid
           followerCount={stats?.follower_count ?? 0}
@@ -79,22 +81,9 @@ export function FriendsScreen({ navigation }: Props) {
           onFollowersPress={handleViewFollowers}
           onFollowingPress={handleViewFollowing}
         />
-
-        {/* User search for finding new travelers */}
-        <View style={styles.userSearchContainer}>
-          <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
-        </View>
       </>
     ),
-    [
-      stats,
-      ranking,
-      statsLoading,
-      rankingLoading,
-      handleUserSelect,
-      handleViewFollowers,
-      handleViewFollowing,
-    ]
+    [stats, ranking, statsLoading, rankingLoading, handleViewFollowers, handleViewFollowing]
   );
 
   const ListEmpty = useMemo(
@@ -121,7 +110,16 @@ export function FriendsScreen({ navigation }: Props) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.headerContainer}>
-          <Text style={styles.headerTitle}>My Friends</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerSpacer} />
+            <Text style={styles.headerTitle}>My Friends</Text>
+            <View style={styles.headerRight}>
+              <NotificationBell
+                count={pendingTags?.length ?? 0}
+                onPress={handleNotificationsPress}
+              />
+            </View>
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.adobeBrick} />
@@ -132,6 +130,25 @@ export function FriendsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      {/* Header Title */}
+      <View style={styles.headerContainer}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>My Friends</Text>
+          <View style={styles.headerRight}>
+            <NotificationBell
+              count={pendingTags?.length ?? 0}
+              onPress={handleNotificationsPress}
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* User search - outside FlatList so dropdown can overlay empty state */}
+      <View style={styles.userSearchContainer}>
+        <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
+      </View>
+
       <FlatList
         data={following ?? []}
         renderItem={renderUserItem}
@@ -140,6 +157,7 @@ export function FriendsScreen({ navigation }: Props) {
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        style={styles.flatList}
       />
     </SafeAreaView>
   );
@@ -153,7 +171,19 @@ const styles = StyleSheet.create({
   headerContainer: {
     paddingTop: 16,
     paddingBottom: 8,
+    paddingHorizontal: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  headerRight: {
+    width: 40,
+    alignItems: 'flex-end',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -171,6 +201,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
+    zIndex: 10,
+    elevation: 10,
+  },
+  flatList: {
+    zIndex: 1,
   },
   listContent: {
     paddingBottom: 100,

@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.trips_helpers import verify_trip_ownership
 from app.api.utils import get_token_from_request
@@ -14,11 +14,87 @@ from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
-from app.schemas.trips import TripTag, TripTagAction, TripTagStatus
+from app.schemas.trips import (
+    PendingTripTagDetail,
+    TripTag,
+    TripTagAction,
+    TripTagStatus,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/pending", response_model=list[PendingTripTagDetail])
+@limiter.limit("30/minute")
+async def get_pending_trip_tags(
+    request: Request,
+    user: CurrentUser,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> list[PendingTripTagDetail]:
+    """Get pending trip tag invitations for the current user.
+
+    Returns tags where the current user has been invited but hasn't responded yet.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Fetch pending tags with trip and initiator details via PostgREST embedding
+    tags = await db.get(
+        "trip_tags",
+        {
+            "select": (
+                "id,trip_id,initiated_by,created_at,"
+                "trip:trip_id(name,country:country_id(code)),"
+                "initiator:initiated_by(username,avatar_url)"
+            ),
+            "tagged_user_id": f"eq.{user.id}",
+            "status": f"eq.{TripTagStatus.PENDING.value}",
+            "order": "created_at.desc",
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+    if not tags:
+        return []
+
+    results = []
+    for tag in tags:
+        # Extract nested trip data
+        trip_data = tag.get("trip")
+        trip_name = "Unknown Trip"
+        trip_country_code = ""
+        if trip_data:
+            trip_name = trip_data.get("name", "Unknown Trip")
+            country_data = trip_data.get("country")
+            if country_data:
+                trip_country_code = country_data.get("code", "")
+
+        # Extract nested initiator data
+        initiator_data = tag.get("initiator")
+        initiated_by_username = None
+        initiated_by_avatar_url = None
+        if initiator_data:
+            initiated_by_username = initiator_data.get("username")
+            initiated_by_avatar_url = initiator_data.get("avatar_url")
+
+        results.append(
+            PendingTripTagDetail(
+                id=tag["id"],
+                trip_id=tag["trip_id"],
+                trip_name=trip_name,
+                trip_country_code=trip_country_code,
+                initiated_by=tag.get("initiated_by"),
+                initiated_by_username=initiated_by_username,
+                initiated_by_avatar_url=initiated_by_avatar_url,
+                created_at=tag["created_at"],
+            )
+        )
+
+    return results
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)

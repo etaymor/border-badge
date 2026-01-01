@@ -92,3 +92,16 @@ class TripTagAction(BaseModel):
 
     status: TripTagStatus
     responded_at: datetime
+
+
+class PendingTripTagDetail(BaseModel):
+    """Response model for pending trip tag with trip and initiator details."""
+
+    id: UUID
+    trip_id: UUID
+    trip_name: str
+    trip_country_code: str
+    initiated_by: UUID | None = None
+    initiated_by_username: str | None = None
+    initiated_by_avatar_url: str | None = None
+    created_at: datetime

@@ -8,6 +8,7 @@ import {
   FriendsScreen,
   UserProfileScreen,
 } from '@screens/friends';
+import { PendingTripTagsScreen } from '@screens/notifications/PendingTripTagsScreen';
 
 import type { FriendsStackParamList } from './types';
 
@@ -36,6 +37,11 @@ export function FriendsNavigator() {
       <Stack.Screen
         name="BlockedUsers"
         component={BlockedUsersScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PendingTripTags"
+        component={PendingTripTagsScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

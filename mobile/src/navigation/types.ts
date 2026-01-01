@@ -52,6 +52,7 @@ export type FriendsStackParamList = {
   FollowersList: undefined;
   FollowingList: undefined;
   BlockedUsers: undefined;
+  PendingTripTags: undefined;
 };
 
 // Dreams stack (nested in tab)
@@ -83,6 +84,7 @@ export type TripsStackParamList = {
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };
+  PendingTripTags: undefined;
 };
 
 // Screen props helpers
