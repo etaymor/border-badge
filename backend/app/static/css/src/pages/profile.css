@@ -50,7 +50,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-midnight-navy) 0%, #2a4a5f 100%);
+  background: var(--color-midnight-navy);
   color: var(--color-cloud-white);
   font-family: var(--font-family-title);
   font-size: 3rem;
