@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,7 +15,7 @@ import {
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useSendInvite } from '@hooks/useInvites';
-import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
+import { useUserSearch } from '@hooks/useUserSearch';
 
 import { FollowButton } from './FollowButton';
 import { UserAvatar } from './UserAvatar';
@@ -51,22 +50,6 @@ export function UserSearchBar({
       setQuery('');
     },
     [onUserSelect]
-  );
-
-  const handleFollowChange = useCallback(
-    (user: UserSearchResult, isNowFollowing: boolean) => {
-      if (isNowFollowing) {
-        // Brief haptic + visual toast for follow confirmation
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert(
-          'Following!',
-          `You're now following @${user.username}`,
-          [{ text: 'OK', style: 'default' }],
-          { cancelable: true }
-        );
-      }
-    },
-    []
   );
 
   const handleInviteByEmail = useCallback(() => {
@@ -148,12 +131,7 @@ export function UserSearchBar({
                       </Text>
                     </View>
                   </View>
-                  <FollowButton
-                    userId={item.id}
-                    isFollowing={item.is_following}
-                    size="small"
-                    onFollowChange={(isNowFollowing) => handleFollowChange(item, isNowFollowing)}
-                  />
+                  <FollowButton userId={item.id} isFollowing={item.is_following} size="small" />
                 </TouchableOpacity>
               )}
             />

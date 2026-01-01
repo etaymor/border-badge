@@ -137,20 +137,37 @@ export function setupNotificationListeners(navigation: NotificationNavigation): 
 
   // Handle notification tap (both foreground and background)
   const responseListener = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as {
-      screen?: string;
-      userId?: string;
-      username?: string;
-      tripId?: string;
-    };
+    const rawData = response.notification.request.content.data;
 
-    // Deep link navigation based on notification data
-    if (data.screen === 'UserProfile' && data.userId && data.username) {
-      navigation.navigate('UserProfile', { userId: data.userId, username: data.username });
-    } else if (data.screen === 'TripDetail' && data.tripId) {
-      navigation.navigate('TripDetail', { tripId: data.tripId });
-    } else if (data.screen === 'FollowersList') {
+    // Validate data exists and is an object
+    if (!rawData || typeof rawData !== 'object') {
+      if (__DEV__) {
+        console.warn('Invalid notification data:', rawData);
+      }
+      return;
+    }
+
+    // Type-safe extraction with validation
+    const data = rawData as Record<string, unknown>;
+    const screen = typeof data.screen === 'string' ? data.screen : null;
+    const userId = typeof data.userId === 'string' ? data.userId : null;
+    const username = typeof data.username === 'string' ? data.username : null;
+    const tripId = typeof data.tripId === 'string' ? data.tripId : null;
+
+    // Deep link navigation based on validated notification data
+    if (screen === 'UserProfile' && userId && username) {
+      navigation.navigate('UserProfile', { userId, username });
+    } else if (screen === 'TripDetail' && tripId) {
+      navigation.navigate('TripDetail', { tripId });
+    } else if (screen === 'FollowersList') {
       navigation.navigate('FollowersList');
+    } else if (__DEV__ && screen) {
+      console.warn('Unhandled notification screen or missing params:', {
+        screen,
+        userId,
+        username,
+        tripId,
+      });
     }
   });
 
