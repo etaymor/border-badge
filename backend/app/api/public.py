@@ -153,6 +153,8 @@ async def view_public_profile(
     db = get_supabase_client()
 
     # Fetch profile by username (case-insensitive)
+    # SECURITY: username is validated by Path() with pattern=r"^[a-zA-Z0-9_]+$"
+    # which prevents SQL injection - only alphanumeric and underscore allowed
     profiles = await db.get(
         "user_profile",
         {

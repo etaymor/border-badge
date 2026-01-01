@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Platform,
   StyleSheet,
@@ -21,6 +22,64 @@ import type { FeedItem } from '@hooks/useFeed';
 import { useUserFeed, getUserFeedItems } from '@hooks/useUserFeed';
 import { useUserProfile } from '@hooks/useUserProfile';
 import type { FriendsStackScreenProps } from '@navigation/types';
+
+// Animated stat box component matching passport style
+interface ProfileStatBoxProps {
+  value: string | number;
+  label: string;
+  backgroundColor: string;
+  textColor?: string;
+  labelColor?: string;
+  index: number;
+  show: boolean;
+}
+
+function ProfileStatBox({
+  value,
+  label,
+  backgroundColor,
+  textColor = colors.midnightNavy,
+  labelColor,
+  index,
+  show,
+}: ProfileStatBoxProps) {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (show) {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 6,
+        tension: 50,
+        delay: index * 100,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [show, index, scaleAnim]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.statBox,
+        {
+          backgroundColor,
+          transform: [{ scale: scaleAnim }],
+          opacity: scaleAnim,
+        },
+      ]}
+    >
+      <Text style={[styles.statValue, { color: textColor }]}>{value}</Text>
+      <Text
+        style={[
+          styles.statLabel,
+          labelColor ? { color: labelColor } : { color: textColor, opacity: 0.7 },
+        ]}
+      >
+        {label}
+      </Text>
+    </Animated.View>
+  );
+}
 
 type Props = FriendsStackScreenProps<'UserProfile'>;
 
@@ -131,11 +190,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Traveler</Text>
           <View style={styles.headerRight} />
         </View>
         <View style={styles.loadingContainer}>
@@ -149,11 +207,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
   if (error || !profile) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Traveler</Text>
           <View style={styles.headerRight} />
         </View>
         <View style={styles.errorContainer}>
@@ -171,11 +228,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>@{profile.username}</Text>
         <TouchableOpacity style={styles.moreButton} onPress={handleBlock}>
           <Ionicons name="ellipsis-horizontal" size={24} color={colors.midnightNavy} />
         </TouchableOpacity>
@@ -186,51 +242,58 @@ export function UserProfileScreen({ navigation, route }: Props) {
         renderItem={renderFeedItem}
         keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
         ListHeaderComponent={
-          <View style={styles.profileCard}>
-            <View style={styles.avatarRing}>
-              <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={100} />
-            </View>
-
-            <Text style={styles.displayName}>{profile.display_name}</Text>
-            <Text style={styles.username}>@{profile.username}</Text>
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <View style={styles.statIconWrap}>
-                  <Ionicons name="compass" size={16} color={colors.adobeBrick} />
-                </View>
-                <Text style={styles.statNumber}>{profile.country_count}</Text>
-                <Text style={styles.statLabel}>Countries</Text>
+          <>
+            {/* Avatar and Identity */}
+            <View style={styles.profileHeader}>
+              <View style={styles.avatarRing}>
+                <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={100} />
               </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <View style={styles.statIconWrap}>
-                  <Ionicons name="people" size={16} color={colors.mossGreen} />
-                </View>
-                <Text style={styles.statNumber}>{profile.follower_count}</Text>
-                <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <View style={styles.statIconWrap}>
-                  <Ionicons name="footsteps" size={16} color={colors.sunsetGold} />
-                </View>
-                <Text style={styles.statNumber}>{profile.following_count}</Text>
-                <Text style={styles.statLabel}>Following</Text>
+              <Text style={styles.displayName}>{profile.display_name}</Text>
+              <Text style={styles.username}>@{profile.username}</Text>
+              <View style={styles.actionRow}>
+                <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
               </View>
             </View>
 
-            <View style={styles.actionRow}>
-              <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
+            {/* Stats Grid - Passport Style */}
+            <View style={styles.statsGrid}>
+              <ProfileStatBox
+                value={profile.country_count}
+                label="COUNTRIES"
+                backgroundColor={colors.adobeBrick}
+                textColor={colors.cloudWhite}
+                labelColor="rgba(255,255,255,0.8)"
+                index={0}
+                show={true}
+              />
+              <ProfileStatBox
+                value={profile.follower_count}
+                label="FOLLOWERS"
+                backgroundColor={colors.sunsetGold}
+                textColor={colors.midnightNavy}
+                labelColor={colors.midnightNavy}
+                index={1}
+                show={true}
+              />
+              <ProfileStatBox
+                value={profile.following_count}
+                label="FOLLOWING"
+                backgroundColor={colors.dustyCoral}
+                textColor={colors.midnightNavy}
+                labelColor={colors.midnightNavy}
+                index={2}
+                show={true}
+              />
             </View>
 
+            {/* Activity Section Header */}
             {feedItems.length > 0 && (
               <View style={styles.activityHeader}>
                 <Text style={styles.activityTitle}>Their Journey</Text>
                 <View style={styles.activityLine} />
               </View>
             )}
-          </View>
+          </>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
@@ -269,25 +332,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.lakeBlue,
-    paddingBottom: 16,
+    paddingBottom: 8,
     paddingHorizontal: 16,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: colors.paperBeige,
     borderRadius: 20,
-  },
-  headerTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 20,
-    color: colors.midnightNavy,
-    fontStyle: 'italic',
   },
   headerRight: {
     width: 40,
@@ -297,7 +351,7 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: colors.paperBeige,
     borderRadius: 20,
   },
   loadingContainer: {
@@ -343,19 +397,11 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingBottom: 100,
   },
-  profileCard: {
+  profileHeader: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingTop: 8,
+    paddingBottom: 24,
     paddingHorizontal: 20,
-    backgroundColor: colors.cloudWhite,
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 20,
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
   },
   avatarRing: {
     padding: 4,
@@ -366,9 +412,10 @@ const styles = StyleSheet.create({
   },
   displayName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 26,
+    fontSize: 28,
     color: colors.midnightNavy,
     marginTop: 16,
+    fontStyle: 'italic',
   },
   username: {
     fontFamily: fonts.openSans.regular,
@@ -376,54 +423,45 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     marginTop: 4,
   },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 28,
-    paddingHorizontal: 8,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.paperBeige,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statNumber: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 26,
-    color: colors.midnightNavy,
-  },
-  statLabel: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 11,
-    color: colors.stormGray,
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  statDivider: {
-    width: 1,
-    height: 50,
-    backgroundColor: colors.paperBeige,
-    marginHorizontal: 12,
-  },
   actionRow: {
     flexDirection: 'row',
-    marginTop: 28,
+    marginTop: 20,
     gap: 12,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    gap: 12,
+  },
+  statBox: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statValue: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 22,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   activityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'stretch',
     marginTop: 28,
+    marginHorizontal: 20,
     gap: 12,
   },
   activityTitle: {
