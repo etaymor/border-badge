@@ -1,9 +1,0 @@
-1b791f2d3932dc7eee4b2ed028b5df9f
-var _interopRequireDefault = require("@babel/runtime/helpers/interopRequireDefault").default;
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.default = void 0;
-var _NativeRNViewShot = _interopRequireDefault(require("./specs/NativeRNViewShot"));
-var _default = exports.default = _NativeRNViewShot.default;
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfTmF0aXZlUk5WaWV3U2hvdCIsIl9pbnRlcm9wUmVxdWlyZURlZmF1bHQiLCJyZXF1aXJlIiwiX2RlZmF1bHQiLCJleHBvcnRzIiwiZGVmYXVsdCIsIlJOVmlld1Nob3QiXSwic291cmNlcyI6WyJSTlZpZXdTaG90LmpzIl0sInNvdXJjZXNDb250ZW50IjpbIi8vQGZsb3dcbmltcG9ydCBSTlZpZXdTaG90IGZyb20gJy4vc3BlY3MvTmF0aXZlUk5WaWV3U2hvdCdcbmV4cG9ydCBkZWZhdWx0IFJOVmlld1Nob3QiXSwibWFwcGluZ3MiOiI7Ozs7O0FBQ0EsSUFBQUEsaUJBQUEsR0FBQUMsc0JBQUEsQ0FBQUMsT0FBQTtBQUFpRCxJQUFBQyxRQUFBLEdBQUFDLE9BQUEsQ0FBQUMsT0FBQSxHQUNsQ0MseUJBQVUiLCJpZ25vcmVMaXN0IjpbXX0=

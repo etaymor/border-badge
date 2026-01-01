@@ -1,8 +1,0 @@
-aa3cfa9489f96cfbe4245525c82b988e
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.default = void 0;
-var _reactNative = require("react-native");
-var _default = exports.default = _reactNative.Linking;
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfcmVhY3ROYXRpdmUiLCJyZXF1aXJlIiwiX2RlZmF1bHQiLCJleHBvcnRzIiwiZGVmYXVsdCIsIkxpbmtpbmciXSwic291cmNlcyI6WyIuLi9zcmMvUk5MaW5raW5nLnRzIl0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IExpbmtpbmcgfSBmcm9tICdyZWFjdC1uYXRpdmUnO1xuZXhwb3J0IGRlZmF1bHQgTGlua2luZztcbiJdLCJtYXBwaW5ncyI6Ijs7OztBQUFBLElBQUFBLFlBQUEsR0FBQUMsT0FBQTtBQUF1QyxJQUFBQyxRQUFBLEdBQUFDLE9BQUEsQ0FBQUMsT0FBQSxHQUN4QkMsb0JBQU8iLCJpZ25vcmVMaXN0IjpbXX0=

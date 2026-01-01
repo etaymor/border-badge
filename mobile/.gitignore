@@ -36,6 +36,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# jest
+.jest-cache/
+
 # generated native folders
 /ios
 /android

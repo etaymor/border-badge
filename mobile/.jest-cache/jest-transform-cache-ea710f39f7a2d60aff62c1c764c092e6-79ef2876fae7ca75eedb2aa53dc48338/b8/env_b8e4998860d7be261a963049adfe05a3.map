@@ -1,1 +1,0 @@
-{"version":3,"names":["env","exports","process"],"sources":["env.js"],"sourcesContent":["// virtual module for client environment variables in development.\nexport const env = process.env;\n"],"mappings":";;;;AACO,IAAMA,GAAG,GAAAC,OAAA,CAAAD,GAAA,GAAGE,OAAO,CAACF,GAAG","ignoreList":[]}
