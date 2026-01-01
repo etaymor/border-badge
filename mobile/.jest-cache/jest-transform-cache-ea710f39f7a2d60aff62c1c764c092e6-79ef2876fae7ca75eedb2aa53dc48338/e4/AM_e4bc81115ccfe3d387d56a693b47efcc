@@ -1,0 +1,5 @@
+db07e45338c0c274889e0e2598624bc3
+module.exports = {
+      testUri:
+        "../../../assets/stamps/processed/AM.webp"
+    };

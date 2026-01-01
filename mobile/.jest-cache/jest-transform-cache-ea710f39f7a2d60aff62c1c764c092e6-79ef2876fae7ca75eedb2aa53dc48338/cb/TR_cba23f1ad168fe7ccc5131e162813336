@@ -1,0 +1,5 @@
+41e72cb1dceba35bacb278777fcafbc3
+module.exports = {
+      testUri:
+        "../../../assets/stamps/processed/TR.webp"
+    };

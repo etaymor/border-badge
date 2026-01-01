@@ -1,0 +1,5 @@
+3153befd684215bfc13448a4c0573cc5
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/PL.webp"
+    };

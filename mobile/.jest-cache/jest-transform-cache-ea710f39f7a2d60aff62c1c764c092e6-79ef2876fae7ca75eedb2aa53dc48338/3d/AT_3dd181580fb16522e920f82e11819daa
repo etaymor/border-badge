@@ -1,0 +1,5 @@
+28b13cf57dc7692b9a3ae484f81e4e1d
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/AT.webp"
+    };

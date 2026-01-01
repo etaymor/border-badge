@@ -1,0 +1,39 @@
+2e564053ea000a3b10b3e2e9460ca502
+"use strict";
+
+var _interopRequireDefault2 = require("@babel/runtime/helpers/interopRequireDefault").default;
+var _classCallCheck2 = _interopRequireDefault2(require("@babel/runtime/helpers/classCallCheck"));
+var _createClass2 = _interopRequireDefault2(require("@babel/runtime/helpers/createClass"));
+var _callSuper2 = _interopRequireDefault2(require("@babel/runtime/helpers/callSuper"));
+var _inherits2 = _interopRequireDefault2(require("@babel/runtime/helpers/inherits"));
+var _FeImage;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var _util = require("../../lib/util");
+var _FilterPrimitive = _interopRequireDefault(require("./FilterPrimitive"));
+function _interopRequireDefault(e) {
+  return e && e.__esModule ? e : {
+    default: e
+  };
+}
+var FeImage = function (_FilterPrimitive$defa) {
+  function FeImage() {
+    (0, _classCallCheck2.default)(this, FeImage);
+    return (0, _callSuper2.default)(this, FeImage, arguments);
+  }
+  (0, _inherits2.default)(FeImage, _FilterPrimitive$defa);
+  return (0, _createClass2.default)(FeImage, [{
+    key: "render",
+    value: function render() {
+      (0, _util.warnUnimplementedFilter)();
+      return null;
+    }
+  }]);
+}(_FilterPrimitive.default);
+_FeImage = FeImage;
+FeImage.displayName = 'FeImage';
+FeImage.defaultProps = Object.assign({}, _FeImage.defaultPrimitiveProps);
+exports.default = FeImage;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfdXRpbCIsInJlcXVpcmUiLCJfRmlsdGVyUHJpbWl0aXZlIiwiX2ludGVyb3BSZXF1aXJlRGVmYXVsdCIsImUiLCJfX2VzTW9kdWxlIiwiZGVmYXVsdCIsIkZlSW1hZ2UiLCJfRmlsdGVyUHJpbWl0aXZlJGRlZmEiLCJfY2xhc3NDYWxsQ2hlY2syIiwiX2NhbGxTdXBlcjIiLCJhcmd1bWVudHMiLCJfaW5oZXJpdHMyIiwiX2NyZWF0ZUNsYXNzMiIsImtleSIsInZhbHVlIiwicmVuZGVyIiwid2FyblVuaW1wbGVtZW50ZWRGaWx0ZXIiLCJfRmVJbWFnZSIsImRpc3BsYXlOYW1lIiwiZGVmYXVsdFByb3BzIiwiT2JqZWN0IiwiYXNzaWduIiwiZGVmYXVsdFByaW1pdGl2ZVByb3BzIiwiZXhwb3J0cyJdLCJzb3VyY2VzIjpbIi4uLy4uLy4uLy4uL3NyYy9lbGVtZW50cy9maWx0ZXJzL0ZlSW1hZ2UudHN4Il0sInNvdXJjZXNDb250ZW50IjpbbnVsbF0sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7QUFBQSxJQUFBQSxLQUFBLEdBQUFDLE9BQUE7QUFDQSxJQUFBQyxnQkFBQSxHQUFBQyxzQkFBQSxDQUFBRixPQUFBO0FBQWdELFNBQUFFLHVCQUFBQyxDQUFBO0VBQUEsT0FBQUEsQ0FBQSxJQUFBQSxDQUFBLENBQUFDLFVBQUEsR0FBQUQsQ0FBQTtJQUFBRSxPQUFBLEVBQUFGO0VBQUE7QUFBQTtBQUFBLElBUTNCRyxPQUFPLGFBQUFDLHFCQUFBO0VBQUEsU0FBQUQsUUFBQTtJQUFBLElBQUFFLGdCQUFBLENBQUFILE9BQUEsUUFBQUMsT0FBQTtJQUFBLFdBQUFHLFdBQUEsQ0FBQUosT0FBQSxRQUFBQyxPQUFBLEVBQUFJLFNBQUE7RUFBQTtFQUFBLElBQUFDLFVBQUEsQ0FBQU4sT0FBQSxFQUFBQyxPQUFBLEVBQUFDLHFCQUFBO0VBQUEsV0FBQUssYUFBQSxDQUFBUCxPQUFBLEVBQUFDLE9BQUE7SUFBQU8sR0FBQTtJQUFBQyxLQUFBLEVBTzFCLFNBQUFDLE1BQU1BLENBQUEsRUFBRztNQUNQLElBQUFoQixLQUFBLENBQUFpQix1QkFBdUIsRUFBQyxDQUFDO01BQ3pCLE9BQU8sSUFBSTtJQUNiO0VBQUE7QUFBQSxFQVZtQ2YsZ0JBQUEsQ0FBQUksT0FBZTtBQUFBWSxRQUFBLEdBQS9CWCxPQUFPO0FBQVBBLE9BQU8sQ0FDbkJZLFdBQVcsR0FBRyxTQUFTO0FBRFhaLE9BQU8sQ0FHbkJhLFlBQVksR0FBQUMsTUFBQSxDQUFBQyxNQUFBLEtBQ2RKLFFBQUEsQ0FBS0sscUJBQUE7QUFPWEMsT0FBQSxDQUFBbEIsT0FBQSxHQUFBQyxPQUFBIiwiaWdub3JlTGlzdCI6W119

@@ -1,0 +1,1 @@
+{"version":3,"names":["_reactNative","require","_default","exports","default","Linking"],"sources":["../src/RNLinking.ts"],"sourcesContent":["import { Linking } from 'react-native';\nexport default Linking;\n"],"mappings":";;;;AAAA,IAAAA,YAAA,GAAAC,OAAA;AAAuC,IAAAC,QAAA,GAAAC,OAAA,CAAAC,OAAA,GACxBC,oBAAO","ignoreList":[]}

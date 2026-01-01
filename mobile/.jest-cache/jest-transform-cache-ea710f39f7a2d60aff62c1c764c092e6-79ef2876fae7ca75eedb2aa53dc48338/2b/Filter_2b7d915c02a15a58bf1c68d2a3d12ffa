@@ -1,0 +1,75 @@
+cb4bd299bbed6d5256051eedd792fb51
+"use strict";
+
+var _interopRequireDefault2 = require("@babel/runtime/helpers/interopRequireDefault").default;
+var _classCallCheck2 = _interopRequireDefault2(require("@babel/runtime/helpers/classCallCheck"));
+var _createClass2 = _interopRequireDefault2(require("@babel/runtime/helpers/createClass"));
+var _callSuper2 = _interopRequireDefault2(require("@babel/runtime/helpers/callSuper"));
+var _inherits2 = _interopRequireDefault2(require("@babel/runtime/helpers/inherits"));
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var _react = _interopRequireDefault(require("react"));
+var _FilterNativeComponent = _interopRequireDefault(require("../../fabric/FilterNativeComponent"));
+var _Shape = _interopRequireDefault(require("../Shape"));
+function _interopRequireDefault(e) {
+  return e && e.__esModule ? e : {
+    default: e
+  };
+}
+function _extends() {
+  return _extends = Object.assign ? Object.assign.bind() : function (n) {
+    for (var e = 1; e < arguments.length; e++) {
+      var t = arguments[e];
+      for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]);
+    }
+    return n;
+  }, _extends.apply(null, arguments);
+}
+var Filter = function (_Shape$default) {
+  function Filter() {
+    (0, _classCallCheck2.default)(this, Filter);
+    return (0, _callSuper2.default)(this, Filter, arguments);
+  }
+  (0, _inherits2.default)(Filter, _Shape$default);
+  return (0, _createClass2.default)(Filter, [{
+    key: "render",
+    value: function render() {
+      var _this = this;
+      var _this$props = this.props,
+        id = _this$props.id,
+        x = _this$props.x,
+        y = _this$props.y,
+        width = _this$props.width,
+        height = _this$props.height,
+        filterUnits = _this$props.filterUnits,
+        primitiveUnits = _this$props.primitiveUnits;
+      var filterProps = {
+        name: id,
+        x: x,
+        y: y,
+        width: width,
+        height: height,
+        filterUnits: filterUnits,
+        primitiveUnits: primitiveUnits
+      };
+      return _react.default.createElement(_FilterNativeComponent.default, _extends({
+        ref: function ref(_ref) {
+          return _this.refMethod(_ref);
+        }
+      }, filterProps), this.props.children);
+    }
+  }]);
+}(_Shape.default);
+Filter.displayName = 'Filter';
+Filter.defaultProps = {
+  x: '-10%',
+  y: '-10%',
+  width: '120%',
+  height: '120%',
+  filterUnits: 'objectBoundingBox',
+  primitiveUnits: 'userSpaceOnUse'
+};
+exports.default = Filter;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfcmVhY3QiLCJfaW50ZXJvcFJlcXVpcmVEZWZhdWx0IiwicmVxdWlyZSIsIl9GaWx0ZXJOYXRpdmVDb21wb25lbnQiLCJfU2hhcGUiLCJlIiwiX19lc01vZHVsZSIsImRlZmF1bHQiLCJfZXh0ZW5kcyIsIk9iamVjdCIsImFzc2lnbiIsImJpbmQiLCJuIiwiYXJndW1lbnRzIiwibGVuZ3RoIiwidCIsInIiLCJoYXNPd25Qcm9wZXJ0eSIsImNhbGwiLCJhcHBseSIsIkZpbHRlciIsIl9TaGFwZSRkZWZhdWx0IiwiX2NsYXNzQ2FsbENoZWNrMiIsIl9jYWxsU3VwZXIyIiwiX2luaGVyaXRzMiIsIl9jcmVhdGVDbGFzczIiLCJrZXkiLCJ2YWx1ZSIsInJlbmRlciIsIl90aGlzIiwiX3RoaXMkcHJvcHMiLCJwcm9wcyIsImlkIiwieCIsInkiLCJ3aWR0aCIsImhlaWdodCIsImZpbHRlclVuaXRzIiwicHJpbWl0aXZlVW5pdHMiLCJmaWx0ZXJQcm9wcyIsIm5hbWUiLCJjcmVhdGVFbGVtZW50IiwicmVmIiwicmVmTWV0aG9kIiwiY2hpbGRyZW4iLCJkaXNwbGF5TmFtZSIsImRlZmF1bHRQcm9wcyIsImV4cG9ydHMiXSwic291cmNlcyI6WyIuLi8uLi8uLi8uLi9zcmMvZWxlbWVudHMvZmlsdGVycy9GaWx0ZXIudHN4Il0sInNvdXJjZXNDb250ZW50IjpbbnVsbF0sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7OztBQUFBLElBQUFBLE1BQUEsR0FBQUMsc0JBQUEsQ0FBQUMsT0FBQTtBQUVBLElBQUFDLHNCQUFBLEdBQUFGLHNCQUFBLENBQUFDLE9BQUE7QUFFQSxJQUFBRSxNQUFBLEdBQUFILHNCQUFBLENBQUFDLE9BQUE7QUFBNkIsU0FBQUQsdUJBQUFJLENBQUE7RUFBQSxPQUFBQSxDQUFBLElBQUFBLENBQUEsQ0FBQUMsVUFBQSxHQUFBRCxDQUFBO0lBQUFFLE9BQUEsRUFBQUY7RUFBQTtBQUFBO0FBQUEsU0FBQUcsU0FBQTtFQUFBLE9BQUFBLFFBQUEsR0FBQUMsTUFB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

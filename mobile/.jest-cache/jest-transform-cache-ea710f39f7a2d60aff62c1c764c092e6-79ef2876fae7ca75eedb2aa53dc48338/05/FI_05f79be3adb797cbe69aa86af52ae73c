@@ -1,0 +1,5 @@
+bd8c16f8a60c62fdb24565336e986bdb
+module.exports = {
+      testUri:
+        "../../../assets/stamps/processed/FI.webp"
+    };

@@ -1,0 +1,5 @@
+874263f29dcd1dd9fc8487f8019c1949
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/UZ.webp"
+    };

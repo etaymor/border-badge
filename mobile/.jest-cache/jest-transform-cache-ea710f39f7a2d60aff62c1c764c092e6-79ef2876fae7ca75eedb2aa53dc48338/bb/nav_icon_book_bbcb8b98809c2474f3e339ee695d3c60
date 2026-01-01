@@ -1,0 +1,5 @@
+9d222f9c625130736ddc4afdce524a7d
+module.exports = {
+      testUri:
+        "../../../assets/nav-icons/nav_icon_book.png"
+    };

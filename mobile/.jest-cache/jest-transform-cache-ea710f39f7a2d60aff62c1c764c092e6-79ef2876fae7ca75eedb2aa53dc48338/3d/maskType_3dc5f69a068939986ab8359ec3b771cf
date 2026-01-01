@@ -1,0 +1,12 @@
+eb78d2d9840630ba5f3552da834814ef
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.maskType = void 0;
+var maskType = exports.maskType = {
+  luminance: 0,
+  alpha: 1
+};
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJtYXNrVHlwZSIsImV4cG9ydHMiLCJsdW1pbmFuY2UiLCJhbHBoYSJdLCJzb3VyY2VzIjpbIi4uLy4uLy4uL3NyYy9saWIvbWFza1R5cGUudHMiXSwic291cmNlc0NvbnRlbnQiOltudWxsXSwibWFwcGluZ3MiOiI7Ozs7OztBQUFPLElBQU1BLFFBQVEsR0FBQUMsT0FBQSxDQUFBRCxRQUFBLEdBQUc7RUFDdEJFLFNBQVMsRUFBRSxDQUFDO0VBQ1pDLEtBQUssRUFBRTtBQUNULENBQVUiLCJpZ25vcmVMaXN0IjpbXX0=

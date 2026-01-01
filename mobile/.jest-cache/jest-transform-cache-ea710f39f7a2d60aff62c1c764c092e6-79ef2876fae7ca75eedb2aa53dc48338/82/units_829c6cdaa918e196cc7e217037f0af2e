@@ -1,0 +1,13 @@
+817d6553fb85f4751012d0d18db0883e
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.units = exports.default = void 0;
+var units = exports.units = {
+  objectBoundingBox: 0,
+  userSpaceOnUse: 1
+};
+var _default = exports.default = units;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJ1bml0cyIsImV4cG9ydHMiLCJvYmplY3RCb3VuZGluZ0JveCIsInVzZXJTcGFjZU9uVXNlIiwiX2RlZmF1bHQiLCJkZWZhdWx0Il0sInNvdXJjZXMiOlsiLi4vLi4vLi4vc3JjL2xpYi91bml0cy50cyJdLCJzb3VyY2VzQ29udGVudCI6W251bGxdLCJtYXBwaW5ncyI6Ijs7Ozs7O0FBQU8sSUFBTUEsS0FBNEQsR0FBQUMsT0FBQSxDQUFBRCxLQUFBLEdBQUc7RUFDMUVFLGlCQUFpQixFQUFFLENBQUM7RUFDcEJDLGNBQWMsRUFBRTtBQUNsQixDQUFDO0FBQUMsSUFBQUMsUUFBQSxHQUFBSCxPQUFBLENBQUFJLE9BQUEsR0FDYUwsS0FBSyIsImlnbm9yZUxpc3QiOltdfQ==

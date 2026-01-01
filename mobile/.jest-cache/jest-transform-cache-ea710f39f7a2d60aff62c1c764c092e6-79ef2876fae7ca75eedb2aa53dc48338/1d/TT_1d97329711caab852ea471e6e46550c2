@@ -1,0 +1,5 @@
+532fa3652313c3ad55dfd0acfda5da88
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/TT.webp"
+    };

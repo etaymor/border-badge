@@ -1,0 +1,5 @@
+1a37fa02ad89fabdbaf411faf08d4e3d
+module.exports = {
+      testUri:
+        "../../../assets/country-images/continents/africa.mp4"
+    };

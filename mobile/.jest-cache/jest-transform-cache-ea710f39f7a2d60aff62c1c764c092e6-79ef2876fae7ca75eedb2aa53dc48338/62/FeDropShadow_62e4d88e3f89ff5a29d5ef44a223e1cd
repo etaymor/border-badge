@@ -1,0 +1,68 @@
+18deb1b414b307ca132e65b76ad63000
+"use strict";
+
+var _interopRequireDefault2 = require("@babel/runtime/helpers/interopRequireDefault").default;
+var _classCallCheck2 = _interopRequireDefault2(require("@babel/runtime/helpers/classCallCheck"));
+var _createClass2 = _interopRequireDefault2(require("@babel/runtime/helpers/createClass"));
+var _callSuper2 = _interopRequireDefault2(require("@babel/runtime/helpers/callSuper"));
+var _inherits2 = _interopRequireDefault2(require("@babel/runtime/helpers/inherits"));
+var _FeDropShadow;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var _react = _interopRequireDefault(require("react"));
+var _FeFlood = _interopRequireDefault(require("./FeFlood"));
+var _FeGaussianBlur = _interopRequireDefault(require("./FeGaussianBlur"));
+var _FeMerge = _interopRequireDefault(require("./FeMerge"));
+var _FeMergeNode = _interopRequireDefault(require("./FeMergeNode"));
+var _FeOffset = _interopRequireDefault(require("./FeOffset"));
+var _FilterPrimitive = _interopRequireDefault(require("./FilterPrimitive"));
+var _FeComposite = _interopRequireDefault(require("./FeComposite"));
+function _interopRequireDefault(e) {
+  return e && e.__esModule ? e : {
+    default: e
+  };
+}
+var FeDropShadow = function (_FilterPrimitive$defa) {
+  function FeDropShadow() {
+    (0, _classCallCheck2.default)(this, FeDropShadow);
+    return (0, _callSuper2.default)(this, FeDropShadow, arguments);
+  }
+  (0, _inherits2.default)(FeDropShadow, _FilterPrimitive$defa);
+  return (0, _createClass2.default)(FeDropShadow, [{
+    key: "render",
+    value: function render() {
+      var _this$props = this.props,
+        stdDeviation = _this$props.stdDeviation,
+        _this$props$in = _this$props.in,
+        in1 = _this$props$in === void 0 ? 'SourceGraphic' : _this$props$in,
+        dx = _this$props.dx,
+        dy = _this$props.dy,
+        result = _this$props.result;
+      return _react.default.createElement(_react.default.Fragment, null, _react.default.createElement(_FeGaussianBlur.default, {
+        in: in1,
+        stdDeviation: stdDeviation
+      }), _react.default.createElement(_FeOffset.default, {
+        dx: dx,
+        dy: dy,
+        result: "offsetblur"
+      }), _react.default.createElement(_FeFlood.default, {
+        floodColor: this.props.floodColor,
+        floodOpacity: this.props.floodOpacity
+      }), _react.default.createElement(_FeComposite.default, {
+        in2: "offsetblur",
+        operator: "in"
+      }), _react.default.createElement(_FeMerge.default, {
+        result: result
+      }, _react.default.createElement(_FeMergeNode.default, null), _react.default.createElement(_FeMergeNode.default, {
+        in: in1
+      })));
+    }
+  }]);
+}(_FilterPrimitive.default);
+_FeDropShadow = FeDropShadow;
+FeDropShadow.displayName = 'FeDropShadow';
+FeDropShadow.defaultProps = Object.assign({}, _FeDropShadow.defaultPrimitiveProps);
+exports.default = FeDropShadow;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfcmVhY3QiLCJfaW50ZXJvcFJlcXVpcmVEZWZhdWx0IiwicmVxdWlyZSIsIl9GZUZsb29kIiwiX0ZlR2F1c3NpYW5CbHVyIiwiX0ZlTWVyZ2UiLCJfRmVNZXJnZU5vZGUiLCJfRmVPZmZzZXQiLCJfRmlsdGVyUHJpbWl0aXZlIiwiX0ZlQ29tcG9zaXRlIiwiZSIsIl9fZXNNb2R1bGUiLCJkZWZhdWx0IiwiRmVEcm9wU2hhZG93IiwiX0ZpbHRlclByaW1pdGl2ZSRkZWZhIiwiX2NsYXNzQ2FsbENoZWNrMiIsIl9jYWxsU3VwZXIyIiwiYXJndW1lbnRzIiwiX2luaGVyaXRzMiIsIl9jcmVhdGVDbGFzczIiLCJrZXkiLCJ2YWx1ZSIsInJlbmRlciIsIl90aGlzJHByb3BzIiwicHJvcHMiLCJzdGREZXZpYXRpb24iLCJfdGhpcyRwcm9wcyRpbiIsImluIiwiaW4xIiwiZHgiLCJkeSIsInJlc3VsdCIsImNyZWF0ZUVsZW1lbnQiLCJGcmFnbWVudCIsImZsb29kQ29sb3IiLCJmbG9vZE9wYWNpdHkiLCJpbjIiLCJvcGVyYXRvciIsIl9GZURyb3BTaGFkb3ciLCJkaXNwbGF5TmFtZSIsImRlZmF1bHRQcm9wcyIsIk9iamVjdCIsImFzc2lnbiIsImRlZmF1bHRQcmltaXRpdmVQcm9wcyIsImV4cG9ydHMiXSwic291cmNlcyI6WyIuLi8uLi8uLi8uLi9zcmMvZWxlbWVudHMvZmlsdGVycy9GZURyb3BTaGFkb3cudHN4Il0sInNvdXJjZXNDb250ZW50IjpbbnVsbF0sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7QUFBQSxJQUFBQSxNQUFBLEdBQUFDLHNCQUFBLENBQUFDLE9BQUE7QUFHQSxJQUFBQyxRQUFBLEdBQUFGLHNCQUFBLENBQUFDLE9BQUE7QUFDQSxJQUFBRSxlQUFBLEdBQUFILHNCQUFBLENBQUFDLE9BQUE7QUFDQSxJQUFBRyxRQUFBLEdBQUFKLHNCQUFBLENBQUFDLE9BQUE7QUFDQSxJQUFBSSxZQUFBLEdBQUFMLHNCQUFBLENBQUFDLE9BQUE7QUFDQSxJQUFB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

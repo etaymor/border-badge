@@ -1,0 +1,5 @@
+10408a15d228cb90f96b8c5845d232b9
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/KY.webp"
+    };

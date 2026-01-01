@@ -1,0 +1,91 @@
+4be1b2eb78b6b02602f8b91b897a4793
+"use strict";
+
+var _interopRequireDefault2 = require("@babel/runtime/helpers/interopRequireDefault").default;
+var _classCallCheck2 = _interopRequireDefault2(require("@babel/runtime/helpers/classCallCheck"));
+var _createClass2 = _interopRequireDefault2(require("@babel/runtime/helpers/createClass"));
+var _callSuper2 = _interopRequireDefault2(require("@babel/runtime/helpers/callSuper"));
+var _inherits2 = _interopRequireDefault2(require("@babel/runtime/helpers/inherits"));
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var React = _interopRequireWildcard(require("react"));
+var _Path = _interopRequireDefault(require("./Path"));
+var _Shape = _interopRequireDefault(require("./Shape"));
+var _extractPolyPoints = _interopRequireDefault(require("../lib/extract/extractPolyPoints"));
+function _interopRequireDefault(e) {
+  return e && e.__esModule ? e : {
+    default: e
+  };
+}
+function _getRequireWildcardCache(e) {
+  if ("function" != typeof WeakMap) return null;
+  var r = new WeakMap(),
+    t = new WeakMap();
+  return (_getRequireWildcardCache = function _getRequireWildcardCache(e) {
+    return e ? t : r;
+  })(e);
+}
+function _interopRequireWildcard(e, r) {
+  if (!r && e && e.__esModule) return e;
+  if (null === e || "object" != typeof e && "function" != typeof e) return {
+    default: e
+  };
+  var t = _getRequireWildcardCache(r);
+  if (t && t.has(e)) return t.get(e);
+  var n = {
+      __proto__: null
+    },
+    a = Object.defineProperty && Object.getOwnPropertyDescriptor;
+  for (var u in e) if ("default" !== u && {}.hasOwnProperty.call(e, u)) {
+    var i = a ? Object.getOwnPropertyDescriptor(e, u) : null;
+    i && (i.get || i.set) ? Object.defineProperty(n, u, i) : n[u] = e[u];
+  }
+  return n.default = e, t && t.set(e, n), n;
+}
+function _extends() {
+  return _extends = Object.assign ? Object.assign.bind() : function (n) {
+    for (var e = 1; e < arguments.length; e++) {
+      var t = arguments[e];
+      for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]);
+    }
+    return n;
+  }, _extends.apply(null, arguments);
+}
+var Polyline = function (_Shape$default) {
+  function Polyline() {
+    var _this;
+    (0, _classCallCheck2.default)(this, Polyline);
+    for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
+      args[_key] = arguments[_key];
+    }
+    _this = (0, _callSuper2.default)(this, Polyline, [].concat(args));
+    _this.setNativeProps = function (props) {
+      var points = props.points;
+      if (points) {
+        props.d = `M${(0, _extractPolyPoints.default)(points)}`;
+      }
+      _this.root && _this.root.setNativeProps(props);
+    };
+    return _this;
+  }
+  (0, _inherits2.default)(Polyline, _Shape$default);
+  return (0, _createClass2.default)(Polyline, [{
+    key: "render",
+    value: function render() {
+      var props = this.props;
+      var points = props.points;
+      return React.createElement(_Path.default, _extends({
+        ref: this.refMethod,
+        d: points && `M${(0, _extractPolyPoints.default)(points)}`
+      }, props));
+    }
+  }]);
+}(_Shape.default);
+Polyline.displayName = 'Polyline';
+Polyline.defaultProps = {
+  points: ''
+};
+exports.default = Polyline;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJSZWFjdCIsIl9pbnRlcm9wUmVxdWlyZVdpbGRjYXJkIiwicmVxdWlyZSIsIl9QYXRoIiwiX2ludGVyb3BSZXF1aXJlRGVmYXVsdCIsIl9TaGFwZSIsIl9leHRyYWN0UG9seVBvaW50cyIsImUiLCJfX2VzTW9kdWxlIiwiZGVmYXVsdCIsIl9nZXRSZXF1aXJlV2lsZGNhcmRDYWNoZSIsIldlYWtNYXAiLCJyIiwidCIsImhhcyIsImdldCIsIm4iLCJfX3Byb3RvX18iLCJhIiwiT2JqZWN0IiwiZGVmaW5lUHJvcGVydHkiLCJnZXRPd25Qcm9wZXJ0eURlc2NyaXB0b3IiLCJ1IiwiaGFzT3duUHJvcGVydHkiLCJjYWxsIiwiaSIsInNldCIsIl9leHRlbmRzIiwiYXNzaWduIiwiYmluZCIsImFyZ3VtZW50cyIsImxlbmd0aCIsImFwcGx5IiwiUG9seWxpbmUiLCJfU2hhcGUkZGVmYXVsdCIsIl90aGlzIiwiX2NsYXNzQ2FsbENoZWNrMiIsIl9sZW4iLCJhcmdzIiwiQXJyYXkiLCJfa2V5IiwiX2NhbGxTdXBlcjIiLCJjb25jYXQiLCJzZXROYXRpdmVQcm9wcyIsInByb3BzIiwicG9pbnRzIiwiZCIsInJvb3QiLCJfaW5oZXJpdHMyIiwiX2NyZWF0ZUNsYXNzMiIsImtleSIsInZhbHVlIiwicmVuZGVyIiwiY3JlYXRlRWxlbWVudCIsInJlZiIsInJlZk1ldGhvZCIsImRpc3BsYXlOYW1lIiwiZGVmYXVsdFByb3BzIiwiZXhwb3J0cyJdLCJzb3VyY2VzIjpbIi4uLy4uLy4uL3NyYy9lbGVtZW50cy9Qb2x5bGluZS50c3giXSwic291cmNlc0NvbnRlbnQiOltudWxsXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7O0FBQUEsSUFBQUEsS0FBQSxHQUFBQyx1QkFBQSxDQUFBQyxPQUFBO0FBQ0EsSUFBQUMsS0FBQSxHQUFBQyxzQkFBQSxDQUFBRixPQUFBO0FBQ0EsSUFBQUcsTUFBQSxHQUFBRCxzQkFBQSxDQUFBRixPQUFBO0FBRUEsSUFBQUksa0JBQUEsR0FBQUYsc0JBQUEs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

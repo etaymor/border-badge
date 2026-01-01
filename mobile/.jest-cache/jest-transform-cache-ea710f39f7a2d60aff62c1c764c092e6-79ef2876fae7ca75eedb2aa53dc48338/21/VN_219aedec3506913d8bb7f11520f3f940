@@ -1,0 +1,5 @@
+350be8e40a9cab2840a864442f022676
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/VN.webp"
+    };

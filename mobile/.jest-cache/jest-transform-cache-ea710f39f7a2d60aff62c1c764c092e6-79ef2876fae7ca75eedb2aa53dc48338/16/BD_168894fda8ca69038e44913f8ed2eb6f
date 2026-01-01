@@ -1,0 +1,5 @@
+630aae7eb0c012a7a0e6b65999d2bfb3
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/BD.webp"
+    };

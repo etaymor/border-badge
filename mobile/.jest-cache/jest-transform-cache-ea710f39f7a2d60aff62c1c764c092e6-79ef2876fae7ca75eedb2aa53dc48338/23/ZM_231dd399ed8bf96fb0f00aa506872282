@@ -1,0 +1,5 @@
+c4bd565df8ce2fda2f5388cd4a1174b2
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/ZM.webp"
+    };

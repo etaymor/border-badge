@@ -1,0 +1,5 @@
+0d9942180626d5d93deafdaca6c0fef2
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/SS.webp"
+    };

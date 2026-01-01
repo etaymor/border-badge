@@ -1,0 +1,9 @@
+24fc180f8b3524d63c492a4f7e519bb4
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.BrushProperties = void 0;
+var BrushProperties = exports.BrushProperties = ['fill', 'stroke', 'stopColor', 'floodColor', 'lightingColor'];
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJCcnVzaFByb3BlcnRpZXMiLCJleHBvcnRzIl0sInNvdXJjZXMiOlsiLi4vLi4vLi4vLi4vc3JjL2xpYi9leHRyYWN0L2NvbG9ycy50cyJdLCJzb3VyY2VzQ29udGVudCI6W251bGxdLCJtYXBwaW5ncyI6Ijs7Ozs7O0FBQ08sSUFBTUEsZUFBZSxHQUFBQyxPQUFBLENBQUFELGVBQUEsR0FBRyxDQUM3QixNQUFNLEVBQ04sUUFBUSxFQUNSLFdBQVcsRUFDWCxZQUFZLEVBQ1osZUFBZSxDQUNoQiIsImlnbm9yZUxpc3QiOltdfQ==

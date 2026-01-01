@@ -1,0 +1,12 @@
+eaa93ef51e23215aff1b458c3e7f6d5c
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = extractPolyPoints;
+function extractPolyPoints(points) {
+  var polyPoints = Array.isArray(points) ? points.join(',') : points;
+  return polyPoints.replace(/[^eE]-/, ' -').split(/(?:\s+|\s*,\s*)/g).join(' ');
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJleHRyYWN0UG9seVBvaW50cyIsInBvaW50cyIsInBvbHlQb2ludHMiLCJBcnJheSIsImlzQXJyYXkiLCJqb2luIiwicmVwbGFjZSIsInNwbGl0Il0sInNvdXJjZXMiOlsiLi4vLi4vLi4vLi4vc3JjL2xpYi9leHRyYWN0L2V4dHJhY3RQb2x5UG9pbnRzLnRzIl0sInNvdXJjZXNDb250ZW50IjpbbnVsbF0sIm1hcHBpbmdzIjoiOzs7Ozs7QUFFZSxTQUFTQSxpQkFBaUJBLENBQ3ZDQyxNQUFzQyxFQUN0QztFQUNBLElBQU1DLFVBQVUsR0FBR0MsS0FBSyxDQUFDQyxPQUFPLENBQUNILE1BQU0sQ0FBQyxHQUFHQSxNQUFNLENBQUNJLElBQUksQ0FBQyxHQUFHLENBQUMsR0FBR0osTUFBTTtFQUNwRSxPQUFRQyxVQUFVLENBQ2ZJLE9BQU8sQ0FBQyxRQUFRLEVBQUUsSUFBSSxDQUFDLENBQ3ZCQyxLQUFLLENBQUMsa0JBQWtCLENBQUMsQ0FDekJGLElBQUksQ0FBQyxHQUFHLENBQUM7QUFDZCIsImlnbm9yZUxpc3QiOltdfQ==

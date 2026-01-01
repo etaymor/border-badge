@@ -1,0 +1,1 @@
+{"version":3,"names":["_AuthScreen","require","_WelcomeScreen"],"sources":["index.ts"],"sourcesContent":["export { AuthScreen } from './AuthScreen';\nexport { WelcomeScreen } from './WelcomeScreen';\n"],"mappings":";;;;;;;;;;;;;;;AAAA,IAAAA,WAAA,GAAAC,OAAA;AACA,IAAAC,cAAA,GAAAD,OAAA","ignoreList":[]}

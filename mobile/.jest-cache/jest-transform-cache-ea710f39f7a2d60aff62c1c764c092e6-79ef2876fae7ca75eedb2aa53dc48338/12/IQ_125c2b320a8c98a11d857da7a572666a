@@ -1,0 +1,5 @@
+d802653b26d2882a1fbdd595d597823a
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/IQ.webp"
+    };

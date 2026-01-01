@@ -1,0 +1,43 @@
+8a619ae75d96089194e06e8cf6eedd52
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.LocalSvg = LocalSvg;
+exports.SvgCss = SvgCss;
+exports.SvgCssUri = SvgCssUri;
+exports.SvgWithCss = SvgWithCss;
+exports.SvgWithCssUri = SvgWithCssUri;
+exports.WithLocalSvg = WithLocalSvg;
+exports.inlineStyles = inlineStyles;
+exports.loadLocalRawResource = loadLocalRawResource;
+exports.showErrorCSS = showErrorCSS;
+function showErrorCSS(name, type) {
+  throw Error(`[react-native-svg] You are trying to import a ${type} \`${name}\` that has been moved to a sub-package. Change your import from \`react-native-svg\` to \`react-native-svg/css\`.`);
+}
+function SvgCss() {
+  showErrorCSS('SvgCss', 'component');
+}
+function SvgCssUri() {
+  showErrorCSS('SvgCssUri', 'component');
+}
+function SvgWithCss() {
+  showErrorCSS('SvgWithCss', 'component');
+}
+function SvgWithCssUri() {
+  showErrorCSS('SvgWithCssUri', 'component');
+}
+function inlineStyles() {
+  showErrorCSS('inlineStyles', 'function');
+}
+function LocalSvg() {
+  showErrorCSS('LocalSvg', 'component');
+}
+function WithLocalSvg() {
+  showErrorCSS('WithLocalSvg', 'component');
+}
+function loadLocalRawResource() {
+  showErrorCSS('loadLocalRawResource', 'function');
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJzaG93RXJyb3JDU1MiLCJuYW1lIiwidHlwZSIsIkVycm9yIiwiU3ZnQ3NzIiwiU3ZnQ3NzVXJpIiwiU3ZnV2l0aENzcyIsIlN2Z1dpdGhDc3NVcmkiLCJpbmxpbmVTdHlsZXMiLCJMb2NhbFN2ZyIsIldpdGhMb2NhbFN2ZyIsImxvYWRMb2NhbFJhd1Jlc291cmNlIl0sInNvdXJjZXMiOlsiLi4vLi4vc3JjL2RlcHJlY2F0ZWQudHN4Il0sInNvdXJjZXNDb250ZW50IjpbbnVsbF0sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7OztBQUFPLFNBQVNBLFlBQVlBLENBQUNDLElBQVksRUFBRUMsSUFBWSxFQUFTO0VBQzlELE1BQU1DLEtBQUssQ0FDVCxpREFBaURELElBQUksTUFBTUQsSUFBSSxvSEFDakUsQ0FBQztBQUNIO0FBRU8sU0FBU0csTUFBTUEsQ0FBQSxFQUFVO0VBQzlCSixZQUFZLENBQUMsUUFBUSxFQUFFLFdBQVcsQ0FBQztBQUNyQztBQUVPLFNBQVNLLFNBQVNBLENBQUEsRUFBVTtFQUNqQ0wsWUFBWSxDQUFDLFdBQVcsRUFBRSxXQUFXLENBQUM7QUFDeEM7QUFFTyxTQUFTTSxVQUFVQSxDQUFBLEVBQVU7RUFDbENOLFlBQVksQ0FBQyxZQUFZLEVBQUUsV0FBVyxDQUFDO0FBQ3pDO0FBRU8sU0FBU08sYUFBYUEsQ0FBQSxFQUFVO0VBQ3JDUCxZQUFZLENBQUMsZUFBZSxFQUFFLFdBQVcsQ0FBQztBQUM1QztBQUVPLFNBQVNRLFlBQVlBLENBQUEsRUFBVTtFQUNwQ1IsWUFBWSxDQUFDLGNBQWMsRUFBRSxVQUFVLENBQUM7QUFDMUM7QUFFTyxTQUFTUyxRQUFRQSxDQUFBLEVBQVU7RUFDaENULFlBQVksQ0FBQyxVQUFVLEVBQUUsV0FBVyxDQUFDO0FBQ3ZDO0FBRU8sU0FBU1UsWUFBWUEsQ0FBQSxFQUFVO0VBQ3BDVixZQUFZLENBQUMsY0FBYyxFQUFFLFdBQVcsQ0FBQztBQUMzQztBQUVPLFNBQVNXLG9CQUFvQkEsQ0FBQSxFQUFVO0VBQzVDWCxZQUFZLENBQUMsc0JBQXNCLEVBQUUsVUFBVSxDQUFDO0FBQ2xEIiwiaWdub3JlTGlzdCI6W119

@@ -1,0 +1,5 @@
+9989f054bfff48dbebeb92bfdbc2b811
+module.exports = {
+      testUri:
+        "../../../assets/country-images/processed/PE.webp"
+    };

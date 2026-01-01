@@ -1,0 +1,5 @@
+17c8269ceebbe840e27dc4c2f606dec3
+module.exports = {
+      testUri:
+        "../../../assets/stamps/processed/LS.webp"
+    };

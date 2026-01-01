@@ -1,0 +1,5 @@
+51366bac5d2d0d2149f0ed0d1bcdb64e
+module.exports = {
+      testUri:
+        "../../../assets/stamps/processed/NG.webp"
+    };
