@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
@@ -29,10 +29,13 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     if not cursor:
         return None, None
 
-    parts = cursor.split("|", 1)
-    before_time = datetime.fromisoformat(parts[0])
-    before_id = parts[1] if len(parts) > 1 else None
-    return before_time, before_id
+    try:
+        parts = cursor.split("|", 1)
+        before_time = datetime.fromisoformat(parts[0])
+        before_id = parts[1] if len(parts) > 1 else None
+        return before_time, before_id
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=400, detail="Invalid cursor format") from e
 
 
 def _build_cursor(row: dict) -> str:

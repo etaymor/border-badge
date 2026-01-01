@@ -136,10 +136,7 @@ export function FriendsScreen({ navigation }: Props) {
           <View style={styles.headerSpacer} />
           <Text style={styles.headerTitle}>My Friends</Text>
           <View style={styles.headerRight}>
-            <NotificationBell
-              count={pendingTags?.length ?? 0}
-              onPress={handleNotificationsPress}
-            />
+            <NotificationBell count={pendingTags?.length ?? 0} onPress={handleNotificationsPress} />
           </View>
         </View>
       </View>

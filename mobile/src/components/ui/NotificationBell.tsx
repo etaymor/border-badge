@@ -35,7 +35,11 @@ export function NotificationBell({
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       testID="notification-bell"
     >
-      <Ionicons name={count > 0 ? 'notifications' : 'notifications-outline'} size={size} color={color} />
+      <Ionicons
+        name={count > 0 ? 'notifications' : 'notifications-outline'}
+        size={size}
+        color={color}
+      />
       {count > 0 && (
         <View style={styles.badge} testID="notification-badge">
           <Text style={styles.badgeText}>{displayCount}</Text>

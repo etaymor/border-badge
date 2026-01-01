@@ -199,9 +199,7 @@ export function FollowingListScreen({ navigation }: Props) {
           style={styles.sectionList}
         />
       ) : (
-        <View style={styles.emptyWrapper}>
-          {ListEmpty}
-        </View>
+        <View style={styles.emptyWrapper}>{ListEmpty}</View>
       )}
     </View>
   );

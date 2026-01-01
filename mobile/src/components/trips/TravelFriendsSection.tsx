@@ -318,7 +318,8 @@ export function TravelFriendsSection({
           ) : hasNoFollowing ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                {"You're not following anyone yet."}{'\n'}Follow friends to tag them on trips!
+                {"You're not following anyone yet."}
+                {'\n'}Follow friends to tag them on trips!
               </Text>
             </View>
           ) : hasNoMatches ? (

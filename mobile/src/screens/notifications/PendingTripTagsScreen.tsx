@@ -16,7 +16,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UserAvatar } from '@components/friends/UserAvatar';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { PendingTripTag, useApproveTripTag, useDeclineTripTag, usePendingTripTags } from '@hooks/useTripTags';
+import {
+  PendingTripTag,
+  useApproveTripTag,
+  useDeclineTripTag,
+  usePendingTripTags,
+} from '@hooks/useTripTags';
 import { getFlagEmoji } from '@utils/flags';
 
 interface PendingTripTagsScreenProps {
@@ -192,7 +197,11 @@ export function PendingTripTagsScreen({ onBack }: PendingTripTagsScreenProps) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.adobeBrick} />
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={colors.adobeBrick}
+          />
         }
       />
     </View>

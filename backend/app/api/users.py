@@ -239,6 +239,8 @@ async def lookup_user_by_email(
 
     This endpoint requires authentication and uses service role to query
     the auth.users table (which is not directly accessible to users).
+
+    Note: Uses constant-time response pattern to prevent timing-based enumeration.
     """
     # Validate email format
     if "@" not in email or "." not in email.split("@")[-1]:
@@ -253,7 +255,19 @@ async def lookup_user_by_email(
         {"email_to_lookup": email.strip().lower()},
     )
 
+    # Get user's DB client for subsequent queries
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Perform dummy queries when user not found to maintain constant timing
+    # This prevents attackers from determining user existence via response time
     if not result:
+        # Execute dummy queries to match the timing of a successful lookup
+        await db.rpc("get_user_country_counts", {"user_ids": [user.id]})
+        await db.get(
+            "user_follow",
+            {"select": "id", "follower_id": f"eq.{user.id}", "limit": 1},
+        )
         return None
 
     profile = result[0]
@@ -262,10 +276,7 @@ async def lookup_user_by_email(
     if profile["user_id"] == user.id:
         return None
 
-    # Check if blocked (bidirectional) - use service client
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
-
+    # Check if blocked (bidirectional)
     block_check = await db.get(
         "user_block",
         {
@@ -297,7 +308,7 @@ async def lookup_user_by_email(
     )
 
     return UserSummary(
-        id=profile["id"],
+        id=profile["user_id"],
         username=profile["username"],
         avatar_url=profile.get("avatar_url"),
         country_count=country_count,

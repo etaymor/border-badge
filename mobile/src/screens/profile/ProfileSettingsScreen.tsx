@@ -309,10 +309,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
         <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
 
-        <ProfileNameSection
-          username={profile?.username ?? ''}
-          isSmallScreen={isSmallScreen}
-        />
+        <ProfileNameSection username={profile?.username ?? ''} isSmallScreen={isSmallScreen} />
 
         <View style={styles.divider} />
 

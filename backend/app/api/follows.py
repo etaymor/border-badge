@@ -119,6 +119,9 @@ async def follow_user(
         raise
 
     # Send push notification to the followed user (fire and forget)
+    # Note: Failed notifications are logged but not retried. For production at scale,
+    # consider implementing a job queue (e.g., Supabase pg_cron, Celery, or a
+    # dedicated notification service) for reliable delivery with retries.
     async def notify_new_follower() -> None:
         try:
             # Use service role client to get push token
