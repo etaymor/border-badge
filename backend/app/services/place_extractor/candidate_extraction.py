@@ -81,18 +81,29 @@ def extract_place_candidates(
 
     # Process title - often contains the best place info
     if title:
-        # Look for quoted place names
-        quoted = re.findall(r'["\'"]([^"\']{3,50})["\'"]', title)
+        # Look for quoted place names (handles straight and smart quotes)
+        # Includes: " " " ' ' ' (straight double, smart double, straight single, smart single)
+        quoted = re.findall(
+            r'[""\u201c\u201d\'\u2018\u2019]([^""\u201c\u201d\'\u2018\u2019]{3,50})[""\u201c\u201d\'\u2018\u2019]',
+            title,
+        )
         candidates.extend(quoted)
+
+        # Look for parenthetical place names like "(Tirana's Rock)"
+        parenthetical = re.findall(r"\(([A-Za-z][A-Za-z\s''-]{2,40})\)", title)
+        candidates.extend(parenthetical)
 
         # Look for location patterns like "at Place Name" or "in City"
         location_matches = re.findall(
-            r"\b(?:at|in|visit(?:ing)?)\s+([A-Z][A-Za-z\s&\'-]{2,40})", title
+            r"\b(?:at|in|visit(?:ing)?)\s+([A-Z][A-Za-z\s&''-]{2,40})", title
         )
         candidates.extend(location_matches)
 
         # Look for capitalized multi-word phrases (likely proper nouns/place names)
-        proper_nouns = re.findall(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", title)
+        # Handles apostrophes in names like "Tirana's Rock"
+        proper_nouns = re.findall(
+            r"([A-Z][a-z]+(?:[''][a-z]+)?(?:\s+[A-Z][a-z]+(?:[''][a-z]+)?)+)", title
+        )
         candidates.extend(proper_nouns)
 
         # Add the full title as a fallback candidate (cleaned up)

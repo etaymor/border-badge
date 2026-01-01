@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
-import { Text } from '@components/ui';
+import { GlassBackButton, Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
 import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
 import { ALL_REGIONS } from '@constants/regions';
@@ -231,9 +231,11 @@ export function ProgressSummaryScreen({ navigation }: Props) {
             showsVerticalScrollIndicator={false}
             bounces={true}
           >
-            {/* Header with logo */}
+            {/* Header with back button and logo */}
             <View style={styles.headerRow}>
+              <GlassBackButton onPress={() => navigation.goBack()} />
               <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+              <View style={styles.headerSpacer} />
             </View>
 
             {/* Title */}
@@ -343,11 +345,14 @@ const styles = StyleSheet.create({
   // Header with logo
   headerRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  headerSpacer: {
+    width: 40, // Match GlassBackButton width to keep logo centered
   },
   logo: {
     width: 140,

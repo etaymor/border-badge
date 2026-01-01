@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
@@ -21,41 +22,78 @@ function getUserCountriesKey(sessionId: string | null) {
   return ['user-countries', sessionId] as const;
 }
 
-export function useUserCountries() {
+export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
   const { session, isMigrating } = useAuthStore();
   const { selectedCountries, bucketListCountries } = useOnboardingStore();
   const queryKey = getUserCountriesKey(session?.user?.id ?? null);
+  const userId = session?.user?.id;
 
-  return useQuery({
+  // Build fallback data from onboarding store for use during migration
+  // This provides instant feedback before the query runs
+  // Memoized to avoid unnecessary array creation on every render
+  const onboardingFallbackData = useMemo<UserCountry[] | undefined>(() => {
+    if (!isMigrating || (selectedCountries.length === 0 && bucketListCountries.length === 0)) {
+      return undefined;
+    }
+    return [
+      ...selectedCountries.map((countryCode, index) => ({
+        id: `temp-visited-${index}`,
+        user_id: userId ?? 'temp',
+        country_code: countryCode,
+        status: 'visited' as const,
+        created_at: new Date().toISOString(),
+        added_during_onboarding: true,
+      })),
+      ...bucketListCountries.map((countryCode, index) => ({
+        id: `temp-wishlist-${index}`,
+        user_id: userId ?? 'temp',
+        country_code: countryCode,
+        status: 'wishlist' as const,
+        created_at: new Date().toISOString(),
+        added_during_onboarding: true,
+      })),
+    ];
+  }, [isMigrating, selectedCountries, bucketListCountries, userId]);
+
+  const query = useQuery({
     queryKey,
     queryFn: async (): Promise<UserCountry[]> => {
-      // During migration, return onboarding store data
-      // This provides instant feedback while backend sync happens in background
-      if (isMigrating) {
-        const visited = selectedCountries.map((countryCode, index) => ({
-          id: `temp-visited-${index}`,
-          user_id: session?.user?.id ?? 'temp',
-          country_code: countryCode,
-          status: 'visited' as const,
-          created_at: new Date().toISOString(),
-          added_during_onboarding: true,
-        }));
-        const wishlist = bucketListCountries.map((countryCode, index) => ({
-          id: `temp-wishlist-${index}`,
-          user_id: session?.user?.id ?? 'temp',
-          country_code: countryCode,
-          status: 'wishlist' as const,
-          created_at: new Date().toISOString(),
-          added_during_onboarding: true,
-        }));
-        return [...visited, ...wishlist];
-      }
-
       const response = await api.get('/countries/user');
       return response.data;
     },
     enabled: !!session,
+    // Use onboarding data as placeholder during migration
+    placeholderData: onboardingFallbackData,
   });
+
+  // During migration, if query hasn't fetched yet but we have onboarding data,
+  // return that data immediately to prevent empty state flash.
+  //
+  // Migration lifecycle (see guestMigration.ts):
+  // 1. User completes onboarding → migrateGuestData() called
+  // 2. isMigrating set to true
+  // 3. Countries migrated to backend via API
+  // 4. Query cache populated directly with migrated data (queryClient.setQueryData)
+  // 5. isMigrating set to false in finally block
+  //
+  // This means by the time isMigrating is cleared, real data is already in the cache.
+  // We only show fallback data during the brief window between account creation
+  // and cache population. If there's an actual API error, we preserve that state
+  // so the user sees the error rather than stale placeholder data.
+  if (isMigrating && !query.isFetched && onboardingFallbackData) {
+    // Don't override if there's an actual error from the API
+    if (query.isError) {
+      return query;
+    }
+    return {
+      ...query,
+      data: onboardingFallbackData,
+      isLoading: false,
+      isFetching: false,
+    } as UseQueryResult<UserCountry[], Error>;
+  }
+
+  return query;
 }
 
 interface AddUserCountryInput {

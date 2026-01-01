@@ -26,6 +26,8 @@ import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
+import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
+import { ClipboardEnableModal } from './components/ClipboardEnableModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -75,6 +77,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clipboard permission modal state
+  const [clipboardPermissionModalVisible, setClipboardPermissionModalVisible] = useState(false);
+  // Clipboard enable modal state (shown when user clicks Enable button)
+  const [clipboardEnableModalVisible, setClipboardEnableModalVisible] = useState(false);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -139,6 +146,30 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     },
     [setClipboardDetectionEnabled]
   );
+
+  const handleOpenClipboardPermissionModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // If already enabled, show the permission info modal
+    // If not enabled, show the enable modal
+    if (clipboardDetectionEnabled) {
+      setClipboardPermissionModalVisible(true);
+    } else {
+      setClipboardEnableModalVisible(true);
+    }
+  }, [clipboardDetectionEnabled]);
+
+  const handleCloseClipboardPermissionModal = useCallback(() => {
+    setClipboardPermissionModalVisible(false);
+  }, []);
+
+  const handleCloseClipboardEnableModal = useCallback(() => {
+    setClipboardEnableModalVisible(false);
+  }, []);
+
+  const handleEnableClipboard = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setClipboardDetectionEnabled(true);
+  }, [setClipboardDetectionEnabled]);
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.username), [profile?.username]);
@@ -296,6 +327,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenTrackingModal={handleOpenTrackingModal}
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
+          onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
         />
 
         <View style={styles.divider} />
@@ -321,6 +353,17 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         onShare={handleShareExport}
         onCopy={handleCopyExport}
         copyFeedback={copyFeedback}
+      />
+
+      <ClipboardPermissionModal
+        visible={clipboardPermissionModalVisible}
+        onClose={handleCloseClipboardPermissionModal}
+      />
+
+      <ClipboardEnableModal
+        visible={clipboardEnableModalVisible}
+        onClose={handleCloseClipboardEnableModal}
+        onEnable={handleEnableClipboard}
       />
     </SafeAreaView>
   );

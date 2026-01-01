@@ -457,4 +457,73 @@ describe('buildMilestoneContext', () => {
 
     expect(result?.countrySubregion).toBeNull();
   });
+
+  it('includes onboarding countries in total count', () => {
+    const countries = [createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' })];
+    // 3 onboarding countries + 2 regular countries = 5 previous
+    const visited: UserCountry[] = [
+      createMockUserCountry({
+        country_code: 'US',
+        status: 'visited',
+        added_during_onboarding: true,
+      }),
+      createMockUserCountry({
+        country_code: 'MX',
+        status: 'visited',
+        added_during_onboarding: true,
+      }),
+      createMockUserCountry({
+        country_code: 'CA',
+        status: 'visited',
+        added_during_onboarding: true,
+      }),
+      createMockUserCountry({
+        country_code: 'FR',
+        status: 'visited',
+        added_during_onboarding: false,
+      }),
+      createMockUserCountry({
+        country_code: 'IT',
+        status: 'visited',
+        added_during_onboarding: false,
+      }),
+    ];
+
+    const result = buildMilestoneContext('JP', countries, visited);
+
+    // JP is the 6th country (5 previous + 1)
+    expect(result?.newTotalCount).toBe(6);
+  });
+
+  it('includes onboarding countries when detecting milestones', () => {
+    // Jamaica is in Caribbean, user has onboarding countries in Caribbean
+    const countries = [
+      createMockCountry({
+        code: 'JM',
+        name: 'Jamaica',
+        region: 'Americas',
+        subregion: 'Caribbean',
+      }),
+      createMockCountry({
+        code: 'CU',
+        name: 'Cuba',
+        region: 'Americas',
+        subregion: 'Caribbean',
+      }),
+    ];
+    // Cuba was added during onboarding - so Caribbean is already visited
+    const visited: UserCountry[] = [
+      createMockUserCountry({
+        country_code: 'CU',
+        status: 'visited',
+        added_during_onboarding: true,
+      }),
+    ];
+
+    const result = buildMilestoneContext('JM', countries, visited);
+
+    // Should NOT have "First in Americas" or "First in Caribbean" since Cuba was visited
+    expect(result?.milestones.find((m) => m.type === 'new_continent')).toBeUndefined();
+    expect(result?.milestones.find((m) => m.type === 'new_subregion')).toBeUndefined();
+  });
 });

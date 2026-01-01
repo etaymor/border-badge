@@ -110,9 +110,41 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     if (isVisited) {
       removeUserCountry.mutate(code);
     } else {
-      addUserCountry.mutate({ country_code: code, status: 'visited' });
+      // Build milestone context before mutation (uses current userCountries state)
+      const context = country
+        ? {
+            countryCode: code,
+            countryName: country.name,
+            countryRegion: country.region,
+            countrySubregion: country.subregion,
+            newTotalCount: visitedCountries.length + 1,
+            milestones: detectMilestones(code, allCountries ?? [], userCountries ?? []),
+          }
+        : null;
+
+      addUserCountry.mutate(
+        { country_code: code, status: 'visited' },
+        {
+          onSuccess: () => {
+            if (context) {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setShareContext(context);
+              setShowShareOverlay(true);
+            }
+          },
+        }
+      );
     }
-  }, [isVisited, code, addUserCountry, removeUserCountry]);
+  }, [
+    isVisited,
+    code,
+    country,
+    allCountries,
+    userCountries,
+    visitedCountries.length,
+    addUserCountry,
+    removeUserCountry,
+  ]);
 
   const handleToggleDream = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -134,12 +166,12 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     // since onboarding country order doesn't represent actual travel chronology
     const isOnboardingCountry = thisCountryVisit?.added_during_onboarding ?? false;
 
-    // Filter to countries visited before this one, excluding onboarding countries
+    // Filter to countries visited before this one (including onboarding countries
+    // so milestone detection properly considers all prior visits)
     const countriesVisitedBefore = thisCountryVisit
       ? visitedCountries.filter(
           (uc) =>
-            new Date(uc.created_at).getTime() < new Date(thisCountryVisit.created_at).getTime() &&
-            !uc.added_during_onboarding
+            new Date(uc.created_at).getTime() < new Date(thisCountryVisit.created_at).getTime()
         )
       : [];
 

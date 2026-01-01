@@ -236,6 +236,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
       animationType="none"
       statusBarTranslucent
       onRequestClose={handleDismiss}
+      testID="share-card-overlay"
     >
       <Pressable style={styles.container} onPress={isAnimating ? handleSkipAnimation : undefined}>
         {/* Backdrop */}

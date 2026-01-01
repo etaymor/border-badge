@@ -5,6 +5,7 @@
  * - Listening for TikTok/Instagram URLs on clipboard when app comes to foreground
  * - Displaying the ClipboardBanner overlay on any screen
  * - Navigating to ShareCaptureScreen when user taps "Save"
+ * - Showing permission guidance banner when clipboard access is denied
  *
  * Must be rendered inside a NavigationContainer to have access to navigation.
  */
@@ -15,14 +16,17 @@ import { CommonActions, useNavigation } from '@react-navigation/native';
 
 import { useClipboardListener } from '@hooks/useClipboardListener';
 import ClipboardBanner from './ClipboardBanner';
+import ClipboardPermissionBanner from './ClipboardPermissionBanner';
 
 /**
  * Standalone overlay component that can be rendered anywhere inside the navigation tree.
- * Renders an absolutely positioned banner when a clipboard URL is detected.
+ * Renders an absolutely positioned banner when a clipboard URL is detected,
+ * or a permission guidance banner when clipboard access is denied.
  */
 export function ClipboardBannerOverlay() {
   const navigation = useNavigation();
-  const { detectedUrl, dismiss, clear } = useClipboardListener();
+  const { detectedUrl, dismiss, clear, hasPermissionError, acknowledgePermissionError } =
+    useClipboardListener();
 
   const handleSave = useCallback(() => {
     if (!detectedUrl) return;
@@ -43,11 +47,30 @@ export function ClipboardBannerOverlay() {
     );
   }, [detectedUrl, clear, navigation]);
 
-  if (!detectedUrl) return null;
+  // Priority order for banner display:
+  // 1. Permission error banner (if clipboard access was denied)
+  // 2. Detected URL banner (if a TikTok/Instagram URL was found)
+  //
+  // This order is intentional: if both conditions exist (rare race condition where
+  // permission is granted between checks), we prioritize showing the permission
+  // guidance first since the user needs to understand how to configure settings.
+  // Once they dismiss the permission banner, the URL detection will work normally.
+  if (hasPermissionError) {
+    return (
+      <ClipboardPermissionBanner
+        onOpenSettings={acknowledgePermissionError}
+        onDismiss={acknowledgePermissionError}
+      />
+    );
+  }
 
-  return (
-    <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />
-  );
+  if (detectedUrl) {
+    return (
+      <ClipboardBanner provider={detectedUrl.provider} onSave={handleSave} onDismiss={dismiss} />
+    );
+  }
+
+  return null;
 }
 
 interface ProviderProps {

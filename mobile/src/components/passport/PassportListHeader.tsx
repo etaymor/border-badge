@@ -15,6 +15,8 @@ interface PassportListHeaderProps {
   onSearchChange: (query: string) => void;
   onExplorePress: () => void;
   onProfilePress: () => void;
+  onPastePress?: () => void;
+  showPasteButton?: boolean;
 }
 
 export function PassportListHeader({
@@ -26,10 +28,16 @@ export function PassportListHeader({
   onSearchChange,
   onExplorePress,
   onProfilePress,
+  onPastePress,
+  showPasteButton,
 }: PassportListHeaderProps) {
   return (
     <View>
-      <PassportHeader onProfilePress={onProfilePress} />
+      <PassportHeader
+        onProfilePress={onProfilePress}
+        onPastePress={onPastePress}
+        showPasteButton={showPasteButton}
+      />
       <TravelStatusCard
         travelStatus={stats.travelStatus}
         stampedCount={stats.stampedCount}

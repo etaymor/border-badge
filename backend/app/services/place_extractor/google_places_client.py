@@ -67,9 +67,9 @@ async def search_places(
     # near this location instead of using IP-based biasing (which would use
     # the user's current location, not where the content was created)
     if location_bias and location_bias.latitude and location_bias.longitude:
-        # Use a circle with 50km radius for city-level biasing
-        # or 200km for country-level (when we only have country coords)
-        radius = 50000 if location_bias.name in MAJOR_CITIES else 200000
+        # Google Places API max radius is 50,000 meters (50km)
+        # Use smaller radius for cities (more precise), max for countries
+        radius = 25000 if location_bias.name in MAJOR_CITIES else 50000
         body["locationBias"] = {
             "circle": {
                 "center": {
@@ -101,13 +101,8 @@ async def search_places(
 
             if response.status_code != 200:
                 logger.warning(
-                    "places_autocomplete_error",
-                    extra={
-                        "event": "places_error",
-                        "query": query[:50],
-                        "status_code": response.status_code,
-                        "elapsed_ms": round(elapsed_ms, 2),
-                    },
+                    f"places_autocomplete_error: status={response.status_code} "
+                    f"query={query[:50]!r} response={response.text[:300]}"
                 )
                 return []
 
