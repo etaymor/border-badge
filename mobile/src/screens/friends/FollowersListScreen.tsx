@@ -55,22 +55,14 @@ export function FollowersListScreen({ navigation }: Props) {
   );
 
   const ListHeader = useMemo(
-    () => (
-      <>
-        {/* User search for finding new travelers */}
-        <View style={styles.searchRow}>
-          <UserSearchBar onUserSelect={handleUserPress} placeholder="Find fellow travelers..." />
+    () =>
+      followers && followers.length > 0 ? (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Followers</Text>
+          <View style={styles.sectionLine} />
         </View>
-
-        {followers && followers.length > 0 && (
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Followers</Text>
-            <View style={styles.sectionLine} />
-          </View>
-        )}
-      </>
-    ),
-    [handleUserPress, followers]
+      ) : null,
+    [followers]
   );
 
   const ListEmpty = (
@@ -95,6 +87,11 @@ export function FollowersListScreen({ navigation }: Props) {
         <View style={styles.headerRight} />
       </View>
 
+      {/* Search bar outside list so dropdown can overlay content */}
+      <View style={styles.searchContainer}>
+        <UserSearchBar onUserSelect={handleUserPress} placeholder="Find fellow travelers..." />
+      </View>
+
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.adobeBrick} />
@@ -108,6 +105,7 @@ export function FollowersListScreen({ navigation }: Props) {
           ListEmptyComponent={ListEmpty}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          style={styles.flatList}
         />
       )}
     </View>
@@ -147,10 +145,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchRow: {
-    paddingTop: 8,
-    paddingBottom: 16,
+  searchContainer: {
     paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    zIndex: 10,
+    elevation: 10,
+  },
+  flatList: {
+    zIndex: 1,
   },
   listContent: {
     paddingBottom: 100,

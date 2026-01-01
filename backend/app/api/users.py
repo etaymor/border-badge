@@ -158,6 +158,8 @@ async def search_users(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
+    logger.info(f"User search: q={q}, user_id={user.id}, limit={limit}")
+
     # Search by username prefix (case-insensitive)
     # Note: ilike is case-insensitive LIKE in PostgreSQL
     rows = await db.get(
@@ -169,6 +171,8 @@ async def search_users(
             "limit": limit,
         },
     )
+
+    logger.info(f"User search results: {len(rows) if rows else 0} rows")
 
     if not rows:
         return []
@@ -199,7 +203,7 @@ async def search_users(
     for row in rows:
         results.append(
             UserSummary(
-                id=row["id"],
+                id=row["user_id"],  # Use user_id, not profile id, for follow operations
                 username=row["username"],
                 avatar_url=row.get("avatar_url"),
                 country_count=count_map.get(row["user_id"], 0),

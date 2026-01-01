@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
@@ -14,10 +14,8 @@ import { useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useProfile, useUpdateProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
-import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
-import { validateDisplayName } from '@utils/displayNameValidation';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -67,14 +65,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const { data: homeCountry } = useCountryByCode(profile?.home_country_code);
   const { data: userCountries } = useUserCountries();
   const { data: allCountries } = useCountries();
-  const updateDisplayName = useUpdateDisplayName();
   const updateProfile = useUpdateProfile();
   const signOut = useSignOut();
-
-  // Edit mode state
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedName, setEditedName] = useState('');
-  const [nameError, setNameError] = useState<string | undefined>();
 
   // Tracking preference modal state
   const [trackingModalVisible, setTrackingModalVisible] = useState(false);
@@ -96,54 +88,6 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const handleGoBack = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
-
-  const handleStartEditing = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setEditedName(profile?.display_name ?? '');
-    setNameError(undefined);
-    setIsEditing(true);
-  }, [profile?.display_name]);
-
-  const handleCancelEditing = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsEditing(false);
-    setEditedName('');
-    setNameError(undefined);
-    Keyboard.dismiss();
-  }, []);
-
-  const handleSaveName = useCallback(async () => {
-    // Validate before saving
-    const validation = validateDisplayName(editedName);
-    if (!validation.isValid) {
-      setNameError(validation.error);
-      return;
-    }
-
-    // Don't save if unchanged
-    if (validation.trimmedValue === profile?.display_name) {
-      setIsEditing(false);
-      Keyboard.dismiss();
-      return;
-    }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    try {
-      await updateDisplayName.mutateAsync(editedName);
-      setIsEditing(false);
-      setNameError(undefined);
-      Keyboard.dismiss();
-    } catch {
-      // Error is handled by the mutation's onError
-    }
-  }, [editedName, profile?.display_name, updateDisplayName]);
-
-  const handleNameChange = useCallback((text: string) => {
-    setEditedName(text);
-    // Clear error when user starts typing
-    setNameError(undefined);
-  }, []);
 
   const handleSignOut = useCallback(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -197,7 +141,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   );
 
   // Memoized values
-  const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
+  const initials = useMemo(() => getInitials(profile?.username), [profile?.username]);
   const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
   const memberSince = useMemo(() => formatMemberSince(profile?.created_at), [profile?.created_at]);
   const homeCountryDisplay = useMemo(() => {
@@ -335,17 +279,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
 
         <ProfileNameSection
-          isEditing={isEditing}
-          editedName={editedName}
-          displayName={profile?.display_name ?? 'Set your name'}
-          username={profile?.username}
-          nameError={nameError}
-          isSaving={updateDisplayName.isPending}
+          username={profile?.username ?? ''}
           isSmallScreen={isSmallScreen}
-          onStartEditing={handleStartEditing}
-          onCancelEditing={handleCancelEditing}
-          onSaveName={handleSaveName}
-          onNameChange={handleNameChange}
         />
 
         <View style={styles.divider} />
@@ -405,7 +340,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   header: {
     flexDirection: 'row',

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import React, { useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -27,11 +28,17 @@ export function FollowButton({
   const handlePress = useCallback(() => {
     if (isFollowing) {
       unfollowMutation.mutate(undefined, {
-        onSuccess: () => onFollowChange?.(false),
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          onFollowChange?.(false);
+        },
       });
     } else {
       followMutation.mutate(undefined, {
-        onSuccess: () => onFollowChange?.(true),
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          onFollowChange?.(true);
+        },
       });
     }
   }, [isFollowing, followMutation, unfollowMutation, onFollowChange]);

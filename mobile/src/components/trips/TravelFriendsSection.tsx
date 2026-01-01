@@ -25,7 +25,7 @@ import { fonts } from '@constants/typography';
 import { useDebounce } from '@hooks/useDebounce';
 import { useFollowing } from '@hooks/useFollows';
 import { useUserLookupByEmail } from '@hooks/useUserLookupByEmail';
-import { useUserSearch, type UserSearchResult } from '@hooks/useUserSearch';
+import type { UserSearchResult } from '@hooks/useUserSearch';
 
 import { SelectableUserItem } from './SelectableUserItem';
 
@@ -76,23 +76,17 @@ export function TravelFriendsSection({
   const looksLikeEmail = search.includes('@');
   const isCompleteEmail = EMAIL_REGEX.test(search.trim());
 
-  // Fetch followed users (cached longer, shown as suggestions)
+  // Fetch followed users (only people you follow can be tagged on trips)
   const { data: following = [], isLoading: loadingFollowing } = useFollowing({ limit: 100 });
 
-  // Search all users by username when NOT typing an email
-  const { data: searchResults = [], isLoading: searchLoading } = useUserSearch(debouncedSearch, {
-    enabled: debouncedSearch.length >= 2 && !looksLikeEmail,
-    limit: 20,
-  });
-
-  // Look up user by email when complete email is entered
+  // Look up user by email when complete email is entered (for inviting non-users)
   const { data: emailUser, isLoading: emailLoading } = useUserLookupByEmail(search.trim(), {
     enabled: isCompleteEmail,
   });
 
-  // Combine results: followed users first, then others
+  // Filter users: show followed users by username, or any user by email lookup
   const combinedUsers = useMemo((): UserSearchResult[] => {
-    // If we found a user by email, show only that user
+    // If we found a user by email, show them (even if not following - they can be tagged)
     if (isCompleteEmail && emailUser) {
       return [emailUser];
     }
@@ -107,22 +101,15 @@ export function TravelFriendsSection({
       return following.map(toSearchResult);
     }
 
+    // Filter followed users by search query (username search only shows followed users)
     const query = debouncedSearch.toLowerCase();
-
-    // Filter followed users by search query
-    const matchingFollowed = following
+    return following
       .filter(
         (u) =>
           u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query)
       )
       .map(toSearchResult);
-
-    // Deduplicate: filter out followed users from search results
-    const followedIds = new Set(matchingFollowed.map((u) => u.id));
-    const otherUsers = searchResults.filter((u) => !followedIds.has(u.id));
-
-    return [...matchingFollowed, ...otherUsers];
-  }, [following, searchResults, debouncedSearch, isCompleteEmail, emailUser, looksLikeEmail]);
+  }, [following, debouncedSearch, isCompleteEmail, emailUser, looksLikeEmail]);
 
   // Show invite option when complete email entered and no user found
   const showInviteOption =
@@ -131,31 +118,26 @@ export function TravelFriendsSection({
     !emailUser &&
     !invitedEmails.has(search.trim().toLowerCase());
 
-  // Get selected user objects (from following list, search cache, or email lookup)
+  // Get selected user objects (from following list, or email lookup cache)
   const selectedUsers = useMemo(() => {
     const users: UserSearchResult[] = [];
+    const addedIds = new Set<string>();
 
-    // First try to get from following list
+    // Get from following list
     for (const user of following) {
       if (selectedIds.has(user.id)) {
         users.push(toSearchResult(user));
+        addedIds.add(user.id);
       }
     }
 
-    // Also check search results for non-followed users
-    for (const user of searchResults) {
-      if (selectedIds.has(user.id) && !users.some((u) => u.id === user.id)) {
-        users.push(user);
-      }
-    }
-
-    // Also check email lookup result
-    if (emailUser && selectedIds.has(emailUser.id) && !users.some((u) => u.id === emailUser.id)) {
+    // Also check email lookup result (for users found by email who aren't followed)
+    if (emailUser && selectedIds.has(emailUser.id) && !addedIds.has(emailUser.id)) {
       users.push(emailUser);
     }
 
     return users;
-  }, [following, searchResults, selectedIds, emailUser]);
+  }, [following, selectedIds, emailUser]);
 
   const handleToggle = useCallback(
     (userId: string) => {
@@ -188,9 +170,16 @@ export function TravelFriendsSection({
     onSearchFocus?.();
   }, [onSearchFocus]);
 
-  const isLoading = loadingFollowing || searchLoading || emailLoading;
+  const isLoading = loadingFollowing || emailLoading;
   const hasSelections = selectedUsers.length > 0 || invitedEmails.size > 0;
-  const showResults = isFocused || search.length > 0;
+
+  // Determine if we should show the results container
+  const isSearching = emailLoading;
+  const hasNoFollowing = following.length === 0 && !loadingFollowing;
+  const hasNoMatches = debouncedSearch.length >= 2 && combinedUsers.length === 0 && !looksLikeEmail;
+  const showResultsContainer =
+    (isFocused || search.length > 0) &&
+    (isSearching || showInviteOption || combinedUsers.length > 0 || hasNoFollowing || hasNoMatches);
 
   return (
     <View style={styles.section}>
@@ -211,7 +200,7 @@ export function TravelFriendsSection({
               style={styles.textInput}
               value={search}
               onChangeText={setSearch}
-              placeholder="Search by username or email..."
+              placeholder="Search friends or invite by email..."
               placeholderTextColor={colors.textTertiary}
               autoCapitalize="none"
               autoCorrect={false}
@@ -280,9 +269,9 @@ export function TravelFriendsSection({
       )}
 
       {/* Search Results */}
-      {showResults && (
+      {showResultsContainer && (
         <View style={styles.resultsContainer}>
-          {(isLoading && debouncedSearch.length >= 2) || emailLoading ? (
+          {isSearching ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={colors.mossGreen} />
               <Text style={styles.loadingText}>Searching...</Text>
@@ -305,16 +294,6 @@ export function TravelFriendsSection({
                 <Text style={styles.inviteButtonText}>Invite</Text>
               </TouchableOpacity>
             </View>
-          ) : combinedUsers.length === 0 && !hasSelections ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {looksLikeEmail && !isCompleteEmail
-                  ? 'Enter complete email address'
-                  : debouncedSearch.length >= 2
-                    ? 'No users found'
-                    : 'Search for friends to tag'}
-              </Text>
-            </View>
           ) : combinedUsers.length > 0 ? (
             <ScrollView
               style={styles.list}
@@ -336,6 +315,22 @@ export function TravelFriendsSection({
                 />
               ))}
             </ScrollView>
+          ) : hasNoFollowing ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {"You're not following anyone yet."}{'\n'}Follow friends to tag them on trips!
+              </Text>
+            </View>
+          ) : hasNoMatches ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                No matching friends found.{'\n'}Try searching by email to invite them.
+              </Text>
+            </View>
+          ) : looksLikeEmail && !isCompleteEmail ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>Enter complete email address</Text>
+            </View>
           ) : null}
         </View>
       )}

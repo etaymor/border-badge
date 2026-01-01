@@ -149,13 +149,11 @@ export function FollowingListScreen({ navigation }: Props) {
     []
   );
 
-  const ListHeader = useMemo(
-    () => (
-      <View style={styles.searchRow}>
-        <UserSearchBar onUserSelect={handleUserPress} placeholder="Find fellow travelers..." />
-      </View>
-    ),
-    [handleUserPress]
+  const handleUserSelect = useCallback(
+    (userId: string, username: string) => {
+      navigation.navigate('UserProfile', { userId, username });
+    },
+    [navigation]
   );
 
   const ListEmpty = (
@@ -180,6 +178,11 @@ export function FollowingListScreen({ navigation }: Props) {
         <View style={styles.headerRight} />
       </View>
 
+      {/* Search bar outside list so dropdown can overlay content */}
+      <View style={styles.searchContainer}>
+        <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
+      </View>
+
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.adobeBrick} />
@@ -189,17 +192,16 @@ export function FollowingListScreen({ navigation }: Props) {
           sections={sections}
           renderItem={renderItem}
           renderSectionHeader={renderSectionHeader}
-          ListHeaderComponent={ListHeader}
           keyExtractor={(item) => ('id' in item ? item.id : item.email)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
+          style={styles.sectionList}
         />
       ) : (
-        <>
-          {ListHeader}
+        <View style={styles.emptyWrapper}>
           {ListEmpty}
-        </>
+        </View>
       )}
     </View>
   );
@@ -238,10 +240,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchRow: {
-    paddingTop: 8,
-    paddingBottom: 16,
+  searchContainer: {
     paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    zIndex: 10,
+    elevation: 10,
+  },
+  sectionList: {
+    zIndex: 1,
+  },
+  emptyWrapper: {
+    flex: 1,
+    zIndex: 1,
   },
   listContent: {
     paddingBottom: 100,
