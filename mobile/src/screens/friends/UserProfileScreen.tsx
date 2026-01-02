@@ -89,7 +89,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const [isBlocking, setIsBlocking] = useState(false);
 
   const { data: profile, isLoading, error } = useUserProfile(username);
-  const blockMutation = useBlockUser(profile?.user_id ?? '');
+  const blockMutation = useBlockUser(userId);
 
   const { data: feedData, isFetchingNextPage, hasNextPage, fetchNextPage } = useUserFeed(userId);
 

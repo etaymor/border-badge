@@ -153,8 +153,8 @@ async def view_public_profile(
     db = get_supabase_client()
 
     # Fetch profile by username (case-insensitive)
-    # SECURITY: username is validated by Path() with pattern=r"^[a-zA-Z0-9_]+$"
-    # which prevents SQL injection - only alphanumeric and underscore allowed
+    # Note: username is pre-validated by FastAPI Path() with pattern=r"^[a-zA-Z0-9_]+$"
+    # before reaching this point. The ilike operator with alphanumeric input is safe.
     profiles = await db.get(
         "user_profile",
         {
