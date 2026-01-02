@@ -125,15 +125,14 @@ async def get_user_feed(
     db = get_supabase_client(user_token=token)
 
     # Parse compound cursor
-    before_time, before_id = _parse_cursor(before)
+    before_time, _ = _parse_cursor(before)
 
     result = await db.rpc(
         "get_user_activity_feed",
         {
             "p_viewer_id": str(user.id),
             "p_target_user_id": str(user_id),
-            "p_before_time": before_time.isoformat() if before_time else None,
-            "p_before_id": before_id,
+            "p_before": before_time.isoformat() if before_time else None,
             "p_limit": limit,
         },
     )
@@ -182,7 +181,7 @@ async def get_feed(
     db = get_supabase_client(user_token=token)
 
     # Parse compound cursor
-    before_time, before_id = _parse_cursor(before)
+    before_time, _ = _parse_cursor(before)
 
     # Call the database function
     logger.debug(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
@@ -190,8 +189,7 @@ async def get_feed(
         "get_activity_feed",
         {
             "p_user_id": str(user.id),
-            "p_before_time": before_time.isoformat() if before_time else None,
-            "p_before_id": before_id,
+            "p_before": before_time.isoformat() if before_time else None,
             "p_limit": limit,
         },
     )

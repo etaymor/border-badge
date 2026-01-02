@@ -1,5 +1,6 @@
 """Email invite system endpoints."""
 
+import hashlib
 import logging
 from uuid import UUID
 
@@ -127,7 +128,7 @@ async def send_invite(
         "Invite created",
         extra={
             "inviter_id": str(user.id),
-            "email_hash": email_lower[:3] + "***",  # Don't log full email
+            "email_hash": hashlib.sha256(email_lower.encode()).hexdigest()[:8],
             "invite_type": invite.invite_type,
         },
     )

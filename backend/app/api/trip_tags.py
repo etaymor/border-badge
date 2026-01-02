@@ -79,6 +79,17 @@ async def get_pending_trip_tags(
 
     results = []
     for tag in tags:
+        # Validate required fields exist
+        tag_id = tag.get("id")
+        trip_id = tag.get("trip_id")
+        created_at = tag.get("created_at")
+        if not tag_id or not trip_id or not created_at:
+            logger.warning(
+                f"Skipping tag with missing required fields: id={tag_id}, "
+                f"trip_id={trip_id}, created_at={created_at}"
+            )
+            continue
+
         # Extract nested trip data
         trip_data = tag.get("trip")
         trip_name = "Unknown Trip"
@@ -97,14 +108,14 @@ async def get_pending_trip_tags(
 
         results.append(
             PendingTripTagDetail(
-                id=tag["id"],
-                trip_id=tag["trip_id"],
+                id=tag_id,
+                trip_id=trip_id,
                 trip_name=trip_name,
                 trip_country_code=trip_country_code,
                 initiated_by=initiated_by_id,
                 initiated_by_username=initiator_data.get("username"),
                 initiated_by_avatar_url=initiator_data.get("avatar_url"),
-                created_at=tag["created_at"],
+                created_at=created_at,
             )
         )
 
@@ -204,7 +215,10 @@ async def _auto_follow_trip_owner(trip_id: UUID, follower_user_id: str) -> None:
         if not trips:
             return
 
-        trip_owner_id = trips[0]["user_id"]
+        trip_owner_id = trips[0].get("user_id")
+        if not trip_owner_id:
+            logger.warning(f"Trip {trip_id} has no user_id, skipping auto-follow")
+            return
         follower_id = str(follower_user_id)
         following_id = str(trip_owner_id)
 
