@@ -303,10 +303,14 @@ def test_block_removes_follow_bidirectional(
             response = client.post(f"/blocks/{OTHER_USER_ID}", headers=auth_headers)
         assert response.status_code == 201
 
-        # Verify delete was called for user_follow table with bidirectional OR clause
-        assert len(delete_calls) == 1
+        # Verify delete was called twice for user_follow table (bidirectional)
+        assert len(delete_calls) == 2
         assert delete_calls[0]["table"] == "user_follow"
-        # The OR clause should handle both directions
-        assert "or" in delete_calls[0]["params"]
+        assert delete_calls[1]["table"] == "user_follow"
+        # Each delete handles one direction
+        assert "follower_id" in delete_calls[0]["params"]
+        assert "following_id" in delete_calls[0]["params"]
+        assert "follower_id" in delete_calls[1]["params"]
+        assert "following_id" in delete_calls[1]["params"]
     finally:
         app.dependency_overrides.clear()

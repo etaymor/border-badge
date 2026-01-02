@@ -72,16 +72,25 @@ async def follow_user(
         )
 
     # Check for blocks (bidirectional)
-    block_check = await db.get(
+    # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
+    block_check_1 = await db.get(
         "user_block",
         {
             "select": "id",
-            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{user_id})),"
-            f"(and(blocker_id.eq.{user_id},blocked_id.eq.{user.id}))",
+            "blocker_id": f"eq.{user.id}",
+            "blocked_id": f"eq.{user_id}",
+        },
+    )
+    block_check_2 = await db.get(
+        "user_block",
+        {
+            "select": "id",
+            "blocker_id": f"eq.{user_id}",
+            "blocked_id": f"eq.{user.id}",
         },
     )
 
-    if block_check:
+    if block_check_1 or block_check_2:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot follow this user",

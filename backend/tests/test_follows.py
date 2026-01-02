@@ -31,9 +31,10 @@ def test_follow_user_success(
     auth_headers: dict[str, str],
 ) -> None:
     """Test successfully following another user."""
-    # Mock responses: block check, target user exists (no more "already following" check)
+    # Mock responses: two block checks (bidirectional), target user exists
     mock_supabase_client.get.side_effect = [
-        [],  # No blocks
+        [],  # No blocks (user blocking target)
+        [],  # No blocks (target blocking user)
         [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
     ]
     mock_supabase_client.post.return_value = [
@@ -64,9 +65,10 @@ def test_follow_user_already_following(
     auth_headers: dict[str, str],
 ) -> None:
     """Test following a user you're already following returns 200 (idempotent)."""
-    # Mock responses: no blocks, target user exists
+    # Mock responses: two block checks (bidirectional), target user exists
     mock_supabase_client.get.side_effect = [
-        [],  # No blocks
+        [],  # No blocks (user blocking target)
+        [],  # No blocks (target blocking user)
         [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
     ]
     # Simulate duplicate key constraint violation on insert
@@ -135,9 +137,10 @@ def test_follow_nonexistent_user_returns_404(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that following a nonexistent user returns 404."""
-    # Mock responses: no blocks, user doesn't exist (no more "already following" check)
+    # Mock responses: two block checks (bidirectional), user doesn't exist
     mock_supabase_client.get.side_effect = [
-        [],  # No blocks
+        [],  # No blocks (user blocking target)
+        [],  # No blocks (target blocking user)
         [],  # User doesn't exist
     ]
 

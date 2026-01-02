@@ -87,11 +87,19 @@ async def block_user(
         )
 
     # Remove follows in both directions (if any exist)
+    # Use separate deletes to avoid string interpolation in 'or' filter (safer pattern)
     await db.delete(
         "user_follow",
         {
-            "or": f"(and(follower_id.eq.{user.id},following_id.eq.{user_id})),"
-            f"(and(follower_id.eq.{user_id},following_id.eq.{user.id}))",
+            "follower_id": f"eq.{user.id}",
+            "following_id": f"eq.{user_id}",
+        },
+    )
+    await db.delete(
+        "user_follow",
+        {
+            "follower_id": f"eq.{user_id}",
+            "following_id": f"eq.{user.id}",
         },
     )
 
