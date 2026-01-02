@@ -48,7 +48,6 @@ router.include_router(
 )
 router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
-router.include_router(admin.router, tags=["admin"])
 
 # Social features - only registered when ENABLE_SOCIAL_FEATURES=true
 # These routes will return 404 when the feature flag is disabled.
