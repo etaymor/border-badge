@@ -33,8 +33,7 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
         # Extract item_id if present; convert empty string to None
-        before_id = parts[1].strip() if len(parts) > 1 else None
-        before_id = before_id or None
+        before_id = (parts[1].strip() or None) if len(parts) > 1 else None
         return before_time, before_id
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid cursor format") from e

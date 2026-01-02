@@ -173,23 +173,8 @@ async def view_public_profile(
     log_profile_viewed(profile["username"])
 
     # Fetch all data in parallel using RPC for stats aggregation
+    # The RPC returns country/continent/subregion counts plus follower/following counts
     stats_task = db.rpc("get_public_profile_stats", {"p_user_id": str(user_id)})
-
-    followers_task = db.get(
-        "user_follow",
-        {
-            "following_id": f"eq.{user_id}",
-            "select": "id",
-        },
-    )
-
-    following_task = db.get(
-        "user_follow",
-        {
-            "follower_id": f"eq.{user_id}",
-            "select": "id",
-        },
-    )
 
     # Get home country name if set
     home_country_task = None
@@ -204,38 +189,35 @@ async def view_public_profile(
 
     # Execute all queries in parallel
     if home_country_task:
-        (
-            stats_result,
-            follower_rows,
-            following_rows,
-            home_country_rows,
-        ) = await asyncio.gather(
-            stats_task, followers_task, following_task, home_country_task
+        stats_result, home_country_rows = await asyncio.gather(
+            stats_task, home_country_task
         )
         home_country_name = (
-            home_country_rows[0]["name"]
+            home_country_rows[0].get("name")
             if home_country_rows and len(home_country_rows) > 0
             else None
         )
     else:
-        stats_result, follower_rows, following_rows = await asyncio.gather(
-            stats_task, followers_task, following_task
-        )
+        stats_result = await stats_task
         home_country_name = None
 
-    # Extract stats from RPC result
+    # Extract stats from RPC result (includes follower/following counts)
     if stats_result and len(stats_result) > 0:
         stats_row = stats_result[0]
         country_count = stats_row.get("country_count", 0)
         continent_count = stats_row.get("continent_count", 0)
         subregion_count = stats_row.get("subregion_count", 0)
+        follower_count = stats_row.get("follower_count", 0)
+        following_count = stats_row.get("following_count", 0)
     else:
+        logger.debug(
+            "get_public_profile_stats returned empty result for user %s", user_id
+        )
         country_count = 0
         continent_count = 0
         subregion_count = 0
-
-    follower_count = len(follower_rows) if follower_rows else 0
-    following_count = len(following_rows) if following_rows else 0
+        follower_count = 0
+        following_count = 0
     world_percentage = (country_count / MAX_COUNTRIES) * 100 if MAX_COUNTRIES > 0 else 0
 
     stats = PublicProfileStats(

@@ -24,12 +24,13 @@ router = APIRouter()
 
 
 def _get_rpc_first_row(result: Any) -> dict | None:
-    """
-    Normalize Supabase RPC responses.
+    """Normalize Supabase RPC responses to extract the first row.
 
-    In practice, PostgREST RPC can return:
-    - a list[dict] for set-returning functions (most common in this codebase)
-    - a dict for scalar JSON/JSONB returns
+    PostgREST RPC returns different shapes depending on the PostgreSQL function:
+    - RETURNS TABLE / SETOF: Returns list[dict] (most common in this codebase)
+    - RETURNS jsonb / record: Returns dict directly
+
+    This helper abstracts away that inconsistency for callers that expect a single row.
     """
     if not result:
         return None

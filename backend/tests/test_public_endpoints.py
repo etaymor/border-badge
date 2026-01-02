@@ -777,11 +777,17 @@ def test_public_profile_returns_html(
         "home_country_code": "US",
         "created_at": "2024-01-01T00:00:00Z",
     }
-    stats_result = [{"country_count": 25, "continent_count": 4, "subregion_count": 12}]
+    stats_result = [
+        {
+            "country_count": 25,
+            "continent_count": 4,
+            "subregion_count": 12,
+            "follower_count": 2,
+            "following_count": 1,
+        }
+    ]
     mock_supabase_client.get.side_effect = [
         [profile_data],  # Profile lookup
-        [{"id": "1"}, {"id": "2"}],  # Followers
-        [{"id": "3"}],  # Following
         [{"name": "United States"}],  # Home country
     ]
     mock_supabase_client.rpc.return_value = stats_result
@@ -820,12 +826,17 @@ def test_public_profile_case_insensitive(
         "home_country_code": None,
         "created_at": "2024-01-01T00:00:00Z",
     }
-    stats_result = [{"country_count": 0, "continent_count": 0, "subregion_count": 0}]
-    mock_supabase_client.get.side_effect = [
-        [profile_data],  # Profile lookup
-        [],  # Followers
-        [],  # Following
+    stats_result = [
+        {
+            "country_count": 0,
+            "continent_count": 0,
+            "subregion_count": 0,
+            "follower_count": 0,
+            "following_count": 0,
+        }
     ]
+    # No home_country_code means only 1 get() call for profile
+    mock_supabase_client.get.side_effect = [[profile_data]]
     mock_supabase_client.rpc.return_value = stats_result
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
@@ -849,12 +860,17 @@ def test_public_profile_has_cache_header(
         "home_country_code": None,
         "created_at": "2024-01-01T00:00:00Z",
     }
-    stats_result = [{"country_count": 5, "continent_count": 2, "subregion_count": 3}]
-    mock_supabase_client.get.side_effect = [
-        [profile_data],
-        [],  # Followers
-        [],  # Following
+    stats_result = [
+        {
+            "country_count": 5,
+            "continent_count": 2,
+            "subregion_count": 3,
+            "follower_count": 0,
+            "following_count": 0,
+        }
     ]
+    # No home_country_code means only 1 get() call for profile
+    mock_supabase_client.get.side_effect = [[profile_data]]
     mock_supabase_client.rpc.return_value = stats_result
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
@@ -937,11 +953,17 @@ def test_public_profile_with_home_country(
         "home_country_code": "US",
         "created_at": "2024-01-01T00:00:00Z",
     }
-    stats_result = [{"country_count": 10, "continent_count": 3, "subregion_count": 5}]
+    stats_result = [
+        {
+            "country_count": 10,
+            "continent_count": 3,
+            "subregion_count": 5,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
     mock_supabase_client.get.side_effect = [
         [profile_data],
-        [],  # Followers
-        [],  # Following
         [{"name": "United States"}],  # Home country lookup
     ]
     mock_supabase_client.rpc.return_value = stats_result
