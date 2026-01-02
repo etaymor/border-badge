@@ -48,7 +48,7 @@ class UsernameCheckResponse(BaseModel):
 
 
 @router.get("/check-username", response_model=UsernameCheckResponse)
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 async def check_username_availability(
     request: Request,
     username: Annotated[str, Query(min_length=3, max_length=30)],
@@ -59,10 +59,12 @@ async def check_username_availability(
     This endpoint does not require authentication so it can be used
     during the onboarding flow before the user has an account.
 
-    Rate limited to 30 requests per minute to prevent enumeration attacks.
+    Rate limited to 10 requests per minute to prevent enumeration attacks.
+    This allows legitimate users to check a few variations while limiting
+    bulk enumeration to ~600 checks/hour.
 
     TODO: Consider adding CAPTCHA for production to further mitigate bulk
-    enumeration. Current rate limit allows ~1800 checks/hour.
+    enumeration.
     """
     # Validate format
     if not USERNAME_PATTERN.match(username):
