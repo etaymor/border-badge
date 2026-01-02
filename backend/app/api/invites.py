@@ -113,6 +113,9 @@ async def send_invite(
     # Get inviter's display name for the email
     async def send_email_notification() -> None:
         try:
+            # Create a fresh service client for the background task to avoid sharing
+            # the request-scoped client instance once the request has completed.
+            service_db = get_supabase_client()
             inviter_profile = await service_db.get(
                 "user_profile",
                 {

@@ -1,6 +1,6 @@
 """Tests for activity feed endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -154,7 +154,9 @@ def test_get_feed_before_cursor_trailing_pipe_does_not_pass_empty_string(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.feed.get_supabase_client", return_value=mock_supabase_client):
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
             response = client.get(
                 "/feed?before=2024-01-01T00:00:00Z|", headers=auth_headers
             )
@@ -421,7 +423,7 @@ def test_parse_cursor_trailing_pipe_treats_empty_id_as_none() -> None:
 
 def test_build_cursor_omits_pipe_when_item_id_missing() -> None:
     """When the row has no item_id, we emit timestamp-only cursor (no trailing '|')."""
-    cursor = _build_cursor({"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)})
+    cursor = _build_cursor({"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=UTC)})
     assert cursor == "2024-01-01T12:00:00+00:00"
     assert "|" not in cursor
 
@@ -429,6 +431,6 @@ def test_build_cursor_omits_pipe_when_item_id_missing() -> None:
 def test_build_cursor_includes_pipe_when_item_id_present() -> None:
     """When the row has an item_id, we emit compound cursor 'timestamp|item_id'."""
     cursor = _build_cursor(
-        {"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc), "item_id": "abc"}
+        {"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=UTC), "item_id": "abc"}
     )
     assert cursor == "2024-01-01T12:00:00+00:00|abc"

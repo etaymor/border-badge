@@ -250,7 +250,11 @@ export function UserProfileScreen({ navigation, route }: Props) {
             <View style={styles.profileHeader}>
               <View style={styles.profileRow}>
                 <View style={styles.avatarRing}>
-                  <UserAvatar avatarUrl={profile.avatar_url} username={profile.username} size={60} />
+                  <UserAvatar
+                    avatarUrl={profile.avatar_url}
+                    username={profile.username}
+                    size={60}
+                  />
                 </View>
                 <View style={styles.profileInfo}>
                   <Text style={styles.displayName}>{profile.display_name}</Text>

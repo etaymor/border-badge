@@ -241,9 +241,7 @@ def test_blocked_user_hidden_from_profile(
         with patch(
             "app.api.users.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.get(
-                "/users/blockedperson/profile", headers=auth_headers
-            )
+            response = client.get("/users/blockedperson/profile", headers=auth_headers)
         # Should return 404 to hide user existence
         assert response.status_code == 404
     finally:
@@ -320,9 +318,7 @@ def test_trip_tag_consent_full_workflow(
                 "app.api.trip_tags.get_supabase_client",
                 return_value=mock_supabase_client,
             ),
-            patch(
-                "app.api.trip_tags.send_push_notification", new_callable=AsyncMock
-            ),
+            patch("app.api.trip_tags.send_push_notification", new_callable=AsyncMock),
         ):
             approve_response = client.post(
                 f"/trip-tags/{trip_id}/approve", headers=auth_headers

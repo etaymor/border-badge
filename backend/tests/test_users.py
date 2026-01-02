@@ -361,9 +361,7 @@ def test_get_user_profile_success(
         with patch(
             "app.api.users.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.get(
-                "/users/worldtraveler/profile", headers=auth_headers
-            )
+            response = client.get("/users/worldtraveler/profile", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["username"] == "worldtraveler"
@@ -391,9 +389,7 @@ def test_get_user_profile_not_found(
         with patch(
             "app.api.users.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.get(
-                "/users/nonexistent/profile", headers=auth_headers
-            )
+            response = client.get("/users/nonexistent/profile", headers=auth_headers)
         assert response.status_code == 404
         assert "User not found" in response.json()["detail"]
     finally:
@@ -425,9 +421,7 @@ def test_get_user_profile_blocked_returns_404(
         with patch(
             "app.api.users.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.get(
-                "/users/blockeduser/profile", headers=auth_headers
-            )
+            response = client.get("/users/blockeduser/profile", headers=auth_headers)
         # Returns 404 to hide that user exists (security)
         assert response.status_code == 404
         assert "User not found" in response.json()["detail"]
@@ -464,9 +458,7 @@ def test_get_user_profile_not_following(
         with patch(
             "app.api.users.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.get(
-                "/users/stranger/profile", headers=auth_headers
-            )
+            response = client.get("/users/stranger/profile", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["username"] == "stranger"

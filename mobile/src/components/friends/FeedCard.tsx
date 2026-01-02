@@ -48,22 +48,32 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
   const getActivityIcon = (): keyof typeof Ionicons.glyphMap => {
     if (item.activity_type === 'country_visited') return 'flag';
     switch (item.entry?.entry_type) {
-      case 'food': return 'restaurant';
-      case 'place': return 'location';
-      case 'stay': return 'bed';
-      case 'experience': return 'star';
-      default: return 'bookmark';
+      case 'food':
+        return 'restaurant';
+      case 'place':
+        return 'location';
+      case 'stay':
+        return 'bed';
+      case 'experience':
+        return 'star';
+      default:
+        return 'bookmark';
     }
   };
 
   const getActivityColor = (): string => {
     if (item.activity_type === 'country_visited') return colors.adobeBrick;
     switch (item.entry?.entry_type) {
-      case 'food': return colors.sunsetGold;
-      case 'place': return colors.primary;
-      case 'stay': return '#5856D6';
-      case 'experience': return colors.mossGreen;
-      default: return colors.stormGray;
+      case 'food':
+        return colors.sunsetGold;
+      case 'place':
+        return colors.primary;
+      case 'stay':
+        return '#5856D6';
+      case 'experience':
+        return colors.mossGreen;
+      default:
+        return colors.stormGray;
     }
   };
 
@@ -72,8 +82,8 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
     item.activity_type === 'country_visited' && item.country
       ? getCountryImage(item.country.country_code)
       : item.entry?.image_url
-      ? { uri: item.entry.image_url }
-      : null;
+        ? { uri: item.entry.image_url }
+        : null;
 
   const activityColor = getActivityColor();
   const activityIcon = getActivityIcon();
@@ -93,12 +103,13 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
     }
 
     if (item.entry) {
-      const typeLabel = {
-        food: 'discovered',
-        place: 'explored',
-        stay: 'stayed at',
-        experience: 'experienced',
-      }[item.entry.entry_type] || 'added';
+      const typeLabel =
+        {
+          food: 'discovered',
+          place: 'explored',
+          stay: 'stayed at',
+          experience: 'experienced',
+        }[item.entry.entry_type] || 'added';
 
       return (
         <View style={styles.captionContainer}>
@@ -118,7 +129,7 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
         </View>
       );
     }
-    
+
     return null;
   };
 
@@ -136,20 +147,20 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
       </View>
 
       {/* Main Content Media */}
-      <TouchableOpacity 
-        activeOpacity={0.9} 
+      <TouchableOpacity
+        activeOpacity={0.9}
         onPress={handleContentPress}
         style={styles.mediaContainer}
       >
         {mainImageSource ? (
           <View style={styles.imageWrapper}>
-            <Image 
-              source={mainImageSource} 
+            <Image
+              source={mainImageSource}
               style={[
-                styles.mainImage, 
-                item.activity_type === 'country_visited' && styles.countryIllustration
-              ]} 
-              resizeMode={item.activity_type === 'country_visited' ? 'cover' : 'cover'} 
+                styles.mainImage,
+                item.activity_type === 'country_visited' && styles.countryIllustration,
+              ]}
+              resizeMode={item.activity_type === 'country_visited' ? 'cover' : 'cover'}
             />
           </View>
         ) : (
@@ -157,20 +168,20 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
             <Ionicons name={activityIcon} size={48} color={activityColor} />
           </View>
         )}
-        
+
         {/* Activity Type Badge - Overlay on Image */}
         <View style={[styles.activityBadgeOverlay, { backgroundColor: colors.cloudWhite }]}>
-           <Ionicons name={activityIcon} size={12} color={activityColor} />
-           <Text style={[styles.activityBadgeText, { color: activityColor }]}>
-             {item.activity_type === 'country_visited' ? 'Travel' : item.entry?.entry_type || 'Update'}
-           </Text>
+          <Ionicons name={activityIcon} size={12} color={activityColor} />
+          <Text style={[styles.activityBadgeText, { color: activityColor }]}>
+            {item.activity_type === 'country_visited'
+              ? 'Travel'
+              : item.entry?.entry_type || 'Update'}
+          </Text>
         </View>
       </TouchableOpacity>
 
       {/* Caption & Details */}
-      <View style={styles.content}>
-        {renderContent()}
-      </View>
+      <View style={styles.content}>{renderContent()}</View>
     </View>
   );
 }
@@ -229,7 +240,7 @@ const styles = StyleSheet.create({
   countryIllustration: {
     // To show the bottom part and crop the top:
     // We scale the image up slightly and position it to align the bottom
-    height: '120%', 
+    height: '120%',
     width: '100%',
     position: 'absolute',
     bottom: 0,
@@ -296,4 +307,3 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
   },
 });
-
