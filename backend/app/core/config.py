@@ -56,12 +56,6 @@ class Settings(BaseSettings):
     )  # HMAC secret for signing invite codes
     invite_expiration_days: int = 30  # How long invite codes remain valid
 
-    # Feature Flags
-    enable_social_features: bool = Field(
-        default=False,
-        description="Enable social features (friends, feed, follows, blocks, invites)",
-    )
-
     @property
     def INVITE_SIGNING_SECRET(self) -> str:
         """Get invite signing secret with strict production requirements."""
