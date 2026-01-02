@@ -76,8 +76,9 @@ async def check_username_availability(
     db = get_service_supabase_client()
 
     # Check if username exists (case-insensitive).
-    # Note: username is pre-validated by Query() min/max length and USERNAME_PATTERN
-    # above, so the ilike operator with alphanumeric input is safe.
+    # Note: username is pre-validated by Query(min_length=3, max_length=30) and
+    # USERNAME_PATTERN (alphanumeric + underscore only) on line 54, so the ilike
+    # operator is safe from SQL injection.
     rows = await db.get(
         "user_profile",
         {

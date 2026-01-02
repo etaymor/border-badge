@@ -101,7 +101,7 @@ def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
         return None
     # PostgREST may return place as array or dict depending on relationship type
     if isinstance(place, list):
-        place = place[0]  # List is guaranteed non-empty by line 101
+        place = place[0]  # Empty lists handled above ([] is falsy)
     if not isinstance(place, dict):
         return None
     extra_data = place.get("extra_data")
