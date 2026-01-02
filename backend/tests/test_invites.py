@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.api.invites import _get_rpc_first_row
+from app.core.db_utils import get_rpc_first_row
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import (
@@ -23,46 +23,46 @@ SAMPLE_INVITE_ID = "550e8400-e29b-41d4-a716-446655440010"
 
 
 def test_get_rpc_first_row_with_list() -> None:
-    """Test _get_rpc_first_row with list result (SETOF behavior)."""
+    """Test get_rpc_first_row with list result (SETOF behavior)."""
     result = [{"id": "1", "name": "test"}]
-    row = _get_rpc_first_row(result)
+    row = get_rpc_first_row(result)
     assert row == {"id": "1", "name": "test"}
 
 
 def test_get_rpc_first_row_with_dict() -> None:
-    """Test _get_rpc_first_row with dict result (RETURNS record)."""
+    """Test get_rpc_first_row with dict result (RETURNS record)."""
     result = {"id": "1", "name": "test"}
-    row = _get_rpc_first_row(result)
+    row = get_rpc_first_row(result)
     assert row == {"id": "1", "name": "test"}
 
 
 def test_get_rpc_first_row_with_empty_list() -> None:
-    """Test _get_rpc_first_row with empty list."""
+    """Test get_rpc_first_row with empty list."""
     result: list = []
-    row = _get_rpc_first_row(result)
+    row = get_rpc_first_row(result)
     assert row is None
 
 
 def test_get_rpc_first_row_with_none() -> None:
-    """Test _get_rpc_first_row with None."""
-    row = _get_rpc_first_row(None)
+    """Test get_rpc_first_row with None."""
+    row = get_rpc_first_row(None)
     assert row is None
 
 
 def test_get_rpc_first_row_with_non_dict_list() -> None:
-    """Test _get_rpc_first_row with list of non-dict items."""
+    """Test get_rpc_first_row with list of non-dict items."""
     result = ["string", "values"]
-    row = _get_rpc_first_row(result)
+    row = get_rpc_first_row(result)
     assert row is None
 
 
 def test_get_rpc_first_row_with_multiple_rows() -> None:
-    """Test _get_rpc_first_row returns first row from multi-row result."""
+    """Test get_rpc_first_row returns first row from multi-row result."""
     result = [
         {"id": "1", "name": "first"},
         {"id": "2", "name": "second"},
     ]
-    row = _get_rpc_first_row(result)
+    row = get_rpc_first_row(result)
     assert row == {"id": "1", "name": "first"}
 
 

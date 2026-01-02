@@ -185,7 +185,7 @@ async def get_feed(
     before_time, before_id = _parse_cursor(before)
 
     # Call the database function
-    logger.info(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
+    logger.debug(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
     result = await db.rpc(
         "get_activity_feed",
         {
@@ -195,7 +195,7 @@ async def get_feed(
             "p_limit": limit,
         },
     )
-    logger.info(
+    logger.debug(
         f"Feed RPC returned {len(result) if result else 0} items for user={user.id}"
     )
 

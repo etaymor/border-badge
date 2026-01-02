@@ -48,8 +48,9 @@ def test_pending_trip_tags_returns_tags_for_user(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that GET /trip-tags/pending returns pending tags with trip and initiator details."""
-    # Mock the database response with nested trip and initiator data
-    pending_tag_with_joins = {
+    # Mock the database response - first call gets tags with trip data,
+    # second call fetches initiator profiles separately
+    pending_tag_with_trip = {
         "id": TEST_TAG_ID,
         "trip_id": TEST_TRIP_ID,
         "initiated_by": OTHER_USER_ID,
@@ -58,12 +59,17 @@ def test_pending_trip_tags_returns_tags_for_user(
             "name": "Summer Vacation",
             "country": {"code": "US"},
         },
-        "initiator": {
-            "username": "traveler_jane",
-            "avatar_url": "https://example.com/avatar.jpg",
-        },
     }
-    mock_supabase_client.get.return_value = [pending_tag_with_joins]
+    initiator_profile = {
+        "user_id": OTHER_USER_ID,
+        "username": "traveler_jane",
+        "avatar_url": "https://example.com/avatar.jpg",
+    }
+    # First call returns tags, second call returns initiator profiles
+    mock_supabase_client.get.side_effect = [
+        [pending_tag_with_trip],
+        [initiator_profile],
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

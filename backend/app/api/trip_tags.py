@@ -61,7 +61,9 @@ async def get_pending_trip_tags(
         return []
 
     # Collect unique initiator IDs and fetch their profiles separately
-    initiator_ids = list({tag["initiated_by"] for tag in tags if tag.get("initiated_by")})
+    initiator_ids = list(
+        {tag["initiated_by"] for tag in tags if tag.get("initiated_by")}
+    )
     initiator_map: dict[str, dict] = {}
 
     if initiator_ids:
@@ -69,7 +71,7 @@ async def get_pending_trip_tags(
             "user_profile",
             {
                 "select": "user_id,username,avatar_url",
-                "user_id": f"in.({','.join(initiator_ids)})",
+                "user_id": f"in.({','.join(str(uid) for uid in initiator_ids)})",
             },
         )
         if initiators:
@@ -89,7 +91,9 @@ async def get_pending_trip_tags(
 
         # Get initiator data from our separate query
         initiated_by_id = tag.get("initiated_by")
-        initiator_data = initiator_map.get(initiated_by_id, {}) if initiated_by_id else {}
+        initiator_data = (
+            initiator_map.get(initiated_by_id, {}) if initiated_by_id else {}
+        )
 
         results.append(
             PendingTripTagDetail(

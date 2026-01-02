@@ -17,6 +17,7 @@ from app.core.analytics import (
     log_trip_viewed,
 )
 from app.core.config import get_settings
+from app.core.db_utils import get_rpc_first_row
 from app.core.media import extract_media_urls
 from app.core.seo import (
     build_landing_seo,
@@ -202,8 +203,8 @@ async def view_public_profile(
         home_country_name = None
 
     # Extract stats from RPC result (includes follower/following counts)
-    if stats_result and len(stats_result) > 0:
-        stats_row = stats_result[0]
+    stats_row = get_rpc_first_row(stats_result)
+    if stats_row:
         country_count = stats_row.get("country_count", 0)
         continent_count = stats_row.get("continent_count", 0)
         subregion_count = stats_row.get("subregion_count", 0)

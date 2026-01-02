@@ -1,12 +1,12 @@
 """Email invite system endpoints."""
 
 import logging
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.db_utils import get_rpc_first_row
 from app.core.edge_functions import send_invite_email
 from app.core.invite_signer import generate_invite_code
 from app.core.security import CurrentUser
@@ -21,24 +21,6 @@ from app.schemas.invites import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _get_rpc_first_row(result: Any) -> dict | None:
-    """Normalize Supabase RPC responses to extract the first row.
-
-    PostgREST RPC returns different shapes depending on the PostgreSQL function:
-    - RETURNS TABLE / SETOF: Returns list[dict] (most common in this codebase)
-    - RETURNS jsonb / record: Returns dict directly
-
-    This helper abstracts away that inconsistency for callers that expect a single row.
-    """
-    if not result:
-        return None
-    if isinstance(result, dict):
-        return result
-    if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
-        return result[0]
-    return None
 
 
 @router.post("", status_code=201)
@@ -74,7 +56,7 @@ async def send_invite(
         {"email_to_check": email_lower},
     )
 
-    existing_user = _get_rpc_first_row(existing_user_result)
+    existing_user = get_rpc_first_row(existing_user_result)
     if existing_user and existing_user.get("exists"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
