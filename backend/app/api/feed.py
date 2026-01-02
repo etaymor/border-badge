@@ -32,9 +32,11 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     try:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
-        before_id = parts[1].strip() or None if len(parts) > 1 else None
+        # Extract item_id if present; convert empty string to None
+        before_id = parts[1].strip() if len(parts) > 1 else None
+        before_id = before_id or None
         return before_time, before_id
-    except (ValueError, IndexError) as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid cursor format") from e
 
 
@@ -178,6 +180,7 @@ async def get_feed(
     before_time, before_id = _parse_cursor(before)
 
     # Call the database function
+    logger.info(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
     result = await db.rpc(
         "get_activity_feed",
         {
@@ -186,6 +189,9 @@ async def get_feed(
             "p_before_id": before_id,
             "p_limit": limit,
         },
+    )
+    logger.info(
+        f"Feed RPC returned {len(result) if result else 0} items for user={user.id}"
     )
 
     if not result:

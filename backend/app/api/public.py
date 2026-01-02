@@ -28,7 +28,6 @@ from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
 from app.schemas.classification import MAX_COUNTRIES
-from app.schemas.countries import VALID_REGIONS, VALID_SUBREGIONS
 from app.schemas.lists import PublicListEntry, PublicListView
 from app.schemas.public import (
     PublicProfileStats,
@@ -102,7 +101,7 @@ def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
         return None
     # PostgREST may return place as array or dict depending on relationship type
     if isinstance(place, list):
-        place = place[0] if place else None
+        place = place[0]  # List is guaranteed non-empty by line 101
     if not isinstance(place, dict):
         return None
     extra_data = place.get("extra_data")
@@ -173,15 +172,8 @@ async def view_public_profile(
     user_id = profile["user_id"]
     log_profile_viewed(profile["username"])
 
-    # Fetch all data in parallel
-    countries_task = db.get(
-        "user_countries",
-        {
-            "user_id": f"eq.{user_id}",
-            "status": "eq.visited",
-            "select": "country_id, country:country_id(region, subregion)",
-        },
-    )
+    # Fetch all data in parallel using RPC for stats aggregation
+    stats_task = db.rpc("get_public_profile_stats", {"p_user_id": str(user_id)})
 
     followers_task = db.get(
         "user_follow",
@@ -213,45 +205,37 @@ async def view_public_profile(
     # Execute all queries in parallel
     if home_country_task:
         (
-            countries_rows,
+            stats_result,
             follower_rows,
             following_rows,
             home_country_rows,
         ) = await asyncio.gather(
-            countries_task, followers_task, following_task, home_country_task
+            stats_task, followers_task, following_task, home_country_task
         )
-        home_country_name = home_country_rows[0]["name"] if home_country_rows else None
+        home_country_name = (
+            home_country_rows[0]["name"]
+            if home_country_rows and len(home_country_rows) > 0
+            else None
+        )
     else:
-        countries_rows, follower_rows, following_rows = await asyncio.gather(
-            countries_task, followers_task, following_task
+        stats_result, follower_rows, following_rows = await asyncio.gather(
+            stats_task, followers_task, following_task
         )
         home_country_name = None
 
-    # Calculate stats
-    country_count = len(countries_rows) if countries_rows else 0
+    # Extract stats from RPC result
+    if stats_result and len(stats_result) > 0:
+        stats_row = stats_result[0]
+        country_count = stats_row.get("country_count", 0)
+        continent_count = stats_row.get("continent_count", 0)
+        subregion_count = stats_row.get("subregion_count", 0)
+    else:
+        country_count = 0
+        continent_count = 0
+        subregion_count = 0
+
     follower_count = len(follower_rows) if follower_rows else 0
     following_count = len(following_rows) if following_rows else 0
-
-    # Calculate continent and subregion counts
-    continents: set[str] = set()
-    subregions: set[str] = set()
-    if countries_rows:
-        for row in countries_rows:
-            country_data = row.get("country")
-            if country_data:
-                # Handle PostgREST returning array or dict
-                if isinstance(country_data, list):
-                    country_data = country_data[0] if country_data else {}
-                if isinstance(country_data, dict):
-                    region = country_data.get("region")
-                    subregion = country_data.get("subregion")
-                    if region and region in VALID_REGIONS:
-                        continents.add(region)
-                    if subregion and subregion in VALID_SUBREGIONS:
-                        subregions.add(subregion)
-
-    continent_count = len(continents)
-    subregion_count = len(subregions)
     world_percentage = (country_count / MAX_COUNTRIES) * 100 if MAX_COUNTRIES > 0 else 0
 
     stats = PublicProfileStats(

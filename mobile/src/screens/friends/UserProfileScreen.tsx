@@ -254,10 +254,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
                 </View>
                 <View style={styles.profileInfo}>
                   <Text style={styles.displayName}>{profile.display_name}</Text>
+                  <View style={styles.actionRow}>
+                    <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
+                  </View>
                 </View>
-              </View>
-              <View style={styles.actionRow}>
-                <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
               </View>
             </View>
 
@@ -291,14 +291,6 @@ export function UserProfileScreen({ navigation, route }: Props) {
                 show={true}
               />
             </View>
-
-            {/* Activity Section Header */}
-            {feedItems.length > 0 && (
-              <View style={styles.activityHeader}>
-                <Text style={styles.activityTitle}>Their Journey</Text>
-                <View style={styles.activityLine} />
-              </View>
-            )}
           </>
         }
         ListEmptyComponent={
@@ -440,11 +432,13 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   actionRow: {
-    marginTop: 12,
+    marginTop: 8,
+    alignSelf: 'flex-start',
   },
   statsGrid: {
     flexDirection: 'row',
     marginHorizontal: 16,
+    marginBottom: 24,
     gap: 12,
   },
   statBox: {
@@ -470,24 +464,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-  },
-  activityHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 28,
-    marginHorizontal: 20,
-    gap: 12,
-  },
-  activityTitle: {
-    fontFamily: fonts.dawning.regular,
-    fontSize: 26,
-    color: colors.adobeBrick,
-  },
-  activityLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.adobeBrick,
-    opacity: 0.3,
   },
   emptyState: {
     alignItems: 'center',

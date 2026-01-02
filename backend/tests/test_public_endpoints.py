@@ -757,3 +757,204 @@ def test_public_list_with_place_photo_url(
 
     assert response.status_code == 200
     assert "Best Coffee Shop" in response.text
+
+
+# ============================================================================
+# Public Profile Page Tests (/u/{username})
+# ============================================================================
+
+
+def test_public_profile_returns_html(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page returns HTML."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "traveler_pro",
+        "display_name": "Pro Traveler",
+        "avatar_url": "https://example.com/avatar.jpg",
+        "home_country_code": "US",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 25, "continent_count": 4, "subregion_count": 12}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],  # Profile lookup
+        [{"id": "1"}, {"id": "2"}],  # Followers
+        [{"id": "3"}],  # Following
+        [{"name": "United States"}],  # Home country
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/traveler_pro")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Pro Traveler" in response.text
+
+
+def test_public_profile_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that non-existent profile returns 404."""
+    mock_supabase_client.get.return_value = []
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/nonexistent_user")
+
+    assert response.status_code == 404
+
+
+def test_public_profile_case_insensitive(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that username lookup is case-insensitive."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "TravelerPro",
+        "display_name": "Pro Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 0, "continent_count": 0, "subregion_count": 0}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],  # Profile lookup
+        [],  # Followers
+        [],  # Following
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        # Request with lowercase, should find uppercase username
+        response = client.get("/u/travelerpro")
+
+    assert response.status_code == 200
+    assert "Pro Traveler" in response.text
+
+
+def test_public_profile_has_cache_header(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page has cache control header."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "traveler_pro",
+        "display_name": "Pro Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 5, "continent_count": 2, "subregion_count": 3}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [],  # Followers
+        [],  # Following
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/traveler_pro")
+
+    assert response.status_code == 200
+    assert "Cache-Control" in response.headers
+    assert "public" in response.headers["Cache-Control"]
+
+
+def test_public_profile_stats_calculation(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that profile stats are calculated correctly via RPC."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "world_traveler",
+        "display_name": "World Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # User has visited 50 countries across 5 continents and 15 subregions
+    stats_result = [{"country_count": 50, "continent_count": 5, "subregion_count": 15}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [{"id": str(i)} for i in range(100)],  # 100 followers
+        [{"id": str(i)} for i in range(50)],  # 50 following
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/world_traveler")
+
+    assert response.status_code == 200
+    # Verify stats appear in HTML (exact rendering depends on template)
+    assert "50" in response.text  # country count
+    assert "World Traveler" in response.text
+
+
+def test_public_profile_no_countries(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test profile page for user with no visited countries."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "new_user",
+        "display_name": "New User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 0, "continent_count": 0, "subregion_count": 0}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [],  # No followers
+        [],  # Not following anyone
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/new_user")
+
+    assert response.status_code == 200
+    assert "New User" in response.text
+
+
+def test_public_profile_with_home_country(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test profile page displays home country name."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "american_traveler",
+        "display_name": "American Traveler",
+        "avatar_url": None,
+        "home_country_code": "US",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 10, "continent_count": 3, "subregion_count": 5}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [],  # Followers
+        [],  # Following
+        [{"name": "United States"}],  # Home country lookup
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/american_traveler")
+
+    assert response.status_code == 200
+    assert "United States" in response.text
+
+
+def test_public_profile_invalid_username_format(client: TestClient) -> None:
+    """Test that invalid username format returns 422."""
+    # Username with special characters should be rejected by path validation
+    response = client.get("/u/invalid@username!")
+    assert response.status_code == 422

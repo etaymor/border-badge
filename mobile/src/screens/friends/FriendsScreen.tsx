@@ -108,26 +108,14 @@ export function FriendsScreen({ navigation }: Props) {
 
   const ListHeader = useMemo(
     () => (
-      <>
-        {/* Stats Grid */}
-        <FriendsStatsGrid
-          followerCount={stats?.follower_count ?? 0}
-          followingCount={stats?.following_count ?? 0}
-          rank={ranking?.rank ?? null}
-          isLoading={statsLoading || rankingLoading}
-          onFollowersPress={handleViewFollowers}
-          onFollowingPress={handleViewFollowing}
-        />
-        {/* Feed section header */}
-        <View style={styles.feedHeader}>
-          <View style={styles.feedHeaderDecor}>
-            <View style={styles.decorLine} />
-            <Ionicons name="compass-outline" size={16} color={colors.stormGray} />
-            <View style={styles.decorLine} />
-          </View>
-          <Text style={styles.feedHeaderTitle}>Travel Feed</Text>
-        </View>
-      </>
+      <FriendsStatsGrid
+        followerCount={stats?.follower_count ?? 0}
+        followingCount={stats?.following_count ?? 0}
+        rank={ranking?.rank ?? null}
+        isLoading={statsLoading || rankingLoading}
+        onFollowersPress={handleViewFollowers}
+        onFollowingPress={handleViewFollowing}
+      />
     ),
     [stats, ranking, statsLoading, rankingLoading, handleViewFollowers, handleViewFollowing]
   );
@@ -281,29 +269,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 100,
     flexGrow: 1,
-  },
-  feedHeader: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  feedHeaderDecor: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  decorLine: {
-    width: 32,
-    height: 1,
-    backgroundColor: colors.stormGray,
-    opacity: 0.3,
-  },
-  feedHeaderTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 18,
-    color: colors.midnightNavy,
-    fontStyle: 'italic',
   },
   emptyState: {
     flex: 1,

@@ -132,6 +132,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginTop: 16,
+    marginBottom: 24,
     gap: 12,
   },
   touchable: {

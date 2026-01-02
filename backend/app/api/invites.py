@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 def _get_rpc_first_row(result: Any) -> dict | None:
     """
     Normalize Supabase RPC responses.
@@ -34,7 +35,7 @@ def _get_rpc_first_row(result: Any) -> dict | None:
         return None
     if isinstance(result, dict):
         return result
-    if isinstance(result, list) and result and isinstance(result[0], dict):
+    if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
         return result[0]
     return None
 
