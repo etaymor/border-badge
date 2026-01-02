@@ -25,6 +25,10 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     """Parse compound cursor into (created_at, item_id).
 
     Cursor format: "2024-01-01T00:00:00|uuid" or just "2024-01-01T00:00:00" for backward compat.
+
+    Note on backward compatibility: Old timestamp-only cursors may cause duplicate items
+    if multiple items share the same timestamp. New compound cursors (timestamp|id) avoid
+    this by using secondary sort on item_id. Clients should update to use new cursor format.
     """
     if not cursor:
         return None, None
@@ -32,7 +36,9 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     try:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
-        # Extract item_id if present; convert empty string to None
+        # Extract item_id if present. Convert empty/whitespace to None for robustness.
+        # Backward compatibility: old timestamp-only cursors have no "|" delimiter,
+        # so they return None for before_id and pagination falls back to timestamp-only.
         before_id = (parts[1].strip() or None) if len(parts) > 1 else None
         return before_time, before_id
     except ValueError as e:

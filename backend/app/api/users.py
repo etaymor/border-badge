@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.utils import get_token_from_request
@@ -75,7 +75,9 @@ async def check_username_availability(
     # Use service client since user may not be authenticated yet
     db = get_service_supabase_client()
 
-    # Check if username exists (case-insensitive)
+    # Check if username exists (case-insensitive).
+    # Note: username is pre-validated by Query() min/max length and USERNAME_PATTERN
+    # above, so the ilike operator with alphanumeric input is safe.
     rows = await db.get(
         "user_profile",
         {
@@ -170,8 +172,9 @@ async def search_users(
         logger.debug(f"Invalid search query rejected: {q}")
         return []
 
-    # Search by username prefix (case-insensitive)
-    # Note: ilike is case-insensitive LIKE in PostgreSQL
+    # Search by username prefix (case-insensitive).
+    # Note: q_safe is pre-validated against USERNAME_PATTERN above, stripping wildcards.
+    # The ilike operator with alphanumeric input is safe from SQL injection.
     rows = await db.get(
         "user_profile",
         {
@@ -320,8 +323,8 @@ async def lookup_user_by_email(
 @limiter.limit("30/minute")
 async def get_user_profile(
     request: Request,
-    username: str,
-    user: CurrentUser,
+    username: str = Path(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$"),
+    user: CurrentUser = ...,
 ) -> UserProfileResponse:
     """
     Get a user's public profile by username.
@@ -331,7 +334,9 @@ async def get_user_profile(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Get the user profile
+    # Get the user profile (case-insensitive).
+    # Note: username is pre-validated by FastAPI Path() with pattern=r"^[a-zA-Z0-9_]+$"
+    # before reaching this point. The ilike operator with alphanumeric input is safe.
     rows = await db.get(
         "user_profile",
         {
