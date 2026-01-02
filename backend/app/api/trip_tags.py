@@ -40,14 +40,14 @@ async def get_pending_trip_tags(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch pending tags with trip and initiator details via PostgREST embedding
+    # Fetch pending tags with trip details (trip_tags.initiated_by -> auth.users,
+    # not user_profile, so we can't use PostgREST embedding for initiator)
     tags = await db.get(
         "trip_tags",
         {
             "select": (
                 "id,trip_id,initiated_by,created_at,"
-                "trip:trip_id(name,country:country_id(code)),"
-                "initiator:initiated_by(username,avatar_url)"
+                "trip:trip_id(name,country:country_id(code))"
             ),
             "tagged_user_id": f"eq.{user.id}",
             "status": f"eq.{TripTagStatus.PENDING.value}",
@@ -59,6 +59,21 @@ async def get_pending_trip_tags(
 
     if not tags:
         return []
+
+    # Collect unique initiator IDs and fetch their profiles separately
+    initiator_ids = list({tag["initiated_by"] for tag in tags if tag.get("initiated_by")})
+    initiator_map: dict[str, dict] = {}
+
+    if initiator_ids:
+        initiators = await db.get(
+            "user_profile",
+            {
+                "select": "user_id,username,avatar_url",
+                "user_id": f"in.({','.join(initiator_ids)})",
+            },
+        )
+        if initiators:
+            initiator_map = {p["user_id"]: p for p in initiators}
 
     results = []
     for tag in tags:
@@ -72,13 +87,9 @@ async def get_pending_trip_tags(
             if country_data:
                 trip_country_code = country_data.get("code", "")
 
-        # Extract nested initiator data
-        initiator_data = tag.get("initiator")
-        initiated_by_username = None
-        initiated_by_avatar_url = None
-        if initiator_data:
-            initiated_by_username = initiator_data.get("username")
-            initiated_by_avatar_url = initiator_data.get("avatar_url")
+        # Get initiator data from our separate query
+        initiated_by_id = tag.get("initiated_by")
+        initiator_data = initiator_map.get(initiated_by_id, {}) if initiated_by_id else {}
 
         results.append(
             PendingTripTagDetail(
@@ -86,9 +97,9 @@ async def get_pending_trip_tags(
                 trip_id=tag["trip_id"],
                 trip_name=trip_name,
                 trip_country_code=trip_country_code,
-                initiated_by=tag.get("initiated_by"),
-                initiated_by_username=initiated_by_username,
-                initiated_by_avatar_url=initiated_by_avatar_url,
+                initiated_by=initiated_by_id,
+                initiated_by_username=initiator_data.get("username"),
+                initiated_by_avatar_url=initiator_data.get("avatar_url"),
                 created_at=tag["created_at"],
             )
         )

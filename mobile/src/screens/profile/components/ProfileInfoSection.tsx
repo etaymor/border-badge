@@ -24,7 +24,6 @@ interface ProfileInfoSectionProps {
   onOpenExportModal: () => void;
   onToggleClipboardDetection: (enabled: boolean) => void;
   onOpenClipboardPermissionModal?: () => void;
-  onShareProfile?: () => void;
 }
 
 export function ProfileInfoSection({
@@ -39,33 +38,9 @@ export function ProfileInfoSection({
   onOpenExportModal,
   onToggleClipboardDetection,
   onOpenClipboardPermissionModal,
-  onShareProfile,
 }: ProfileInfoSectionProps) {
   return (
     <View style={styles.container}>
-      {/* Share Profile Section */}
-      {onShareProfile && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>
-            SHARE YOUR PROFILE
-          </Text>
-          <Pressable
-            onPress={onShareProfile}
-            style={({ pressed }) => [styles.shareButton, pressed && styles.shareButtonPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Share your profile"
-          >
-            <Ionicons name="share-social-outline" size={20} color={colors.cloudWhite} />
-            <Text style={[styles.shareButtonText, isSmallScreen && styles.shareButtonTextSmall]}>
-              Share Profile Link
-            </Text>
-          </Pressable>
-          <Text style={[styles.shareHint, isSmallScreen && styles.shareHintSmall]}>
-            Share your travel stats with friends
-          </Text>
-        </View>
-      )}
-
       {/* Passport Details Section */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, isSmallScreen && styles.sectionTitleSmall]}>
@@ -346,37 +321,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   learnMoreLinkSmall: {
-    fontSize: 11,
-  },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.mossGreen,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-  },
-  shareButtonPressed: {
-    opacity: 0.8,
-  },
-  shareButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.cloudWhite,
-  },
-  shareButtonTextSmall: {
-    fontSize: 14,
-  },
-  shareHint: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 12,
-    color: colors.stormGray,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  shareHintSmall: {
     fontSize: 11,
   },
 });

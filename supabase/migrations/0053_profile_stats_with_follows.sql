@@ -3,8 +3,13 @@
 --
 -- Performance optimization: Reduces 3 queries to 1 for public profile pages
 -- by including follower_count and following_count in the existing RPC function.
+--
+-- Note: Must DROP first because PostgreSQL doesn't allow changing return type
+-- with CREATE OR REPLACE.
 
-CREATE OR REPLACE FUNCTION get_public_profile_stats(p_user_id UUID)
+DROP FUNCTION IF EXISTS get_public_profile_stats(UUID);
+
+CREATE FUNCTION get_public_profile_stats(p_user_id UUID)
 RETURNS TABLE (
   country_count BIGINT,
   continent_count BIGINT,
