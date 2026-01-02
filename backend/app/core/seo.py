@@ -79,3 +79,35 @@ def build_trip_seo(
         og_image=cover_image_url,
         og_type="article",
     )
+
+
+def build_profile_seo(
+    username: str,
+    display_name: str,
+    country_count: int,
+    world_percentage: float,
+    base_url: str,
+    avatar_url: str | None = None,
+) -> SEOContext:
+    """Build SEO context for a public profile page."""
+    title = f"@{username} - Atlasi"
+
+    if country_count > 0:
+        description = (
+            f"{display_name} has explored {country_count} countries "
+            f"({world_percentage:.1f}% of the world) on Atlasi"
+        )
+    else:
+        description = f"{display_name} is tracking their travels on Atlasi"
+
+    og_title = f"{display_name} (@{username})"
+
+    return SEOContext(
+        title=title,
+        description=description,
+        canonical_url=f"{base_url}/u/{username}",
+        og_title=og_title,
+        og_description=description,
+        og_image=avatar_url,
+        og_type="profile",
+    )

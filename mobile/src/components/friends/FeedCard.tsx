@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { getCountryImage } from '../../assets/countryImages';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { FeedItem } from '@hooks/useFeed';
+import { getFlagEmoji } from '@utils/flags';
 
 import { UserAvatar } from './UserAvatar';
 
@@ -36,17 +38,15 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
   const getActivityIcon = (): keyof typeof Ionicons.glyphMap => {
-    if (item.activity_type === 'country_visited') {
-      return 'flag';
-    }
+    if (item.activity_type === 'country_visited') return 'flag';
     switch (item.entry?.entry_type) {
       case 'food':
         return 'restaurant';
@@ -62,9 +62,7 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
   };
 
   const getActivityColor = (): string => {
-    if (item.activity_type === 'country_visited') {
-      return colors.adobeBrick;
-    }
+    if (item.activity_type === 'country_visited') return colors.adobeBrick;
     switch (item.entry?.entry_type) {
       case 'food':
         return colors.sunsetGold;
@@ -79,10 +77,31 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
     }
   };
 
-  const getActivityText = (): string => {
+  // Determine main image source
+  const mainImageSource =
+    item.activity_type === 'country_visited' && item.country
+      ? getCountryImage(item.country.country_code)
+      : item.entry?.image_url
+        ? { uri: item.entry.image_url }
+        : null;
+
+  const activityColor = getActivityColor();
+  const activityIcon = getActivityIcon();
+
+  const renderContent = () => {
     if (item.activity_type === 'country_visited' && item.country) {
-      return `planted a flag in ${item.country.country_name}`;
+      return (
+        <View style={styles.captionContainer}>
+          <Text style={styles.captionText}>
+            <Text style={styles.usernameText}>{item.user.username}</Text>
+            <Text style={styles.actionText}> planted a flag in </Text>
+            <Text style={styles.highlightText}>{item.country.country_name}</Text>
+            <Text> {getFlagEmoji(item.country.country_code)}</Text>
+          </Text>
+        </View>
+      );
     }
+
     if (item.entry) {
       const typeLabel =
         {
@@ -91,54 +110,78 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
           stay: 'stayed at',
           experience: 'experienced',
         }[item.entry.entry_type] || 'added';
-      return `${typeLabel} ${item.entry.entry_name}`;
-    }
-    return 'did something';
-  };
 
-  const activityColor = getActivityColor();
+      return (
+        <View style={styles.captionContainer}>
+          <Text style={styles.captionText}>
+            <Text style={styles.usernameText}>{item.user.username}</Text>
+            <Text style={styles.actionText}> {typeLabel} </Text>
+            <Text style={styles.highlightText}>{item.entry.entry_name}</Text>
+          </Text>
+          {item.entry.location_name && (
+            <View style={styles.locationTag}>
+              <Ionicons name="location-sharp" size={12} color={colors.stormGray} />
+              <Text style={styles.locationTagText} numberOfLines={1}>
+                {item.entry.location_name}
+              </Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.header} onPress={handleUserPress} activeOpacity={0.7}>
-        <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={44} />
-        <View style={styles.headerText}>
-          <Text style={styles.username}>@{item.user.username}</Text>
-          <View style={styles.timestampRow}>
-            <Ionicons name="time-outline" size={12} color={colors.stormGray} />
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.userInfo} onPress={handleUserPress}>
+          <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={36} />
+          <View style={styles.headerTexts}>
+            <Text style={styles.headerUsername}>{item.user.username}</Text>
             <Text style={styles.timestamp}>{formatTimeAgo(item.created_at)}</Text>
           </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </View>
 
-      <TouchableOpacity style={styles.content} onPress={handleContentPress} activeOpacity={0.7}>
-        <View style={styles.activityRow}>
-          <View style={[styles.iconContainer, { backgroundColor: `${activityColor}15` }]}>
-            <Ionicons name={getActivityIcon()} size={18} color={activityColor} />
-          </View>
-          <Text style={styles.activityText}>{getActivityText()}</Text>
-        </View>
-
-        {item.entry?.image_url && (
-          <View style={styles.imageContainer}>
+      {/* Main Content Media */}
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={handleContentPress}
+        style={styles.mediaContainer}
+      >
+        {mainImageSource ? (
+          <View style={styles.imageWrapper}>
             <Image
-              source={{ uri: item.entry.image_url }}
-              style={styles.entryImage}
-              resizeMode="cover"
+              source={mainImageSource}
+              style={[
+                styles.mainImage,
+                item.activity_type === 'country_visited' && styles.countryIllustration,
+              ]}
+              resizeMode={item.activity_type === 'country_visited' ? 'cover' : 'cover'}
             />
-            <View style={styles.imageOverlay} />
+          </View>
+        ) : (
+          <View style={[styles.placeholderMedia, { backgroundColor: `${activityColor}10` }]}>
+            <Ionicons name={activityIcon} size={48} color={activityColor} />
           </View>
         )}
 
-        {item.entry?.location_name && (
-          <View style={styles.locationRow}>
-            <View style={styles.locationIconWrap}>
-              <Ionicons name="navigate" size={12} color={colors.dustyCoral} />
-            </View>
-            <Text style={styles.locationText}>{item.entry.location_name}</Text>
-          </View>
-        )}
+        {/* Activity Type Badge - Overlay on Image */}
+        <View style={[styles.activityBadgeOverlay, { backgroundColor: colors.cloudWhite }]}>
+          <Ionicons name={activityIcon} size={12} color={activityColor} />
+          <Text style={[styles.activityBadgeText, { color: activityColor }]}>
+            {item.activity_type === 'country_visited'
+              ? 'Travel'
+              : item.entry?.entry_type || 'Update'}
+          </Text>
+        </View>
       </TouchableOpacity>
+
+      {/* Caption & Details */}
+      <View style={styles.content}>{renderContent()}</View>
     </View>
   );
 }
@@ -146,100 +189,121 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.paperBeige,
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.paperBeige,
+    paddingBottom: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.paperBeige,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  headerText: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  username: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 15,
-    color: colors.midnightNavy,
-  },
-  timestampRow: {
+  userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+    gap: 10,
+  },
+  headerTexts: {
+    justifyContent: 'center',
+    gap: 2,
+  },
+  headerUsername: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
   },
   timestamp: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.stormGray,
   },
-  content: {
-    padding: 14,
+  mediaContainer: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: colors.paperBeige,
+    overflow: 'hidden',
+    position: 'relative',
+    marginBottom: 12,
   },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  activityText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 15,
-    color: colors.midnightNavy,
-    flex: 1,
-    lineHeight: 22,
-  },
-  imageContainer: {
-    marginTop: 14,
-    borderRadius: 12,
+  imageWrapper: {
+    width: '100%',
+    height: '100%',
     overflow: 'hidden',
   },
-  entryImage: {
+  mainImage: {
     width: '100%',
-    height: 180,
+    height: '100%',
   },
-  imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+  countryIllustration: {
+    // To show the bottom part and crop the top:
+    // We scale the image up slightly and position it to align the bottom
+    height: '120%',
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
   },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    gap: 6,
-  },
-  locationIconWrap: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.paperBeige,
+  placeholderMedia: {
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    minHeight: 250,
   },
-  locationText: {
+  activityBadgeOverlay: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 4,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  activityBadgeText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    textTransform: 'capitalize',
+  },
+  content: {
+    paddingHorizontal: 16,
+  },
+  captionContainer: {
+    // marginBottom: 6, // Removed margin as it's the last item
+  },
+  captionText: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 13,
+    fontSize: 15, // Slightly larger for readability
+    color: colors.midnightNavy,
+    lineHeight: 22,
+  },
+  usernameText: {
+    fontFamily: fonts.openSans.semiBold,
+  },
+  actionText: {
+    color: colors.midnightNavy,
+  },
+  highlightText: {
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
+  },
+  locationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  locationTagText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
     color: colors.stormGray,
-    flex: 1,
   },
 });

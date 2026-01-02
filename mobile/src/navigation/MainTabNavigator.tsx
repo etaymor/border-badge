@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions } from '@react-navigation/native';
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
+import { features } from '@config/features';
 
 import { DreamsNavigator } from './DreamsNavigator';
 import { FriendsNavigator } from './FriendsNavigator';
@@ -66,21 +67,23 @@ export function MainTabNavigator() {
           },
         })}
       />
-      <Tab.Screen
-        name="Friends"
-        component={FriendsNavigator}
-        options={{ title: 'Friends', tabBarAccessibilityLabel: 'friends-tab' }}
-        listeners={({ navigation }) => ({
-          tabPress: () => {
-            navigation.dispatch(
-              CommonActions.reset({
-                index: 0,
-                routes: [{ name: 'Friends' }],
-              })
-            );
-          },
-        })}
-      />
+      {features.enableSocial && (
+        <Tab.Screen
+          name="Friends"
+          component={FriendsNavigator}
+          options={{ title: 'Friends', tabBarAccessibilityLabel: 'friends-tab' }}
+          listeners={({ navigation }) => ({
+            tabPress: () => {
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Friends' }],
+                })
+              );
+            },
+          })}
+        />
+      )}
     </Tab.Navigator>
   );
 }

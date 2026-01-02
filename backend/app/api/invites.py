@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.db_utils import get_rpc_first_row
 from app.core.edge_functions import send_invite_email
 from app.core.invite_signer import generate_invite_code
 from app.core.security import CurrentUser
@@ -50,11 +51,12 @@ async def send_invite(
     # Use service role: auth.users table requires admin access for email lookups.
     # The RPC function 'check_email_exists' is SECURITY DEFINER and validates input.
     service_db = get_supabase_client()
-    existing_user = await service_db.rpc(
+    existing_user_result = await service_db.rpc(
         "check_email_exists",
         {"email_to_check": email_lower},
     )
 
+    existing_user = get_rpc_first_row(existing_user_result)
     if existing_user and existing_user.get("exists"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -91,24 +93,25 @@ async def send_invite(
         },
     )
 
-    # Get inviter's display name for the email
+    # Fetch inviter's display name before sending to background task
+    # to avoid database queries in background tasks
+    inviter_profile = await db.get(
+        "user_profile",
+        {
+            "select": "display_name,username",
+            "user_id": f"eq.{user.id}",
+        },
+    )
+    inviter_name = "Someone"
+    if inviter_profile:
+        inviter_name = (
+            inviter_profile[0].get("display_name")
+            or inviter_profile[0].get("username")
+            or "Someone"
+        )
+
     async def send_email_notification() -> None:
         try:
-            inviter_profile = await service_db.get(
-                "user_profile",
-                {
-                    "select": "display_name,username",
-                    "user_id": f"eq.{user.id}",
-                },
-            )
-            inviter_name = "Someone"
-            if inviter_profile:
-                inviter_name = (
-                    inviter_profile[0].get("display_name")
-                    or inviter_profile[0].get("username")
-                    or "Someone"
-                )
-
             await send_invite_email(
                 email=email_lower,
                 inviter_name=inviter_name,

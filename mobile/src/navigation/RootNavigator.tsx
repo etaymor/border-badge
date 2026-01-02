@@ -1,11 +1,13 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { features } from '@config/features';
 import { useAuthStore } from '@stores/authStore';
 
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
+import { PassportNavigator } from './PassportNavigator';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -39,7 +41,11 @@ export function RootNavigator() {
           <Stack.Screen name="Auth" component={AuthNavigator} />
         </>
       ) : (
-        <Stack.Screen name="Main" component={MainTabNavigator} />
+        // Show tab bar only when social features are enabled, otherwise just passport stack
+        <Stack.Screen
+          name="Main"
+          component={features.enableSocial ? MainTabNavigator : PassportNavigator}
+        />
       )}
     </Stack.Navigator>
   );

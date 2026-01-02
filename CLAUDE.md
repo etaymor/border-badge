@@ -420,6 +420,41 @@ backend/scripts/
 The script cleans up in foreign key order to avoid constraint violations:
 1. `trip_tags` → 2. `entry` → 3. `trip` → 4. `user_countries` → 5. `user_follow` → 6. `pending_invite` → 7. auth users (via Admin API)
 
+## Feature Flags
+
+### Social Features (`ENABLE_SOCIAL_FEATURES`)
+
+Controls visibility and availability of all social functionality. **Defaults to `false` for safety.**
+
+| Component | When Disabled | When Enabled |
+|-----------|---------------|--------------|
+| Friends Tab | Hidden | Visible |
+| Activity Feed | Not rendered | Active |
+| Follow/Unfollow | API returns 404 | Working |
+| User Search | API returns 404 | Working |
+| Blocks | API returns 404 | Working |
+| Invites | API returns 404 | Working |
+| Notifications | API returns 404 | Active |
+
+**Environment Variables:**
+
+| Platform | Variable | Default |
+|----------|----------|---------|
+| Mobile | `EXPO_PUBLIC_ENABLE_SOCIAL=true\|false` | `false` |
+| Backend | `ENABLE_SOCIAL_FEATURES=true\|false` | `false` |
+
+**To enable social features:**
+
+1. Set `EXPO_PUBLIC_ENABLE_SOCIAL=true` in mobile `.env.local` and rebuild the app
+2. Set `ENABLE_SOCIAL_FEATURES=true` in backend `.env` and restart the server
+3. Both must be enabled for full functionality
+
+**Implementation Details:**
+
+- Mobile: Friends tab conditionally rendered in `MainTabNavigator.tsx` based on `features.enableSocial`
+- Backend: Social routers conditionally registered in `api/__init__.py` based on `settings.enable_social_features`
+- Data retention: All social data is retained in the database when flag is disabled, just not accessible
+
 ## Notes for AI Assistants
 
 1. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
@@ -430,6 +465,7 @@ The script cleans up in foreign key order to avoid constraint violations:
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
 8. **Test Users:** Use the seed script to create test data for social features - see "Test User Seeding" section
+9. **Feature Flags:** Social features are behind a feature flag - see "Feature Flags" section above
 
 ## Pre-Commit Checklist (REQUIRED)
 

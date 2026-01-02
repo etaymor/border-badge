@@ -1,5 +1,6 @@
 """Public web page endpoints (HTML rendering)."""
 
+import asyncio
 import datetime
 import html
 import logging
@@ -9,15 +10,32 @@ from fastapi import APIRouter, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from app.api.utils import get_flag_emoji
-from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
+from app.core.analytics import (
+    log_landing_viewed,
+    log_list_viewed,
+    log_profile_viewed,
+    log_trip_viewed,
+)
 from app.core.config import get_settings
+from app.core.db_utils import get_rpc_first_row
 from app.core.media import extract_media_urls
-from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
+from app.core.seo import (
+    build_landing_seo,
+    build_list_seo,
+    build_profile_seo,
+    build_trip_seo,
+)
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
+from app.schemas.classification import MAX_COUNTRIES
 from app.schemas.lists import PublicListEntry, PublicListView
-from app.schemas.public import PublicTripEntry, PublicTripView
+from app.schemas.public import (
+    PublicProfileStats,
+    PublicProfileView,
+    PublicTripEntry,
+    PublicTripView,
+)
 from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
@@ -84,7 +102,7 @@ def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
         return None
     # PostgREST may return place as array or dict depending on relationship type
     if isinstance(place, list):
-        place = place[0] if place else None
+        place = place[0]  # Empty lists handled above ([] is falsy)
     if not isinstance(place, dict):
         return None
     extra_data = place.get("extra_data")
@@ -121,6 +139,133 @@ async def landing_page(request: Request) -> HTMLResponse:
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
+@router.get("/u/{username}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def view_public_profile(
+    request: Request,
+    username: str = Path(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$"),
+) -> HTMLResponse:
+    """Render a public profile page by username."""
+    settings = get_settings()
+    db = get_supabase_client()
+
+    # Fetch profile by username (case-insensitive)
+    # Note: username is pre-validated by FastAPI Path() with pattern=r"^[a-zA-Z0-9_]+$"
+    # before reaching this point. The ilike operator with alphanumeric input is safe.
+    profiles = await db.get(
+        "user_profile",
+        {
+            "username": f"ilike.{username}",
+            "select": "user_id, username, display_name, avatar_url, home_country_code, created_at",
+        },
+    )
+
+    if not profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    profile = profiles[0]
+    user_id = profile["user_id"]
+    log_profile_viewed(profile["username"])
+
+    # Fetch all data in parallel using RPC for stats aggregation
+    # The RPC returns country/continent/subregion counts plus follower/following counts
+    stats_task = db.rpc("get_public_profile_stats", {"p_user_id": str(user_id)})
+
+    # Get home country name if set
+    home_country_task = None
+    if profile.get("home_country_code"):
+        home_country_task = db.get(
+            "country",
+            {
+                "code": f"eq.{profile['home_country_code']}",
+                "select": "name",
+            },
+        )
+
+    # Execute all queries in parallel
+    if home_country_task:
+        stats_result, home_country_rows = await asyncio.gather(
+            stats_task, home_country_task
+        )
+        home_country_name = (
+            home_country_rows[0].get("name")
+            if home_country_rows and len(home_country_rows) > 0
+            else None
+        )
+    else:
+        stats_result = await stats_task
+        home_country_name = None
+
+    # Extract stats from RPC result (includes follower/following counts)
+    stats_row = get_rpc_first_row(stats_result)
+    if stats_row:
+        country_count = stats_row.get("country_count", 0)
+        continent_count = stats_row.get("continent_count", 0)
+        subregion_count = stats_row.get("subregion_count", 0)
+        follower_count = stats_row.get("follower_count", 0)
+        following_count = stats_row.get("following_count", 0)
+    else:
+        logger.debug(
+            "get_public_profile_stats returned empty result for user %s", user_id
+        )
+        country_count = 0
+        continent_count = 0
+        subregion_count = 0
+        follower_count = 0
+        following_count = 0
+    world_percentage = (country_count / MAX_COUNTRIES) * 100 if MAX_COUNTRIES > 0 else 0
+
+    stats = PublicProfileStats(
+        country_count=country_count,
+        continent_count=continent_count,
+        subregion_count=subregion_count,
+        world_percentage=round(world_percentage, 1),
+    )
+
+    profile_view = PublicProfileView(
+        username=profile["username"],
+        display_name=profile["display_name"],
+        avatar_url=profile.get("avatar_url"),
+        home_country_code=profile.get("home_country_code"),
+        home_country_name=home_country_name,
+        stats=stats,
+        follower_count=follower_count,
+        following_count=following_count,
+        created_at=profile["created_at"],
+    )
+
+    seo = build_profile_seo(
+        username=profile_view.username,
+        display_name=profile_view.display_name,
+        country_count=stats.country_count,
+        world_percentage=stats.world_percentage,
+        base_url=settings.base_url,
+        avatar_url=profile_view.avatar_url,
+    )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="profile_public.html",
+        context={
+            "profile": profile_view,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": seo.og_title,
+            "og_description": seo.og_description,
+            "og_url": seo.canonical_url,
+            "og_image": seo.og_image,
+            "canonical_url": seo.canonical_url,
+            "has_hero": True,
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
     return response
 
 
@@ -450,6 +595,7 @@ async def robots_txt() -> PlainTextResponse:
 Allow: /
 Allow: /l/
 Allow: /t/
+Allow: /u/
 
 Sitemap: {settings.base_url}/sitemap.xml
 """
@@ -463,6 +609,17 @@ async def sitemap_xml() -> PlainTextResponse:
     db = get_supabase_client()
 
     urls = [f"  <url><loc>{settings.base_url}</loc></url>"]
+
+    # All user profiles
+    profiles = await db.get(
+        "user_profile",
+        {
+            "select": "username",
+        },
+    )
+    for profile in profiles:
+        escaped_username = html.escape(profile["username"])
+        urls.append(f"  <url><loc>{settings.base_url}/u/{escaped_username}</loc></url>")
 
     # All lists (all lists are public)
     lists = await db.get(

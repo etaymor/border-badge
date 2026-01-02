@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}@{{ profile.username }} - Atlasi{% endblock %}
+{% block description %}{{ profile.display_name }} has explored {{ profile.stats.country_count }} countries on Atlasi{% endblock %}
+
+{% block nav_links %}
+<nav class="nav-links">
+    <a
+        href="{{ app_store_url | safe_external_url or '#download' }}"
+        class="cta-button"
+        data-track-location="header"
+        >Get the App</a
+    >
+</nav>
+{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero-section profile-hero">
+    <div class="hero-bg" style="background-color: var(--color-midnight-navy);"></div>
+    <div class="hero-overlay"></div>
+</section>
+
+<!-- Profile Card (Liquid Glass) -->
+<div class="profile-card-container">
+    <div class="profile-card">
+        <!-- Avatar -->
+        <div class="profile-avatar-wrapper">
+            {% if profile.avatar_url %}
+            <img src="{{ profile.avatar_url | safe_external_url }}" alt="{{ profile.display_name }}" class="profile-avatar">
+            {% else %}
+            <div class="profile-avatar profile-avatar-placeholder">
+                {{ profile.display_name[0] | upper if profile.display_name else '?' }}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Name & Username -->
+        <h1 class="profile-display-name">{{ profile.display_name }}</h1>
+        <p class="profile-username">@{{ profile.username }}</p>
+
+        {% if profile.home_country_name %}
+        <p class="profile-home-country">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            {{ profile.home_country_name }}
+        </p>
+        {% endif %}
+
+        <!-- Stats Grid -->
+        <div class="profile-stats-grid">
+            <div class="profile-stat">
+                <span class="profile-stat-value">{{ profile.stats.country_count }}</span>
+                <span class="profile-stat-label">Countries</span>
+            </div>
+            <div class="profile-stat">
+                <span class="profile-stat-value">{{ profile.stats.continent_count }}</span>
+                <span class="profile-stat-label">Continents</span>
+            </div>
+            <div class="profile-stat">
+                <span class="profile-stat-value">{{ profile.stats.subregion_count }}</span>
+                <span class="profile-stat-label">Regions</span>
+            </div>
+            <div class="profile-stat profile-stat-highlight">
+                <span class="profile-stat-value">{{ profile.stats.world_percentage }}%</span>
+                <span class="profile-stat-label">of World</span>
+            </div>
+        </div>
+
+        <!-- Social Stats -->
+        <div class="profile-social-stats">
+            <div class="profile-social-stat">
+                <span class="profile-social-value">{{ profile.follower_count }}</span>
+                <span class="profile-social-label">{{ 'Follower' if profile.follower_count == 1 else 'Followers' }}</span>
+            </div>
+            <div class="profile-social-divider"></div>
+            <div class="profile-social-stat">
+                <span class="profile-social-value">{{ profile.following_count }}</span>
+                <span class="profile-social-label">Following</span>
+            </div>
+        </div>
+
+        <!-- Download CTA -->
+        <div class="profile-cta">
+            <a href="{{ app_store_url | safe_external_url or '#download' }}" class="cta-button cta-button--large" data-track-location="profile-card">
+                Get Atlasi to Follow
+            </a>
+            <p class="profile-cta-subtext">Download the app to follow {{ profile.display_name }} and see their travels</p>
+        </div>
+    </div>
+</div>
+
+<!-- App Promo Section -->
+<section class="cta-section">
+    <div class="cta-content">
+        <span class="cta-hand-text">Track your travels</span>
+        <h2 class="cta-title">Start your own journey</h2>
+        <p class="cta-description">Download Atlasi to track countries you've visited, build a wishlist of destinations, and share your adventures with friends.</p>
+        <a href="{{ app_store_url | safe_external_url or '#download' }}" class="cta-button" data-track-location="profile-cta">
+            Get Atlasi Free
+        </a>
+    </div>
+</section>
+{% endblock %}
+
+{% block footer_cta %}{% endblock %}
+
+{% block footer_main %}
+<div class="footer-main">
+    <a href="/">
+        <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+    </a>
+    <nav class="footer-links">
+        <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
+           data-track-location="footer">Download App</a>
+        <a href="/privacy" class="footer-link">Privacy</a>
+        <a href="/terms" class="footer-link">Terms</a>
+    </nav>
+</div>
+{% endblock %}

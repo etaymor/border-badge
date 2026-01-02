@@ -1,10 +1,20 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 
 import { GlassBackButton } from '@components/ui';
+import { features } from '@config/features';
 import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
 import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
@@ -18,10 +28,10 @@ import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
+import { getPublicProfileUrl } from '@utils/urls';
 import type { PassportStackScreenProps } from '@navigation/types';
 
 import { ProfileAvatar } from './components/ProfileAvatar';
-import { ProfileNameSection } from './components/ProfileNameSection';
 import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
@@ -171,6 +181,32 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
 
+  // Share profile handler
+  const handleShareProfile = useCallback(async () => {
+    if (!profile?.username) return;
+
+    const profileUrl = getPublicProfileUrl(profile.username);
+    if (!profileUrl) {
+      if (__DEV__) {
+        console.warn('EXPO_PUBLIC_WEB_BASE_URL not configured');
+      }
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await Share.share({
+        message: `Check out my travel profile on Atlasi: ${profileUrl}`,
+        url: profileUrl,
+      });
+    } catch (error) {
+      // User cancelled or share failed
+      if (__DEV__ && error instanceof Error && error.message !== 'User cancelled') {
+        console.warn('Share failed:', error);
+      }
+    }
+  }, [profile?.username]);
+
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.username), [profile?.username]);
   const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
@@ -298,18 +334,34 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with back button */}
+        {/* Header with back button and share */}
         <View style={styles.header}>
           <GlassBackButton onPress={handleGoBack} testID="profile-back-button" />
           <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>
             Profile
           </Text>
-          <View style={styles.headerSpacer} />
+          {features.enableSocial && profile?.username ? (
+            <TouchableOpacity
+              onPress={handleShareProfile}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.8}
+              style={styles.headerShareButton}
+              accessibilityLabel="Share profile"
+            >
+              <BlurView intensity={30} tint="light" style={styles.headerShareGlass}>
+                <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+              </BlurView>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerSpacer} />
+          )}
         </View>
 
-        <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
-
-        <ProfileNameSection username={profile?.username ?? ''} isSmallScreen={isSmallScreen} />
+        <ProfileAvatar
+          initials={initials}
+          username={profile?.username ?? ''}
+          isSmallScreen={isSmallScreen}
+        />
 
         <View style={styles.divider} />
 
@@ -402,6 +454,20 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 44, // Match back button width for centering
+  },
+  headerShareButton: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  headerShareGlass: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   divider: {
     height: 1,

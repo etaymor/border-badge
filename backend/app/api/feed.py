@@ -25,6 +25,10 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     """Parse compound cursor into (created_at, item_id).
 
     Cursor format: "2024-01-01T00:00:00|uuid" or just "2024-01-01T00:00:00" for backward compat.
+
+    Note on backward compatibility: Old timestamp-only cursors may cause duplicate items
+    if multiple items share the same timestamp. New compound cursors (timestamp|id) avoid
+    this by using secondary sort on item_id. Clients should update to use new cursor format.
     """
     if not cursor:
         return None, None
@@ -32,9 +36,12 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     try:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
-        before_id = parts[1] if len(parts) > 1 else None
+        # Extract item_id if present. Convert empty/whitespace to None for robustness.
+        # Backward compatibility: old timestamp-only cursors have no "|" delimiter,
+        # so they return None for before_id and pagination falls back to timestamp-only.
+        before_id = (parts[1].strip() or None) if len(parts) > 1 else None
         return before_time, before_id
-    except (ValueError, IndexError) as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid cursor format") from e
 
 
@@ -43,8 +50,11 @@ def _build_cursor(row: dict) -> str:
     created_at = row["created_at"]
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at)
-    item_id = row.get("item_id", "")
-    return f"{created_at.isoformat()}|{item_id}"
+    item_id = row.get("item_id")
+    if item_id:
+        return f"{created_at.isoformat()}|{item_id}"
+    # Backward compatibility: when there's no item_id, return timestamp-only cursor
+    return created_at.isoformat()
 
 
 router = APIRouter()
@@ -175,6 +185,7 @@ async def get_feed(
     before_time, before_id = _parse_cursor(before)
 
     # Call the database function
+    logger.debug(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
     result = await db.rpc(
         "get_activity_feed",
         {
@@ -183,6 +194,9 @@ async def get_feed(
             "p_before_id": before_id,
             "p_limit": limit,
         },
+    )
+    logger.debug(
+        f"Feed RPC returned {len(result) if result else 0} items for user={user.id}"
     )
 
     if not result:
