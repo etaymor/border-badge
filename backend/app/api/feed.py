@@ -32,7 +32,7 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     try:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
-        before_id = parts[1] if len(parts) > 1 else None
+        before_id = parts[1].strip() or None if len(parts) > 1 else None
         return before_time, before_id
     except (ValueError, IndexError) as e:
         raise HTTPException(status_code=400, detail="Invalid cursor format") from e
@@ -43,8 +43,11 @@ def _build_cursor(row: dict) -> str:
     created_at = row["created_at"]
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at)
-    item_id = row.get("item_id", "")
-    return f"{created_at.isoformat()}|{item_id}"
+    item_id = row.get("item_id")
+    if item_id:
+        return f"{created_at.isoformat()}|{item_id}"
+    # Backward compatibility: when there's no item_id, return timestamp-only cursor
+    return created_at.isoformat()
 
 
 router = APIRouter()

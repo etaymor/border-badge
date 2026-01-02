@@ -1,9 +1,11 @@
 """Tests for activity feed endpoints."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.feed import _build_cursor, _parse_cursor
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import (
@@ -137,6 +139,31 @@ def test_get_feed_with_pagination(
         # Should return limit items and set has_more
         assert len(data["items"]) == 2
         assert data["has_more"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_feed_before_cursor_trailing_pipe_does_not_pass_empty_string(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Ensure 'timestamp|' cursor parses to before_id=None (not empty string)."""
+    mock_supabase_client.rpc.return_value = [make_feed_row("country_visited")]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch("app.api.feed.get_supabase_client", return_value=mock_supabase_client):
+            response = client.get(
+                "/feed?before=2024-01-01T00:00:00Z|", headers=auth_headers
+            )
+        assert response.status_code == 200
+
+        call = mock_supabase_client.rpc.await_args
+        assert call is not None
+        payload = call.args[1]
+        assert payload["p_before_id"] is None
     finally:
         app.dependency_overrides.clear()
 
@@ -373,5 +400,35 @@ def test_get_user_feed_with_pagination(
         assert len(data["items"]) == 2
         assert data["has_more"] is True
         assert data["next_cursor"] is not None
+        assert not data["next_cursor"].endswith("|")
     finally:
         app.dependency_overrides.clear()
+
+
+def test_parse_cursor_timestamp_only_is_backward_compatible() -> None:
+    """Cursor without item_id should parse to (timestamp, None)."""
+    before_time, before_id = _parse_cursor("2024-01-01T00:00:00Z")
+    assert before_time is not None
+    assert before_id is None
+
+
+def test_parse_cursor_trailing_pipe_treats_empty_id_as_none() -> None:
+    """Cursor with trailing pipe should parse to (timestamp, None)."""
+    before_time, before_id = _parse_cursor("2024-01-01T00:00:00Z|")
+    assert before_time is not None
+    assert before_id is None
+
+
+def test_build_cursor_omits_pipe_when_item_id_missing() -> None:
+    """When the row has no item_id, we emit timestamp-only cursor (no trailing '|')."""
+    cursor = _build_cursor({"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)})
+    assert cursor == "2024-01-01T12:00:00+00:00"
+    assert "|" not in cursor
+
+
+def test_build_cursor_includes_pipe_when_item_id_present() -> None:
+    """When the row has an item_id, we emit compound cursor 'timestamp|item_id'."""
+    cursor = _build_cursor(
+        {"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc), "item_id": "abc"}
+    )
+    assert cursor == "2024-01-01T12:00:00+00:00|abc"

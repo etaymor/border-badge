@@ -1,6 +1,7 @@
 """Email invite system endpoints."""
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
@@ -20,6 +21,22 @@ from app.schemas.invites import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def _get_rpc_first_row(result: Any) -> dict | None:
+    """
+    Normalize Supabase RPC responses.
+
+    In practice, PostgREST RPC can return:
+    - a list[dict] for set-returning functions (most common in this codebase)
+    - a dict for scalar JSON/JSONB returns
+    """
+    if not result:
+        return None
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and isinstance(result[0], dict):
+        return result[0]
+    return None
 
 
 @router.post("", status_code=201)
@@ -50,11 +67,12 @@ async def send_invite(
     # Use service role: auth.users table requires admin access for email lookups.
     # The RPC function 'check_email_exists' is SECURITY DEFINER and validates input.
     service_db = get_supabase_client()
-    existing_user = await service_db.rpc(
+    existing_user_result = await service_db.rpc(
         "check_email_exists",
         {"email_to_check": email_lower},
     )
 
+    existing_user = _get_rpc_first_row(existing_user_result)
     if existing_user and existing_user.get("exists"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

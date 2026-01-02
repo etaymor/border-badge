@@ -35,7 +35,7 @@ def test_send_invite_success(
 ) -> None:
     """Test successfully sending an email invite."""
     # Mock responses: email doesn't exist, no pending invite
-    mock_supabase_client.rpc.return_value = {"exists": False}
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.return_value = []
     mock_supabase_client.post.return_value = [
         {
@@ -74,7 +74,7 @@ def test_send_invite_existing_user_returns_400(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that inviting an existing user returns 400."""
-    mock_supabase_client.rpc.return_value = {"exists": True}
+    mock_supabase_client.rpc.return_value = [{"exists": True}]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -99,7 +99,7 @@ def test_send_invite_already_pending(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that sending duplicate invite returns already_pending status."""
-    mock_supabase_client.rpc.return_value = {"exists": False}
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.return_value = [
         {"id": SAMPLE_INVITE_ID, "status": "pending"}
     ]
@@ -128,7 +128,7 @@ def test_send_invite_normalizes_email(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that email is normalized to lowercase."""
-    mock_supabase_client.rpc.return_value = {"exists": False}
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.return_value = []
     mock_supabase_client.post.return_value = [
         {
@@ -403,7 +403,7 @@ def test_invite_flow_send_stores_inviter_id(
             }
         ]
 
-    mock_supabase_client.rpc.return_value = {"exists": False}
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.return_value = []
     mock_supabase_client.post.side_effect = capture_post_call
 
@@ -459,7 +459,7 @@ def test_invite_flow_trip_tag_stores_trip_id(
         ]
 
     # Mock trip ownership check
-    mock_supabase_client.rpc.return_value = {"exists": False}
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.side_effect = [
         [],  # No existing invite
         [{"id": trip_id, "user_id": TEST_USER_ID}],  # Trip exists and user owns it
