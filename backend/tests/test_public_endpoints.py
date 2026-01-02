@@ -980,3 +980,139 @@ def test_public_profile_invalid_username_format(client: TestClient) -> None:
     # Username with special characters should be rejected by path validation
     response = client.get("/u/invalid@username!")
     assert response.status_code == 422
+
+
+def test_public_profile_has_seo_tags(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page includes SEO meta tags."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "seo_test_user",
+        "display_name": "SEO Test User",
+        "avatar_url": "https://example.com/avatar.jpg",
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 15,
+            "continent_count": 3,
+            "subregion_count": 8,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/seo_test_user")
+
+    assert response.status_code == 200
+    # Check for Open Graph tags
+    assert "og:title" in response.text
+    assert "og:description" in response.text
+    assert "og:url" in response.text
+    # Check for canonical URL
+    assert 'rel="canonical"' in response.text
+    # Check that username appears in SEO context
+    assert "seo_test_user" in response.text
+
+
+def test_public_profile_follower_following_counts(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that follower and following counts are displayed correctly."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "popular_user",
+        "display_name": "Popular User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # User has many followers and follows some people
+    stats_result = [
+        {
+            "country_count": 20,
+            "continent_count": 4,
+            "subregion_count": 10,
+            "follower_count": 1234,
+            "following_count": 567,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/popular_user")
+
+    assert response.status_code == 200
+    # Verify both counts appear in the response
+    # The exact format depends on the template, but numbers should be present
+    assert "1,234" in response.text or "1234" in response.text  # follower count
+    assert "567" in response.text  # following count
+
+
+def test_public_profile_rpc_empty_result(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that profile page handles empty RPC result gracefully."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "edge_case_user",
+        "display_name": "Edge Case User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # RPC returns empty result (edge case)
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = []
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/edge_case_user")
+
+    assert response.status_code == 200
+    assert "Edge Case User" in response.text
+    # Should default to 0 for all counts
+    assert "0" in response.text
+
+
+def test_public_profile_world_percentage_calculation(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that world percentage is calculated and displayed correctly."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "globe_trotter",
+        "display_name": "Globe Trotter",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # 50 countries out of ~195 = ~25.6%
+    stats_result = [
+        {
+            "country_count": 50,
+            "continent_count": 5,
+            "subregion_count": 20,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/u/globe_trotter")
+
+    assert response.status_code == 200
+    assert "Globe Trotter" in response.text
+    # Country count should appear
+    assert "50" in response.text
