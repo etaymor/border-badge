@@ -2,9 +2,9 @@
 
 from pydantic import BaseModel
 
-from app.api.follows import FollowStats
-from app.api.stats import FriendsRankingResponse
 from app.schemas.feed import FeedResponse
+from app.schemas.follows import FollowStats
+from app.schemas.stats import FriendsRankingResponse
 
 
 class SocialHomeResponse(BaseModel):

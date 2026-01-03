@@ -1,20 +1,22 @@
 """Aggregate social endpoints (feed + stats + notifications)."""
 
 import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.feed import _build_cursor, _build_feed_items, _parse_cursor
-from app.api.follows import FollowStats
-from app.api.stats import FriendsRankingResponse
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.feed import FeedResponse
+from app.schemas.follows import FollowStats
 from app.schemas.social import SocialHomeResponse
-from app.schemas.trips import TripTagStatus
+from app.schemas.stats import FriendsRankingResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -85,6 +87,7 @@ async def get_social_home(
     )
 
     # Execute Supabase calls concurrently to minimize total latency.
+    # Note: stats RPC consolidates 3 count queries into 1 HTTP call.
     feed_task = db.rpc(
         "get_activity_feed",
         {
@@ -94,39 +97,19 @@ async def get_social_home(
         },
     )
 
-    follower_count_task = db.count(
-        "user_follow",
-        {"following_id": f"eq.{user.id}"},
-    )
-
-    following_count_task = db.count(
-        "user_follow",
-        {"follower_id": f"eq.{user.id}"},
-    )
+    stats_task = db.rpc("get_social_home_stats", {"p_user_id": str(user.id)})
 
     ranking_task = db.rpc("get_friends_ranking", {"p_user_id": str(user.id)})
-
-    pending_tag_count_task = db.count(
-        "trip_tags",
-        {
-            "tagged_user_id": f"eq.{user.id}",
-            "status": f"eq.{TripTagStatus.PENDING.value}",
-        },
-    )
 
     try:
         (
             feed_rows,
-            follower_count,
-            following_count,
+            stats,
             ranking_rows,
-            pending_tag_count,
         ) = await asyncio.gather(
             feed_task,
-            follower_count_task,
-            following_count_task,
+            stats_task,
             ranking_task,
-            pending_tag_count_task,
         )
     except HTTPException:
         # Propagate HTTP errors (handled by get_supabase_client helpers)
@@ -137,6 +120,12 @@ async def get_social_home(
             detail="Failed to load social home data",
         ) from exc
 
+    # Extract counts from consolidated stats RPC response
+    stats_data = stats or {}
+    follower_count = stats_data.get("follower_count", 0)
+    following_count = stats_data.get("following_count", 0)
+    pending_tag_count = stats_data.get("pending_tag_count", 0)
+
     feed_response = _build_feed_response(feed_rows or [], limit)
     follow_stats = _build_follow_stats(follower_count, following_count)
     ranking = _build_ranking(ranking_rows)
@@ -145,5 +134,5 @@ async def get_social_home(
         feed=feed_response,
         follow_stats=follow_stats,
         friends_ranking=ranking,
-        pending_tag_count=pending_tag_count or 0,
+        pending_tag_count=pending_tag_count,
     )

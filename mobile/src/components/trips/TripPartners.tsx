@@ -5,7 +5,7 @@
  * For email-only users (no username), shows first 2 characters of email.
  */
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -17,7 +17,6 @@ interface TripParticipant {
   id: string;
   user?: TripTagUser;
   isPending: boolean;
-  isOwner: boolean;
 }
 
 interface TripPartnersProps {
@@ -54,7 +53,7 @@ function getInitials(user?: TripTagUser): string {
   return username.slice(0, 2).toUpperCase();
 }
 
-export function TripPartners({
+function TripPartnersComponent({
   tags,
   owner,
   currentUserId,
@@ -72,7 +71,6 @@ export function TripPartners({
         id: `owner-${owner.user_id}`,
         user: owner,
         isPending: false,
-        isOwner: true,
       });
     }
 
@@ -91,7 +89,6 @@ export function TripPartners({
         id: tag.id,
         user: tag.user,
         isPending: tag.status === 'pending',
-        isOwner: false,
       });
     }
 
@@ -197,16 +194,30 @@ export function TripPartners({
     </View>
   );
 
+  const accessibilityLabel = `${participants.length} trip partner${participants.length !== 1 ? 's' : ''}`;
+
   if (onPress) {
     return (
-      <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => pressed && styles.pressed}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+      >
         {content}
       </Pressable>
     );
   }
 
-  return content;
+  return (
+    <View accessibilityLabel={accessibilityLabel}>
+      {content}
+    </View>
+  );
 }
+
+export const TripPartners = memo(TripPartnersComponent);
+TripPartners.displayName = 'TripPartners';
 
 const styles = StyleSheet.create({
   avatarStack: {

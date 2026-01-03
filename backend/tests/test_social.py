@@ -37,8 +37,13 @@ def test_social_home_success(
     """Ensure /social/home aggregates feed, stats, rankings, and pending counts."""
     mock_supabase_client.rpc = AsyncMock(
         side_effect=[
-            [make_feed_row()],  # Feed rows
-            [
+            [make_feed_row()],  # get_activity_feed
+            {  # get_social_home_stats (consolidated counts)
+                "follower_count": 3,
+                "following_count": 4,
+                "pending_tag_count": 2,
+            },
+            [  # get_friends_ranking
                 {
                     "rank": 2,
                     "total_friends": 5,
@@ -49,7 +54,6 @@ def test_social_home_success(
             ],
         ]
     )
-    mock_supabase_client.count = AsyncMock(side_effect=[3, 4, 2])
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -75,8 +79,17 @@ def test_social_home_defaults_when_no_data(
     auth_headers: dict[str, str],
 ) -> None:
     """Verify endpoint returns safe defaults when Supabase returns no rows."""
-    mock_supabase_client.rpc = AsyncMock(side_effect=[[], []])
-    mock_supabase_client.count = AsyncMock(side_effect=[0, 0, 0])
+    mock_supabase_client.rpc = AsyncMock(
+        side_effect=[
+            [],  # get_activity_feed
+            {  # get_social_home_stats (consolidated counts)
+                "follower_count": 0,
+                "following_count": 0,
+                "pending_tag_count": 0,
+            },
+            [],  # get_friends_ranking
+        ]
+    )
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
