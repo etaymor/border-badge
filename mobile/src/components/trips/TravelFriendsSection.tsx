@@ -43,6 +43,7 @@ interface TravelFriendsSectionProps {
 // Convert following user to search result format
 interface FollowingUser {
   id: string;
+  user_id: string;
   username: string;
   display_name: string;
   avatar_url: string | null;
@@ -50,7 +51,7 @@ interface FollowingUser {
 
 function toSearchResult(user: FollowingUser): UserSearchResult {
   return {
-    id: user.id,
+    id: user.user_id, // Use user_id (auth.users.id), not id (user_profile.id)
     username: user.username,
     avatar_url: user.avatar_url,
     country_count: 0,

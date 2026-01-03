@@ -3,9 +3,11 @@ import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { TripPartners } from '@components/trips';
 import { colors } from '@constants/colors';
 import { isDevelopment } from '@config/env';
 import { fonts } from '@constants/typography';
+import type { TripTag, TripTagUser } from '@hooks/useTrips';
 
 export interface TripCardTrip {
   id: string;
@@ -19,6 +21,9 @@ interface TripCardProps {
   flagEmoji: string;
   onPress: () => void;
   testID?: string;
+  tags?: TripTag[];
+  owner?: TripTagUser;
+  currentUserId?: string;
 }
 
 // Helper to format date range from PostgreSQL format
@@ -61,9 +66,23 @@ function formatDateRange(dateRange?: string): string {
   }
 }
 
-export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
+export function TripCard({
+  trip,
+  flagEmoji,
+  onPress,
+  testID,
+  tags,
+  owner,
+  currentUserId,
+}: TripCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const dateStr = formatDateRange(trip.date_range);
+  const hasPartners = (tags && tags.length > 0) || (owner && owner.user_id !== currentUserId);
+
+  // Debug logging
+  if (isDevelopment && (tags?.length || owner)) {
+    console.log(`[TripCard] ${trip.name}: tags=${tags?.length || 0}, owner=${owner?.user_id}, currentUser=${currentUserId}, hasPartners=${hasPartners}`);
+  }
 
   // Cleanup: stop any running animation and reset value on unmount
   useEffect(() => {
@@ -123,6 +142,23 @@ export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
           <Text style={styles.tripName} numberOfLines={1}>
             {trip.name}
           </Text>
+          {/* Debug: show tags count */}
+          {isDevelopment && (
+            <Text style={{ fontSize: 10, color: 'red' }}>
+              tags: {tags?.length || 0}, hasPartners: {String(hasPartners)}
+            </Text>
+          )}
+          {hasPartners && (
+            <View style={styles.partnersRow}>
+              <TripPartners
+                tags={tags || []}
+                owner={owner}
+                currentUserId={currentUserId}
+                avatarSize={20}
+                maxVisible={3}
+              />
+            </View>
+          )}
           {dateStr ? (
             <View style={styles.dateRow}>
               <Ionicons name="calendar-outline" size={14} color={colors.stormGray} />
@@ -186,6 +222,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.playfair.bold,
     fontSize: 17,
     color: colors.midnightNavy,
+    marginBottom: 4,
+  },
+  partnersRow: {
     marginBottom: 4,
   },
   dateRow: {

@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import {
   usePendingTripTags,
+  usePendingTripTagCount,
   useApproveTripTag,
   useDeclineTripTag,
   PendingTripTag,
@@ -98,6 +99,33 @@ describe('useTripTags', () => {
       mockedApi.get.mockRejectedValue(new Error('Network error'));
 
       const { result } = renderHook(() => usePendingTripTags(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(result.current.error).toBeDefined();
+    });
+  });
+
+  // ============ usePendingTripTagCount Tests ============
+
+  describe('usePendingTripTagCount', () => {
+    it('fetches pending tag count successfully', async () => {
+      mockedApi.get.mockResolvedValue({ data: { count: 3 } });
+
+      const { result } = renderHook(() => usePendingTripTagCount(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data).toBe(3);
+      expect(mockedApi.get).toHaveBeenCalledWith('/trip-tags/pending/count');
+    });
+
+    it('handles error state', async () => {
+      mockedApi.get.mockRejectedValue(new Error('Network error'));
+
+      const { result } = renderHook(() => usePendingTripTagCount(), {
         wrapper: createWrapper(queryClient),
       });
 

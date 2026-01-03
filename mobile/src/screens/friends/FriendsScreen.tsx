@@ -1,36 +1,42 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard, FriendsStatsGrid, UserSearchBar } from '@components/friends';
 import { NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useFeed, getFeedItems, type FeedItem } from '@hooks/useFeed';
-import { useFollowStats } from '@hooks/useFollows';
-import { useFriendsRanking } from '@hooks/useFriendsRanking';
-import { usePendingTripTags } from '@hooks/useTripTags';
+import { FlashList } from '@shopify/flash-list';
+import type { FeedItem } from '@hooks/useFeed';
+import {
+  useSocialHome,
+  getSocialFeedItems,
+  getSocialHomeStats,
+  getSocialHomeRanking,
+  getSocialPendingTagCount,
+} from '@hooks/useSocialHome';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
+const ESTIMATED_FEED_ITEM_HEIGHT = 420;
+
 export function FriendsScreen({ navigation }: Props) {
-  const { data: stats, isLoading: statsLoading } = useFollowStats();
-  const { data: ranking, isLoading: rankingLoading } = useFriendsRanking();
-  const { data: pendingTags } = usePendingTripTags();
   const {
-    data: feedData,
-    isLoading: feedLoading,
+    data: socialData,
+    isLoading,
     isRefetching,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
     refetch,
-  } = useFeed();
+  } = useSocialHome();
 
-  const feedItems = useMemo(() => getFeedItems(feedData), [feedData]);
-  const isLoading = statsLoading || feedLoading;
+  const feedItems = useMemo(() => getSocialFeedItems(socialData), [socialData]);
+  const followStats = useMemo(() => getSocialHomeStats(socialData), [socialData]);
+  const friendsRanking = useMemo(() => getSocialHomeRanking(socialData), [socialData]);
+  const pendingTagCount = getSocialPendingTagCount(socialData);
 
   const handleNotificationsPress = useCallback(() => {
     navigation.navigate('PendingTripTags');
@@ -102,15 +108,15 @@ export function FriendsScreen({ navigation }: Props) {
   const ListHeader = useMemo(
     () => (
       <FriendsStatsGrid
-        followerCount={stats?.follower_count ?? 0}
-        followingCount={stats?.following_count ?? 0}
-        rank={ranking?.rank ?? null}
-        isLoading={statsLoading || rankingLoading}
+        followerCount={followStats?.follower_count ?? 0}
+        followingCount={followStats?.following_count ?? 0}
+        rank={friendsRanking?.rank ?? null}
+        isLoading={isLoading}
         onFollowersPress={handleViewFollowers}
         onFollowingPress={handleViewFollowing}
       />
     ),
-    [stats, ranking, statsLoading, rankingLoading, handleViewFollowers, handleViewFollowing]
+    [followStats, friendsRanking, isLoading, handleViewFollowers, handleViewFollowing]
   );
 
   const ListEmpty = useMemo(
@@ -151,10 +157,7 @@ export function FriendsScreen({ navigation }: Props) {
             <View style={styles.headerSpacer} />
             <Text style={styles.headerTitle}>My Friends</Text>
             <View style={styles.headerRight}>
-              <NotificationBell
-                count={pendingTags?.length ?? 0}
-                onPress={handleNotificationsPress}
-              />
+              <NotificationBell count={pendingTagCount} onPress={handleNotificationsPress} />
             </View>
           </View>
         </View>
@@ -174,7 +177,7 @@ export function FriendsScreen({ navigation }: Props) {
           <View style={styles.headerSpacer} />
           <Text style={styles.headerTitle}>My Friends</Text>
           <View style={styles.headerRight}>
-            <NotificationBell count={pendingTags?.length ?? 0} onPress={handleNotificationsPress} />
+            <NotificationBell count={pendingTagCount} onPress={handleNotificationsPress} />
           </View>
         </View>
       </View>
@@ -184,7 +187,7 @@ export function FriendsScreen({ navigation }: Props) {
         <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
       </View>
 
-      <FlatList
+      <FlashList
         data={feedItems}
         renderItem={renderFeedItem}
         keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
@@ -193,7 +196,7 @@ export function FriendsScreen({ navigation }: Props) {
         ListFooterComponent={ListFooter}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        style={styles.flatList}
+        estimatedItemSize={ESTIMATED_FEED_ITEM_HEIGHT}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         refreshControl={
@@ -255,9 +258,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     zIndex: 10,
     elevation: 10,
-  },
-  flatList: {
-    zIndex: 1,
   },
   listContent: {
     paddingBottom: 100,

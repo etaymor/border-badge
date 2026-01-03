@@ -140,11 +140,6 @@ jest.mock('@services/api', () => ({
   setSignOutCallback: jest.fn(),
 }));
 
-// Mock Alert
-jest.mock('react-native/Libraries/Alert/Alert', () => ({
-  alert: jest.fn(),
-}));
-
 // Mock Share
 jest.mock('react-native/Libraries/Share/Share', () => ({
   share: jest.fn().mockResolvedValue({ action: 'sharedAction' }),
@@ -261,6 +256,26 @@ jest.mock('@services/countriesDb', () => ({
   getCountryByCode: jest.fn().mockResolvedValue(null),
   getCountriesByCodes: jest.fn().mockResolvedValue([]),
 }));
+
+// Mock FlashList with a FlatList fallback
+jest.mock('@shopify/flash-list', () => {
+  const React = require('react');
+  const { FlatList } = require('react-native');
+  const FlashList = React.forwardRef((props, ref) =>
+    React.createElement(FlatList, { ...props, ref })
+  );
+  FlashList.displayName = 'FlashListMock';
+  return { FlashList };
+});
+
+// Ensure Alert.alert is always defined in the test environment
+const { Alert } = require('react-native');
+if (Alert && typeof Alert.alert === 'function') {
+  Alert.alert = jest.fn();
+} else {
+  const ReactNative = require('react-native');
+  ReactNative.Alert = { alert: jest.fn() };
+}
 
 // Reset all mocks between tests
 beforeEach(() => {

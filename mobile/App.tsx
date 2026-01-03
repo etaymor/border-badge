@@ -20,7 +20,8 @@ import {
   NavigationState,
   createNavigationContainerRef,
 } from '@react-navigation/native';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -29,6 +30,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplash } from '@components/splash';
 import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useCountriesSync } from '@hooks/useCountriesSync';
+import {
+  fetchSocialHomePage,
+  SOCIAL_HOME_DEFAULT_LIMIT,
+  SOCIAL_HOME_QUERY_KEY,
+} from '@hooks/useSocialHome';
 import { RootNavigator } from '@navigation/RootNavigator';
 import type { ShareCaptureSource } from '@navigation/types';
 // Note: RootStackParamList would be imported here for type-safe navigation,
@@ -87,6 +93,12 @@ const linking = {
   },
 };
 
+const queryPersister = createAsyncStoragePersister({
+  storage: AsyncStorage,
+  key: 'atlasi-query-cache',
+  throttleTime: 1000,
+});
+
 type ShareCaptureNavigationParams = {
   url: string;
   caption?: string;
@@ -109,6 +121,7 @@ export default function App() {
   const hasProcessedInitialDeepLinkRef = useRef(false);
   const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
   const shouldClearPendingShareRef = useRef(false);
+  const previousUserIdRef = useRef<string | null>(null);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -136,6 +149,35 @@ export default function App() {
   useEffect(() => {
     void initAnalytics();
   }, []);
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current;
+    const currentUserId = session?.user?.id ?? null;
+
+    if (previousUserId && previousUserId !== currentUserId) {
+      queryClient.clear();
+      void queryPersister.removeClient?.();
+    }
+
+    previousUserIdRef.current = currentUserId;
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      return;
+    }
+
+    queryClient
+      .prefetchInfiniteQuery({
+        queryKey: [...SOCIAL_HOME_QUERY_KEY, { limit: SOCIAL_HOME_DEFAULT_LIMIT }],
+        queryFn: ({ pageParam }) =>
+          fetchSocialHomePage(SOCIAL_HOME_DEFAULT_LIMIT, (pageParam as string | null) ?? null),
+        initialPageParam: null,
+      })
+      .catch((error) => {
+        console.warn('Prefetch social home failed:', error);
+      });
+  }, [session?.user?.id]);
 
   // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
   const tryNavigateToShareCapture = useCallback(
@@ -497,7 +539,14 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: queryPersister,
+          maxAge: 1000 * 60 * 60 * 24, // 24 hours
+          buster: 'v1',
+        }}
+      >
         <SafeAreaProvider>
           <ResponsiveProvider>
             <NavigationContainer
@@ -519,7 +568,7 @@ export default function App() {
             )}
           </ResponsiveProvider>
         </SafeAreaProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }

@@ -5,34 +5,37 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  SectionList,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotificationBell, TripCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
-import { usePendingTripTags } from '@hooks/useTripTags';
-import { Trip, useTrips } from '@hooks/useTrips';
+import { usePendingTripTagCount } from '@hooks/useTripTags';
+import { TripWithTags, useTrips } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { useAuthStore } from '@stores/authStore';
 
 type Props = TripsStackScreenProps<'TripsList'>;
 
-// Memoized components and helpers for SectionList performance
-const ItemSeparator = () => <View style={styles.separator} />;
-const keyExtractor = (item: Trip) => item.id;
-
 interface TripSection {
   title: string;
-  data: Trip[];
+  data: TripWithTags[];
 }
+
+type TripsListRenderable =
+  | { type: 'header'; title: string; key: string }
+  | { type: 'trip'; trip: TripWithTags; key: string };
+
+const ESTIMATED_TRIP_ROW_HEIGHT = 220;
 
 const SectionHeader = ({ title }: { title: string }) => {
   return (
@@ -62,10 +65,11 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
 }
 
 export function TripsListScreen({ navigation }: Props) {
+  const currentUserId = useAuthStore((state) => state.session?.user.id);
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
-  const { data: pendingTags } = usePendingTripTags();
+  const { data: pendingTagCount } = usePendingTripTagCount();
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleNotificationsPress = useCallback(() => {
@@ -100,8 +104,8 @@ export function TripsListScreen({ navigation }: Props) {
 
     if (filteredTrips.length === 0) return [];
 
-    const visitedTrips: Trip[] = [];
-    const plannedTrips: Trip[] = [];
+    const visitedTrips: TripWithTags[] = [];
+    const plannedTrips: TripWithTags[] = [];
 
     filteredTrips.forEach((trip) => {
       if (visitedCountryCodes.has(trip.country_code)) {
@@ -121,6 +125,19 @@ export function TripsListScreen({ navigation }: Props) {
     return result;
   }, [trips, visitedCountryCodes, searchQuery, countriesMap]);
 
+  const flatData = useMemo<TripsListRenderable[]>(() => {
+    if (!sections.length) return [];
+
+    const rows: TripsListRenderable[] = [];
+    sections.forEach((section) => {
+      rows.push({ type: 'header', title: section.title, key: `header-${section.title}` });
+      section.data.forEach((trip) => {
+        rows.push({ type: 'trip', trip, key: `trip-${trip.id}` });
+      });
+    });
+    return rows;
+  }, [sections]);
+
   const handleAddTrip = useCallback(() => {
     navigation.navigate('TripForm', {});
   }, [navigation]);
@@ -132,19 +149,27 @@ export function TripsListScreen({ navigation }: Props) {
     [navigation]
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: Trip }) => {
-      const flagEmoji = getFlagEmoji(item.country_code);
+  const renderFlatItem = useCallback(
+    ({ item }: { item: TripsListRenderable }) => {
+      if (item.type === 'header') {
+        return <SectionHeader title={item.title} />;
+      }
+
+      const flagEmoji = getFlagEmoji(item.trip.country_code);
       return (
-        <TripCard trip={item} flagEmoji={flagEmoji} onPress={() => handleTripPress(item.id)} />
+        <View style={styles.tripItem}>
+          <TripCard
+            trip={item.trip}
+            flagEmoji={flagEmoji}
+            onPress={() => handleTripPress(item.trip.id)}
+            tags={item.trip.tags}
+            owner={item.trip.owner}
+            currentUserId={currentUserId}
+          />
+        </View>
       );
     },
-    [handleTripPress]
-  );
-
-  const renderSectionHeader = useCallback(
-    ({ section }: { section: TripSection }) => <SectionHeader title={section.title} />,
-    []
+    [handleTripPress, currentUserId]
   );
 
   const renderHeader = useMemo(
@@ -156,10 +181,7 @@ export function TripsListScreen({ navigation }: Props) {
             <View style={styles.headerSpacer} />
             <Text style={styles.headerTitle}>My Trips</Text>
             <View style={styles.headerRight}>
-              <NotificationBell
-                count={pendingTags?.length ?? 0}
-                onPress={handleNotificationsPress}
-              />
+              <NotificationBell count={pendingTagCount ?? 0} onPress={handleNotificationsPress} />
             </View>
           </View>
         </View>
@@ -191,7 +213,7 @@ export function TripsListScreen({ navigation }: Props) {
         </View>
       </>
     ),
-    [searchQuery, pendingTags, handleNotificationsPress]
+    [searchQuery, pendingTagCount, handleNotificationsPress]
   );
 
   if (isLoading) {
@@ -216,13 +238,14 @@ export function TripsListScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <SectionList
-        sections={sections}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        renderSectionHeader={renderSectionHeader}
+      <FlashList
+        data={flatData}
+        keyExtractor={(item) => item.key}
+        renderItem={renderFlatItem}
+        estimatedItemSize={ESTIMATED_TRIP_ROW_HEIGHT}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -230,13 +253,8 @@ export function TripsListScreen({ navigation }: Props) {
             tintColor={colors.sunsetGold}
           />
         }
-        ItemSeparatorComponent={ItemSeparator}
-        stickySectionHeadersEnabled={false}
-        removeClippedSubviews={true}
         ListEmptyComponent={
-          !isLoading && sections.reduce((sum, section) => sum + section.data.length, 0) === 0 ? (
-            <EmptyState onAddTrip={handleAddTrip} />
-          ) : null
+          !isLoading && flatData.length === 0 ? <EmptyState onAddTrip={handleAddTrip} /> : null
         }
       />
 
@@ -344,8 +362,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 130, // Space for FAB + Tab Bar
   },
-  separator: {
-    height: 16,
+  tripItem: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',

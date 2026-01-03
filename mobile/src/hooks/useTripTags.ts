@@ -30,6 +30,7 @@ export interface TripTagActionResponse {
 }
 
 const PENDING_TAGS_KEY = ['trip-tags', 'pending'];
+const PENDING_TAG_COUNT_KEY = ['trip-tags', 'pending', 'count'];
 
 /**
  * Fetch pending trip tag invitations for the current user.
@@ -42,6 +43,20 @@ export function usePendingTripTags() {
       return response.data;
     },
     staleTime: 1000 * 60 * 2, // 2 minutes
+  });
+}
+
+/**
+ * Fetch the count of pending trip tags for badge indicators.
+ */
+export function usePendingTripTagCount() {
+  return useQuery({
+    queryKey: PENDING_TAG_COUNT_KEY,
+    queryFn: async (): Promise<number> => {
+      const response = await api.get('/trip-tags/pending/count');
+      return response.data.count;
+    },
+    staleTime: 1000 * 30, // 30 seconds
   });
 }
 

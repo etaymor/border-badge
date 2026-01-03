@@ -350,10 +350,14 @@ def test_get_user_profile_success(
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile lookup
         [],  # Block check - not blocked
-        [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}],  # Country count (3 countries)
-        [{"id": "f1"}, {"id": "f2"}],  # Follower count (2 followers)
-        [{"id": "fo1"}],  # Following count (1 following)
         [{"id": "is-following"}],  # Is following check
+    ]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "country_count": 3,
+            "follower_count": 2,
+            "following_count": 1,
+        }
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -447,10 +451,14 @@ def test_get_user_profile_not_following(
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile lookup
         [],  # Block check - not blocked
-        [],  # Country count (0)
-        [],  # Follower count (0)
-        [],  # Following count (0)
         [],  # Is following check - NOT following
+    ]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "country_count": 0,
+            "follower_count": 0,
+            "following_count": 0,
+        }
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)

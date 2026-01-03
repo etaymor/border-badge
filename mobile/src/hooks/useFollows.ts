@@ -34,6 +34,7 @@ const FOLLOWS_KEY = ['follows'];
 const STATS_KEY = [...FOLLOWS_KEY, 'stats'];
 const FOLLOWING_KEY = [...FOLLOWS_KEY, 'following'];
 const FOLLOWERS_KEY = [...FOLLOWS_KEY, 'followers'];
+const SOCIAL_HOME_KEY = ['social-home'];
 
 /**
  * Hook to get follow statistics for the current user.
@@ -135,6 +136,7 @@ export function useFollowUser(userId: string) {
       queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       queryClient.invalidateQueries({ queryKey: ['feed'] });
+      queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
     },
   });
 }
@@ -187,6 +189,7 @@ export function useUnfollowUser(userId: string) {
       queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       queryClient.invalidateQueries({ queryKey: ['feed'] });
+      queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
     },
   });
 }

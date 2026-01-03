@@ -61,23 +61,23 @@ describe('useUserSearch', () => {
   it('fetches users by search query', async () => {
     mockedApi.get.mockResolvedValue({ data: mockSearchResults });
 
-    const { result } = renderHook(() => useUserSearch('trav'), {
+    const { result } = renderHook(() => useUserSearch('trav', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toEqual(mockSearchResults);
-    expect(mockedApi.get).toHaveBeenCalledWith('/users/search', {
-      params: { q: 'trav', limit: 10 },
-    });
+    const [url, config] = mockedApi.get.mock.calls[0];
+    expect(url).toBe('/users/search');
+    expect(config?.params).toEqual({ q: 'trav', limit: 10 });
   });
 
   it('respects minimum query length (2 chars)', async () => {
     mockedApi.get.mockResolvedValue({ data: [] });
 
     // Query with 1 character - should NOT fetch
-    const { result: shortResult } = renderHook(() => useUserSearch('t'), {
+    const { result: shortResult } = renderHook(() => useUserSearch('t', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -89,20 +89,19 @@ describe('useUserSearch', () => {
     expect(shortResult.current.fetchStatus).toBe('idle');
 
     // Query with 2 characters - should fetch
-    const { result: validResult } = renderHook(() => useUserSearch('tr'), {
+    const { result: validResult } = renderHook(() => useUserSearch('tr', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
     await waitFor(() => expect(validResult.current.isSuccess).toBe(true));
-    expect(mockedApi.get).toHaveBeenCalledWith('/users/search', {
-      params: { q: 'tr', limit: 10 },
-    });
+    const [, validConfig] = mockedApi.get.mock.calls[0];
+    expect(validConfig?.params).toEqual({ q: 'tr', limit: 10 });
   });
 
   it('returns empty array for no results', async () => {
     mockedApi.get.mockResolvedValue({ data: [] });
 
-    const { result } = renderHook(() => useUserSearch('nonexistent'), {
+    const { result } = renderHook(() => useUserSearch('nonexistent', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -114,7 +113,7 @@ describe('useUserSearch', () => {
   it('handles error state', async () => {
     mockedApi.get.mockRejectedValue(new Error('Network error'));
 
-    const { result } = renderHook(() => useUserSearch('test'), {
+    const { result } = renderHook(() => useUserSearch('test', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -125,7 +124,7 @@ describe('useUserSearch', () => {
   it('includes follow status in results', async () => {
     mockedApi.get.mockResolvedValue({ data: mockSearchResults });
 
-    const { result } = renderHook(() => useUserSearch('user'), {
+    const { result } = renderHook(() => useUserSearch('user', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -140,21 +139,20 @@ describe('useUserSearch', () => {
   it('supports custom limit option', async () => {
     mockedApi.get.mockResolvedValue({ data: mockSearchResults });
 
-    const { result } = renderHook(() => useUserSearch('test', { limit: 5 }), {
+    const { result } = renderHook(() => useUserSearch('test', { limit: 5, debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedApi.get).toHaveBeenCalledWith('/users/search', {
-      params: { q: 'test', limit: 5 },
-    });
+    const [, limitConfig] = mockedApi.get.mock.calls[0];
+    expect(limitConfig?.params).toEqual({ q: 'test', limit: 5 });
   });
 
   it('respects enabled option', async () => {
     mockedApi.get.mockResolvedValue({ data: [] });
 
-    const { result } = renderHook(() => useUserSearch('test', { enabled: false }), {
+    const { result } = renderHook(() => useUserSearch('test', { enabled: false, debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -169,7 +167,7 @@ describe('useUserSearch', () => {
   it('includes all user fields in results', async () => {
     mockedApi.get.mockResolvedValue({ data: mockSearchResults });
 
-    const { result } = renderHook(() => useUserSearch('trav'), {
+    const { result } = renderHook(() => useUserSearch('trav', { debounceMs: 0 }), {
       wrapper: createWrapper(queryClient),
     });
 
