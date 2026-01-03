@@ -617,6 +617,7 @@ async def sitemap_xml() -> PlainTextResponse:
             "select": "username",
         },
     )
+    profiles = profiles or []
     for profile in profiles:
         escaped_username = html.escape(profile["username"])
         urls.append(f"  <url><loc>{settings.base_url}/u/{escaped_username}</loc></url>")
@@ -629,6 +630,7 @@ async def sitemap_xml() -> PlainTextResponse:
             "select": "slug",
         },
     )
+    lists = lists or []
     for lst in lists:
         escaped_slug = html.escape(lst["slug"])
         urls.append(f"  <url><loc>{settings.base_url}/l/{escaped_slug}</loc></url>")
@@ -642,6 +644,7 @@ async def sitemap_xml() -> PlainTextResponse:
             "select": "share_slug",
         },
     )
+    trips = trips or []
     for trip in trips:
         escaped_slug = html.escape(trip["share_slug"])
         urls.append(f"  <url><loc>{settings.base_url}/t/{escaped_slug}</loc></url>")

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.api.utils import get_token_from_request
 from app.core.db_utils import get_rpc_first_row
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 
@@ -210,7 +211,7 @@ async def search_users(
         {
             "select": "following_id",
             "follower_id": f"eq.{user.id}",
-            "following_id": f"in.({','.join(user_ids)})",
+            "following_id": in_list(user_ids),
         },
     )
     following_ids = {f["following_id"] for f in follow_check} if follow_check else set()

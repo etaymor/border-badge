@@ -11,6 +11,7 @@ from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_push_notification
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.trips import (
@@ -72,7 +73,7 @@ async def get_pending_trip_tags(
             "user_profile",
             {
                 "select": "user_id,username,avatar_url",
-                "user_id": f"in.({','.join(str(uid) for uid in initiator_ids)})",
+                "user_id": in_list([str(uid) for uid in initiator_ids]),
             },
         )
         if initiators:

@@ -10,6 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.public import TripShareResponse
@@ -79,7 +80,7 @@ async def list_trips(
             "user_profile",
             {
                 "select": "user_id,username,display_name,avatar_url",
-                "user_id": f"in.({','.join(user_ids_to_fetch)})",
+                "user_id": in_list(list(user_ids_to_fetch)),
             },
         )
         if profiles:
@@ -238,7 +239,7 @@ async def get_trip(
             "user_profile",
             {
                 "select": "user_id,username,display_name,avatar_url",
-                "user_id": f"in.({','.join(user_ids_to_fetch)})",
+                "user_id": in_list(list(user_ids_to_fetch)),
             },
         )
         if profiles:

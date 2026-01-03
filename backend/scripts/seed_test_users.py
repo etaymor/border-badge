@@ -114,12 +114,14 @@ async def seed_all(real_user_id: str | None = None) -> None:
             await create_follow(db, test_user_ids[i], test_user_ids[j])
             await create_follow(db, test_user_ids[j], test_user_ids[i])
 
-    # Tag some users on trips
-    for i, user_id in enumerate(test_user_ids[:3]):
+    # Tag users on trips (all pending for demo purposes)
+    for i, user_id in enumerate(test_user_ids):
         trips = user_trips.get(user_id, [])
-        if trips:
-            other = test_user_ids[(i + 1) % len(test_user_ids)]
-            await create_trip_tag(db, trips[0], other, "approved", user_id)
+        for j, trip_id in enumerate(trips[:2]):  # Tag on up to 2 trips per user
+            # Tag the next user in the list (wrapping around)
+            other = test_user_ids[(i + j + 1) % len(test_user_ids)]
+            if other != user_id:  # Don't tag yourself
+                await create_trip_tag(db, trip_id, other, "pending", user_id)
 
     logger.info("  Follow network created")
 
