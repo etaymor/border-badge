@@ -83,9 +83,10 @@ def _quote_value(value: str) -> str:
         '"has;semicolon"'
     """
     # Characters that require quoting in PostgREST
-    # Includes: comma, parentheses, quotes, semicolons, backslashes, colons, periods
-    # These could otherwise be interpreted as query syntax
-    special_chars = (",", "(", ")", '"', ";", "\\", ":", ".")
+    # Includes: comma, parentheses, quotes, semicolons, backslashes, colons, periods,
+    # newlines, and tabs - these could otherwise be interpreted as query syntax or
+    # break PostgREST parsing
+    special_chars = (",", "(", ")", '"', ";", "\\", ":", ".", "\n", "\r", "\t")
     needs_quoting = any(c in value for c in special_chars)
     if not needs_quoting:
         return value

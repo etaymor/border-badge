@@ -41,7 +41,7 @@ export function useSocialHome(options?: { limit?: number }) {
       }
       return undefined;
     },
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 60 * 5, // 5 minutes - feeds are pre-computed server-side
   });
 }
 

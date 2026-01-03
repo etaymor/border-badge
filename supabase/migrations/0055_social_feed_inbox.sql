@@ -197,6 +197,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- NOTE: We limit backfill to the 50 most recent events to avoid slow inserts
+  -- when following users with extensive history. This means if a new follower
+  -- scrolls past the 50 most recent posts, they won't see older content from
+  -- before the follow. This is an acceptable trade-off for most use cases.
   INSERT INTO social_feed_inbox(recipient_id, activity_id, actor_id, created_at)
   SELECT NEW.follower_id, sae.id, sae.actor_id, sae.created_at
   FROM social_activity_event sae

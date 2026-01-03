@@ -122,6 +122,8 @@ async def get_social_home(
 
     # Extract counts from consolidated stats RPC response
     stats_data = stats or {}
+    if not stats:
+        logger.warning("get_social_home_stats returned empty data for user %s", user.id)
     follower_count = stats_data.get("follower_count", 0)
     following_count = stats_data.get("following_count", 0)
     pending_tag_count = stats_data.get("pending_tag_count", 0)
