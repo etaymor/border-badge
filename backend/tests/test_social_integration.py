@@ -58,8 +58,10 @@ def test_follow_then_appears_in_feed(
 ) -> None:
     """Test that after following a user, their activities appear in your feed."""
     # Step 1: Follow the user
+    # The follow endpoint now uses separate block check queries for each direction
     mock_supabase_client.get.side_effect = [
-        [],  # No blocks
+        [],  # No block: blocker=current, blocked=target
+        [],  # No block: blocker=target, blocked=current
         [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
     ]
     mock_supabase_client.post.return_value = [
@@ -148,7 +150,7 @@ def test_block_removes_bidirectional_follows(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that blocking removes follows in BOTH directions."""
-    delete_calls = []
+    delete_calls: list[dict[str, Any]] = []
 
     async def track_delete(table: str, params: dict[str, Any]) -> list[Any]:
         delete_calls.append({"table": table, "params": params})
@@ -169,13 +171,25 @@ def test_block_removes_bidirectional_follows(
             response = client.post(f"/blocks/{OTHER_USER_ID}", headers=auth_headers)
         assert response.status_code == 201
 
-        # Verify the delete call includes OR clause for both directions
-        assert len(delete_calls) == 1
+        # Verify there are 2 separate delete calls for bidirectional follow removal
+        # (code now uses separate deletes instead of OR clause for safety)
+        assert len(delete_calls) == 2
         assert delete_calls[0]["table"] == "user_follow"
-        or_clause = delete_calls[0]["params"].get("or", "")
-        # Should have clauses for both A->B and B->A
-        assert TEST_USER_ID in or_clause
-        assert OTHER_USER_ID in or_clause
+        assert delete_calls[1]["table"] == "user_follow"
+
+        # Check that both directions are covered:
+        # Call 1: blocker follows blocked (current->target)
+        # Call 2: blocked follows blocker (target->current)
+        params_0 = delete_calls[0]["params"]
+        params_1 = delete_calls[1]["params"]
+
+        # First delete: current user as follower, target as following
+        assert params_0["follower_id"] == f"eq.{TEST_USER_ID}"
+        assert params_0["following_id"] == f"eq.{OTHER_USER_ID}"
+
+        # Second delete: target as follower, current user as following
+        assert params_1["follower_id"] == f"eq.{OTHER_USER_ID}"
+        assert params_1["following_id"] == f"eq.{TEST_USER_ID}"
     finally:
         app.dependency_overrides.clear()
 
@@ -269,7 +283,8 @@ def test_trip_tag_consent_full_workflow(
     tag_id = "550e8400-e29b-41d4-a716-446655440011"
 
     # Step 1: Get pending trip tags for User B (our mock_user)
-    # Format matches the actual database query with nested trip and initiator
+    # Format matches the actual database query with nested trip
+    # (initiator is fetched separately via user_profile query)
     pending_tag = {
         "id": tag_id,
         "trip_id": trip_id,
@@ -279,13 +294,21 @@ def test_trip_tag_consent_full_workflow(
             "name": "Amazing Trip",
             "country": {"code": "JP"},
         },
-        "initiator": {
-            "username": "tripcreator",
-            "avatar_url": None,
-        },
     }
 
-    mock_supabase_client.get.return_value = [pending_tag]
+    # The endpoint makes two queries:
+    # 1. trip_tags (returns pending_tag)
+    # 2. user_profile (returns initiator info with user_id field)
+    initiator_profile = {
+        "user_id": OTHER_USER_ID,
+        "username": "tripcreator",
+        "avatar_url": None,
+    }
+
+    mock_supabase_client.get.side_effect = [
+        [pending_tag],  # First call: get pending trip_tags
+        [initiator_profile],  # Second call: get initiator's user_profile
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

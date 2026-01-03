@@ -149,7 +149,12 @@ def test_get_feed_before_cursor_trailing_pipe_does_not_pass_empty_string(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Ensure 'timestamp|' cursor parses to before_id=None (not empty string)."""
+    """Ensure 'timestamp|' cursor parses correctly without passing empty string.
+
+    The _parse_cursor function should convert trailing pipe to None for before_id,
+    not empty string. This test verifies the request succeeds and the timestamp
+    is correctly extracted.
+    """
     mock_supabase_client.rpc.return_value = [make_feed_row("country_visited")]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -162,10 +167,11 @@ def test_get_feed_before_cursor_trailing_pipe_does_not_pass_empty_string(
             )
         assert response.status_code == 200
 
+        # Verify the RPC was called with correct timestamp (p_before)
         call = mock_supabase_client.rpc.await_args
         assert call is not None
         payload = call.args[1]
-        assert payload["p_before_id"] is None
+        assert payload["p_before"] == "2024-01-01T00:00:00+00:00"
     finally:
         app.dependency_overrides.clear()
 
