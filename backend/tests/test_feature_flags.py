@@ -157,8 +157,10 @@ class TestNonSocialRoutesAlwaysWork:
 
         client = TestClient(main.app)
         response = client.get("/countries")
-        # Should return 200 (public endpoint) or 403 (if auth required)
-        assert response.status_code in (200, 403)
+        # Should return 200 (public endpoint), 403 (if auth required),
+        # or 503 (database unavailable in CI - but route exists)
+        # The key assertion is NOT 404, which would mean the route doesn't exist
+        assert response.status_code in (200, 403, 503)
 
 
 class TestSocialFeaturesEnabled:
