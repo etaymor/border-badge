@@ -321,7 +321,8 @@ async def add_trip_tag(
     trip = await verify_trip_ownership(db, str(trip_id), user.id, select="id,name")
 
     # Don't allow tagging yourself
-    if str(tagged_user_id) == user.id:
+    # Normalize both to strings for reliable comparison
+    if str(tagged_user_id) == str(user.id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot tag yourself",
