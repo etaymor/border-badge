@@ -79,11 +79,6 @@ export function TripCard({
   const dateStr = formatDateRange(trip.date_range);
   const hasPartners = (tags && tags.length > 0) || (owner && owner.user_id !== currentUserId);
 
-  // Debug logging
-  if (isDevelopment && (tags?.length || owner)) {
-    console.log(`[TripCard] ${trip.name}: tags=${tags?.length || 0}, owner=${owner?.user_id}, currentUser=${currentUserId}, hasPartners=${hasPartners}`);
-  }
-
   // Cleanup: stop any running animation and reset value on unmount
   useEffect(() => {
     return () => {
@@ -142,12 +137,6 @@ export function TripCard({
           <Text style={styles.tripName} numberOfLines={1}>
             {trip.name}
           </Text>
-          {/* Debug: show tags count */}
-          {isDevelopment && (
-            <Text style={{ fontSize: 10, color: 'red' }}>
-              tags: {tags?.length || 0}, hasPartners: {String(hasPartners)}
-            </Text>
-          )}
           {hasPartners && (
             <View style={styles.partnersRow}>
               <TripPartners
