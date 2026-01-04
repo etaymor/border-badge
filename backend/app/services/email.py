@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 import resend
@@ -44,6 +45,24 @@ WELCOME_EMAILS = [
 ]
 
 
+@lru_cache(maxsize=10)
+def _load_template_content(template_name: str) -> str | None:
+    """Load raw template content from disk with caching.
+
+    Args:
+        template_name: Name of the template file (without .txt extension)
+
+    Returns:
+        Template content or None if not found
+    """
+    template_path = TEMPLATES_DIR / f"{template_name}.txt"
+    try:
+        return template_path.read_text()
+    except FileNotFoundError:
+        logger.error(f"Email template not found: {template_path}")
+        return None
+
+
 def load_email_template(template_name: str, display_name: str) -> str:
     """Load and format an email template from file.
 
@@ -54,17 +73,13 @@ def load_email_template(template_name: str, display_name: str) -> str:
     Returns:
         Formatted email body with display_name substituted
     """
-    template_path = TEMPLATES_DIR / f"{template_name}.txt"
-
-    try:
-        content = template_path.read_text()
-        return content.format(display_name=display_name)
-    except FileNotFoundError:
-        logger.error(f"Email template not found: {template_path}")
+    content = _load_template_content(template_name)
+    if content is None:
         return f"Hi {display_name},\n\nWelcome to Atlasi!\n\nEmerson"
+    return content.replace("{display_name}", display_name)
 
 
-async def schedule_welcome_emails(email: str, display_name: str) -> list[str]:
+def schedule_welcome_emails(email: str, display_name: str) -> list[str]:
     """Schedule all welcome emails for a new user.
 
     Args:
