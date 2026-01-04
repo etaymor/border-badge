@@ -1,6 +1,7 @@
 """Push notification registration endpoints."""
 
 import logging
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Request
@@ -40,23 +41,24 @@ async def register_push_token(
     Register or update the user's push notification token.
 
     Security:
-    - Token is stored encrypted in database
-    - Only the user can update their own token
+    - Token is protected by Supabase encryption at rest (no app-level encryption)
+    - Only the user can update their own token (RLS enforced)
     - Tokens are never exposed in API responses
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
     # Upsert push token in dedicated table (strict RLS - owner only)
-    await db.post(
+    await db.upsert(
         "push_token",
-        {
-            "user_id": str(user.id),
-            "token": data.token,
-            "platform": data.platform,
-            "updated_at": "now()",
-        },
-        upsert=True,
+        [
+            {
+                "user_id": str(user.id),
+                "token": data.token,
+                "platform": data.platform,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        ],
         on_conflict="user_id",
     )
 

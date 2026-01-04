@@ -59,9 +59,10 @@ async def send_invite(
 
     existing_user = get_rpc_first_row(existing_user_result)
     if existing_user and existing_user.get("exists"):
+        # Generic message to prevent email enumeration attacks
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email already exists. Search by username instead.",
+            detail="Unable to send invite. Please try a different email or search by username.",
         )
 
     # Check if we already have a pending invite for this email from this user

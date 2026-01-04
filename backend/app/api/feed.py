@@ -34,10 +34,13 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
         return None, None
 
     # Validate max length to prevent DoS via maliciously long cursors
-    # Max: ISO timestamp (26 chars) + "|" (1 char) + UUID (36 chars) = 63 chars
+    # Max: ISO timestamp (26 chars) + "|" (1 char) + UUID v4 (36 chars) = 63 chars
     # Allow 70 chars for some buffer (timezone offset variations, etc.)
+    # Note: Uses UUID v4 format; update limit if migrating to UUID v7.
     if len(cursor) > 70:
-        raise HTTPException(status_code=400, detail="Invalid cursor format")
+        raise HTTPException(
+            status_code=400, detail="Invalid cursor format (max 70 characters)"
+        )
 
     try:
         parts = cursor.split("|", 1)

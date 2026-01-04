@@ -6,6 +6,10 @@
 --
 -- Note: Must DROP first because PostgreSQL doesn't allow changing return type
 -- with CREATE OR REPLACE.
+--
+-- RETURNS TABLE Note: Although this function uses scalar subqueries that always
+-- return exactly one row, RETURNS TABLE is intentional for PostgREST compatibility.
+-- Callers should use get_rpc_first_row() to extract the single result row.
 
 DROP FUNCTION IF EXISTS get_public_profile_stats(UUID);
 
