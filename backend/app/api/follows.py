@@ -50,12 +50,10 @@ async def follow_user(
     # Check for blocks (bidirectional)
     # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
     #
-    # RACE CONDITION NOTE: There is a theoretical TOCTOU race between these block checks
-    # and the follow insert below. Another request could create a block after we check
-    # but before we insert. For complete protection, consider adding a database trigger
-    # or constraint that prevents user_follow rows where a block exists. For this app's
-    # scale, the risk is minimal and the current approach prioritizes code clarity and
-    # SQL injection safety over absolute atomicity.
+    # RACE CONDITION NOTE: A database trigger (prevent_follow_when_blocked) provides
+    # atomic enforcement at the database level. These application-level checks are
+    # still useful for returning a clear 403 response before attempting the insert,
+    # but the trigger prevents any race condition from succeeding.
     block_check_1 = await db.get(
         "user_block",
         {
@@ -94,8 +92,9 @@ async def follow_user(
             detail="User not found",
         )
 
-    # Create follow relationship - catch constraint violation to handle race condition
-    # This avoids TOCTOU race where check-then-insert could have another insert in between
+    # Create follow relationship - catch constraint violations
+    # Database trigger (prevent_follow_when_blocked) provides atomic enforcement,
+    # eliminating the TOCTOU race condition between block checks and follow insert.
     try:
         await db.post(
             "user_follow",
@@ -105,9 +104,16 @@ async def follow_user(
             },
         )
     except Exception as e:
+        error_msg = str(e).lower()
         # Handle duplicate key constraint violation (already following)
-        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+        if "duplicate key" in error_msg or "unique" in error_msg:
             return FollowResponse(status="already_following", following_id=str(user_id))
+        # Handle block constraint from database trigger (race condition protection)
+        if "cannot follow" in error_msg or "blocked" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot follow this user",
+            ) from None
         raise
 
     # Send push notification to the followed user (fire and forget)

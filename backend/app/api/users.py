@@ -285,16 +285,25 @@ async def lookup_user_by_email(
         return None
 
     # Check if blocked (bidirectional)
-    block_check = await db.get(
+    # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
+    block_check_1 = await db.get(
         "user_block",
         {
             "select": "id",
-            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{profile['user_id']})),"
-            f"(and(blocker_id.eq.{profile['user_id']},blocked_id.eq.{user.id}))",
+            "blocker_id": f"eq.{user.id}",
+            "blocked_id": f"eq.{profile['user_id']}",
+        },
+    )
+    block_check_2 = await db.get(
+        "user_block",
+        {
+            "select": "id",
+            "blocker_id": f"eq.{profile['user_id']}",
+            "blocked_id": f"eq.{user.id}",
         },
     )
 
-    if block_check:
+    if block_check_1 or block_check_2:
         # Return None to not reveal that the user exists
         return None
 
@@ -360,16 +369,25 @@ async def get_user_profile(
     target_user_id = profile["user_id"]
 
     # Check if blocked (bidirectional)
-    block_check = await db.get(
+    # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
+    block_check_1 = await db.get(
         "user_block",
         {
             "select": "id",
-            "or": f"(and(blocker_id.eq.{user.id},blocked_id.eq.{target_user_id})),"
-            f"(and(blocker_id.eq.{target_user_id},blocked_id.eq.{user.id}))",
+            "blocker_id": f"eq.{user.id}",
+            "blocked_id": f"eq.{target_user_id}",
+        },
+    )
+    block_check_2 = await db.get(
+        "user_block",
+        {
+            "select": "id",
+            "blocker_id": f"eq.{target_user_id}",
+            "blocked_id": f"eq.{user.id}",
         },
     )
 
-    if block_check:
+    if block_check_1 or block_check_2:
         # Return 404 to not reveal that the user exists
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

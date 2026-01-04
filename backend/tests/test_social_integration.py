@@ -245,9 +245,11 @@ def test_blocked_user_hidden_from_profile(
         "avatar_url": None,
     }
 
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile exists
-        [{"id": "block-id"}],  # Block exists
+        [{"id": "block-id"}],  # Block check 1: current user blocked target
+        [],  # Block check 2: target blocked current user (not needed for this test)
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -376,8 +378,10 @@ def test_email_lookup_hides_blocked_users(
         lookup_result,  # Email lookup finds user
         [{"user_id": OTHER_USER_ID, "count": 0}],  # Country count (for timing)
     ]
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
-        [{"id": "block-id"}],  # Block exists - user should be hidden
+        [{"id": "block-id"}],  # Block check 1: current user blocked target
+        [],  # Block check 2: target blocked current user (not needed for this test)
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)

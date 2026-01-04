@@ -36,6 +36,11 @@ export function FollowButton({
   const isLoading = followMutation.isPending || unfollowMutation.isPending;
 
   const handlePress = useCallback(() => {
+    // Prevent rapid clicks during pending mutations to avoid state desync
+    if (isLoading) {
+      return;
+    }
+
     if (optimisticFollowing) {
       // Optimistically update UI immediately
       setOptimisticFollowing(false);
@@ -63,7 +68,7 @@ export function FollowButton({
         },
       });
     }
-  }, [optimisticFollowing, followMutation, unfollowMutation, onFollowChange]);
+  }, [optimisticFollowing, followMutation, unfollowMutation, onFollowChange, isLoading]);
 
   const isSmall = size === 'small';
 

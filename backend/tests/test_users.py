@@ -233,8 +233,10 @@ def test_email_lookup_found(
         lookup_result,  # Email lookup RPC
         [{"user_id": OTHER_USER_ID, "count": 10}],  # Country count
     ]
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
-        [],  # No blocks
+        [],  # Block check 1: current user blocked target - no block
+        [],  # Block check 2: target blocked current user - no block
         [],  # Not following
     ]
 
@@ -347,9 +349,11 @@ def test_get_user_profile_success(
         "avatar_url": "https://example.com/avatar.jpg",
     }
 
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile lookup
-        [],  # Block check - not blocked
+        [],  # Block check 1: current user blocked target - not blocked
+        [],  # Block check 2: target blocked current user - not blocked
         [{"id": "is-following"}],  # Is following check
     ]
     mock_supabase_client.rpc.return_value = [
@@ -415,9 +419,11 @@ def test_get_user_profile_blocked_returns_404(
         "avatar_url": None,
     }
 
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile lookup
-        [{"id": "block-id"}],  # Block check - IS blocked
+        [{"id": "block-id"}],  # Block check 1: current user blocked target - IS blocked
+        [],  # Block check 2: target blocked current user (not needed for this test)
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -448,9 +454,11 @@ def test_get_user_profile_not_following(
         "avatar_url": None,
     }
 
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
         [sample_profile],  # Profile lookup
-        [],  # Block check - not blocked
+        [],  # Block check 1: current user blocked target - not blocked
+        [],  # Block check 2: target blocked current user - not blocked
         [],  # Is following check - NOT following
     ]
     mock_supabase_client.rpc.return_value = [

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -40,6 +40,9 @@ export function UserSearchBar({
     action: 'follow' | 'unfollow';
   } | null>(null);
 
+  // Ref to track blur timeout for cleanup
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { data: users, isLoading } = useUserSearch(query, {
     enabled: query.length >= 2,
   });
@@ -47,6 +50,15 @@ export function UserSearchBar({
   useEffect(() => {
     setDisplayUsers(users);
   }, [users]);
+
+  // Cleanup blur timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!recentFollow) return;
@@ -117,7 +129,13 @@ export function UserSearchBar({
               autoCapitalize="none"
               autoCorrect={false}
               onFocus={() => setIsFocused(true)}
-              onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+              onBlur={() => {
+                // Clear any existing timeout before setting a new one
+                if (blurTimeoutRef.current) {
+                  clearTimeout(blurTimeoutRef.current);
+                }
+                blurTimeoutRef.current = setTimeout(() => setIsFocused(false), 200);
+              }}
             />
             {isLoading && <ActivityIndicator size="small" color={colors.adobeBrick} />}
             {query.length > 0 && !isLoading && (
