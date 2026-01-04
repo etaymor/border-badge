@@ -209,11 +209,7 @@ function TripPartnersComponent({
     );
   }
 
-  return (
-    <View accessibilityLabel={accessibilityLabel}>
-      {content}
-    </View>
-  );
+  return <View accessibilityLabel={accessibilityLabel}>{content}</View>;
 }
 
 export const TripPartners = memo(TripPartnersComponent);

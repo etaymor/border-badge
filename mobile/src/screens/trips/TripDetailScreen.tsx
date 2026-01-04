@@ -69,7 +69,8 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const restoreTrip = useRestoreTrip();
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
-  const hasPartners = (trip?.tags && trip.tags.length > 0) || (trip?.owner && trip.owner.user_id !== currentUserId);
+  const hasPartners =
+    (trip?.tags && trip.tags.length > 0) || (trip?.owner && trip.owner.user_id !== currentUserId);
 
   const handleAddEntry = useCallback(() => {
     navigation.navigate('EntryForm', { tripId });
