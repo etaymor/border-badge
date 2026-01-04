@@ -1,0 +1,8 @@
+Hi {display_name},
+
+Your passport is starting to fill up! It's amazing to see your travel history come together.
+
+Have you added any trips yet? They're perfect for capturing the details of your adventures - the places, the food, the stays, and those special experiences.
+
+Keep exploring,
+Emerson

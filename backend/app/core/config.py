@@ -66,6 +66,13 @@ class Settings(BaseSettings):
         description="Minimum confidence score (0.0-1.0) for place extraction",
     )
 
+    # Email (Resend)
+    resend_api_key: str = ""
+    welcome_email_from: str = "hello@atlasi.app"
+
+    # Feature flags
+    enable_social_features: bool = False
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

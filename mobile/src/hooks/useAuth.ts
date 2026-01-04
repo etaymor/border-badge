@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import {
+  api,
   clearOnboardingComplete,
   clearTokens,
   storeOnboardingComplete,
@@ -53,7 +54,7 @@ export function useSignUpWithPassword() {
 
       return data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables) => {
       if (data.session) {
         await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
@@ -63,6 +64,15 @@ export function useSignUpWithPassword() {
           await migrateGuestData(data.session);
         } catch {
           console.warn('Migration failed for new password user');
+        }
+
+        // Schedule welcome emails for new user
+        try {
+          await api.post('/welcome/emails', {
+            display_name: variables.displayName,
+          });
+        } catch {
+          console.warn('Failed to schedule welcome emails');
         }
 
         // New sign-up, so onboarding not completed

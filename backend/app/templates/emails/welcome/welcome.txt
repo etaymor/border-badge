@@ -1,0 +1,11 @@
+Hi {display_name},
+
+Welcome to Atlasi! I'm so glad you're here.
+
+Atlasi is all about celebrating your travels - past, present, and future. Whether you've visited 5 countries or 50, every journey matters.
+
+Start by marking the countries you've already visited. Your passport grid will come to life as you add your travel history.
+
+Happy travels,
+Emerson
+Founder, Atlasi
