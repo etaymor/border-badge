@@ -71,8 +71,8 @@ export function useSignUpWithPassword() {
           await api.post('/welcome/emails', {
             display_name: variables.displayName,
           });
-        } catch {
-          console.warn('Failed to schedule welcome emails');
+        } catch (error) {
+          console.warn('Failed to schedule welcome emails:', error);
         }
 
         // New sign-up, so onboarding not completed

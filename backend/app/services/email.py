@@ -102,7 +102,33 @@ def _redact_email(email: str) -> str:
     return hashlib.sha256(email.encode()).hexdigest()[:12]
 
 
-async def schedule_welcome_emails(email: str, display_name: str) -> list[str]:
+class WelcomeEmailResult:
+    """Result of scheduling welcome emails."""
+
+    def __init__(
+        self,
+        email_ids: list[str],
+        total_attempted: int,
+        skipped: bool = False,
+    ):
+        self.email_ids = email_ids
+        self.total_attempted = total_attempted
+        self.skipped = skipped
+
+    @property
+    def success_count(self) -> int:
+        return len(self.email_ids)
+
+    @property
+    def failed_count(self) -> int:
+        return self.total_attempted - len(self.email_ids)
+
+    @property
+    def all_failed(self) -> bool:
+        return self.total_attempted > 0 and len(self.email_ids) == 0
+
+
+async def schedule_welcome_emails(email: str, display_name: str) -> WelcomeEmailResult:
     """Schedule all welcome emails for a new user.
 
     Uses async httpx to call Resend API directly, avoiding blocking calls
@@ -113,16 +139,17 @@ async def schedule_welcome_emails(email: str, display_name: str) -> list[str]:
         display_name: User's display name for personalization
 
     Returns:
-        List of Resend email IDs for scheduled emails
+        WelcomeEmailResult with email IDs and success/failure counts
     """
     settings = get_settings()
     redacted_email = _redact_email(email)
 
     if not settings.resend_api_key:
         logger.warning("Resend API key not configured, skipping welcome emails")
-        return []
+        return WelcomeEmailResult(email_ids=[], total_attempted=0, skipped=True)
 
-    email_ids = []
+    email_ids: list[str] = []
+    total_attempted = len(WELCOME_EMAILS)
     now = datetime.now(UTC)
 
     # Use async httpx client with API key passed per-request (no global state)
@@ -186,4 +213,4 @@ async def schedule_welcome_emails(email: str, display_name: str) -> list[str]:
                 )
                 # Continue scheduling remaining emails even if one fails
 
-    return email_ids
+    return WelcomeEmailResult(email_ids=email_ids, total_attempted=total_attempted)

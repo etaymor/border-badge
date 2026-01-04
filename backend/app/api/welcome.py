@@ -3,7 +3,7 @@
 import hashlib
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.security import CurrentUser
@@ -57,8 +57,20 @@ async def trigger_welcome_emails(
     Includes idempotency protection: if welcome emails have already been
     scheduled for this user, the endpoint returns early without duplicating.
     """
+    # Guard: ensure user has an email before scheduling
+    if user.email is None:
+        logger.error(
+            "Cannot schedule welcome emails: user email is missing",
+            extra={"user_id": user.id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="User email is missing",
+        )
+
+    user_email = user.email  # Now guaranteed to be str
     display_name = body.display_name or "there"
-    redacted_email = _redact_email(user.email)
+    redacted_email = _redact_email(user_email)
 
     # Use service role client for profile lookup/update (bypasses RLS)
     supabase = get_supabase_client()
@@ -86,14 +98,43 @@ async def trigger_welcome_emails(
     )
 
     # Schedule emails (async, no blocking)
-    email_ids = await schedule_welcome_emails(user.email, display_name)
+    result = await schedule_welcome_emails(user_email, display_name)
 
-    # Mark welcome emails as scheduled to prevent duplicates
-    if email_ids:
-        await supabase.upsert(
-            "user_profile",
-            data=[{"user_id": user.id, "welcome_emails_scheduled": True}],
-            on_conflict="user_id",
+    # Handle different outcomes
+    if result.skipped:
+        # API key not configured - skip silently in dev, but don't mark as scheduled
+        return WelcomeEmailResponse(status="skipped", email_count=0)
+
+    if result.all_failed:
+        # All emails failed to schedule - log error but don't mark as scheduled
+        # This allows retry on next signup attempt
+        logger.error(
+            "All welcome emails failed to schedule",
+            extra={
+                "user_id": user.id,
+                "recipient_hash": redacted_email,
+                "total_attempted": result.total_attempted,
+            },
+        )
+        return WelcomeEmailResponse(status="failed", email_count=0)
+
+    # At least some emails scheduled - mark as scheduled to prevent duplicates
+    await supabase.upsert(
+        "user_profile",
+        data=[{"user_id": user.id, "welcome_emails_scheduled": True}],
+        on_conflict="user_id",
+    )
+
+    # Log if partial failure
+    if result.failed_count > 0:
+        logger.warning(
+            "Some welcome emails failed to schedule",
+            extra={
+                "user_id": user.id,
+                "recipient_hash": redacted_email,
+                "success_count": result.success_count,
+                "failed_count": result.failed_count,
+            },
         )
 
-    return WelcomeEmailResponse(status="scheduled", email_count=len(email_ids))
+    return WelcomeEmailResponse(status="scheduled", email_count=result.success_count)

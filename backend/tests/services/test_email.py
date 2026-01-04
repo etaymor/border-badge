@@ -125,14 +125,16 @@ class TestScheduleWelcomeEmails:
     """Tests for schedule_welcome_emails function."""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_without_api_key(self) -> None:
-        """Test that empty list is returned when API key is not configured."""
+    async def test_returns_skipped_result_without_api_key(self) -> None:
+        """Test that skipped result is returned when API key is not configured."""
         with patch("app.services.email.get_settings") as mock_settings:
             mock_settings.return_value.resend_api_key = ""
 
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
-            assert result == []
+            assert result.skipped is True
+            assert result.email_ids == []
+            assert result.total_attempted == 0
 
     @pytest.mark.asyncio
     async def test_logs_warning_without_api_key(self) -> None:
@@ -168,7 +170,9 @@ class TestScheduleWelcomeEmails:
 
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
-            assert len(result) == 5
+            assert result.success_count == 5
+            assert result.total_attempted == 5
+            assert result.failed_count == 0
             assert mock_client.post.call_count == 5
 
     @pytest.mark.asyncio
@@ -195,7 +199,13 @@ class TestScheduleWelcomeEmails:
 
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
-            assert result == ["email_1", "email_2", "email_3", "email_4", "email_5"]
+            assert result.email_ids == [
+                "email_1",
+                "email_2",
+                "email_3",
+                "email_4",
+                "email_5",
+            ]
 
     @pytest.mark.asyncio
     async def test_uses_correct_from_address(self) -> None:
@@ -302,9 +312,11 @@ class TestScheduleWelcomeEmails:
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
             # Should return 4 IDs (5 total minus 1 failure)
-            assert len(result) == 4
-            assert "email_1" in result
-            assert "email_3" in result
+            assert result.success_count == 4
+            assert result.failed_count == 1
+            assert result.total_attempted == 5
+            assert "email_1" in result.email_ids
+            assert "email_3" in result.email_ids
 
             # Should log the error
             mock_logger.error.assert_called()

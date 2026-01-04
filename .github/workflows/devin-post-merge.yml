@@ -1,0 +1,100 @@
+# .github/workflows/devin-post-merge.yml
+name: Devin Post-Merge Automation
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  devin_e2e:
+    name: Devin - Update E2E Tests (Playbook)
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build per-PR prompt (E2E)
+        id: prompt
+        shell: bash
+        run: |
+          cat > prompt.txt << 'EOF'
+          Trigger: PR merged with label "e2e"
+
+          Repo: ${{ github.repository }}
+          PR #: ${{ github.event.pull_request.number }}
+          PR URL: ${{ github.event.pull_request.html_url }}
+
+          Execute the E2E Post-Merge Fixer playbook for this PR context.
+          EOF
+          echo "escaped=$(jq -Rs . < prompt.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Devin session (E2E playbook)
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_E2E_PLAYBOOK_ID: ${{ secrets.DEVIN_E2E_PLAYBOOK_ID }}
+        shell: bash
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "prompt": ${{ steps.prompt.outputs.escaped }},
+            "playbook_id": "${DEVIN_E2E_PLAYBOOK_ID}",
+            "idempotent": false,
+            "tags": ["post-merge","e2e","pr-${{ github.event.pull_request.number }}"],
+            "title": "E2E after PR #${{ github.event.pull_request.number }}"
+          }
+          EOF
+          )
+
+          curl -sS -X POST "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer $DEVIN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+  devin_docs:
+    name: Devin - Update Docs (Playbook)
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'ai-docs')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build per-PR prompt (Docs)
+        id: prompt
+        shell: bash
+        run: |
+          cat > prompt.txt << 'EOF'
+          Trigger: PR merged with label "ai-docs"
+
+          Repo: ${{ github.repository }}
+          PR #: ${{ github.event.pull_request.number }}
+          PR URL: ${{ github.event.pull_request.html_url }}
+
+          Execute the Docs Post-Merge Updater playbook for this PR context.
+          EOF
+          echo "escaped=$(jq -Rs . < prompt.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Devin session (Docs playbook)
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_DOCS_PLAYBOOK_ID: ${{ secrets.DEVIN_DOCS_PLAYBOOK_ID }}
+        shell: bash
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "prompt": ${{ steps.prompt.outputs.escaped }},
+            "playbook_id": "${DEVIN_DOCS_PLAYBOOK_ID}",
+            "idempotent": false,
+            "tags": ["post-merge","docs","pr-${{ github.event.pull_request.number }}"],
+            "title": "Docs after PR #${{ github.event.pull_request.number }}"
+          }
+          EOF
+          )
+
+          curl -sS -X POST "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer $DEVIN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"

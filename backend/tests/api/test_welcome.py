@@ -1,6 +1,6 @@
 """Tests for welcome email API endpoints."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +9,20 @@ from app.core.security import AuthUser, get_current_user
 from app.main import app, limiter
 
 from ..conftest import TEST_USER_ID
+
+
+def _mock_email_result(
+    email_ids: list[str], total_attempted: int = 5, skipped: bool = False
+):
+    """Create a mock WelcomeEmailResult for testing."""
+    mock = MagicMock()
+    mock.email_ids = email_ids
+    mock.total_attempted = total_attempted
+    mock.skipped = skipped
+    mock.success_count = len(email_ids)
+    mock.failed_count = total_attempted - len(email_ids)
+    mock.all_failed = total_attempted > 0 and len(email_ids) == 0
+    return mock
 
 
 @pytest.fixture
@@ -87,7 +101,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1", "id2"],
+                return_value=_mock_email_result(["id1", "id2"]),
             ),
         ):
             client = TestClient(app)
@@ -146,7 +160,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -180,7 +194,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -212,7 +226,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -244,7 +258,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -277,7 +291,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -334,7 +348,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ) as mock_schedule,
         ):
             client = TestClient(app)
@@ -367,7 +381,7 @@ class TestTriggerWelcomeEmails:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1", "id2"],
+                return_value=_mock_email_result(["id1", "id2"]),
             ),
         ):
             client = TestClient(app)
@@ -406,7 +420,7 @@ class TestRateLimiting:
             patch(
                 "app.api.welcome.schedule_welcome_emails",
                 new_callable=AsyncMock,
-                return_value=["id1"],
+                return_value=_mock_email_result(["id1"]),
             ),
         ):
             client = TestClient(app)
