@@ -33,16 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_signing_secret() -> str:
-    """Get the signing secret, generating a development fallback if needed."""
+    """Get the signing secret with production validation."""
     settings = get_settings()
-    secret = settings.affiliate_signing_secret
-    if not secret:
-        if settings.is_production:
-            raise ValueError("AFFILIATE_SIGNING_SECRET must be set in production")
-        # Use a consistent dev secret for testing
-        secret = "dev-affiliate-signing-secret-do-not-use-in-prod"
-        logger.warning("Using development fallback for affiliate signing secret")
-    return secret
+    return settings.AFFILIATE_SIGNING_SECRET
 
 
 def generate_signature(

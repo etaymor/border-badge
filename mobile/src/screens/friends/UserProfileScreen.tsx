@@ -259,7 +259,11 @@ export function UserProfileScreen({ navigation, route }: Props) {
                 <View style={styles.profileInfo}>
                   <Text style={styles.displayName}>{profile.display_name}</Text>
                   <View style={styles.actionRow}>
-                    <FollowButton userId={profile.user_id} username={profile.username} isFollowing={profile.is_following} />
+                    <FollowButton
+                      userId={profile.user_id}
+                      username={profile.username}
+                      isFollowing={profile.is_following}
+                    />
                   </View>
                 </View>
               </View>

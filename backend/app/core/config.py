@@ -65,6 +65,15 @@ class Settings(BaseSettings):
             return self.invite_signing_secret
         return self.invite_signing_secret or "dev-secret-change-in-production"
 
+    @property
+    def AFFILIATE_SIGNING_SECRET(self) -> str:
+        """Get affiliate signing secret with strict production requirements."""
+        if self.env == "production":
+            if not self.affiliate_signing_secret:
+                raise ValueError("AFFILIATE_SIGNING_SECRET must be set in production")
+            return self.affiliate_signing_secret
+        return self.affiliate_signing_secret or "dev-secret-change-in-production"
+
     # Social ingest - marked as secrets to prevent logging exposure
     instagram_oembed_token: str = Field(
         default="", repr=False

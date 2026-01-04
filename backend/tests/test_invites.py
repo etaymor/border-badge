@@ -123,7 +123,10 @@ def test_send_invite_existing_user_returns_400(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that inviting an existing user returns 400."""
+    """Test that inviting an existing user returns 400.
+
+    Note: The error message is intentionally generic to prevent email enumeration.
+    """
     mock_supabase_client.rpc.return_value = [{"exists": True}]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -137,7 +140,8 @@ def test_send_invite_existing_user_returns_400(
                 json={"email": SAMPLE_EMAIL},
             )
         assert response.status_code == 400
-        assert "already exists" in response.json()["detail"]
+        # Generic message to prevent email enumeration attacks
+        assert "Unable to send invite" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
 

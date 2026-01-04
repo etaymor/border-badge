@@ -49,6 +49,13 @@ async def follow_user(
 
     # Check for blocks (bidirectional)
     # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
+    #
+    # RACE CONDITION NOTE: There is a theoretical TOCTOU race between these block checks
+    # and the follow insert below. Another request could create a block after we check
+    # but before we insert. For complete protection, consider adding a database trigger
+    # or constraint that prevents user_follow rows where a block exists. For this app's
+    # scale, the risk is minimal and the current approach prioritizes code clarity and
+    # SQL injection safety over absolute atomicity.
     block_check_1 = await db.get(
         "user_block",
         {
