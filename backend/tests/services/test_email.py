@@ -1,11 +1,15 @@
 """Tests for email service functionality."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
 
 from app.services.email import (
     TEMPLATES_DIR,
     WELCOME_EMAILS,
     _load_template_content,
+    _redact_email,
     load_email_template,
     schedule_welcome_emails,
 )
@@ -94,140 +98,208 @@ class TestLoadEmailTemplate:
         assert result is None
 
 
+class TestRedactEmail:
+    """Tests for _redact_email function."""
+
+    def test_returns_hash_prefix(self) -> None:
+        """Test that email is hashed and truncated."""
+        result = _redact_email("test@example.com")
+        assert len(result) == 12
+        assert result.isalnum()
+
+    def test_consistent_hashing(self) -> None:
+        """Test that same email always produces same hash."""
+        email = "user@test.com"
+        result1 = _redact_email(email)
+        result2 = _redact_email(email)
+        assert result1 == result2
+
+    def test_different_emails_produce_different_hashes(self) -> None:
+        """Test that different emails produce different hashes."""
+        result1 = _redact_email("alice@example.com")
+        result2 = _redact_email("bob@example.com")
+        assert result1 != result2
+
+
 class TestScheduleWelcomeEmails:
     """Tests for schedule_welcome_emails function."""
 
-    def test_returns_empty_list_without_api_key(self) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_without_api_key(self) -> None:
         """Test that empty list is returned when API key is not configured."""
         with patch("app.services.email.get_settings") as mock_settings:
-            mock_settings.return_value.resend_api_key = None
+            mock_settings.return_value.resend_api_key = ""
 
-            result = schedule_welcome_emails("test@example.com", "Test User")
+            result = await schedule_welcome_emails("test@example.com", "Test User")
 
             assert result == []
 
-    def test_logs_warning_without_api_key(self) -> None:
+    @pytest.mark.asyncio
+    async def test_logs_warning_without_api_key(self) -> None:
         """Test that warning is logged when API key is not configured."""
         with (
             patch("app.services.email.get_settings") as mock_settings,
             patch("app.services.email.logger") as mock_logger,
         ):
-            mock_settings.return_value.resend_api_key = None
+            mock_settings.return_value.resend_api_key = ""
 
-            schedule_welcome_emails("test@example.com", "Test User")
+            await schedule_welcome_emails("test@example.com", "Test User")
 
             mock_logger.warning.assert_called_once()
             assert "not configured" in mock_logger.warning.call_args[0][0]
 
-    def test_schedules_all_five_emails(self) -> None:
+    @pytest.mark.asyncio
+    async def test_schedules_all_five_emails(self) -> None:
         """Test that all 5 welcome emails are scheduled."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
 
-            mock_resend.Emails.send.return_value = {"id": "email_123"}
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            result = schedule_welcome_emails("test@example.com", "Test User")
+            result = await schedule_welcome_emails("test@example.com", "Test User")
 
             assert len(result) == 5
-            assert mock_resend.Emails.send.call_count == 5
+            assert mock_client.post.call_count == 5
 
-    def test_returns_email_ids(self) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_email_ids(self) -> None:
         """Test that email IDs are returned for scheduled emails."""
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
 
-            # Return different IDs for each email
-            mock_resend.Emails.send.side_effect = [
-                {"id": "email_1"},
-                {"id": "email_2"},
-                {"id": "email_3"},
-                {"id": "email_4"},
-                {"id": "email_5"},
-            ]
+            # Create responses with different IDs
+            responses = []
+            for i in range(1, 6):
+                mock_resp = MagicMock()
+                mock_resp.json.return_value = {"id": f"email_{i}"}
+                mock_resp.raise_for_status = MagicMock()
+                responses.append(mock_resp)
 
-            result = schedule_welcome_emails("test@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = responses
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await schedule_welcome_emails("test@example.com", "Test User")
 
             assert result == ["email_1", "email_2", "email_3", "email_4", "email_5"]
 
-    def test_uses_correct_from_address(self) -> None:
+    @pytest.mark.asyncio
+    async def test_uses_correct_from_address(self) -> None:
         """Test that configured from address is used."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "noreply@atlasi.com"
-            mock_resend.Emails.send.return_value = {"id": "email_123"}
 
-            schedule_welcome_emails("test@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await schedule_welcome_emails("test@example.com", "Test User")
 
             # Check the from address in the first call
-            call_args = mock_resend.Emails.send.call_args_list[0]
-            params = call_args[0][0]  # First positional argument
-            assert params["from"] == "noreply@atlasi.com"
+            call_args = mock_client.post.call_args_list[0]
+            payload = call_args.kwargs["json"]
+            assert payload["from"] == "noreply@atlasi.com"
 
-    def test_uses_correct_recipient(self) -> None:
+    @pytest.mark.asyncio
+    async def test_uses_correct_recipient(self) -> None:
         """Test that correct recipient email is used."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
-            mock_resend.Emails.send.return_value = {"id": "email_123"}
 
-            schedule_welcome_emails("user@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            call_args = mock_resend.Emails.send.call_args_list[0]
-            params = call_args[0][0]
-            assert params["to"] == ["user@example.com"]
+            await schedule_welcome_emails("user@example.com", "Test User")
 
-    def test_includes_scheduled_at(self) -> None:
+            call_args = mock_client.post.call_args_list[0]
+            payload = call_args.kwargs["json"]
+            assert payload["to"] == ["user@example.com"]
+
+    @pytest.mark.asyncio
+    async def test_includes_scheduled_at(self) -> None:
         """Test that scheduled_at is set for each email."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
-            mock_resend.Emails.send.return_value = {"id": "email_123"}
 
-            schedule_welcome_emails("test@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            for call in mock_resend.Emails.send.call_args_list:
-                params = call[0][0]
-                assert "scheduled_at" in params
+            await schedule_welcome_emails("test@example.com", "Test User")
+
+            for call in mock_client.post.call_args_list:
+                payload = call.kwargs["json"]
+                assert "scheduled_at" in payload
                 # ISO format should include "T" separator
-                assert "T" in params["scheduled_at"]
+                assert "T" in payload["scheduled_at"]
 
-    def test_continues_on_single_email_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_continues_on_single_email_failure(self) -> None:
         """Test that scheduling continues if one email fails."""
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
             patch("app.services.email.logger") as mock_logger,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
 
-            # Fail on second email
-            mock_resend.Emails.send.side_effect = [
-                {"id": "email_1"},
-                Exception("API error"),
-                {"id": "email_3"},
-                {"id": "email_4"},
-                {"id": "email_5"},
-            ]
+            # Create responses with one failure
+            responses = []
+            for i in range(1, 6):
+                if i == 2:
+                    # Fail on second email
+                    responses.append(Exception("API error"))
+                else:
+                    mock_resp = MagicMock()
+                    mock_resp.json.return_value = {"id": f"email_{i}"}
+                    mock_resp.raise_for_status = MagicMock()
+                    responses.append(mock_resp)
 
-            result = schedule_welcome_emails("test@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = responses
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await schedule_welcome_emails("test@example.com", "Test User")
 
             # Should return 4 IDs (5 total minus 1 failure)
             assert len(result) == 4
@@ -237,21 +309,110 @@ class TestScheduleWelcomeEmails:
             # Should log the error
             mock_logger.error.assert_called()
 
-    def test_logs_error_on_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_logs_error_on_failure(self) -> None:
         """Test that errors are logged when email scheduling fails."""
         with (
             patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
+            patch("httpx.AsyncClient") as mock_client_class,
             patch("app.services.email.logger") as mock_logger,
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
-            mock_resend.Emails.send.side_effect = Exception("Network error")
 
-            schedule_welcome_emails("test@example.com", "Test User")
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = Exception("Network error")
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await schedule_welcome_emails("test@example.com", "Test User")
 
             # Should log error for each failed email (5 failures)
             assert mock_logger.error.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_handles_http_status_error(self) -> None:
+        """Test that HTTP status errors are handled properly."""
+        with (
+            patch("app.services.email.get_settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_client_class,
+            patch("app.services.email.logger") as mock_logger,
+        ):
+            mock_settings.return_value.resend_api_key = "re_test_key"
+            mock_settings.return_value.welcome_email_from = "hello@test.com"
+
+            # Create an HTTP error response
+            mock_response = MagicMock()
+            mock_response.status_code = 400
+            http_error = httpx.HTTPStatusError(
+                "Bad Request", request=MagicMock(), response=mock_response
+            )
+
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = http_error
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await schedule_welcome_emails("test@example.com", "Test User")
+
+            # Should log errors with status code
+            assert mock_logger.error.call_count == 5
+            # Check that status code is in extra dict
+            call_extra = mock_logger.error.call_args_list[0].kwargs["extra"]
+            assert call_extra["status_code"] == 400
+
+    @pytest.mark.asyncio
+    async def test_logs_use_redacted_email(self) -> None:
+        """Test that logs use redacted email hash, not plaintext."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
+        with (
+            patch("app.services.email.get_settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_client_class,
+            patch("app.services.email.logger") as mock_logger,
+        ):
+            mock_settings.return_value.resend_api_key = "re_test_key"
+            mock_settings.return_value.welcome_email_from = "hello@test.com"
+
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await schedule_welcome_emails("secret@example.com", "Test User")
+
+            # Check that info logs use recipient_hash not recipient
+            for call in mock_logger.info.call_args_list:
+                extra = call.kwargs.get("extra", {})
+                assert "recipient" not in extra
+                if "recipient_hash" in extra:
+                    # Should be a hash, not the actual email
+                    assert "secret@example.com" not in extra["recipient_hash"]
+                    assert len(extra["recipient_hash"]) == 12
+
+    @pytest.mark.asyncio
+    async def test_uses_bearer_auth(self) -> None:
+        """Test that API key is passed in Bearer auth header."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"id": "email_123"}
+        mock_response.raise_for_status = MagicMock()
+
+        with (
+            patch("app.services.email.get_settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_client_class,
+        ):
+            mock_settings.return_value.resend_api_key = "re_secret_key"
+            mock_settings.return_value.welcome_email_from = "hello@test.com"
+
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await schedule_welcome_emails("test@example.com", "Test User")
+
+            # Check that Bearer auth header is used
+            call_args = mock_client.post.call_args_list[0]
+            headers = call_args.kwargs["headers"]
+            assert headers["Authorization"] == "Bearer re_secret_key"
 
     def test_email_delays_are_correct(self) -> None:
         """Test that email delay configuration is correct."""
@@ -266,17 +427,3 @@ class TestScheduleWelcomeEmails:
         for config in WELCOME_EMAILS:
             assert "subject" in config
             assert len(config["subject"]) > 0
-
-    def test_sets_resend_api_key(self) -> None:
-        """Test that Resend API key is set before sending."""
-        with (
-            patch("app.services.email.get_settings") as mock_settings,
-            patch("app.services.email.resend") as mock_resend,
-        ):
-            mock_settings.return_value.resend_api_key = "re_secret_key"
-            mock_settings.return_value.welcome_email_from = "hello@test.com"
-            mock_resend.Emails.send.return_value = {"id": "email_123"}
-
-            schedule_welcome_emails("test@example.com", "Test User")
-
-            assert mock_resend.api_key == "re_secret_key"

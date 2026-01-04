@@ -66,8 +66,8 @@ class Settings(BaseSettings):
         description="Minimum confidence score (0.0-1.0) for place extraction",
     )
 
-    # Email (Resend)
-    resend_api_key: str = ""
+    # Email (Resend) - marked as secret to prevent logging exposure
+    resend_api_key: str = Field(default="", repr=False)
     welcome_email_from: str = "hello@atlasi.app"
 
     # Feature flags
