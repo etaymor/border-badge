@@ -173,6 +173,7 @@ export function UserSearchBar({
                   </View>
                   <FollowButton
                     userId={item.id}
+                    username={item.username}
                     isFollowing={item.is_following}
                     size="small"
                     onFollowChange={(next) => handleFollowStateChange(item.id, item.username, next)}

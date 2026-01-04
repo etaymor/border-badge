@@ -47,16 +47,17 @@ async def register_push_token(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Update the user's push token
-    await db.patch(
-        "user_profile",
+    # Upsert push token in dedicated table (strict RLS - owner only)
+    await db.post(
+        "push_token",
         {
-            "push_token": data.token,
-            "push_platform": data.platform,
+            "user_id": str(user.id),
+            "token": data.token,
+            "platform": data.platform,
+            "updated_at": "now()",
         },
-        {
-            "user_id": f"eq.{user.id}",
-        },
+        upsert=True,
+        on_conflict="user_id",
     )
 
     logger.info(
@@ -80,13 +81,9 @@ async def unregister_push_token(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Clear the user's push token
-    await db.patch(
-        "user_profile",
-        {
-            "push_token": None,
-            "push_platform": None,
-        },
+    # Delete push token from dedicated table
+    await db.delete(
+        "push_token",
         {
             "user_id": f"eq.{user.id}",
         },

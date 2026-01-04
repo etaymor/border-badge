@@ -20,8 +20,6 @@ import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
-const ESTIMATED_FEED_ITEM_HEIGHT = 420;
-
 export function FriendsScreen({ navigation }: Props) {
   const {
     data: socialData,
@@ -196,7 +194,6 @@ export function FriendsScreen({ navigation }: Props) {
         ListFooterComponent={ListFooter}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        estimatedItemSize={ESTIMATED_FEED_ITEM_HEIGHT}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         refreshControl={

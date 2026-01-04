@@ -54,6 +54,9 @@ async def cleanup_test_users(
 
     logger.info("Deleting follows...")
     for user_id in test_user_ids:
+        # Delete follows where test user is the follower or being followed
+        # Note: Follows from real users to test users will also be deleted since
+        # the test users will be deleted and FK constraints would fail anyway
         await db.delete("user_follow", {"follower_id": f"eq.{user_id}"})
         await db.delete("user_follow", {"following_id": f"eq.{user_id}"})
 

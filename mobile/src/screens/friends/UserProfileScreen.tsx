@@ -83,8 +83,6 @@ function ProfileStatBox({
 
 type Props = FriendsStackScreenProps<'UserProfile'>;
 
-const PROFILE_FEED_ITEM_ESTIMATED_HEIGHT = 420;
-
 export function UserProfileScreen({ navigation, route }: Props) {
   const { userId, username } = route.params;
   const insets = useSafeAreaInsets();
@@ -246,7 +244,6 @@ export function UserProfileScreen({ navigation, route }: Props) {
         data={feedItems}
         renderItem={renderFeedItem}
         keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
-        estimatedItemSize={PROFILE_FEED_ITEM_ESTIMATED_HEIGHT}
         ListHeaderComponent={
           <>
             {/* Avatar and Identity */}
@@ -262,7 +259,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
                 <View style={styles.profileInfo}>
                   <Text style={styles.displayName}>{profile.display_name}</Text>
                   <View style={styles.actionRow}>
-                    <FollowButton userId={profile.user_id} isFollowing={profile.is_following} />
+                    <FollowButton userId={profile.user_id} username={profile.username} isFollowing={profile.is_following} />
                   </View>
                 </View>
               </View>

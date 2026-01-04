@@ -132,18 +132,18 @@ async def follow_user(
                 or "Someone"
             )
 
-            # Get followed user's push token
-            followed_profile = await admin_db.get(
-                "user_profile",
+            # Get followed user's push token from dedicated table
+            push_token_row = await admin_db.get(
+                "push_token",
                 {
-                    "select": "push_token",
+                    "select": "token",
                     "user_id": f"eq.{user_id}",
                 },
             )
-            if not followed_profile or not followed_profile[0].get("push_token"):
+            if not push_token_row or not push_token_row[0].get("token"):
                 return
 
-            push_token = followed_profile[0]["push_token"]
+            push_token = push_token_row[0]["token"]
 
             await send_push_notification(
                 tokens=[push_token],

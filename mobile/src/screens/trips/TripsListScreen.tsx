@@ -35,8 +35,6 @@ type TripsListRenderable =
   | { type: 'header'; title: string; key: string }
   | { type: 'trip'; trip: TripWithTags; key: string };
 
-const ESTIMATED_TRIP_ROW_HEIGHT = 220;
-
 const SectionHeader = ({ title }: { title: string }) => {
   return (
     <View style={styles.sectionHeader}>
@@ -242,7 +240,6 @@ export function TripsListScreen({ navigation }: Props) {
         data={flatData}
         keyExtractor={(item) => item.key}
         renderItem={renderFlatItem}
-        estimatedItemSize={ESTIMATED_TRIP_ROW_HEIGHT}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}

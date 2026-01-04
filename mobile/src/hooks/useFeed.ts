@@ -33,7 +33,7 @@ export interface FeedItem {
   entry: FeedItemEntry | null;
 }
 
-interface FeedResponse {
+export interface FeedResponse {
   items: FeedItem[];
   next_cursor: string | null;
   has_more: boolean;

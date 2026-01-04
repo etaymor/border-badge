@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -9,6 +9,7 @@ import { useFollowUser, useUnfollowUser } from '@hooks/useFollows';
 
 interface FollowButtonProps {
   userId: string;
+  username?: string;
   isFollowing: boolean;
   onFollowChange?: (isFollowing: boolean) => void;
   size?: 'small' | 'medium';
@@ -16,36 +17,57 @@ interface FollowButtonProps {
 
 export function FollowButton({
   userId,
-  isFollowing,
+  username,
+  isFollowing: isFollowingProp,
   onFollowChange,
   size = 'medium',
 }: FollowButtonProps) {
-  const followMutation = useFollowUser(userId);
-  const unfollowMutation = useUnfollowUser(userId);
+  // Local optimistic state for instant UI feedback
+  const [optimisticFollowing, setOptimisticFollowing] = useState(isFollowingProp);
+
+  // Sync with prop when it changes (e.g., after refetch)
+  useEffect(() => {
+    setOptimisticFollowing(isFollowingProp);
+  }, [isFollowingProp]);
+
+  const followMutation = useFollowUser(userId, username);
+  const unfollowMutation = useUnfollowUser(userId, username);
 
   const isLoading = followMutation.isPending || unfollowMutation.isPending;
 
   const handlePress = useCallback(() => {
-    if (isFollowing) {
+    if (optimisticFollowing) {
+      // Optimistically update UI immediately
+      setOptimisticFollowing(false);
       unfollowMutation.mutate(undefined, {
         onSuccess: () => {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           onFollowChange?.(false);
         },
+        onError: () => {
+          // Rollback on error
+          setOptimisticFollowing(true);
+        },
       });
     } else {
+      // Optimistically update UI immediately
+      setOptimisticFollowing(true);
       followMutation.mutate(undefined, {
         onSuccess: () => {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           onFollowChange?.(true);
         },
+        onError: () => {
+          // Rollback on error
+          setOptimisticFollowing(false);
+        },
       });
     }
-  }, [isFollowing, followMutation, unfollowMutation, onFollowChange]);
+  }, [optimisticFollowing, followMutation, unfollowMutation, onFollowChange]);
 
   const isSmall = size === 'small';
 
-  if (isFollowing) {
+  if (optimisticFollowing) {
     return (
       <TouchableOpacity
         style={[styles.followingButton, isSmall && styles.smallButton]}

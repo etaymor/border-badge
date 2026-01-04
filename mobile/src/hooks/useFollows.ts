@@ -91,7 +91,7 @@ export function useFollowers(options?: { limit?: number; offset?: number }) {
 /**
  * Hook to follow a user with optimistic updates.
  */
-export function useFollowUser(userId: string) {
+export function useFollowUser(userId: string, username?: string) {
   const queryClient = useQueryClient();
 
   return useMutation<FollowResponse, Error, void, FollowMutationContext>({
@@ -103,7 +103,7 @@ export function useFollowUser(userId: string) {
     onMutate: async () => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: STATS_KEY });
-      await queryClient.cancelQueries({ queryKey: ['user', userId] });
+      await queryClient.cancelQueries({ queryKey: ['user'] });
 
       // Snapshot previous values
       const previousStats = queryClient.getQueryData<FollowStats>(STATS_KEY);
@@ -134,7 +134,12 @@ export function useFollowUser(userId: string) {
       // Always refetch after mutation
       queryClient.invalidateQueries({ queryKey: STATS_KEY });
       queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
-      queryClient.invalidateQueries({ queryKey: ['user', userId] });
+      // Invalidate all user queries to ensure profile is_following is refreshed
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      // Also invalidate by username if provided for more targeted invalidation
+      if (username) {
+        queryClient.invalidateQueries({ queryKey: ['user', username, 'profile'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['feed'] });
       queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
     },
@@ -144,7 +149,7 @@ export function useFollowUser(userId: string) {
 /**
  * Hook to unfollow a user with optimistic updates.
  */
-export function useUnfollowUser(userId: string) {
+export function useUnfollowUser(userId: string, username?: string) {
   const queryClient = useQueryClient();
 
   return useMutation<FollowResponse, Error, void, FollowMutationContext>({
@@ -156,7 +161,7 @@ export function useUnfollowUser(userId: string) {
     onMutate: async () => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: STATS_KEY });
-      await queryClient.cancelQueries({ queryKey: ['user', userId] });
+      await queryClient.cancelQueries({ queryKey: ['user'] });
 
       // Snapshot previous values
       const previousStats = queryClient.getQueryData<FollowStats>(STATS_KEY);
@@ -187,7 +192,12 @@ export function useUnfollowUser(userId: string) {
       // Always refetch after mutation
       queryClient.invalidateQueries({ queryKey: STATS_KEY });
       queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
-      queryClient.invalidateQueries({ queryKey: ['user', userId] });
+      // Invalidate all user queries to ensure profile is_following is refreshed
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      // Also invalidate by username if provided for more targeted invalidation
+      if (username) {
+        queryClient.invalidateQueries({ queryKey: ['user', username, 'profile'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['feed'] });
       queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
     },
