@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 
@@ -172,7 +173,7 @@ async def get_blocked_users(
         "user_profile",
         {
             "select": "id,user_id,username,avatar_url",
-            "user_id": f"in.({','.join(blocked_ids)})",
+            "user_id": in_list(blocked_ids),
         },
     )
 

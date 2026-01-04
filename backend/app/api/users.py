@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.utils import get_token_from_request
+from app.core.db_utils import get_rpc_first_row
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 
@@ -209,7 +211,7 @@ async def search_users(
         {
             "select": "following_id",
             "follower_id": f"eq.{user.id}",
-            "following_id": f"in.({','.join(user_ids)})",
+            "following_id": in_list(user_ids),
         },
     )
     following_ids = {f["following_id"] for f in follow_check} if follow_check else set()
@@ -374,29 +376,10 @@ async def get_user_profile(
             detail="User not found",
         )
 
-    # Execute remaining queries in parallel for better performance
-    country_task = db.get(
-        "user_countries",
+    stats_task = db.rpc(
+        "get_public_profile_stats",
         {
-            "select": "id",
-            "user_id": f"eq.{target_user_id}",
-            "status": "eq.visited",
-        },
-    )
-
-    follower_task = db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "following_id": f"eq.{target_user_id}",
-        },
-    )
-
-    following_task = db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "follower_id": f"eq.{target_user_id}",
+            "p_user_id": str(target_user_id),
         },
     )
 
@@ -410,13 +393,12 @@ async def get_user_profile(
     )
 
     # Await all queries concurrently
-    country_rows, follower_rows, following_rows, follow_check = await asyncio.gather(
-        country_task, follower_task, following_task, is_following_task
-    )
+    stats_result, follow_check = await asyncio.gather(stats_task, is_following_task)
 
-    country_count = len(country_rows) if country_rows else 0
-    follower_count = len(follower_rows) if follower_rows else 0
-    following_count = len(following_rows) if following_rows else 0
+    stats_row = get_rpc_first_row(stats_result) or {}
+    country_count = int(stats_row.get("country_count") or 0)
+    follower_count = int(stats_row.get("follower_count") or 0)
+    following_count = int(stats_row.get("following_count") or 0)
     is_following = bool(follow_check)
 
     return UserProfileResponse(

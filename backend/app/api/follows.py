@@ -5,42 +5,18 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
-from pydantic import BaseModel
 
 from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_push_notification
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
+from app.schemas.follows import FollowResponse, FollowStats, UserSummary
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-class FollowStats(BaseModel):
-    """Follow statistics for a user."""
-
-    follower_count: int
-    following_count: int
-
-
-class FollowResponse(BaseModel):
-    """Response after follow/unfollow action."""
-
-    status: str
-    following_id: str
-
-
-class UserSummary(BaseModel):
-    """User summary for follower/following lists."""
-
-    id: str
-    user_id: str
-    username: str
-    display_name: str
-    avatar_url: str | None = None
-    country_count: int = 0
 
 
 @router.post("/{user_id}", status_code=201)
@@ -273,7 +249,7 @@ async def get_following(
         "user_profile",
         {
             "select": "id,user_id,username,display_name,avatar_url",
-            "user_id": f"in.({','.join(following_ids)})",
+            "user_id": in_list(following_ids),
         },
     )
 
@@ -344,7 +320,7 @@ async def get_followers(
         "user_profile",
         {
             "select": "id,user_id,username,display_name,avatar_url",
-            "user_id": f"in.({','.join(follower_ids)})",
+            "user_id": in_list(follower_ids),
         },
     )
 

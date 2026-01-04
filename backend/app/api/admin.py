@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.core.security import require_service_role
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.affiliate import OutboundLinkStatus
@@ -146,7 +147,7 @@ async def list_links(
         all_clicks = await db.get(
             "outbound_click",
             {
-                "link_id": f"in.({','.join(link_ids)})",
+                "link_id": in_list(link_ids),
                 "select": "link_id",
             },
         )

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import (
@@ -235,13 +236,13 @@ async def create_entry(
 
     # Reassign pending media to this entry
     if data.pending_media_ids:
-        media_ids = ",".join(str(mid) for mid in data.pending_media_ids)
+        media_id_list = [str(mid) for mid in data.pending_media_ids]
 
         # Verify all media belongs to current user (defense in depth)
         owned_media = await db.get(
             "media_files",
             {
-                "id": f"in.({media_ids})",
+                "id": in_list(media_id_list),
                 "owner_id": f"eq.{user.id}",
                 "select": "id",
             },
@@ -256,7 +257,7 @@ async def create_entry(
         await db.patch(
             "media_files",
             {"entry_id": str(entry.id)},
-            {"id": f"in.({media_ids})"},
+            {"id": in_list(media_id_list)},
         )
 
     return EntryWithPlace(**entry.model_dump(), place=place)

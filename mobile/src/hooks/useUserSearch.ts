@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { useDebounce } from '@hooks/useDebounce';
 import { api } from '@services/api';
 
 export interface UserSearchResult {
@@ -13,6 +14,7 @@ export interface UserSearchResult {
 interface UseUserSearchOptions {
   enabled?: boolean;
   limit?: number;
+  debounceMs?: number;
 }
 
 /**
@@ -20,17 +22,19 @@ interface UseUserSearchOptions {
  * Requires at least 2 characters to search.
  */
 export function useUserSearch(query: string, options: UseUserSearchOptions = {}) {
-  const { enabled = true, limit = 10 } = options;
+  const { enabled = true, limit = 10, debounceMs = 300 } = options;
+  const debouncedQuery = useDebounce(query, debounceMs);
 
   return useQuery<UserSearchResult[]>({
-    queryKey: ['users', 'search', query, limit],
-    queryFn: async () => {
+    queryKey: ['users', 'search', debouncedQuery, limit],
+    queryFn: async ({ signal }) => {
       const response = await api.get<UserSearchResult[]>('/users/search', {
-        params: { q: query, limit },
+        params: { q: debouncedQuery, limit },
+        signal,
       });
       return response.data;
     },
-    enabled: enabled && query.length >= 2,
+    enabled: enabled && debouncedQuery.length >= 2,
     staleTime: 1000 * 30, // 30 seconds
   });
 }

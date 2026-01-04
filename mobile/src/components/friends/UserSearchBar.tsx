@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import {
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useSendInvite } from '@hooks/useInvites';
+import type { UserSearchResult } from '@hooks/useUserSearch';
 import { useUserSearch } from '@hooks/useUserSearch';
 
 import { FollowButton } from './FollowButton';
@@ -33,15 +34,30 @@ export function UserSearchBar({
 }: UserSearchBarProps) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [displayUsers, setDisplayUsers] = useState<UserSearchResult[] | undefined>(undefined);
+  const [recentFollow, setRecentFollow] = useState<{
+    username: string;
+    action: 'follow' | 'unfollow';
+  } | null>(null);
 
   const { data: users, isLoading } = useUserSearch(query, {
     enabled: query.length >= 2,
   });
 
+  useEffect(() => {
+    setDisplayUsers(users);
+  }, [users]);
+
+  useEffect(() => {
+    if (!recentFollow) return;
+    const timer = setTimeout(() => setRecentFollow(null), 4000);
+    return () => clearTimeout(timer);
+  }, [recentFollow]);
+
   const sendInviteMutation = useSendInvite();
 
   const isEmail = useMemo(() => EMAIL_REGEX.test(query.trim()), [query]);
-  const noUsersFound = users !== undefined && users.length === 0;
+  const noUsersFound = displayUsers !== undefined && displayUsers.length === 0;
   const showInviteOption = isEmail && noUsersFound && !isLoading;
 
   const handleUserPress = useCallback(
@@ -50,6 +66,16 @@ export function UserSearchBar({
       setQuery('');
     },
     [onUserSelect]
+  );
+
+  const handleFollowStateChange = useCallback(
+    (userId: string, username: string, nextState: boolean) => {
+      setDisplayUsers((prev) =>
+        prev?.map((user) => (user.id === userId ? { ...user, is_following: nextState } : user))
+      );
+      setRecentFollow({ username, action: nextState ? 'follow' : 'unfollow' });
+    },
+    []
   );
 
   const handleInviteByEmail = useCallback(() => {
@@ -105,14 +131,28 @@ export function UserSearchBar({
 
       {showResults && (
         <View style={styles.resultsContainer}>
+          {recentFollow && (
+            <View style={styles.followConfirmation}>
+              <Ionicons
+                name={recentFollow.action === 'follow' ? 'checkmark-circle' : 'remove-circle'}
+                size={18}
+                color={recentFollow.action === 'follow' ? colors.mossGreen : colors.adobeBrick}
+              />
+              <Text style={styles.followConfirmationText}>
+                {recentFollow.action === 'follow'
+                  ? `Now following @${recentFollow.username}`
+                  : `Unfollowed @${recentFollow.username}`}
+              </Text>
+            </View>
+          )}
           {isLoading ? (
             <View style={styles.emptyResults}>
               <ActivityIndicator size="small" color={colors.adobeBrick} />
               <Text style={styles.noResults}>Searching...</Text>
             </View>
-          ) : users && users.length > 0 ? (
+          ) : displayUsers && displayUsers.length > 0 ? (
             <FlatList
-              data={users}
+              data={displayUsers}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
@@ -131,7 +171,12 @@ export function UserSearchBar({
                       </Text>
                     </View>
                   </View>
-                  <FollowButton userId={item.id} isFollowing={item.is_following} size="small" />
+                  <FollowButton
+                    userId={item.id}
+                    isFollowing={item.is_following}
+                    size="small"
+                    onFollowChange={(next) => handleFollowStateChange(item.id, item.username, next)}
+                  />
                 </TouchableOpacity>
               )}
             />
@@ -323,6 +368,21 @@ const styles = StyleSheet.create({
   inviteButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
+    color: colors.midnightNavy,
+  },
+  followConfirmation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.paperBeige,
+    backgroundColor: 'rgba(242, 235, 227, 0.9)',
+  },
+  followConfirmationText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 13,
     color: colors.midnightNavy,
   },
 });

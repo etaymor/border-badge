@@ -163,3 +163,30 @@ def test_pending_trip_tags_respects_pagination(
         assert params["offset"] == 5
     finally:
         app.dependency_overrides.clear()
+
+
+def test_pending_trip_tag_count_requires_auth(client: TestClient) -> None:
+    """Test that GET /trip-tags/pending/count requires authentication."""
+    response = client.get("/trip-tags/pending/count")
+    assert response.status_code == 403
+
+
+def test_pending_trip_tag_count_returns_value(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that GET /trip-tags/pending/count returns the pending count."""
+    mock_supabase_client.count.return_value = 4
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/trip-tags/pending/count", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["count"] == 4
+    finally:
+        app.dependency_overrides.clear()

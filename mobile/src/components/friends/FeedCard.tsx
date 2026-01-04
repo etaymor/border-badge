@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback } from 'react';
+import React, { memo, useCallback } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { getCountryImage } from '../../assets/countryImages';
@@ -17,7 +17,7 @@ interface FeedCardProps {
   onEntryPress?: (entryId: string) => void;
 }
 
-export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: FeedCardProps) {
+function FeedCardComponent({ item, onUserPress, onCountryPress, onEntryPress }: FeedCardProps) {
   const handleUserPress = useCallback(() => {
     onUserPress?.(item.user.user_id, item.user.username);
   }, [item.user, onUserPress]);
@@ -185,6 +185,9 @@ export function FeedCard({ item, onUserPress, onCountryPress, onEntryPress }: Fe
     </View>
   );
 }
+
+export const FeedCard = memo(FeedCardComponent);
+FeedCard.displayName = 'FeedCard';
 
 const styles = StyleSheet.create({
   container: {

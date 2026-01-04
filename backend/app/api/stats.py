@@ -3,26 +3,16 @@
 import logging
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
+from app.schemas.stats import FriendsRankingResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-class FriendsRankingResponse(BaseModel):
-    """Response for friends ranking endpoint."""
-
-    rank: int
-    total_friends: int
-    my_countries: int
-    leader_username: str | None = None
-    leader_countries: int | None = None
 
 
 @router.get("/friends-ranking", response_model=FriendsRankingResponse)

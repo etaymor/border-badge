@@ -74,7 +74,15 @@ def test_list_trips_returns_trips(
     """Test listing trips returns user's trips."""
     # Trip now includes nested country from JOIN
     trip_with_country = {**sample_trip, "country": {"code": "US"}}
-    mock_supabase_client.get.return_value = [trip_with_country]
+    # Mock user profile for owner lookup
+    user_profile = {
+        "user_id": sample_trip["user_id"],
+        "username": "testuser",
+        "display_name": "Test User",
+        "avatar_url": None,
+    }
+    # First call returns trips, second call returns user profiles
+    mock_supabase_client.get.side_effect = [[trip_with_country], [user_profile]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

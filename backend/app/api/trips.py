@@ -10,6 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.public import TripShareResponse
@@ -18,6 +19,7 @@ from app.schemas.trips import (
     TripCreate,
     TripTag,
     TripTagStatus,
+    TripTagUser,
     TripUpdate,
     TripWithTags,
 )
@@ -27,22 +29,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("", response_model=list[Trip])
+@router.get("", response_model=list[TripWithTags])
 async def list_trips(
     request: Request,
     user: CurrentUser,
     country_code: str | None = Query(None, description="Filter trips by country code"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-) -> list[Trip]:
+) -> list[TripWithTags]:
     """List all trips accessible to the current user (owned or approved tags).
 
     Optionally filter by country_code to get trips for a specific country.
+    Returns trips with their tags and owner info for display.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
     params: dict[str, str | int] = {
-        "select": "*, country:country_id(code)",
+        "select": "*, country:country_id(code), trip_tags(*)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
@@ -56,7 +59,65 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
-    return [trip_from_row(row) for row in rows]
+    if not rows:
+        return []
+
+    # Collect all user IDs we need to fetch: owners + tagged users
+    user_ids_to_fetch: set[str] = set()
+    for row in rows:
+        owner_id = row.get("user_id")
+        if owner_id:
+            user_ids_to_fetch.add(owner_id)
+        tag_data = row.get("trip_tags")
+        if tag_data and isinstance(tag_data, list):
+            for tag in tag_data:
+                user_ids_to_fetch.add(tag["tagged_user_id"])
+
+    # Fetch all user profiles in one query
+    user_profiles: dict[str, TripTagUser] = {}
+    if user_ids_to_fetch:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "select": "user_id,username,display_name,avatar_url",
+                "user_id": in_list(list(user_ids_to_fetch)),
+            },
+        )
+        if profiles:
+            user_profiles = {
+                p["user_id"]: TripTagUser(
+                    user_id=p["user_id"],
+                    username=p["username"],
+                    display_name=p.get("display_name"),
+                    avatar_url=p.get("avatar_url"),
+                )
+                for p in profiles
+            }
+
+    # Build trips with tags and owner info
+    result: list[TripWithTags] = []
+    for row in rows:
+        country_code_val = (
+            row.get("country", {}).get("code", "") if row.get("country") else ""
+        )
+        owner_id = row.get("user_id")
+        owner = user_profiles.get(owner_id) if owner_id else None
+
+        # Build tags with user profile info
+        tags: list[TripTag] = []
+        tag_data = row.pop("trip_tags", None)
+        if tag_data and isinstance(tag_data, list):
+            for tag in tag_data:
+                user_profile = user_profiles.get(tag["tagged_user_id"])
+                tags.append(TripTag(**tag, user=user_profile))
+
+        trip = Trip(
+            **{k: v for k, v in row.items() if k not in ("country", "trip_tags")},
+            country_code=country_code_val,
+        )
+        result.append(TripWithTags(**trip.model_dump(), tags=tags, owner=owner))
+
+    return result
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
@@ -136,7 +197,7 @@ async def get_trip(
     trip_id: UUID,
     user: CurrentUser,
 ) -> TripWithTags:
-    """Get trip details with tags (single query with embedded data)."""
+    """Get trip details with tags, user profiles, and owner info."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
@@ -156,18 +217,56 @@ async def get_trip(
 
     row = trips[0]
     country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
+    owner_id = row.get("user_id")
 
     # Extract embedded trip_tags
     tag_data = row.pop("trip_tags", None)
-    tags = []
+    tags: list[TripTag] = []
+
+    # Collect all user IDs we need to fetch: tagged users + owner
+    user_ids_to_fetch: set[str] = set()
+    if owner_id:
+        user_ids_to_fetch.add(owner_id)
+
     if tag_data and isinstance(tag_data, list):
-        tags = [TripTag(**tag) for tag in tag_data]
+        for tag in tag_data:
+            user_ids_to_fetch.add(tag["tagged_user_id"])
+
+    # Fetch all user profiles in one query
+    user_profiles: dict[str, TripTagUser] = {}
+    if user_ids_to_fetch:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "select": "user_id,username,display_name,avatar_url",
+                "user_id": in_list(list(user_ids_to_fetch)),
+            },
+        )
+        if profiles:
+            user_profiles = {
+                p["user_id"]: TripTagUser(
+                    user_id=p["user_id"],
+                    username=p["username"],
+                    display_name=p.get("display_name"),
+                    avatar_url=p.get("avatar_url"),
+                )
+                for p in profiles
+            }
+
+    # Build tags with user profile info
+    if tag_data and isinstance(tag_data, list):
+        for tag in tag_data:
+            user_profile = user_profiles.get(tag["tagged_user_id"])
+            tags.append(TripTag(**tag, user=user_profile))
+
+    # Get owner profile
+    owner = user_profiles.get(owner_id) if owner_id else None
 
     trip = Trip(
         **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
     )
 
-    return TripWithTags(**trip.model_dump(), tags=tags)
+    return TripWithTags(**trip.model_dump(), tags=tags, owner=owner)
 
 
 @router.patch("/{trip_id}", response_model=Trip)

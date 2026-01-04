@@ -11,9 +11,11 @@ from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_push_notification
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.trips import (
+    PendingTripTagCount,
     PendingTripTagDetail,
     TripTag,
     TripTagAction,
@@ -71,7 +73,7 @@ async def get_pending_trip_tags(
             "user_profile",
             {
                 "select": "user_id,username,avatar_url",
-                "user_id": f"in.({','.join(str(uid) for uid in initiator_ids)})",
+                "user_id": in_list([str(uid) for uid in initiator_ids]),
             },
         )
         if initiators:
@@ -120,6 +122,27 @@ async def get_pending_trip_tags(
         )
 
     return results
+
+
+@router.get("/pending/count", response_model=PendingTripTagCount)
+@limiter.limit("60/minute")
+async def get_pending_trip_tag_count(
+    request: Request,
+    user: CurrentUser,
+) -> PendingTripTagCount:
+    """Return the number of pending trip tags for the current user."""
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    count = await db.count(
+        "trip_tags",
+        {
+            "tagged_user_id": f"eq.{user.id}",
+            "status": f"eq.{TripTagStatus.PENDING.value}",
+        },
+    )
+
+    return PendingTripTagCount(count=count)
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)

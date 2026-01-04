@@ -5,13 +5,13 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  FlatList,
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FeedCard, FollowButton, UserAvatar } from '@components/friends';
@@ -82,6 +82,8 @@ function ProfileStatBox({
 }
 
 type Props = FriendsStackScreenProps<'UserProfile'>;
+
+const PROFILE_FEED_ITEM_ESTIMATED_HEIGHT = 420;
 
 export function UserProfileScreen({ navigation, route }: Props) {
   const { userId, username } = route.params;
@@ -240,10 +242,11 @@ export function UserProfileScreen({ navigation, route }: Props) {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      <FlashList
         data={feedItems}
         renderItem={renderFeedItem}
         keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
+        estimatedItemSize={PROFILE_FEED_ITEM_ESTIMATED_HEIGHT}
         ListHeaderComponent={
           <>
             {/* Avatar and Identity */}
