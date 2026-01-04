@@ -10,7 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_push_notification
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 from app.schemas.follows import FollowResponse, FollowStats, UserSummary
 
@@ -125,8 +125,8 @@ async def follow_user(
     # dedicated notification service) for reliable delivery with retries.
     async def notify_new_follower() -> None:
         try:
-            # Use service role client to get push token
-            admin_db = get_supabase_client()
+            # Use service role client to bypass RLS when reading other user's data
+            admin_db = get_service_supabase_client()
 
             # Get follower's username
             follower_profile = await admin_db.get(
