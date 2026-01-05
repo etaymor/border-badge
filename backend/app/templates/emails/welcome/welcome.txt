@@ -1,11 +1,13 @@
-Hi {display_name},
+Hey,
 
-Welcome to Atlasi! I'm so glad you're here.
+Thank you for joining me on Atlasi.
 
-Atlasi is all about celebrating your travels - past, present, and future. Whether you've visited 5 countries or 50, every journey matters.
+I'm Emerson. I've been building software my whole life, but this one's different. Atlasi is a passion project. Something I built because I genuinely needed it to exist.
 
-Start by marking the countries you've already visited. Your passport grid will come to life as you add your travel history.
+More on that soon. For now, I just wanted to say thanks for being here.
 
-Happy travels,
+Quick question for you: What's the most magical place you've ever visited?
+
+Hit reply and let me know. I read every response.
+
 Emerson
-Founder, Atlasi

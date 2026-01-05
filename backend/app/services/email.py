@@ -22,29 +22,24 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates" / "emails" / "welcome
 # Each email is scheduled relative to signup time
 WELCOME_EMAILS = [
     {
-        "delay_hours": 2,
-        "subject": "Welcome to Atlasi!",
+        "delay_hours": 0,  # Immediately after signup
+        "subject": "You're awesome",
         "template": "welcome",
     },
     {
-        "delay_hours": 72,  # 3 days
-        "subject": "Quick tip for your travel memories",
-        "template": "day3",
+        "delay_hours": 24,  # Day 2
+        "subject": "The apps out there just didn't cut it",
+        "template": "day2",
     },
     {
-        "delay_hours": 168,  # 1 week
-        "subject": "How's your travel tracking going?",
-        "template": "week1",
+        "delay_hours": 72,  # Day 4
+        "subject": "The feature I use every single day",
+        "template": "day4",
     },
     {
-        "delay_hours": 336,  # 2 weeks
-        "subject": "Your passport is looking good",
-        "template": "week2",
-    },
-    {
-        "delay_hours": 720,  # 30 days
-        "subject": "One month with Atlasi",
-        "template": "month1",
+        "delay_hours": 144,  # Day 7
+        "subject": '"Can you send me your recommendations?"',
+        "template": "day7",
     },
 ]
 

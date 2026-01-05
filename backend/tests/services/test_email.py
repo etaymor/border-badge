@@ -22,20 +22,21 @@ class TestLoadEmailTemplate:
         """Test that existing template is loaded and formatted."""
         result = load_email_template("welcome", "Alice")
 
-        assert "Hi Alice," in result
-        assert "Welcome to Atlasi" in result
-        assert "{display_name}" not in result  # Should be replaced
+        # Template starts with "Hey," not "Hi {display_name},"
+        assert "Hey," in result
+        assert "Atlasi" in result
 
     def test_substitutes_display_name(self) -> None:
-        """Test that display_name placeholder is replaced."""
-        result = load_email_template("welcome", "Bob Smith")
+        """Test that display_name placeholder is replaced when present."""
+        # Note: Current templates don't use {display_name}, but fallback does
+        result = load_email_template("nonexistent", "Bob Smith")
 
-        assert "Hi Bob Smith," in result
-        assert "{display_name}" not in result
+        assert "Hi Bob Smith," in result  # Fallback format
 
     def test_handles_special_chars_in_display_name(self) -> None:
         """Test that special characters in display_name are handled."""
-        result = load_email_template("welcome", "John {O'Brien}")
+        # Test with fallback since current templates don't use placeholder
+        result = load_email_template("nonexistent", "John {O'Brien}")
 
         assert "Hi John {O'Brien}," in result
         # Should not break the template
@@ -61,16 +62,18 @@ class TestLoadEmailTemplate:
 
             assert template_path.exists(), f"Missing template: {template_name}.txt"
 
-    def test_all_templates_have_display_name_placeholder(self) -> None:
-        """Verify all templates use the display_name placeholder."""
+    def test_all_templates_are_valid_text(self) -> None:
+        """Verify all templates are valid text files."""
         for email_config in WELCOME_EMAILS:
             template_name = email_config["template"]
             template_path = TEMPLATES_DIR / f"{template_name}.txt"
             content = template_path.read_text()
 
+            # All templates should have some content and end with Emerson
+            assert len(content) > 50, f"Template {template_name}.txt is too short"
             assert (
-                "{display_name}" in content
-            ), f"Template {template_name}.txt missing {{display_name}} placeholder"
+                "Emerson" in content
+            ), f"Template {template_name}.txt missing signature"
 
     def test_template_caching_works(self) -> None:
         """Test that templates are cached after first load."""
@@ -151,8 +154,8 @@ class TestScheduleWelcomeEmails:
             assert "not configured" in mock_logger.warning.call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_schedules_all_five_emails(self) -> None:
-        """Test that all 5 welcome emails are scheduled."""
+    async def test_schedules_all_four_emails(self) -> None:
+        """Test that all 4 welcome emails are scheduled."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"id": "email_123"}
         mock_response.raise_for_status = MagicMock()
@@ -170,10 +173,10 @@ class TestScheduleWelcomeEmails:
 
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
-            assert result.success_count == 5
-            assert result.total_attempted == 5
+            assert result.success_count == 4
+            assert result.total_attempted == 4
             assert result.failed_count == 0
-            assert mock_client.post.call_count == 5
+            assert mock_client.post.call_count == 4
 
     @pytest.mark.asyncio
     async def test_returns_email_ids(self) -> None:
@@ -187,7 +190,7 @@ class TestScheduleWelcomeEmails:
 
             # Create responses with different IDs
             responses = []
-            for i in range(1, 6):
+            for i in range(1, 5):
                 mock_resp = MagicMock()
                 mock_resp.json.return_value = {"id": f"email_{i}"}
                 mock_resp.raise_for_status = MagicMock()
@@ -204,7 +207,6 @@ class TestScheduleWelcomeEmails:
                 "email_2",
                 "email_3",
                 "email_4",
-                "email_5",
             ]
 
     @pytest.mark.asyncio
@@ -295,7 +297,7 @@ class TestScheduleWelcomeEmails:
 
             # Create responses with one failure
             responses = []
-            for i in range(1, 6):
+            for i in range(1, 5):
                 if i == 2:
                     # Fail on second email
                     responses.append(Exception("API error"))
@@ -311,10 +313,10 @@ class TestScheduleWelcomeEmails:
 
             result = await schedule_welcome_emails("test@example.com", "Test User")
 
-            # Should return 4 IDs (5 total minus 1 failure)
-            assert result.success_count == 4
+            # Should return 3 IDs (4 total minus 1 failure)
+            assert result.success_count == 3
             assert result.failed_count == 1
-            assert result.total_attempted == 5
+            assert result.total_attempted == 4
             assert "email_1" in result.email_ids
             assert "email_3" in result.email_ids
 
@@ -338,8 +340,8 @@ class TestScheduleWelcomeEmails:
 
             await schedule_welcome_emails("test@example.com", "Test User")
 
-            # Should log error for each failed email (5 failures)
-            assert mock_logger.error.call_count == 5
+            # Should log error for each failed email (4 failures)
+            assert mock_logger.error.call_count == 4
 
     @pytest.mark.asyncio
     async def test_handles_http_status_error(self) -> None:
@@ -366,7 +368,7 @@ class TestScheduleWelcomeEmails:
             await schedule_welcome_emails("test@example.com", "Test User")
 
             # Should log errors with status code
-            assert mock_logger.error.call_count == 5
+            assert mock_logger.error.call_count == 4
             # Check that status code is in extra dict
             call_extra = mock_logger.error.call_args_list[0].kwargs["extra"]
             assert call_extra["status_code"] == 400
@@ -430,8 +432,8 @@ class TestScheduleWelcomeEmails:
         """Test that email delay configuration is correct."""
         delays = [config["delay_hours"] for config in WELCOME_EMAILS]
 
-        # Expected delays: 2 hours, 3 days, 1 week, 2 weeks, 30 days
-        expected = [2, 72, 168, 336, 720]
+        # Expected delays: immediately, day 2, day 4, day 7
+        expected = [0, 24, 72, 144]
         assert delays == expected
 
     def test_email_subjects_are_configured(self) -> None:
