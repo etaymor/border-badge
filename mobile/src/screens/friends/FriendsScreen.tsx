@@ -9,6 +9,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
 import type { FeedItem } from '@hooks/useFeed';
+import { useResponsive } from '@hooks/useResponsive';
 import {
   useSocialHome,
   getSocialFeedItems,
@@ -21,6 +22,7 @@ import type { FriendsStackScreenProps } from '@navigation/types';
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
 export function FriendsScreen({ navigation }: Props) {
+  const { isTablet, screenWidth } = useResponsive();
   const {
     data: socialData,
     isLoading,
@@ -30,6 +32,9 @@ export function FriendsScreen({ navigation }: Props) {
     fetchNextPage,
     refetch,
   } = useSocialHome();
+
+  // On iPad, constrain feed cards to 75% width centered
+  const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
   const feedItems = useMemo(() => getSocialFeedItems(socialData), [socialData]);
   const followStats = useMemo(() => getSocialHomeStats(socialData), [socialData]);
@@ -93,14 +98,16 @@ export function FriendsScreen({ navigation }: Props) {
 
   const renderFeedItem = useCallback(
     ({ item }: { item: FeedItem }) => (
-      <FeedCard
-        item={item}
-        onUserPress={handleUserSelect}
-        onCountryPress={handleCountryPress}
-        onEntryPress={handleEntryPress}
-      />
+      <View style={isTablet && { paddingHorizontal: feedCardPaddingHorizontal }}>
+        <FeedCard
+          item={item}
+          onUserPress={handleUserSelect}
+          onCountryPress={handleCountryPress}
+          onEntryPress={handleEntryPress}
+        />
+      </View>
     ),
-    [handleUserSelect, handleCountryPress, handleEntryPress]
+    [handleUserSelect, handleCountryPress, handleEntryPress, isTablet, feedCardPaddingHorizontal]
   );
 
   const ListHeader = useMemo(

@@ -19,6 +19,7 @@ export { PassportSkeleton } from './PassportSkeleton';
 export { Skeleton } from './Skeleton';
 export { Screen } from './Screen';
 export { SearchInput } from './SearchInput';
+export { SegmentedTabs } from './SegmentedTabs';
 export { Snackbar } from './Snackbar';
 export { StampCard } from './StampCard';
 export { Text } from './Text';

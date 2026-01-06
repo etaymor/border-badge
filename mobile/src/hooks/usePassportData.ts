@@ -26,7 +26,11 @@ import type {
   PassportStats,
 } from '../screens/passport/passportTypes';
 
-export function usePassportData() {
+interface UsePassportDataOptions {
+  columns?: number;
+}
+
+export function usePassportData({ columns = 2 }: UsePassportDataOptions = {}) {
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const { data: trips, isLoading: loadingTrips } = useTrips();
@@ -288,23 +292,23 @@ export function usePassportData() {
       items.push({ type: 'empty-state', key: 'empty-state' });
     }
 
-    for (let i = 0; i < displayItems.length; i += 2) {
-      const rowItems = displayItems.slice(i, i + 2);
+    for (let i = 0; i < displayItems.length; i += columns) {
+      const rowItems = displayItems.slice(i, i + columns);
       const rowKey = rowItems.map((item) => item.code).join('-');
       items.push({ type: 'stamp-row', data: rowItems, key: `stamps-${rowKey}` });
     }
 
     if (unvisitedCountries.length > 0) {
       items.push({ type: 'section-header', title: 'Explore the World', key: 'header-explore' });
-      for (let i = 0; i < unvisitedCountries.length; i += 2) {
-        const rowItems = unvisitedCountries.slice(i, i + 2);
+      for (let i = 0; i < unvisitedCountries.length; i += columns) {
+        const rowItems = unvisitedCountries.slice(i, i + columns);
         const rowKey = rowItems.map((item) => item.code).join('-');
         items.push({ type: 'unvisited-row', data: rowItems, key: `unvisited-${rowKey}` });
       }
     }
 
     return items;
-  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount, userCountries]);
+  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount, userCountries, columns]);
 
   const activeFilterCount = countActiveFilters(filters);
   const filtersActive = hasActiveFilters(filters);

@@ -7,6 +7,9 @@ const BREAKPOINTS = {
   medium: 850, // iPhone 12/13/14, etc.
 } as const;
 
+// iPad minimum width threshold (iPad Mini is 768pt in portrait)
+const TABLET_MIN_WIDTH = 600;
+
 // Debounce delay for dimension changes (ms)
 const DIMENSION_DEBOUNCE_MS = 150;
 
@@ -17,6 +20,7 @@ export interface ResponsiveValues {
   isSmallScreen: boolean;
   isMediumScreen: boolean;
   isLargeScreen: boolean;
+  isTablet: boolean;
   screenHeight: number;
   screenWidth: number;
 }
@@ -53,11 +57,16 @@ export function ResponsiveProvider({ children }: ResponsiveProviderProps) {
           ? 'medium'
           : 'large';
 
+    // Use the smaller dimension to detect tablet (works in both orientations)
+    const minDimension = Math.min(debouncedDimensions.width, debouncedDimensions.height);
+    const isTablet = minDimension >= TABLET_MIN_WIDTH;
+
     return {
       screenSize,
       isSmallScreen: screenSize === 'small',
       isMediumScreen: screenSize === 'medium',
       isLargeScreen: screenSize === 'large',
+      isTablet,
       screenHeight: debouncedDimensions.height,
       screenWidth: debouncedDimensions.width,
     };
@@ -84,11 +93,15 @@ export function useResponsiveContext(): ResponsiveValues {
   const screenSize: ScreenSize =
     height < BREAKPOINTS.small ? 'small' : height < BREAKPOINTS.medium ? 'medium' : 'large';
 
+  const minDimension = Math.min(width, height);
+  const isTablet = minDimension >= TABLET_MIN_WIDTH;
+
   return {
     screenSize,
     isSmallScreen: screenSize === 'small',
     isMediumScreen: screenSize === 'medium',
     isLargeScreen: screenSize === 'large',
+    isTablet,
     screenHeight: height,
     screenWidth: width,
   };

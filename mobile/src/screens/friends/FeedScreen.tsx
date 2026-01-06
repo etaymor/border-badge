@@ -7,14 +7,20 @@ import { FeedCard } from '@components/friends';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useFeed, getFeedItems, type FeedItem } from '@hooks/useFeed';
+import { useResponsive } from '@hooks/useResponsive';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FeedHome'>;
 
 export function FeedScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { isTablet, screenWidth } = useResponsive();
   const { data, isLoading, isRefetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } =
     useFeed();
+
+  // On iPad, constrain content to 75% width centered
+  const contentWidth = isTablet ? screenWidth * 0.75 : screenWidth;
+  const contentMarginHorizontal = isTablet ? (screenWidth - contentWidth) / 2 : 0;
 
   const feedItems = useMemo(() => getFeedItems(data), [data]);
 
@@ -148,7 +154,10 @@ export function FeedScreen({ navigation }: Props) {
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         ListFooterComponent={ListFooter}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          isTablet && { marginHorizontal: contentMarginHorizontal },
+        ]}
         showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
