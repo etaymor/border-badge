@@ -13,7 +13,7 @@ import {
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { NotificationBell, TripCard } from '@components/ui';
+import { NotificationBell, SegmentedTabs, TripCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
@@ -44,7 +44,26 @@ const SectionHeader = ({ title }: { title: string }) => {
   );
 };
 
-function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
+interface EmptyStateProps {
+  variant: 'my' | 'tagged';
+  onAddTrip: () => void;
+}
+
+function EmptyState({ variant, onAddTrip }: EmptyStateProps) {
+  if (variant === 'tagged') {
+    return (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconCircle}>
+          <Text style={styles.emptyIcon}>👥</Text>
+        </View>
+        <Text style={styles.emptyTitle}>No Tagged Trips</Text>
+        <Text style={styles.emptySubtitle}>
+          When friends tag you on their adventures, they&apos;ll appear here.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.emptyContainer}>
       <View style={styles.emptyIconCircle}>
@@ -69,6 +88,7 @@ export function TripsListScreen({ navigation }: Props) {
   const { data: userCountries } = useUserCountries();
   const { data: pendingTagCount } = usePendingTripTagCount();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTab, setSelectedTab] = useState<'my' | 'tagged'>('my');
 
   const handleNotificationsPress = useCallback(() => {
     navigation.navigate('PendingTripTags');
@@ -88,12 +108,23 @@ export function TripsListScreen({ navigation }: Props) {
     return new Map(countries.map((c) => [c.code, c]));
   }, [countries]);
 
-  // Separate trips into sections based on whether the country has been visited
-  const sections = useMemo((): TripSection[] => {
+  // Filter trips by ownership based on selected tab
+  const tripsForTab = useMemo(() => {
     if (!trips?.length) return [];
 
+    if (selectedTab === 'my') {
+      return trips.filter((trip) => trip.user_id === currentUserId);
+    } else {
+      return trips.filter((trip) => trip.user_id !== currentUserId);
+    }
+  }, [trips, selectedTab, currentUserId]);
+
+  // Separate trips into sections based on whether the country has been visited
+  const sections = useMemo((): TripSection[] => {
+    if (!tripsForTab?.length) return [];
+
     const query = searchQuery.toLowerCase().trim();
-    const filteredTrips = trips.filter((trip) => {
+    const filteredTrips = tripsForTab.filter((trip) => {
       if (!query) return true;
       const country = countriesMap.get(trip.country_code); // O(1) Map lookup instead of O(n) find
       const countryName = country?.name.toLowerCase() || '';
@@ -121,7 +152,7 @@ export function TripsListScreen({ navigation }: Props) {
       result.push({ title: 'Upcoming Plans', data: plannedTrips });
     }
     return result;
-  }, [trips, visitedCountryCodes, searchQuery, countriesMap]);
+  }, [tripsForTab, visitedCountryCodes, searchQuery, countriesMap]);
 
   const flatData = useMemo<TripsListRenderable[]>(() => {
     if (!sections.length) return [];
@@ -170,6 +201,10 @@ export function TripsListScreen({ navigation }: Props) {
     [handleTripPress, currentUserId]
   );
 
+  const handleTabSelect = useCallback((index: number) => {
+    setSelectedTab(index === 0 ? 'my' : 'tagged');
+  }, []);
+
   const renderHeader = useMemo(
     () => (
       <>
@@ -183,6 +218,14 @@ export function TripsListScreen({ navigation }: Props) {
             </View>
           </View>
         </View>
+
+        {/* Tab Selector */}
+        <SegmentedTabs
+          tabs={['My Trips', 'Tagged']}
+          selectedIndex={selectedTab === 'my' ? 0 : 1}
+          onSelect={handleTabSelect}
+          testID="trip-tabs"
+        />
 
         {/* Search Bar with Liquid Glass */}
         <View style={styles.searchRow}>
@@ -211,7 +254,7 @@ export function TripsListScreen({ navigation }: Props) {
         </View>
       </>
     ),
-    [searchQuery, pendingTagCount, handleNotificationsPress]
+    [searchQuery, pendingTagCount, handleNotificationsPress, selectedTab, handleTabSelect]
   );
 
   if (isLoading) {
@@ -251,7 +294,9 @@ export function TripsListScreen({ navigation }: Props) {
           />
         }
         ListEmptyComponent={
-          !isLoading && flatData.length === 0 ? <EmptyState onAddTrip={handleAddTrip} /> : null
+          !isLoading && flatData.length === 0 ? (
+            <EmptyState variant={selectedTab} onAddTrip={handleAddTrip} />
+          ) : null
         }
       />
 
@@ -270,7 +315,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 16,
     paddingHorizontal: 16,
   },
   headerRow: {
@@ -294,7 +339,7 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     paddingTop: 8,
-    paddingBottom: 16,
+    paddingBottom: 8,
     paddingHorizontal: 16,
   },
   searchGlassWrapper: {
@@ -367,7 +412,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingTop: 12,
     paddingBottom: 16,
   },
   sectionHeaderText: {

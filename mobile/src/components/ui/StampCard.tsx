@@ -1,14 +1,8 @@
 import React, { useMemo } from 'react';
-import { Dimensions, Image, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Image, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 
 import { getStampImage } from '../../assets/stampImages';
 import quillIcon from '../../../assets/quill-icon.png';
-
-const { width: screenWidth } = Dimensions.get('window');
-const STAMP_MARGIN = 8;
-const STAMP_PADDING = 16;
-// 2 stamps per row with margins between and padding on sides
-const STAMP_SIZE = (screenWidth - STAMP_PADDING * 2 - STAMP_MARGIN) / 2;
 
 export interface StampCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
@@ -57,8 +51,7 @@ export const StampCard = React.memo(function StampCard({
 
 const styles = StyleSheet.create({
   container: {
-    width: STAMP_SIZE,
-    height: STAMP_SIZE,
+    aspectRatio: 1,
     position: 'relative',
   },
   stampImage: {

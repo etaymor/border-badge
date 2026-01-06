@@ -18,6 +18,7 @@ import { FeedCard, FollowButton, UserAvatar } from '@components/friends';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useBlockUser } from '@hooks/useBlocks';
+import { useResponsive } from '@hooks/useResponsive';
 import type { FeedItem } from '@hooks/useFeed';
 import { useUserFeed, getUserFeedItems } from '@hooks/useUserFeed';
 import { useUserProfile } from '@hooks/useUserProfile';
@@ -86,7 +87,11 @@ type Props = FriendsStackScreenProps<'UserProfile'>;
 export function UserProfileScreen({ navigation, route }: Props) {
   const { userId, username } = route.params;
   const insets = useSafeAreaInsets();
+  const { isTablet, screenWidth } = useResponsive();
   const [isBlocking, setIsBlocking] = useState(false);
+
+  // On iPad, constrain feed cards to 75% width centered
+  const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
   const { data: profile, isLoading, error } = useUserProfile(username);
   const blockMutation = useBlockUser(userId);
@@ -182,9 +187,11 @@ export function UserProfileScreen({ navigation, route }: Props) {
 
   const renderFeedItem = useCallback(
     ({ item }: { item: FeedItem }) => (
-      <FeedCard item={item} onCountryPress={handleCountryPress} onEntryPress={handleEntryPress} />
+      <View style={isTablet && { paddingHorizontal: feedCardPaddingHorizontal }}>
+        <FeedCard item={item} onCountryPress={handleCountryPress} onEntryPress={handleEntryPress} />
+      </View>
     ),
-    [handleCountryPress, handleEntryPress]
+    [handleCountryPress, handleEntryPress, isTablet, feedCardPaddingHorizontal]
   );
 
   if (isLoading) {

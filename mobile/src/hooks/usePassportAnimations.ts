@@ -1,13 +1,19 @@
 import { useCallback, useRef } from 'react';
 import { Animated, type ViewToken } from 'react-native';
-import { ROW_HEIGHTS } from '../screens/passport/passportConstants';
 import type { ListItem } from '../screens/passport/passportTypes';
 
 // Maximum cached animation values before cleanup triggers
 // ~100 rows covers most scrolling patterns without excessive memory
 const MAX_CACHED_ANIMATION_VALUES = 100;
 
-export function usePassportAnimations(_isLoading: boolean) {
+type RowHeights = {
+  'section-header': number;
+  'stamp-row': number;
+  'unvisited-row': number;
+  'empty-state': number;
+};
+
+export function usePassportAnimations(_isLoading: boolean, rowHeights: RowHeights) {
   // Track which rows have animated (prevent re-animation on scroll back)
   const animatedRowKeysRef = useRef<Set<string>>(new Set());
   // Store animation values per row with LRU-style tracking
@@ -131,20 +137,23 @@ export function usePassportAnimations(_isLoading: boolean) {
   ).current;
 
   // Compute layout data for O(1) getItemLayout lookups
-  const computeLayoutData = useCallback((flatListData: ListItem[]) => {
-    const offsets: number[] = [];
-    const lengths: number[] = [];
-    let cumulativeOffset = 0;
+  const computeLayoutData = useCallback(
+    (flatListData: ListItem[]) => {
+      const offsets: number[] = [];
+      const lengths: number[] = [];
+      let cumulativeOffset = 0;
 
-    for (const item of flatListData) {
-      offsets.push(cumulativeOffset);
-      const length = ROW_HEIGHTS[item.type];
-      lengths.push(length);
-      cumulativeOffset += length;
-    }
+      for (const item of flatListData) {
+        offsets.push(cumulativeOffset);
+        const length = rowHeights[item.type];
+        lengths.push(length);
+        cumulativeOffset += length;
+      }
 
-    return { offsets, lengths };
-  }, []);
+      return { offsets, lengths };
+    },
+    [rowHeights]
+  );
 
   // Get item key for FlatList
   const getItemKey = useCallback((item: ListItem) => item.key, []);
