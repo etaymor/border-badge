@@ -20,7 +20,7 @@ class ShareViewController: UIViewController {
     // MARK: - Constants
 
     /// App Group identifier for shared storage between extension and main app
-    private let appGroupID = "group.com.borderbadge.app"
+    private let appGroupID = "group.com.atlasi.app"
 
     /// Key for storing shared URL in UserDefaults
     private let sharedURLKey = "SharedURL"

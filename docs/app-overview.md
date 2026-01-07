@@ -43,7 +43,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 | Element | Value |
 |---------|-------|
 | App Name | Atlasi |
-| Bundle ID | com.borderbadge.app |
+| Bundle ID | com.atlasi.app |
 | Deep Link Scheme | `atlasi://` |
 | Tagline | "Stamp your passport for every country you visit" |
 

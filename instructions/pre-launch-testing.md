@@ -81,10 +81,10 @@ App Groups allow the main app and Share Extension to share data.
 3. Select **App Groups** and click **Continue**
 4. Enter:
    - Description: `Atlasi App Group`
-   - Identifier: `group.com.borderbadge.app`
+   - Identifier: `group.com.atlasi.app`
 5. Click **Continue** → **Register**
 
-- [ ] App Group `group.com.borderbadge.app` created
+- [ ] App Group `group.com.atlasi.app` created
 
 ---
 
@@ -95,7 +95,7 @@ App Groups allow the main app and Share Extension to share data.
 3. Select **App** → Click **Continue**
 4. Enter:
    - Description: `Atlasi`
-   - Bundle ID: Select **Explicit** and enter `com.borderbadge.app`
+   - Bundle ID: Select **Explicit** and enter `com.atlasi.app`
 5. Scroll down to **Capabilities** and enable:
    - [ ] **App Groups**
    - [ ] **Associated Domains** (for deep links)
@@ -106,7 +106,7 @@ App Groups allow the main app and Share Extension to share data.
 
 1. Click on the newly created App ID
 2. Scroll to **App Groups** and click **Configure**
-3. Check `group.com.borderbadge.app`
+3. Check `group.com.atlasi.app`
 4. Click **Save**
 
 - [ ] Main App ID created with App Groups enabled
@@ -120,7 +120,7 @@ App Groups allow the main app and Share Extension to share data.
 3. Select **App** → Click **Continue**
 4. Enter:
    - Description: `Atlasi Share Extension`
-   - Bundle ID: Select **Explicit** and enter `com.borderbadge.app.ShareExtension`
+   - Bundle ID: Select **Explicit** and enter `com.atlasi.app.ShareExtension`
 5. Scroll down to **Capabilities** and enable:
    - [ ] **App Groups**
 6. Click **Continue** → **Register**
@@ -129,7 +129,7 @@ App Groups allow the main app and Share Extension to share data.
 
 1. Click on the newly created Share Extension App ID
 2. Scroll to **App Groups** and click **Configure**
-3. Check `group.com.borderbadge.app`
+3. Check `group.com.atlasi.app`
 4. Click **Save**
 
 - [ ] Share Extension App ID created with App Groups enabled
@@ -142,9 +142,9 @@ Your Identifiers should now show:
 
 | Identifier                           | Type      | App Groups Enabled |
 | ------------------------------------ | --------- | ------------------ |
-| `com.borderbadge.app`                | App ID    | Yes                |
-| `com.borderbadge.app.ShareExtension` | App ID    | Yes                |
-| `group.com.borderbadge.app`          | App Group | N/A                |
+| `com.atlasi.app`                | App ID    | Yes                |
+| `com.atlasi.app.ShareExtension` | App ID    | Yes                |
+| `group.com.atlasi.app`          | App Group | N/A                |
 
 - [ ] All three identifiers configured correctly
 
@@ -640,7 +640,7 @@ eas build --platform ios --profile production
 
 ### Share Extension Opens App But URL Missing
 
-1. **Check App Group ID** - Must be `group.com.borderbadge.app`
+1. **Check App Group ID** - Must be `group.com.atlasi.app`
 2. **Verify deep link** - Should be `atlasi://share?url=...`
 3. **Check console logs** - Deep link handling in App.tsx
 

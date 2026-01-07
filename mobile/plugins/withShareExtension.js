@@ -20,7 +20,7 @@ const path = require('path');
 // Configuration constants
 const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
-const APP_GROUP_ID = 'group.com.borderbadge.app';
+const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 
 /**
@@ -39,7 +39,7 @@ function withAppGroupEntitlement(config) {
 function withShareExtensionTarget(config) {
   return withXcodeProject(config, async (mod) => {
     const xcodeProject = mod.modResults;
-    const appBundleId = mod.ios?.bundleIdentifier ?? 'com.borderbadge.app';
+    const appBundleId = mod.ios?.bundleIdentifier ?? 'com.atlasi.app';
     const extensionBundleId = `${appBundleId}${EXTENSION_BUNDLE_ID_SUFFIX}`;
     const projectRoot = mod.modRequest.projectRoot;
     const iosPath = path.join(projectRoot, 'ios');
