@@ -67,7 +67,7 @@ Since this is a **managed Expo project** (no `ios/` folder in the repository), w
 
 The plugin:
 
-- Adds App Group entitlement (`group.com.borderbadge.app`) to the main app
+- Adds App Group entitlement (`group.com.atlasi.app`) to the main app
 - Creates the Share Extension target in the Xcode project
 - Copies Swift source files to the extension directory
 - Configures build settings and entitlements
@@ -85,7 +85,7 @@ The native Swift extension controller that:
 
 The extension and main app share data via App Group UserDefaults:
 
-- **App Group ID:** `group.com.borderbadge.app`
+- **App Group ID:** `group.com.atlasi.app`
 - **Keys:**
   - `SharedURL`: The URL that was shared
   - `SharedURLTimestamp`: When the URL was shared
@@ -143,7 +143,7 @@ If you need to debug the native code:
 2. **Open in Xcode:**
 
    ```bash
-   open ios/borderbadge.xcworkspace
+   open ios/Atlasi.xcworkspace
    ```
 
 3. **Build and run** from Xcode to test the Share Extension
@@ -156,12 +156,12 @@ If you need to debug the native code:
 
 | Target          | Bundle ID                            |
 | --------------- | ------------------------------------ |
-| Main App        | `com.borderbadge.app`                |
-| Share Extension | `com.borderbadge.app.ShareExtension` |
+| Main App        | `com.atlasi.app`                |
+| Share Extension | `com.atlasi.app.ShareExtension` |
 
 ### App Group
 
-The App Group `group.com.borderbadge.app` must be configured in:
+The App Group `group.com.atlasi.app` must be configured in:
 
 - Apple Developer Portal (Identifiers → App Groups)
 - Both app and extension provisioning profiles
@@ -216,7 +216,7 @@ Tests cover:
 ### Share Extension doesn't appear in share sheet
 
 1. **Rebuild the app** - Extensions are bundled at build time
-2. **Check bundle IDs** - Extension must use `com.borderbadge.app.ShareExtension`
+2. **Check bundle IDs** - Extension must use `com.atlasi.app.ShareExtension`
 3. **Check entitlements** - App Group must match in both app and extension
 
 ### Share Extension appears but app doesn't open
@@ -230,7 +230,7 @@ Tests cover:
 ### URL not passed to main app
 
 1. **App Group misconfiguration** - Verify both app and extension have the same App Group ID
-2. **Check UserDefaults** - Extension writes to `group.com.borderbadge.app`
+2. **Check UserDefaults** - Extension writes to `group.com.atlasi.app`
 3. **Native module not available** - The full App Group reading requires `react-native-shared-group-preferences` or a custom native module
 
 ### Extension works in development but not production

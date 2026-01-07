@@ -19,7 +19,7 @@ export default {
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.borderbadge.app',
+      bundleIdentifier: 'com.atlasi.app',
       usesAppleSignIn: true,
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
@@ -34,7 +34,7 @@ export default {
         backgroundColor: '#FDF6ED',
       },
       edgeToEdgeEnabled: true,
-      package: 'com.borderbadge.app',
+      package: 'com.atlasi.app',
     },
     web: {
       favicon: './assets/favicon.png',

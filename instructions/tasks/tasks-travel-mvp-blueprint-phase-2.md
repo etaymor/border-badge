@@ -53,7 +53,7 @@
 
 - [x] 1.0 Establish `mobile/` app structure with Expo and TypeScript
   - [x] 1.1 ~~Create a `mobile/` directory~~ Mobile directory already exists. Removed nested `.git` to integrate into monorepo.
-  - [x] 1.2 Configure `mobile/app.json` with app name (Border Badge), slug, iOS bundle identifier (com.borderbadge.app), and custom URL scheme (borderbadge).
+  - [x] 1.2 Configure `mobile/app.json` with app name (Atlasi), slug, iOS bundle identifier (com.atlasi.app), and custom URL scheme (atlasi).
   - [x] 1.3 Add core dependencies: React Navigation (native + native-stack + bottom-tabs), React Query (@tanstack/react-query), Axios, Zustand, expo-secure-store, react-native-screens, react-native-gesture-handler.
   - [x] 1.4 Set up `mobile/tsconfig.json` with strict type checking and path aliases (@screens, @components, @hooks, @services, @stores, @utils, @config, @navigation). Added babel.config.js with module-resolver.
   - [x] 1.5 Verified `npm test` runs successfully (3 smoke tests pass) and TypeScript compiles without errors.
