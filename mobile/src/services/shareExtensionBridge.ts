@@ -198,7 +198,7 @@ export async function getSharedURLFromAppGroup(): Promise<string | null> {
 
   try {
     // This would read from the App Group if native module is available
-    // const data = await SharedGroupPreferences.getItem('SharedURL', 'group.com.borderbadge.app');
+    // const data = await SharedGroupPreferences.getItem('SharedURL', 'group.com.atlasi.app');
     // return data;
     return null;
   } catch {
@@ -219,7 +219,7 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
 
   try {
     // This would clear the App Group value if native module is available
-    // await SharedGroupPreferences.setItem('SharedURL', null, 'group.com.borderbadge.app');
+    // await SharedGroupPreferences.setItem('SharedURL', null, 'group.com.atlasi.app');
   } catch {
     // Ignore errors
   }
