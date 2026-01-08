@@ -39,7 +39,11 @@ export function useGoogleSignIn() {
       if (!data.url) throw new Error('No OAuth URL received from Supabase');
 
       // Open the OAuth URL in the browser
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      // Use preferEphemeralSession to avoid iOS SSO prompts and cookie issues
+      // that can cause double-redirect problems with OAuth flows
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl, {
+        preferEphemeralSession: true,
+      });
 
       if (result.type !== 'success') {
         // User cancelled or browser was dismissed

@@ -38,6 +38,87 @@
 
 ---
 
+## OAuth Provider Publishing
+
+### Google OAuth (Required for Google Sign-In)
+
+Before launch, your Google OAuth app must be published for all users to sign in.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Navigate to **APIs & Services** → **OAuth consent screen**
+3. Review the current status (Testing vs Production)
+
+**Publishing Steps:**
+
+- [ ] OAuth consent screen information complete:
+  - [ ] App name
+  - [ ] User support email
+  - [ ] App logo (optional but recommended)
+  - [ ] App homepage link
+  - [ ] App privacy policy link
+  - [ ] App terms of service link (optional)
+  - [ ] Authorized domains (your app domain)
+  - [ ] Developer contact email
+- [ ] Scopes configured (email, profile, openid)
+- [ ] Click **PUBLISH APP** button
+- [ ] Confirm publishing (app moves from "Testing" to "In production")
+
+**Notes:**
+- While in "Testing" mode, only emails added to test users list can sign in (max 100)
+- Publishing to production allows any Google user to sign in
+- If requesting sensitive/restricted scopes, Google verification may be required (can take weeks)
+- For basic scopes (email, profile, openid), no verification needed
+
+**Verification:**
+- [ ] Test Google Sign-In with an email NOT in test users list
+- [ ] Confirm sign-in works for new users
+
+### Facebook OAuth (If Applicable)
+
+Before launch, your Facebook app must be in Live mode.
+
+1. Go to [Meta for Developers](https://developers.facebook.com/)
+2. Select your app
+3. Navigate to **App Review** → **Permissions and Features**
+
+**Publishing Steps:**
+
+- [ ] App Settings → Basic complete:
+  - [ ] Display name
+  - [ ] App icon (1024x1024)
+  - [ ] Privacy Policy URL
+  - [ ] Terms of Service URL (optional)
+  - [ ] App category
+  - [ ] Business verification (if required)
+- [ ] Facebook Login product added and configured:
+  - [ ] Valid OAuth Redirect URIs includes Supabase callback
+  - [ ] Client OAuth settings configured
+- [ ] Data Use Checkup completed (if prompted)
+- [ ] App Mode switched from **Development** to **Live**:
+  - Go to top of dashboard, toggle **App Mode** to **Live**
+
+**Notes:**
+- While in "Development" mode, only app admins/developers/testers can log in
+- Switching to Live mode requires Privacy Policy URL
+- Some permissions require App Review before going live
+- Basic permissions (email, public_profile) don't require review
+
+**Verification:**
+- [ ] Test Facebook Sign-In with an account NOT added as tester
+- [ ] Confirm sign-in works for new users
+
+### Apple Sign-In
+
+Apple Sign-In doesn't have a separate publishing step - it works automatically once configured in:
+- [ ] Apple Developer Portal (App ID with Sign In with Apple capability)
+- [ ] Supabase (Apple provider with Services ID, Key ID, Team ID, Secret Key)
+
+**Verification:**
+- [ ] Test Apple Sign-In on physical iOS device
+- [ ] Confirm user created in Supabase Auth
+
+---
+
 ## App Store Submission (iOS)
 
 ### Apple Developer Account

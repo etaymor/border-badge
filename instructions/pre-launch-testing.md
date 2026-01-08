@@ -199,13 +199,13 @@ cd mobile
 
 # Set Supabase credentials
 eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://your-project.supabase.co" --scope project
-eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtY29oaXpxdXp6bXBlaWR6dmJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NDkxMzUsImV4cCI6MjA4MDAyNTEzNX0.0GOlSLxACLIXIFPSuNddZZ90OPQ2aWm3itHyXJJaKCY" --scope project
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "anon key" --scope project
 
 # Set API URL (use your Railway URL after deployment, or local IP for testing)
 eas env:create --name EXPO_PUBLIC_API_URL --value "https://atlasi.app" --scope project
 
 # Set Google Places API key
-eas env:create --name EXPO_PUBLIC_GOOGLE_PLACES_API_KEY --value "phc_4LJuyXGYpN7MLGlhi4ZavsYlxfau3ZCVs7Vq8vFCl37y" --scope project
+eas env:create --name EXPO_PUBLIC_GOOGLE_PLACES_API_KEY --value "posthog key" --scope project
 
 # Set app environment
 eas env:create --name EXPO_PUBLIC_APP_ENV --value "production" --scope project
