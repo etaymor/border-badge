@@ -34,99 +34,28 @@ function withAppGroupEntitlement(config) {
 }
 
 /**
- * Check if a build phase with the given name already exists for a target
+ * Find extension target by name, handling the xcode library's quoted name format.
+ * The xcode npm package stores target names with quotes (e.g., "ShareExtension"),
+ * but pbxTargetByName expects unquoted names. This function handles both cases.
  * @param {Object} xcodeProject - The xcode project object
- * @param {string} targetUuid - The UUID of the target to check
- * @param {string} phaseName - The name of the build phase (e.g., 'Embed App Extensions')
- * @returns {boolean} - True if the phase exists
+ * @param {string} name - The unquoted target name to find
+ * @returns {Object|null} - The target object or null if not found
  */
-function buildPhaseExists(xcodeProject, targetUuid, phaseName) {
+function findExtensionTarget(xcodeProject, name) {
   const nativeTargets = xcodeProject.pbxNativeTargetSection();
-  const target = nativeTargets[targetUuid];
+  const quotedName = `"${name}"`;
 
-  if (!target || !target.buildPhases) {
-    return false;
-  }
+  for (const key in nativeTargets) {
+    // Skip comment keys
+    if (key.endsWith('_comment')) continue;
 
-  for (const phase of target.buildPhases) {
-    if (phase.comment === phaseName) {
-      return true;
+    const target = nativeTargets[key];
+    if (target && (target.name === name || target.name === quotedName)) {
+      return { uuid: key, target };
     }
   }
 
-  return false;
-}
-
-/**
- * Check if a target dependency already exists
- * @param {Object} xcodeProject - The xcode project object
- * @param {string} targetUuid - The UUID of the target that has the dependency
- * @param {string} dependencyTargetUuid - The UUID of the dependency target
- * @returns {boolean} - True if the dependency already exists
- */
-function targetDependencyExists(xcodeProject, targetUuid, dependencyTargetUuid) {
-  const nativeTargets = xcodeProject.pbxNativeTargetSection();
-  const target = nativeTargets[targetUuid];
-
-  if (!target || !target.dependencies) {
-    return false;
-  }
-
-  const targetDependencySection = xcodeProject.hash.project.objects['PBXTargetDependency'] || {};
-
-  for (const dep of target.dependencies) {
-    const depUuid = dep.value;
-    const depObj = targetDependencySection[depUuid];
-
-    if (depObj && depObj.target === dependencyTargetUuid) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Add the Embed App Extensions build phase to the main target
- * @param {Object} xcodeProject - The xcode project object
- * @param {string} mainTargetUuid - UUID of the main app target
- * @param {string} extensionTargetUuid - UUID of the extension target
- */
-function addEmbedAppExtensionsBuildPhase(xcodeProject, mainTargetUuid, extensionTargetUuid) {
-  const nativeTargets = xcodeProject.pbxNativeTargetSection();
-  const extensionTarget = nativeTargets[extensionTargetUuid];
-
-  if (!extensionTarget) {
-    console.warn('Extension target not found');
-    return;
-  }
-
-  const copyFilesBuildPhase = xcodeProject.addBuildPhase(
-    [],
-    'PBXCopyFilesBuildPhase',
-    'Embed App Extensions',
-    mainTargetUuid,
-    'app_extension'
-  );
-
-  if (copyFilesBuildPhase && copyFilesBuildPhase.buildPhase) {
-    const extensionProduct = extensionTarget.productReference;
-    if (extensionProduct) {
-      const buildFileUuid = xcodeProject.generateUuid();
-      xcodeProject.hash.project.objects['PBXBuildFile'][buildFileUuid] = {
-        isa: 'PBXBuildFile',
-        fileRef: extensionProduct,
-        settings: { ATTRIBUTES: ['RemoveHeadersOnCopy'] },
-      };
-      xcodeProject.hash.project.objects['PBXBuildFile'][`${buildFileUuid}_comment`] =
-        `${EXTENSION_NAME}.appex in Embed App Extensions`;
-
-      copyFilesBuildPhase.buildPhase.files.push({
-        value: buildFileUuid,
-        comment: `${EXTENSION_NAME}.appex in Embed App Extensions`,
-      });
-    }
-  }
+  return null;
 }
 
 /**
@@ -140,33 +69,13 @@ function withShareExtensionTarget(config) {
     const projectRoot = mod.modRequest.projectRoot;
     const iosPath = path.join(projectRoot, 'ios');
 
-    // Check if extension target already exists
-    const existingTarget = xcodeProject.pbxTargetByName(EXTENSION_NAME);
+    // Check if extension target already exists using our custom finder
+    // (pbxTargetByName doesn't handle quoted names properly)
+    const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
     if (existingTarget) {
-      console.log(
-        `Share Extension target "${EXTENSION_NAME}" already exists, ensuring configuration...`
-      );
-
-      // Even if target exists, ensure build phase and dependency are configured
-      const mainAppTarget = xcodeProject.getFirstTarget();
-      if (mainAppTarget) {
-        const mainTargetUuid = mainAppTarget.uuid;
-        const extensionTargetUuid = xcodeProject.findTargetKey(EXTENSION_NAME);
-
-        // Ensure target dependency exists
-        if (
-          extensionTargetUuid &&
-          !targetDependencyExists(xcodeProject, mainTargetUuid, extensionTargetUuid)
-        ) {
-          xcodeProject.addTargetDependency(mainTargetUuid, [extensionTargetUuid]);
-        }
-
-        // Ensure Embed App Extensions build phase exists
-        if (!buildPhaseExists(xcodeProject, mainTargetUuid, 'Embed App Extensions')) {
-          addEmbedAppExtensionsBuildPhase(xcodeProject, mainTargetUuid, extensionTargetUuid);
-        }
-      }
-
+      console.log(`Share Extension target "${EXTENSION_NAME}" already exists, skipping...`);
+      // The target already exists with all its build phases and dependencies
+      // (addTarget automatically adds them for app_extension type)
       return mod;
     }
 
@@ -228,7 +137,7 @@ function withShareExtensionTarget(config) {
       GENERATE_INFOPLIST_FILE: 'NO',
       INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,
       INFOPLIST_KEY_CFBundleDisplayName: EXTENSION_DISPLAY_NAME,
-      INFOPLIST_KEY_NSHumanReadableCopyright: '',
+      INFOPLIST_KEY_NSHumanReadableCopyright: '""',
       IPHONEOS_DEPLOYMENT_TARGET: '15.1',
       LD_RUNPATH_SEARCH_PATHS:
         '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks',
@@ -246,10 +155,12 @@ function withShareExtensionTarget(config) {
     const configLists = xcodeProject.pbxXCConfigurationList();
     const targets = xcodeProject.pbxNativeTargetSection();
 
-    // Find the extension target's configuration list
+    // Find the extension target's configuration list (handle quoted names)
+    const quotedExtensionName = `"${EXTENSION_NAME}"`;
     let extensionConfigListKey = null;
     for (const targetKey in targets) {
-      if (targets[targetKey].name === EXTENSION_NAME) {
+      const targetName = targets[targetKey].name;
+      if (targetName === EXTENSION_NAME || targetName === quotedExtensionName) {
         extensionConfigListKey = targets[targetKey].buildConfigurationList;
         break;
       }
@@ -265,21 +176,11 @@ function withShareExtensionTarget(config) {
       }
     }
 
-    // Add extension to main app's build phases
-    const mainAppTarget = xcodeProject.getFirstTarget();
-    if (mainAppTarget) {
-      const mainTargetUuid = mainAppTarget.uuid;
-
-      // Add target dependency (only if not already added)
-      if (!targetDependencyExists(xcodeProject, mainTargetUuid, target.uuid)) {
-        xcodeProject.addTargetDependency(mainTargetUuid, [target.uuid]);
-      }
-
-      // Add Embed App Extensions build phase (only if not already added)
-      if (!buildPhaseExists(xcodeProject, mainTargetUuid, 'Embed App Extensions')) {
-        addEmbedAppExtensionsBuildPhase(xcodeProject, mainTargetUuid, target.uuid);
-      }
-    }
+    // Note: addTarget() for 'app_extension' type automatically:
+    // 1. Creates a "Copy Files" build phase to embed the extension
+    // 2. Adds the extension product to that build phase
+    // 3. Adds a target dependency from the main app to the extension
+    // So we don't need to add these manually.
 
     console.log(
       `Added Share Extension target "${EXTENSION_NAME}" with bundle ID "${extensionBundleId}"`
