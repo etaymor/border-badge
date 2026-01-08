@@ -22,14 +22,17 @@ const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
-const APPLE_TEAM_ID =
-  process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
-
-if (!APPLE_TEAM_ID) {
-  throw new Error(
-    'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
-      'Set APPLE_TEAM_ID, DEVELOPMENT_TEAM, or TEAM_ID in your environment.'
-  );
+// Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
+function getAppleTeamId() {
+  const teamId =
+    process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
+  if (!teamId) {
+    throw new Error(
+      'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
+        'Set APPLE_TEAM_ID, DEVELOPMENT_TEAM, or TEAM_ID in your environment.'
+    );
+  }
+  return teamId;
 }
 
 /**
@@ -142,7 +145,7 @@ function withShareExtensionTarget(config) {
       CLANG_ENABLE_MODULES: 'YES',
       CODE_SIGN_ENTITLEMENTS: `${EXTENSION_NAME}/ShareExtension.entitlements`,
       CODE_SIGN_STYLE: 'Automatic',
-      DEVELOPMENT_TEAM: APPLE_TEAM_ID,
+      DEVELOPMENT_TEAM: getAppleTeamId(),
       CURRENT_PROJECT_VERSION: 1,
       GENERATE_INFOPLIST_FILE: 'NO',
       INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,

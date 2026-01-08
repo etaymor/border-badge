@@ -25,6 +25,9 @@ export default {
         light: './assets/Atlasi-book-app-icon-cream.png',
         dark: './assets/Atlasi-book-app-icon-midnight.png',
       },
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
+      },
     },
     android: {
       adaptiveIcon: {
