@@ -23,10 +23,14 @@ const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const APPLE_TEAM_ID =
-  process.env.APPLE_TEAM_ID ||
-  process.env.DEVELOPMENT_TEAM ||
-  process.env.TEAM_ID ||
-  '2AB5M8J3G6';
+  process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
+
+if (!APPLE_TEAM_ID) {
+  throw new Error(
+    'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
+      'Set APPLE_TEAM_ID, DEVELOPMENT_TEAM, or TEAM_ID in your environment.'
+  );
+}
 
 /**
  * Add App Group entitlement to the main app
