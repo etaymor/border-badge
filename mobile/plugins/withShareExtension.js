@@ -140,7 +140,7 @@ function withShareExtensionTarget(config) {
       INFOPLIST_KEY_NSHumanReadableCopyright: '""',
       IPHONEOS_DEPLOYMENT_TARGET: '15.1',
       LD_RUNPATH_SEARCH_PATHS:
-        '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks',
+        '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"',
       MARKETING_VERSION: '1.0',
       PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
       PRODUCT_NAME: '$(TARGET_NAME)',
