@@ -183,7 +183,8 @@ describe('useGoogleAuth', () => {
 
         expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
           'https://accounts.google.com/oauth',
-          'atlasi://auth-callback'
+          'atlasi://auth-callback',
+          { preferEphemeralSession: true }
         );
       });
 

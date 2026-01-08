@@ -63,6 +63,9 @@ export default {
                 {
                   targetName: 'ShareExtension',
                   bundleIdentifier: 'com.atlasi.app.ShareExtension',
+                  entitlements: {
+                    'com.apple.security.application-groups': ['group.com.atlasi.app'],
+                  },
                 },
               ],
             },

@@ -22,6 +22,11 @@ const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
+const APPLE_TEAM_ID =
+  process.env.APPLE_TEAM_ID ||
+  process.env.DEVELOPMENT_TEAM ||
+  process.env.TEAM_ID ||
+  '2AB5M8J3G6';
 
 /**
  * Add App Group entitlement to the main app
@@ -133,17 +138,24 @@ function withShareExtensionTarget(config) {
       CLANG_ENABLE_MODULES: 'YES',
       CODE_SIGN_ENTITLEMENTS: `${EXTENSION_NAME}/ShareExtension.entitlements`,
       CODE_SIGN_STYLE: 'Automatic',
+      DEVELOPMENT_TEAM: APPLE_TEAM_ID,
       CURRENT_PROJECT_VERSION: 1,
       GENERATE_INFOPLIST_FILE: 'NO',
       INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,
-      INFOPLIST_KEY_CFBundleDisplayName: EXTENSION_DISPLAY_NAME,
+      INFOPLIST_KEY_CFBundleDisplayName: `"${EXTENSION_DISPLAY_NAME}"`,
       INFOPLIST_KEY_NSHumanReadableCopyright: '""',
+      // iOS 15.1 matches React Native 0.81's minimum deployment target (set in RN 0.76+).
+      // ShareViewController.swift uses UniformTypeIdentifiers (UTType), which requires iOS 14+.
       IPHONEOS_DEPLOYMENT_TARGET: '15.1',
-      LD_RUNPATH_SEARCH_PATHS:
-        '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"',
+      // Quote runpath entries so the generated pbxproj parses cleanly under CocoaPods/Nanaimo
+      LD_RUNPATH_SEARCH_PATHS: [
+        '"$(inherited)"',
+        '"@executable_path/Frameworks"',
+        '"@executable_path/../../Frameworks"',
+      ],
       MARKETING_VERSION: '1.0',
       PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
-      PRODUCT_NAME: '$(TARGET_NAME)',
+      PRODUCT_NAME: '"$(TARGET_NAME)"',
       SKIP_INSTALL: 'YES',
       SWIFT_EMIT_LOC_STRINGS: 'YES',
       SWIFT_VERSION: '5.0',
