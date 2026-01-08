@@ -134,11 +134,26 @@ function withShareExtensionTarget(config) {
       xcodeProject.addToPbxGroup(extensionGroup.uuid, mainGroupKey);
     }
 
-    // Add Swift file to build sources
+    // Add Swift file to build sources using addBuildPhase which creates the phase if needed
+    // and properly associates the file with the extension target
     const swiftFilePath = `${EXTENSION_NAME}/ShareViewController.swift`;
-    xcodeProject.addSourceFile(swiftFilePath, { target: target.uuid }, extensionGroup.uuid);
+
+    // Add a Sources build phase with the Swift file to the extension target
+    // This is more reliable than addSourceFile() for extension targets
+    xcodeProject.addBuildPhase(
+      ['ShareViewController.swift'],
+      'PBXSourcesBuildPhase',
+      'Sources',
+      target.uuid,
+      'app_extension',
+      swiftFilePath.replace('/ShareViewController.swift', '')
+    );
+    console.log(`Added Sources build phase with ShareViewController.swift to ${EXTENSION_NAME}`);
 
     // Configure build settings for extension
+    // Note on quoting: Values containing spaces, special chars, or Xcode variables like
+    // $(TARGET_NAME) need outer quotes to survive pbxproj serialization. Path values
+    // without spaces (e.g., CODE_SIGN_ENTITLEMENTS) don't need quotes.
     const buildSettings = {
       ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon',
       CLANG_ENABLE_MODULES: 'YES',
