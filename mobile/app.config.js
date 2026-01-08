@@ -24,7 +24,6 @@ export default {
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
         dark: './assets/Atlasi-book-app-icon-midnight.png',
-        tinted: true,
       },
     },
     android: {
@@ -44,10 +43,20 @@ export default {
       'expo-font',
       'expo-video',
       'expo-apple-authentication',
+      'expo-secure-store',
       './plugins/withShareExtension',
     ],
+    updates: {
+      url: 'https://u.expo.dev/4b406924-7c4e-4723-87a1-c40ad227d873',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
     extra: {
       EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
+      eas: {
+        projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
+      },
     },
   },
 };
