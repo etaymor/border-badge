@@ -24,8 +24,7 @@ const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 // Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
 function getAppleTeamId() {
-  const teamId =
-    process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
+  const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
   if (!teamId) {
     throw new Error(
       'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
