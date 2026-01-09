@@ -13,7 +13,7 @@ import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
 import { enqueueFailedShare, QueuedShare } from '@services/shareQueue';
-import { completeAppGroupShare, clearProcessingStatus } from '@services/shareExtensionBridge';
+import { completeAppGroupShare } from '@services/shareExtensionBridge';
 import { api } from '@services/api';
 
 import {
@@ -96,12 +96,14 @@ export function useShareCapture({
   const [error, setError] = useState<string | null>(null);
   const [saveCompleted, setSaveCompleted] = useState(false);
 
-  // Clean up processing status on unmount if save was not completed
+  // Clean up on unmount if save was not completed
   // This handles cases where user navigates away or cancels
   useEffect(() => {
     return () => {
       if (source === 'share_extension' && !saveCompleted) {
-        clearProcessingStatus(url);
+        // Mark as processed even if not saved, so it won't appear again
+        // User has seen it and chosen to dismiss - that's their decision
+        void completeAppGroupShare(url);
       }
     };
   }, [source, url, saveCompleted]);

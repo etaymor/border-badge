@@ -287,13 +287,11 @@ Tests cover:
 2. **Check bundle IDs** - Extension must use `com.atlasi.app.ShareExtension`
 3. **Check entitlements** - App Group must match in both app and extension
 
-### Share Extension appears but app doesn't open
+### Share Extension appears but app doesn't open automatically
 
-1. **Check deep link scheme** - Must be `atlasi://`
-2. **Verify in `app.config.js`:**
-   ```javascript
-   scheme: 'atlasi',
-   ```
+**This is expected behavior.** iOS does not allow Share Extensions to open the containing app programmatically. Only Today Widgets have this capability.
+
+The extension saves the URL to App Group storage, and the main app reads it when opened manually. A notification may also appear (if permissions are granted) to remind the user to open the app.
 
 ### URL not passed to main app
 

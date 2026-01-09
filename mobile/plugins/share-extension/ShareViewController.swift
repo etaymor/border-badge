@@ -2,20 +2,24 @@
  * ShareViewController - iOS Share Extension for Atlasi
  *
  * This extension receives shared URLs from TikTok, Instagram, and other apps,
- * saves them to App Group storage, and prompts the user to open the main app.
+ * saves them to App Group storage, and shows a confirmation to the user.
  *
  * Flow:
  * 1. User taps Share in TikTok/Instagram
  * 2. Selects "Atlasi" from share sheet
  * 3. Extension extracts URL from shared content
  * 4. Writes URL to App Group shared storage
- * 5. Shows branded confirmation with "Open Atlasi" button
- * 6. User taps button to dismiss, then opens main app manually
+ * 5. Shows branded confirmation with "Done" button
+ * 6. User opens main app manually from home screen
  * 7. Main app reads URL from App Group on foreground
+ *
+ * Note: iOS does not allow Share Extensions to open the containing app via URL schemes.
+ * Only Today Widgets have this capability. The App Group storage approach works reliably.
  */
 
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 
 class ShareViewController: UIViewController {
     // MARK: - Constants
@@ -29,10 +33,7 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
-    /// Universal Link base URL for opening the main app
-    private let universalLinkBase = "https://atlasi.app/share"
-
-    /// The shared URL to pass to the main app
+    /// The shared URL (stored for reference, but not used for URL scheme opening)
     private var sharedURL: String?
 
     // MARK: - Brand Colors
@@ -98,35 +99,25 @@ class ShareViewController: UIViewController {
 
     private lazy var subtitleLabel: UILabel = {
         let label = UILabel()
-        label.text = "Open Atlasi to add it to a trip"
+        label.text = "Open Atlasi from your home screen\nto add this to a trip"
         label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
         label.textColor = midnightNavy.withAlphaComponent(0.6)
         label.textAlignment = .center
+        label.numberOfLines = 2
         label.translatesAutoresizingMaskIntoConstraints = false
         label.isHidden = true
         return label
     }()
 
-    private lazy var openButton: UIButton = {
+    private lazy var doneButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setTitle("Open Atlasi", for: .normal)
+        button.setTitle("Done", for: .normal)
         button.setTitleColor(.white, for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
         button.backgroundColor = mossGreen
         button.layer.cornerRadius = 12
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(openAtlasiTapped), for: .touchUpInside)
-        button.isHidden = true
-        return button
-    }()
-
-    private lazy var cancelButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle("Not now", for: .normal)
-        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
         button.isHidden = true
         return button
     }()
@@ -159,7 +150,7 @@ class ShareViewController: UIViewController {
         button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
         button.isHidden = true
         return button
     }()
@@ -193,8 +184,7 @@ class ShareViewController: UIViewController {
         containerView.addSubview(checkmarkIcon)
         containerView.addSubview(titleLabel)
         containerView.addSubview(subtitleLabel)
-        containerView.addSubview(openButton)
-        containerView.addSubview(cancelButton)
+        containerView.addSubview(doneButton)
 
         // Add error elements
         containerView.addSubview(errorIcon)
@@ -226,18 +216,15 @@ class ShareViewController: UIViewController {
             titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
             titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
 
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
             subtitleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
             subtitleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
 
-            openButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
-            openButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            openButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-            openButton.heightAnchor.constraint(equalToConstant: 50),
-
-            cancelButton.topAnchor.constraint(equalTo: openButton.bottomAnchor, constant: 12),
-            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
+            doneButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
+            doneButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            doneButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+            doneButton.heightAnchor.constraint(equalToConstant: 50),
+            doneButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -24),
 
             // Error state
             errorIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
@@ -374,7 +361,7 @@ class ShareViewController: UIViewController {
 
     // MARK: - Success UI
 
-    /// Show success state with buttons
+    /// Show success state with Done button
     private func showSuccess() {
         // Hide loading elements
         activityIndicator.stopAnimating()
@@ -386,15 +373,16 @@ class ShareViewController: UIViewController {
             self.checkmarkIcon.isHidden = false
             self.titleLabel.isHidden = false
             self.subtitleLabel.isHidden = false
-            self.openButton.isHidden = false
-            self.cancelButton.isHidden = false
+            self.doneButton.isHidden = false
 
             self.checkmarkIcon.alpha = 1
             self.titleLabel.alpha = 1
             self.subtitleLabel.alpha = 1
-            self.openButton.alpha = 1
-            self.cancelButton.alpha = 1
+            self.doneButton.alpha = 1
         }
+
+        // Schedule optional notification to remind user to open the app
+        scheduleOpenAppReminder()
     }
 
     // MARK: - Error Handling
@@ -420,34 +408,9 @@ class ShareViewController: UIViewController {
 
     // MARK: - Button Actions
 
-    @objc private func openAtlasiTapped() {
-        // Open the main app via Universal Link
-        // iOS will intercept this https URL and open the app directly
-        // because the app has Associated Domains configured for atlasi.app
-        openMainApp()
-    }
-
-    /// Open the main app using Universal Links
-    private func openMainApp() {
-        guard let sharedURL = sharedURL,
-              let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let universalLink = URL(string: "\(universalLinkBase)?url=\(encodedURL)") else {
-            // Fallback: just dismiss if URL construction fails
-            completeRequest()
-            return
-        }
-
-        // Use extensionContext.open() to open the Universal Link
-        // This works because it's an https:// URL, not a custom scheme
-        extensionContext?.open(universalLink) { [weak self] success in
-            // Complete the extension request after attempting to open
-            // The app will read the URL from App Group if Universal Link fails
-            self?.completeRequest()
-        }
-    }
-
-    @objc private func cancelTapped() {
-        // Just dismiss without any action
+    @objc private func doneTapped() {
+        // Dismiss the extension - user will open the main app manually
+        // The URL is already saved to App Group and will be read on app foreground
         completeRequest()
     }
 
@@ -462,6 +425,38 @@ class ShareViewController: UIViewController {
             self.view.backgroundColor = UIColor.clear
         }) { _ in
             self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
+    }
+
+    // MARK: - Notifications
+
+    /// Schedule an optional notification to remind user to open the app
+    /// Only sends if user has previously granted notification permissions
+    private func scheduleOpenAppReminder() {
+        let center = UNUserNotificationCenter.current()
+
+        center.getNotificationSettings { settings in
+            // Only send notification if user has granted permission
+            guard settings.authorizationStatus == .authorized else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Place saved!"
+            content.body = "Tap to add it to your trip in Atlasi"
+            content.sound = .default
+
+            // Show notification 2 seconds after extension closes
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "atlasi-share-extension-reminder",
+                content: content,
+                trigger: trigger
+            )
+
+            center.add(request) { error in
+                if let error = error {
+                    NSLog("[Atlasi ShareExtension] Notification error: %@", error.localizedDescription)
+                }
+            }
         }
     }
 }
