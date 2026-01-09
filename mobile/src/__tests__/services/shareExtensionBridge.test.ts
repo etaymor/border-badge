@@ -15,25 +15,37 @@ import {
   clearPendingShare,
   markShareProcessed,
   wasRecentlyProcessed,
+  completeAppGroupShare,
+  __resetProcessedCache,
 } from '@services/shareExtensionBridge';
 
 // Mock AsyncStorage
 jest.mock('@react-native-async-storage/async-storage');
 const mockAsyncStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
 
-// Mock Platform
+// Mock Platform and NativeModules
+// Must use inline mock functions since jest.mock is hoisted before variable declarations
 jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
   Linking: {
     getInitialURL: jest.fn(),
     addEventListener: jest.fn(() => ({ remove: jest.fn() })),
   },
-  NativeModules: {},
+  NativeModules: {
+    SharedGroupPreferences: {
+      getItem: jest.fn().mockResolvedValue(null),
+      clearAll: jest.fn().mockResolvedValue(undefined),
+    },
+  },
 }));
+
+// Get reference to the mock after module initialization
+const { NativeModules } = jest.requireMock('react-native');
 
 describe('shareExtensionBridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetProcessedCache();
   });
 
   describe('isShareExtensionDeepLink', () => {
@@ -234,6 +246,28 @@ describe('shareExtensionBridge', () => {
       const result = await wasRecentlyProcessed('https://vm.tiktok.com/abc123');
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('completeAppGroupShare', () => {
+    it('marks URL as processed and clears App Group (calls both functions)', async () => {
+      const testUrl = 'https://vm.tiktok.com/abc123';
+
+      await completeAppGroupShare(testUrl);
+
+      // Should call markShareProcessed (which sets LAST_PROCESSED_KEY)
+      expect(mockAsyncStorage.setItem).toHaveBeenCalledWith(
+        'share_extension_last_processed',
+        expect.any(String)
+      );
+
+      // Verify the stored data contains the URL
+      const storedData = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(storedData.url).toBe(testUrl);
+      expect(storedData.timestamp).toBeDefined();
+
+      // Verify App Group was cleared via native module
+      expect(NativeModules.SharedGroupPreferences.clearAll).toHaveBeenCalled();
     });
   });
 });

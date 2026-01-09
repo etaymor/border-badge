@@ -21,10 +21,10 @@ Complete guide for testing Atlasi on a physical device with full native function
 
 ### Required Accounts
 
-- [ ] Apple Developer Account ($99/year) - https://developer.apple.com
-- [ ] Expo Account (free) - https://expo.dev
-- [ ] Railway Account (free tier available) - https://railway.app
-- [ ] Supabase Project (already configured)
+- [x] Apple Developer Account ($99/year) - https://developer.apple.com
+- [x] Expo Account (free) - https://expo.dev
+- [x] Railway Account (free tier available) - https://railway.app
+- [x] Supabase Project (already configured)
 
 ### Required Tools
 
@@ -68,7 +68,7 @@ eas login
    - Device ID (UDID): Paste the UDID
 6. Click **Continue** → **Register**
 
-- [ ] Device registered in Apple Developer Portal
+- [x] Device registered in Apple Developer Portal
 
 ---
 
@@ -84,7 +84,7 @@ App Groups allow the main app and Share Extension to share data.
    - Identifier: `group.com.atlasi.app`
 5. Click **Continue** → **Register**
 
-- [ ] App Group `group.com.atlasi.app` created
+- [x] App Group `group.com.atlasi.app` created
 
 ---
 
@@ -97,9 +97,9 @@ App Groups allow the main app and Share Extension to share data.
    - Description: `Atlasi`
    - Bundle ID: Select **Explicit** and enter `com.atlasi.app`
 5. Scroll down to **Capabilities** and enable:
-   - [ ] **App Groups**
-   - [ ] **Associated Domains** (for deep links)
-   - [ ] **Sign In with Apple**
+   - [x] **App Groups**
+   - [x] **Associated Domains** (for deep links)
+   - [x] **Sign In with Apple**
 6. Click **Continue** → **Register**
 
 **Configure App Group:**
@@ -109,7 +109,7 @@ App Groups allow the main app and Share Extension to share data.
 3. Check `group.com.atlasi.app`
 4. Click **Save**
 
-- [ ] Main App ID created with App Groups enabled
+- [x] Main App ID created with App Groups enabled
 
 ---
 
@@ -122,7 +122,7 @@ App Groups allow the main app and Share Extension to share data.
    - Description: `Atlasi Share Extension`
    - Bundle ID: Select **Explicit** and enter `com.atlasi.app.ShareExtension`
 5. Scroll down to **Capabilities** and enable:
-   - [ ] **App Groups**
+   - [x] **App Groups**
 6. Click **Continue** → **Register**
 
 **Configure App Group:**
@@ -132,7 +132,7 @@ App Groups allow the main app and Share Extension to share data.
 3. Check `group.com.atlasi.app`
 4. Click **Save**
 
-- [ ] Share Extension App ID created with App Groups enabled
+- [x] Share Extension App ID created with App Groups enabled
 
 ---
 
@@ -140,13 +140,13 @@ App Groups allow the main app and Share Extension to share data.
 
 Your Identifiers should now show:
 
-| Identifier                           | Type      | App Groups Enabled |
-| ------------------------------------ | --------- | ------------------ |
+| Identifier                      | Type      | App Groups Enabled |
+| ------------------------------- | --------- | ------------------ |
 | `com.atlasi.app`                | App ID    | Yes                |
 | `com.atlasi.app.ShareExtension` | App ID    | Yes                |
 | `group.com.atlasi.app`          | App Group | N/A                |
 
-- [ ] All three identifiers configured correctly
+- [x] All three identifiers configured correctly
 
 ---
 
@@ -186,7 +186,7 @@ Your `mobile/eas.json` should already be configured:
 }
 ```
 
-- [ ] eas.json verified
+- [x] eas.json verified
 
 ---
 
@@ -198,26 +198,26 @@ EAS Build needs access to your environment variables. Create/update secrets:
 cd mobile
 
 # Set Supabase credentials
-eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://your-project.supabase.co" --scope project
-eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "your-anon-key" --scope project
+eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://your-project.supabase.co" --scope project
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "anon key" --scope project
 
 # Set API URL (use your Railway URL after deployment, or local IP for testing)
-eas secret:create --name EXPO_PUBLIC_API_URL --value "https://your-app.railway.app" --scope project
+eas env:create --name EXPO_PUBLIC_API_URL --value "https://atlasi.app" --scope project
 
 # Set Google Places API key
-eas secret:create --name EXPO_PUBLIC_GOOGLE_PLACES_API_KEY --value "your-google-places-key" --scope project
+eas env:create --name EXPO_PUBLIC_GOOGLE_PLACES_API_KEY --value "posthog key" --scope project
 
 # Set app environment
-eas secret:create --name EXPO_PUBLIC_APP_ENV --value "production" --scope project
+eas env:create --name EXPO_PUBLIC_APP_ENV --value "production" --scope project
 ```
 
 **Verify secrets are set:**
 
 ```bash
-eas secret:list
+eas env:list
 ```
 
-- [ ] All required EAS secrets configured
+- [x] All required EAS secrets configured
 
 ---
 
@@ -233,6 +233,7 @@ eas credentials
 ```
 
 Select:
+
 1. **iOS**
 2. **Build Credentials**
 3. Choose your project
@@ -244,7 +245,7 @@ Select:
 
 For subsequent builds, EAS will remember your credentials.
 
-- [ ] Apple credentials configured in EAS
+- [x] Apple credentials configured in EAS
 
 ---
 
@@ -262,6 +263,7 @@ eas build --platform ios --profile development
 ```
 
 This will:
+
 1. Upload your project to EAS
 2. Configure signing (may prompt for Apple ID)
 3. Build the app with Share Extension
@@ -348,6 +350,7 @@ Google Sign-In works through Supabase OAuth. Confirm in Supabase Dashboard:
 **Required Redirect URL in Google Cloud Console:**
 
 The Supabase redirect URL should be added to your Google OAuth consent screen:
+
 ```
 https://your-project.supabase.co/auth/v1/callback
 ```
@@ -366,6 +369,7 @@ https://your-project.supabase.co/auth/v1/callback
 6. The app should log you in successfully
 
 **Expected behavior:**
+
 - Browser opens for OAuth
 - After signing in, browser closes
 - App receives session tokens
@@ -390,6 +394,7 @@ https://your-project.supabase.co/auth/v1/callback
 ### Step 5.1: Understanding the Share Extension
 
 The Share Extension is automatically built and bundled by the Expo plugin at `mobile/plugins/withShareExtension.js`. It:
+
 - Creates a "Save Place" option in the iOS share sheet
 - Extracts URLs from TikTok, Instagram, and other apps
 - Opens the main app via deep link with the shared URL
@@ -409,6 +414,7 @@ The Share Extension is automatically built and bundled by the Expo plugin at `mo
 7. The app should fetch metadata for the TikTok video
 
 **Expected behavior:**
+
 - Share sheet shows "Save Place" option with app icon
 - Tapping opens Atlasi immediately
 - ShareCaptureScreen shows loading, then video thumbnail
@@ -477,16 +483,17 @@ In Railway project settings:
 2. Go to **Settings** tab
 3. Configure:
 
-| Setting           | Value                               |
-| ----------------- | ----------------------------------- |
-| Root Directory    | `/backend`                          |
-| Build Command     | `pip install poetry && poetry install --no-dev` |
-| Start Command     | `poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| Watch Paths       | `/backend/**`                       |
+| Setting        | Value                                                         |
+| -------------- | ------------------------------------------------------------- |
+| Root Directory | `/backend`                                                    |
+| Build Command  | `pip install poetry && poetry install --no-dev`               |
+| Start Command  | `poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Watch Paths    | `/backend/**`                                                 |
 
 **Alternative: Use a Procfile**
 
 Create `backend/Procfile`:
+
 ```
 web: poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
@@ -501,24 +508,24 @@ In Railway dashboard, go to **Variables** and add:
 
 **Required:**
 
-| Variable                  | Value                                    |
-| ------------------------- | ---------------------------------------- |
-| `ENV`                     | `production`                             |
-| `DEBUG`                   | `false`                                  |
-| `SUPABASE_URL`            | `https://your-project.supabase.co`       |
-| `SUPABASE_ANON_KEY`       | Your Supabase anon key                   |
-| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key         |
-| `SUPABASE_JWT_SECRET`     | Your Supabase JWT secret                 |
-| `ALLOWED_ORIGINS`         | `https://your-domain.com,atlasi://`      |
+| Variable                    | Value                               |
+| --------------------------- | ----------------------------------- |
+| `ENV`                       | `production`                        |
+| `DEBUG`                     | `false`                             |
+| `SUPABASE_URL`              | `https://your-project.supabase.co`  |
+| `SUPABASE_ANON_KEY`         | Your Supabase anon key              |
+| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key      |
+| `SUPABASE_JWT_SECRET`       | Your Supabase JWT secret            |
+| `ALLOWED_ORIGINS`           | `https://your-domain.com,atlasi://` |
 
 **Optional (but recommended):**
 
-| Variable                  | Value                                    |
-| ------------------------- | ---------------------------------------- |
-| `PUBLIC_WEB_BASE_URL`     | `https://your-app.railway.app`           |
-| `OPENROUTER_API_KEY`      | For traveler classification feature      |
-| `GOOGLE_PLACES_API_KEY`   | For place extraction                     |
-| `AFFILIATE_SIGNING_SECRET`| For affiliate link security              |
+| Variable                   | Value                               |
+| -------------------------- | ----------------------------------- |
+| `PUBLIC_WEB_BASE_URL`      | `https://your-app.railway.app`      |
+| `OPENROUTER_API_KEY`       | For traveler classification feature |
+| `GOOGLE_PLACES_API_KEY`    | For place extraction                |
+| `AFFILIATE_SIGNING_SECRET` | For affiliate link security         |
 
 - [ ] All environment variables configured
 
@@ -530,6 +537,7 @@ In Railway dashboard, go to **Variables** and add:
 2. Click **Deploy** in Railway dashboard
 
 Railway will:
+
 1. Detect Python project
 2. Install dependencies with Poetry
 3. Start Uvicorn server
@@ -550,6 +558,7 @@ curl https://your-app.railway.app/health
 ```
 
 **Check API docs (if in development mode):**
+
 - https://your-app.railway.app/docs
 
 - [ ] Health check passing
@@ -592,6 +601,7 @@ eas build --platform ios --profile production
 ## Full Testing Checklist Summary
 
 ### Authentication
+
 - [ ] Email/password sign-up works
 - [ ] Email/password sign-in works
 - [ ] Google Sign-In works
@@ -600,6 +610,7 @@ eas build --platform ios --profile production
 - [ ] Sign out works
 
 ### Share Extension
+
 - [ ] Share Extension appears in iOS share sheet
 - [ ] Sharing from TikTok works
 - [ ] Sharing from Instagram works
@@ -608,6 +619,7 @@ eas build --platform ios --profile production
 - [ ] Place detection finds locations
 
 ### Core Features
+
 - [ ] Country grid displays correctly
 - [ ] Can mark countries as visited
 - [ ] Can add to wishlist
@@ -617,6 +629,7 @@ eas build --platform ios --profile production
 - [ ] Profile settings accessible
 
 ### Backend
+
 - [ ] API health check passing
 - [ ] Authentication works end-to-end
 - [ ] Data persists correctly
@@ -683,12 +696,12 @@ eas build:list
 
 ## Files Reference
 
-| File | Purpose |
-|------|---------|
-| `mobile/eas.json` | EAS build profiles |
-| `mobile/app.config.js` | Expo configuration, scheme, plugins |
-| `mobile/plugins/withShareExtension.js` | Share Extension Expo plugin |
-| `mobile/plugins/share-extension/` | Native Swift extension code |
-| `backend/app/main.py` | FastAPI entry point |
-| `backend/pyproject.toml` | Python dependencies |
-| `docs/ios-share-extension.md` | Detailed Share Extension docs |
+| File                                   | Purpose                             |
+| -------------------------------------- | ----------------------------------- |
+| `mobile/eas.json`                      | EAS build profiles                  |
+| `mobile/app.config.js`                 | Expo configuration, scheme, plugins |
+| `mobile/plugins/withShareExtension.js` | Share Extension Expo plugin         |
+| `mobile/plugins/share-extension/`      | Native Swift extension code         |
+| `backend/app/main.py`                  | FastAPI entry point                 |
+| `backend/pyproject.toml`               | Python dependencies                 |
+| `docs/ios-share-extension.md`          | Detailed Share Extension docs       |

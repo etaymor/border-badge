@@ -312,6 +312,26 @@ body.has-hero .header .cta-button {
   transform-origin: center;
 }
 
+/* Fallback pattern when no hero image is available */
+.hero-bg-fallback {
+  background-color: var(--color-midnight-navy);
+  background-image: radial-gradient(
+      circle at 10% 20%,
+      rgba(255, 255, 255, 0.05) 0%,
+      transparent 20%
+    ),
+    radial-gradient(
+      circle at 90% 80%,
+      rgba(255, 255, 255, 0.05) 0%,
+      transparent 20%
+    );
+}
+
+/* Emoji icon sizing for meta items */
+.emoji-icon {
+  font-size: 1.2em;
+}
+
 .hero-overlay {
   position: absolute;
   top: 0;

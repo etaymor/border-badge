@@ -1,0 +1,24 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["2AB5M8J3G6.com.atlasi.app"],
+        "components": [
+          {
+            "/": "/share",
+            "?": { "url": "?*" },
+            "comment": "Handle share extension deep links"
+          },
+          {
+            "/": "/share/*",
+            "comment": "Handle share paths"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["2AB5M8J3G6.com.atlasi.app"]
+  }
+}

@@ -22,15 +22,57 @@ const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
+const ASSOCIATED_DOMAIN = 'atlasi.app';
+// Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
+function getAppleTeamId() {
+  const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
+  if (!teamId) {
+    throw new Error(
+      'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
+        'Set APPLE_TEAM_ID, DEVELOPMENT_TEAM, or TEAM_ID in your environment.'
+    );
+  }
+  return teamId;
+}
 
 /**
- * Add App Group entitlement to the main app
+ * Add App Group and Associated Domains entitlements to the main app
  */
 function withAppGroupEntitlement(config) {
   return withEntitlementsPlist(config, (mod) => {
+    // App Groups for sharing data with Share Extension
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
+
+    // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
+    mod.modResults['com.apple.developer.associated-domains'] = [`applinks:${ASSOCIATED_DOMAIN}`];
+
     return mod;
   });
+}
+
+/**
+ * Find extension target by name, handling the xcode library's quoted name format.
+ * The xcode npm package stores target names with quotes (e.g., "ShareExtension"),
+ * but pbxTargetByName expects unquoted names. This function handles both cases.
+ * @param {Object} xcodeProject - The xcode project object
+ * @param {string} name - The unquoted target name to find
+ * @returns {Object|null} - The target object or null if not found
+ */
+function findExtensionTarget(xcodeProject, name) {
+  const nativeTargets = xcodeProject.pbxNativeTargetSection();
+  const quotedName = `"${name}"`;
+
+  for (const key in nativeTargets) {
+    // Skip comment keys
+    if (key.endsWith('_comment')) continue;
+
+    const target = nativeTargets[key];
+    if (target && (target.name === name || target.name === quotedName)) {
+      return { uuid: key, target };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -43,12 +85,42 @@ function withShareExtensionTarget(config) {
     const extensionBundleId = `${appBundleId}${EXTENSION_BUNDLE_ID_SUFFIX}`;
     const projectRoot = mod.modRequest.projectRoot;
     const iosPath = path.join(projectRoot, 'ios');
+    const appName = mod.modRequest.projectName || 'Atlasi';
 
-    // Check if extension already exists
-    const extensionTargetName = EXTENSION_NAME;
-    const existingTarget = xcodeProject.pbxTargetByName(extensionTargetName);
+    // Copy native module files to main app target
+    const pluginExtensionPath = path.join(__dirname, 'share-extension');
+    const nativeModuleFiles = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
+    const appPath = path.join(iosPath, appName);
+
+    // Find the main app group (the group with the same name as the app)
+    const mainAppGroupKey = xcodeProject.findPBXGroupKey({ name: appName });
+    const mainTarget = xcodeProject.getFirstTarget();
+
+    for (const file of nativeModuleFiles) {
+      const srcPath = path.join(pluginExtensionPath, file);
+      const destPath = path.join(appPath, file);
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`Copied ${file} to ${appPath}`);
+
+        // Add to main app's build sources with proper path reference
+        // The path must be relative to ios/ directory: Atlasi/SharedGroupPreferences.swift
+        if (file.endsWith('.swift') || file.endsWith('.m')) {
+          const filePath = `${appName}/${file}`;
+          const fileOptions = { target: mainTarget.uuid };
+          xcodeProject.addSourceFile(filePath, fileOptions, mainAppGroupKey);
+          console.log(`Added ${filePath} to main app build sources`);
+        }
+      }
+    }
+
+    // Check if extension target already exists using our custom finder
+    // (pbxTargetByName doesn't handle quoted names properly)
+    const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
     if (existingTarget) {
-      console.log(`Share Extension target "${extensionTargetName}" already exists, skipping...`);
+      console.log(`Share Extension target "${EXTENSION_NAME}" already exists, skipping...`);
+      // The target already exists with all its build phases and dependencies
+      // (addTarget automatically adds them for app_extension type)
       return mod;
     }
 
@@ -59,7 +131,6 @@ function withShareExtensionTarget(config) {
     }
 
     // Copy extension files from plugin directory
-    const pluginExtensionPath = path.join(__dirname, 'share-extension');
     const filesToCopy = ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'];
 
     for (const file of filesToCopy) {
@@ -72,7 +143,7 @@ function withShareExtensionTarget(config) {
 
     // Create PBXNativeTarget for extension
     const target = xcodeProject.addTarget(
-      extensionTargetName,
+      EXTENSION_NAME,
       'app_extension',
       EXTENSION_NAME,
       extensionBundleId
@@ -84,10 +155,9 @@ function withShareExtensionTarget(config) {
     }
 
     // Add source files to target
-    const groupName = EXTENSION_NAME;
     const extensionGroup = xcodeProject.addPbxGroup(
       ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'],
-      groupName,
+      EXTENSION_NAME,
       EXTENSION_NAME
     );
 
@@ -98,77 +168,88 @@ function withShareExtensionTarget(config) {
     }
 
     // Add Swift file to build sources
+    // The file path must include the extension directory for Xcode to find it
     const swiftFilePath = `${EXTENSION_NAME}/ShareViewController.swift`;
-    xcodeProject.addSourceFile(swiftFilePath, { target: target.uuid }, extensionGroup.uuid);
+
+    // Add a Sources build phase with the Swift file to the extension target
+    // Use the full relative path from the ios directory
+    xcodeProject.addBuildPhase(
+      [swiftFilePath],
+      'PBXSourcesBuildPhase',
+      'Sources',
+      target.uuid,
+      'app_extension',
+      EXTENSION_NAME
+    );
+    console.log(`Added Sources build phase with ${swiftFilePath} to ${EXTENSION_NAME}`);
 
     // Configure build settings for extension
+    // Note on quoting: Values containing spaces, special chars, or Xcode variables like
+    // $(TARGET_NAME) need outer quotes to survive pbxproj serialization. Path values
+    // without spaces (e.g., CODE_SIGN_ENTITLEMENTS) don't need quotes.
     const buildSettings = {
       ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon',
       CLANG_ENABLE_MODULES: 'YES',
       CODE_SIGN_ENTITLEMENTS: `${EXTENSION_NAME}/ShareExtension.entitlements`,
       CODE_SIGN_STYLE: 'Automatic',
+      DEVELOPMENT_TEAM: getAppleTeamId(),
       CURRENT_PROJECT_VERSION: 1,
       GENERATE_INFOPLIST_FILE: 'NO',
       INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,
-      INFOPLIST_KEY_CFBundleDisplayName: EXTENSION_DISPLAY_NAME,
-      INFOPLIST_KEY_NSHumanReadableCopyright: '',
-      IPHONEOS_DEPLOYMENT_TARGET: '15.0',
-      LD_RUNPATH_SEARCH_PATHS:
-        '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks',
+      INFOPLIST_KEY_CFBundleDisplayName: `"${EXTENSION_DISPLAY_NAME}"`,
+      INFOPLIST_KEY_NSHumanReadableCopyright: '""',
+      // iOS 15.1 matches React Native 0.81's minimum deployment target (set in RN 0.76+).
+      // ShareViewController.swift uses UniformTypeIdentifiers (UTType), which requires iOS 14+.
+      IPHONEOS_DEPLOYMENT_TARGET: '15.1',
+      // Quote runpath entries so the generated pbxproj parses cleanly under CocoaPods/Nanaimo
+      LD_RUNPATH_SEARCH_PATHS: [
+        '"$(inherited)"',
+        '"@executable_path/Frameworks"',
+        '"@executable_path/../../Frameworks"',
+      ],
       MARKETING_VERSION: '1.0',
       PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
-      PRODUCT_NAME: '$(TARGET_NAME)',
+      PRODUCT_NAME: '"$(TARGET_NAME)"',
       SKIP_INSTALL: 'YES',
       SWIFT_EMIT_LOC_STRINGS: 'YES',
       SWIFT_VERSION: '5.0',
       TARGETED_DEVICE_FAMILY: '"1,2"',
     };
 
-    // Apply build settings to debug and release configurations
+    // Apply build settings to debug and release configurations for the extension target
     const configurations = xcodeProject.pbxXCBuildConfigurationSection();
-    for (const key in configurations) {
-      if (typeof configurations[key] === 'object' && configurations[key].buildSettings) {
-        const config = configurations[key];
-        if (config.name === 'Debug' || config.name === 'Release') {
-          // Check if this config belongs to our extension target
-          const configList = xcodeProject.pbxXCConfigurationList();
-          for (const listKey in configList) {
-            if (
-              configList[listKey].buildConfigurations &&
-              configList[listKey].buildConfigurations.some((c) => c.value === key)
-            ) {
-              // Check if this list belongs to extension target
-              const targets = xcodeProject.pbxNativeTargetSection();
-              for (const targetKey in targets) {
-                if (
-                  targets[targetKey].name === extensionTargetName &&
-                  targets[targetKey].buildConfigurationList === listKey
-                ) {
-                  Object.assign(config.buildSettings, buildSettings);
-                }
-              }
-            }
-          }
+    const configLists = xcodeProject.pbxXCConfigurationList();
+    const targets = xcodeProject.pbxNativeTargetSection();
+
+    // Find the extension target's configuration list (handle quoted names)
+    const quotedExtensionName = `"${EXTENSION_NAME}"`;
+    let extensionConfigListKey = null;
+    for (const targetKey in targets) {
+      const targetName = targets[targetKey].name;
+      if (targetName === EXTENSION_NAME || targetName === quotedExtensionName) {
+        extensionConfigListKey = targets[targetKey].buildConfigurationList;
+        break;
+      }
+    }
+
+    if (extensionConfigListKey && configLists[extensionConfigListKey]) {
+      const buildConfigs = configLists[extensionConfigListKey].buildConfigurations || [];
+      for (const buildConfig of buildConfigs) {
+        const configKey = buildConfig.value;
+        if (configurations[configKey] && configurations[configKey].buildSettings) {
+          Object.assign(configurations[configKey].buildSettings, buildSettings);
         }
       }
     }
 
-    // Add extension to main app's "Embed App Extensions" build phase
-    // This ensures the extension is embedded in the app bundle
-    const mainAppTarget = xcodeProject.getFirstTarget();
-    if (mainAppTarget) {
-      // Add copy files build phase for embedding extension
-      xcodeProject.addBuildPhase(
-        [`${EXTENSION_NAME}.appex`],
-        'PBXCopyFilesBuildPhase',
-        'Embed App Extensions',
-        mainAppTarget.uuid,
-        'app_extension'
-      );
-    }
+    // Note: addTarget() for 'app_extension' type automatically:
+    // 1. Creates a "Copy Files" build phase to embed the extension
+    // 2. Adds the extension product to that build phase
+    // 3. Adds a target dependency from the main app to the extension
+    // So we don't need to add these manually.
 
     console.log(
-      `Added Share Extension target "${extensionTargetName}" with bundle ID "${extensionBundleId}"`
+      `Added Share Extension target "${EXTENSION_NAME}" with bundle ID "${extensionBundleId}"`
     );
 
     return mod;

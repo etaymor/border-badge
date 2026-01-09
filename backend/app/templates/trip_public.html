@@ -9,7 +9,7 @@
     {% if trip.cover_image_url %}
     <img src="{{ trip.cover_image_url }}" alt="Cover image for {{ trip.name }} in {{ trip.country_name }}" class="hero-bg">
     {% else %}
-    <div class="hero-bg" style="background-color: var(--color-midnight-navy); background-image: radial-gradient(circle at 10% 20%, rgba(255,255,255,0.05) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.05) 0%, transparent 20%);"></div>
+    <div class="hero-bg hero-bg-fallback"></div>
     {% endif %}
     <div class="hero-overlay"></div>
 </section>
@@ -22,18 +22,18 @@
         <div class="list-meta">
             {% if trip.country_name %}
             <div class="meta-item">
-                <span style="font-size: 1.2em;">🌍</span> {{ trip.country_name }}
+                <span class="emoji-icon">🌍</span> {{ trip.country_name }}
             </div>
             {% endif %}
-            
+
             {% if trip.date_range %}
             <div class="meta-item">
-                <span style="font-size: 1.2em;">📅</span> {{ trip.date_range }}
+                <span class="emoji-icon">📅</span> {{ trip.date_range }}
             </div>
             {% endif %}
 
             <div class="meta-item">
-                <span style="font-size: 1.2em;">📍</span> {{ trip.entries|length }} Stops
+                <span class="emoji-icon">📍</span> {{ trip.entries|length }} Stops
             </div>
         </div>
 

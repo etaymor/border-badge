@@ -146,12 +146,12 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle Apple Sign In
   const handleAppleSignIn = () => {
-    appleSignIn.mutate();
+    appleSignIn.mutate({ displayName: displayName ?? undefined });
   };
 
   // Handle Google Sign In
   const handleGoogleSignIn = () => {
-    googleSignIn.mutate();
+    googleSignIn.mutate({ displayName: displayName ?? undefined });
   };
 
   // Handle navigation to login for existing users
