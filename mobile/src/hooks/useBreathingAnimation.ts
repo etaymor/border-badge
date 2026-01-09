@@ -106,7 +106,7 @@ export function useBreathingAnimation(
     animationRef.current.start();
   }, [breathingScale, maxScale, minScale, duration]);
 
-  // Auto-start if requested (unless reduce motion is enabled)
+  // Auto-start if requested (unless reduce motion is enabled) with explicit cleanup
   useEffect(() => {
     if (autoStart && !reduceMotion) {
       startBreathing();
@@ -115,11 +115,19 @@ export function useBreathingAnimation(
       stopBreathing();
     }
 
-    // Cleanup on unmount
     return () => {
-      stopBreathing();
+      if (animationRef.current) {
+        animationRef.current.stop();
+        animationRef.current = null;
+      }
+      breathingScale.stopAnimation();
+      breathingScale.setValue(minScale);
+      isBreathingRef.current = false;
+      setIsBreathing(false);
     };
-  }, [autoStart, reduceMotion, startBreathing, stopBreathing]);
+    // startBreathing/stopBreathing are stable; omit from deps to avoid ref churn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, reduceMotion, breathingScale, minScale]);
 
   return {
     breathingScale,

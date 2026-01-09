@@ -208,6 +208,7 @@ export function useCountrySelectionAnimations(
         pinBounceLoopRef.current.stop();
         pinBounceLoopRef.current = null;
       }
+      pinBounce.setValue(0);
     };
   }, [
     hasBackButton,

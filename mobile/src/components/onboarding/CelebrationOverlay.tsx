@@ -72,7 +72,10 @@ function BurstAnimation({ visible, reduceMotion }: { visible: boolean; reduceMot
       staggeredAnimation = Animated.stagger(20, animations);
       staggeredAnimation.start();
     } else {
-      anims.forEach((anim) => anim.setValue(0));
+      anims.forEach((anim) => {
+        anim.stopAnimation();
+        anim.setValue(0);
+      });
     }
 
     // Cleanup: stop animations on unmount or when visible changes

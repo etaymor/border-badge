@@ -173,21 +173,22 @@ export function usePassportAnimations(_isLoading: boolean) {
   // Implements diagonal wave stagger pattern (top-left to bottom-right)
   // Must be a stable ref for FlatList
   const handleViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken<ListItem>[] }) => {
+    ({ changed }: { viewableItems: ViewToken<ListItem>[]; changed: ViewToken<ListItem>[] }) => {
       // Skip all animations if reduce motion is enabled
       if (reduceMotionRef.current) {
         return;
       }
 
-      // Collect all rows that need animation
+      // Collect rows that just became viewable
       const rowsToAnimate: Array<{
         rowKey: string;
         rowIndex: number;
         values: Animated.Value[];
       }> = [];
 
-      viewableItems.forEach((viewToken) => {
+      changed.forEach((viewToken) => {
         const item = viewToken.item;
+        // Only animate on transition to viewable
         if (!item || !viewToken.isViewable) return;
         if (item.type !== 'stamp-row' && item.type !== 'unvisited-row') return;
 
@@ -197,12 +198,6 @@ export function usePassportAnimations(_isLoading: boolean) {
         if (!values) {
           return;
         }
-
-        // Reset so the animation is always visible when a row enters view
-        values.forEach((value) => {
-          value.stopAnimation();
-          value.setValue(reduceMotionRef.current ? 1 : 0.4);
-        });
 
         const rowIndex = rowIndexMapRef.current.get(rowKey) ?? 0;
         rowsToAnimate.push({ rowKey, rowIndex, values });
@@ -224,6 +219,10 @@ export function usePassportAnimations(_isLoading: boolean) {
         const rowDelay = relativeRowIndex * ROW_STAGGER_DELAY;
 
         values.forEach((value, cardIndex) => {
+          // Start from low state when row first becomes visible
+          value.stopAnimation();
+          value.setValue(0.4);
+
           // Diagonal wave: delay = rowDelay + cardDelay
           // Cards further right start later within their row
           const cardDelay = cardIndex * CARD_STAGGER_DELAY;

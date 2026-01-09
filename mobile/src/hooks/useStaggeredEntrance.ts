@@ -229,14 +229,22 @@ export function useStaggeredEntrance(
     }
   }, [autoStart, itemCount, startAnimation, reduceMotion]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount and when animationValues ref changes
   useEffect(() => {
-    const timeoutIds = timeoutIdsRef.current;
     return () => {
-      timeoutIds.forEach((id) => clearTimeout(id));
-      timeoutIds.clear();
+      // Invalidate any in-flight callbacks
+      runIdRef.current += 1;
+
+      // Clear pending timeouts
+      timeoutIdsRef.current.forEach((id) => clearTimeout(id));
+      timeoutIdsRef.current.clear();
+
+      // Stop any running animations
+      animationValues.forEach((animValue) => {
+        animValue.stopAnimation();
+      });
     };
-  }, []);
+  }, [animationValues]);
 
   return {
     getAnimatedStyle,
