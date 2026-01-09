@@ -116,18 +116,18 @@ mobile/src/
 
 ## Key Dependencies
 
-| Package                    | Purpose                 |
-| -------------------------- | ----------------------- |
-| `expo`                     | React Native framework  |
-| `@supabase/supabase-js`    | Supabase client         |
-| `zustand`                  | State management        |
-| `@tanstack/react-query`    | Server state management |
-| `axios`                    | HTTP client             |
-| `@react-navigation/native` | Navigation              |
-| `expo-secure-store`        | Secure token storage    |
-| `expo-sqlite`              | Local database          |
-| `react-native-reanimated`  | High-performance animations |
-| `react-native-screen-transitions` | Shared element transitions |
+| Package                           | Purpose                     |
+| --------------------------------- | --------------------------- |
+| `expo`                            | React Native framework      |
+| `@supabase/supabase-js`           | Supabase client             |
+| `zustand`                         | State management            |
+| `@tanstack/react-query`           | Server state management     |
+| `axios`                           | HTTP client                 |
+| `@react-navigation/native`        | Navigation                  |
+| `expo-secure-store`               | Secure token storage        |
+| `expo-sqlite`                     | Local database              |
+| `react-native-reanimated`         | High-performance animations |
+| `react-native-screen-transitions` | Shared element transitions  |
 
 ## Available Scripts
 
@@ -199,12 +199,12 @@ The app includes a premium animation system built on `react-native-reanimated` a
 
 **Animation Hooks** (`src/hooks/`):
 
-| Hook | Purpose |
-|------|---------|
-| `useAnimatedPress` | Spring-based press feedback for buttons and interactive elements |
-| `useBreathingAnimation` | Subtle looping scale animation for "alive" feel on stamps |
-| `useStaggeredEntrance` | Staggered fade-in and slide-up for list items |
-| `useReducedMotion` | Detects user's accessibility preference for reduced motion |
+| Hook                    | Purpose                                                          |
+| ----------------------- | ---------------------------------------------------------------- |
+| `useAnimatedPress`      | Spring-based press feedback for buttons and interactive elements |
+| `useBreathingAnimation` | Subtle looping scale animation for "alive" feel on stamps        |
+| `useStaggeredEntrance`  | Staggered fade-in and slide-up for list items                    |
+| `useReducedMotion`      | Detects user's accessibility preference for reduced motion       |
 
 ```typescript
 // Example: Press feedback
@@ -224,11 +224,11 @@ items.map((item, index) => (
 
 **Shared Element Transitions** (`src/components/transitions/`):
 
-| Component | Purpose |
-|-----------|---------|
+| Component            | Purpose                                       |
+| -------------------- | --------------------------------------------- |
 | `SharedCountryImage` | Morphing transitions for country flags/stamps |
-| `SharedTripImage` | Shared element transitions for trip cards |
-| `SharedEntryImage` | Shared element transitions for entry images |
+| `SharedTripImage`    | Shared element transitions for trip cards     |
+| `SharedEntryImage`   | Shared element transitions for entry images   |
 
 ```typescript
 // In source screen (e.g., PassportScreen)
