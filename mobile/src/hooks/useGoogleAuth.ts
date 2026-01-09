@@ -1,5 +1,5 @@
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
+import { makeRedirectUri } from 'expo-auth-session';
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
@@ -33,8 +33,8 @@ export function useGoogleSignIn() {
     GoogleSignInVariables
   >({
     mutationFn: async (params) => {
-      // Create redirect URL for OAuth callback
-      const redirectUrl = Linking.createURL('auth-callback');
+      // Create redirect URL for OAuth callback (matches atlasi://auth-callback)
+      const redirectUrl = makeRedirectUri({ scheme: 'atlasi', path: 'auth-callback' });
 
       // Start OAuth flow with Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
