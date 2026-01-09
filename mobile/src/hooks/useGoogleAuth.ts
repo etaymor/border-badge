@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { storeOnboardingComplete } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -25,7 +25,7 @@ WebBrowser.maybeCompleteAuthSession();
  * Works on both iOS and Android.
  */
 export function useGoogleSignIn() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const { setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation<
     Awaited<ReturnType<typeof supabase.auth.setSession>>['data'],
@@ -122,10 +122,15 @@ export function useGoogleSignIn() {
       return sessionData;
     },
     onSuccess: async (data) => {
+      // Session is set via supabase.auth.setSession() in mutationFn, which triggers
+      // onAuthStateChange in App.tsx. That listener handles:
+      // - Updating Zustand session state
+      // - Storing tokens to SecureStore
+      // - Identifying user in analytics
+      //
+      // We only handle onboarding-specific logic here to avoid race conditions
+      // where duplicate setSession() calls cause navigation to re-render mid-flow.
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
-
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
 
@@ -140,8 +145,6 @@ export function useGoogleSignIn() {
             console.warn('Migration failed for Google user');
           }
         }
-
-        setSession(data.session);
       }
     },
     onError: (error) => {

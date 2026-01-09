@@ -25,12 +25,17 @@ const PENDING_SHARE_KEY = 'share_extension_pending_url';
 // This is populated on first check and updated when marking processed
 let lastProcessedCache: { url: string; timestamp: number } | null = null;
 
+// In-memory set of URLs currently being processed (to prevent race conditions)
+// URLs are added here before navigation and removed after completion or failure
+const processingUrls = new Set<string>();
+
 /**
  * Reset the in-memory cache. Only for use in tests.
  * @internal
  */
 export function __resetProcessedCache(): void {
   lastProcessedCache = null;
+  processingUrls.clear();
 }
 
 /**
@@ -155,6 +160,36 @@ export async function markShareProcessed(url: string): Promise<void> {
 }
 
 /**
+ * Check if a URL is currently being processed (prevents race conditions)
+ *
+ * @param url - The URL to check
+ * @returns True if this URL is currently being processed
+ */
+export function isCurrentlyProcessing(url: string): boolean {
+  return processingUrls.has(url);
+}
+
+/**
+ * Mark a URL as currently being processed (call before navigation)
+ * This prevents race conditions when multiple events trigger processing.
+ *
+ * @param url - The URL being processed
+ */
+export function markAsProcessing(url: string): void {
+  processingUrls.add(url);
+}
+
+/**
+ * Clear a URL from the processing set (call on failure/cancellation)
+ * Note: On success, use completeAppGroupShare which also clears this.
+ *
+ * @param url - The URL to clear
+ */
+export function clearProcessingStatus(url: string): void {
+  processingUrls.delete(url);
+}
+
+/**
  * Check if a share was recently processed (within last 5 seconds)
  * Uses in-memory cache to avoid AsyncStorage reads in common cases.
  * Falls back to AsyncStorage after app restart.
@@ -255,12 +290,13 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
 
 /**
  * Complete processing of a share from App Group.
- * Marks the URL as processed and clears App Group storage.
+ * Marks the URL as processed, clears processing status, and clears App Group storage.
  * Call this after successfully saving a share.
  *
  * @param url - The URL that was successfully processed
  */
 export async function completeAppGroupShare(url: string): Promise<void> {
+  clearProcessingStatus(url);
   await markShareProcessed(url);
   await clearSharedURLFromAppGroup();
 }

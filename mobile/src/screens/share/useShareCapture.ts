@@ -13,7 +13,7 @@ import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
 import { enqueueFailedShare, QueuedShare } from '@services/shareQueue';
-import { completeAppGroupShare } from '@services/shareExtensionBridge';
+import { completeAppGroupShare, clearProcessingStatus } from '@services/shareExtensionBridge';
 import { api } from '@services/api';
 
 import {
@@ -94,6 +94,17 @@ export function useShareCapture({
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
   const [isManualEntryMode, setIsManualEntryMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveCompleted, setSaveCompleted] = useState(false);
+
+  // Clean up processing status on unmount if save was not completed
+  // This handles cases where user navigates away or cancels
+  useEffect(() => {
+    return () => {
+      if (source === 'share_extension' && !saveCompleted) {
+        clearProcessingStatus(url);
+      }
+    };
+  }, [source, url, saveCompleted]);
 
   // Process URL on mount
   useEffect(() => {
@@ -219,6 +230,7 @@ export function useShareCapture({
         },
         {
           onSuccess: async () => {
+            setSaveCompleted(true);
             Analytics.shareCompleted({
               provider: detectProviderFromUrl(url) ?? 'tiktok',
               entryType,
@@ -262,6 +274,7 @@ export function useShareCapture({
       },
       {
         onSuccess: async () => {
+          setSaveCompleted(true);
           Analytics.shareCompleted({
             provider: ingestResult.provider,
             entryType,
