@@ -227,7 +227,7 @@ export function usePassportAnimations(_isLoading: boolean) {
           // Diagonal wave: delay = rowDelay + cardDelay
           // Cards further right start later within their row
           const cardDelay = cardIndex * CARD_STAGGER_DELAY;
-          const totalDelay = Math.min(rowDelay + cardDelay, STAGGER_MAX_DURATION);
+          const totalDelay = Math.min(rowDelay + cardDelay, STAGGER_MAX_DURATION_PASSPORT);
 
           allAnimations.push({
             delay: totalDelay,
