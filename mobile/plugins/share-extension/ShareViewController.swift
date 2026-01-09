@@ -29,6 +29,12 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
+    /// Universal Link base URL for opening the main app
+    private let universalLinkBase = "https://atlasi.app/share"
+
+    /// The shared URL to pass to the main app
+    private var sharedURL: String?
+
     // MARK: - Brand Colors
 
     private let warmCream = UIColor(red: 253/255, green: 246/255, blue: 237/255, alpha: 1.0)
@@ -339,8 +345,11 @@ class ShareViewController: UIViewController {
 
     /// Process and save the extracted URL
     private func processURL(_ urlString: String) {
-        // Save to App Group UserDefaults
-        // The main app will read this on next foreground
+        // Store for later use when opening the app
+        sharedURL = urlString
+
+        // Save to App Group UserDefaults as backup
+        // The main app will read this on next foreground if Universal Link fails
         saveToAppGroup(urlString)
 
         // Show success UI
@@ -405,9 +414,29 @@ class ShareViewController: UIViewController {
     // MARK: - Button Actions
 
     @objc private func openAtlasiTapped() {
-        // Dismiss the extension - user will open the main app manually
-        // The URL is already saved to App Group storage
-        completeRequest()
+        // Open the main app via Universal Link
+        // iOS will intercept this https URL and open the app directly
+        // because the app has Associated Domains configured for atlasi.app
+        openMainApp()
+    }
+
+    /// Open the main app using Universal Links
+    private func openMainApp() {
+        guard let sharedURL = sharedURL,
+              let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let universalLink = URL(string: "\(universalLinkBase)?url=\(encodedURL)") else {
+            // Fallback: just dismiss if URL construction fails
+            completeRequest()
+            return
+        }
+
+        // Use extensionContext.open() to open the Universal Link
+        // This works because it's an https:// URL, not a custom scheme
+        extensionContext?.open(universalLink) { [weak self] success in
+            // Complete the extension request after attempting to open
+            // The app will read the URL from App Group if Universal Link fails
+            self?.completeRequest()
+        }
     }
 
     @objc private func cancelTapped() {

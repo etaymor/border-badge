@@ -22,6 +22,7 @@ const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
+const ASSOCIATED_DOMAIN = 'atlasi.app';
 // Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
 function getAppleTeamId() {
   const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
@@ -35,11 +36,18 @@ function getAppleTeamId() {
 }
 
 /**
- * Add App Group entitlement to the main app
+ * Add App Group and Associated Domains entitlements to the main app
  */
 function withAppGroupEntitlement(config) {
   return withEntitlementsPlist(config, (mod) => {
+    // App Groups for sharing data with Share Extension
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
+
+    // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
+    mod.modResults['com.apple.developer.associated-domains'] = [
+      `applinks:${ASSOCIATED_DOMAIN}`,
+    ];
+
     return mod;
   });
 }

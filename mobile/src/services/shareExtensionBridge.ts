@@ -44,12 +44,16 @@ export interface SharedData {
 /**
  * Check if the current deep link is from the share extension
  *
+ * Supports both:
+ * - Custom scheme: atlasi://share?url=...
+ * - Universal Link: https://atlasi.app/share?url=...
+ *
  * @param url - The deep link URL to check
  * @returns True if this is a share extension deep link
  */
 export function isShareExtensionDeepLink(url: string | null): boolean {
   if (!url) return false;
-  return url.startsWith('atlasi://share');
+  return url.startsWith('atlasi://share') || url.startsWith('https://atlasi.app/share');
 }
 
 /**
