@@ -26,6 +26,8 @@ export function usePassportAnimations(_isLoading: boolean) {
   const rowAnimationValuesRef = useRef<Map<string, Animated.Value[]>>(new Map());
   // Track access order for LRU cleanup (most recent at end)
   const accessOrderRef = useRef<string[]>([]);
+  // Track rows that have already animated (avoid flicker on repeated callbacks)
+  const animatedRowKeysRef = useRef<Set<string>>(new Set());
   // Ref to hold current reduce motion state for stable callbacks
   const reduceMotionRef = useRef(reduceMotion);
   // Track row indices for diagonal wave calculation
@@ -48,6 +50,7 @@ export function usePassportAnimations(_isLoading: boolean) {
 
   const startRowAnimation = useCallback((rowKey: string, values: Animated.Value[]) => {
     if (reduceMotionRef.current) return;
+    animatedRowKeysRef.current.add(rowKey);
 
     const rowIndex = rowIndexMapRef.current.get(rowKey) ?? 0;
     const baseRowIndex = rowIndex;
@@ -192,6 +195,11 @@ export function usePassportAnimations(_isLoading: boolean) {
 
         const rowKey = item.key;
 
+        // Avoid re-triggering rows that already animated
+        if (animatedRowKeysRef.current.has(rowKey)) {
+          return;
+        }
+
         const values = rowAnimationValuesRef.current.get(rowKey);
         if (!values) {
           return;
@@ -217,10 +225,6 @@ export function usePassportAnimations(_isLoading: boolean) {
         const rowDelay = relativeRowIndex * ROW_STAGGER_DELAY;
 
         values.forEach((value, cardIndex) => {
-          // Reset so the animation is always visible when a row enters view
-          value.stopAnimation();
-          value.setValue(reduceMotionRef.current ? 1 : 0.4);
-
           // Diagonal wave: delay = rowDelay + cardDelay
           // Cards further right start later within their row
           const cardDelay = cardIndex * CARD_STAGGER_DELAY;
@@ -289,6 +293,7 @@ export function usePassportAnimations(_isLoading: boolean) {
       // Clear any pending animations
       timeoutIdsRef.current.forEach((id) => clearTimeout(id));
       timeoutIdsRef.current.clear();
+      animatedRowKeysRef.current.clear();
 
       // Set all animation values to 1 (fully visible)
       rowAnimationValuesRef.current.forEach((values) => {

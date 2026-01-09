@@ -37,6 +37,8 @@ export const StampRow = React.memo<StampRowProps>(function StampRow({
   animValues,
   onCountryPress,
 }) {
+  const isSingle = stamps.length === 1;
+
   return (
     <View style={styles.stampRow}>
       {stamps.map((item, index) => (
@@ -45,6 +47,8 @@ export const StampRow = React.memo<StampRowProps>(function StampRow({
           item={item}
           animValue={animValues[index]}
           onCountryPress={onCountryPress}
+          // @ts-expect-error narrow prop to child via style override
+          styleOverride={isSingle ? styles.singleStampCard : undefined}
         />
       ))}
     </View>
@@ -60,5 +64,9 @@ const styles = StyleSheet.create({
   },
   stampCardWrapper: {
     flex: 1,
+  },
+  singleStampCard: {
+    flexBasis: '48%',
+    maxWidth: '48%',
   },
 });
