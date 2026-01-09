@@ -14,6 +14,8 @@ interface AppleSignInParams {
   displayName?: string;
 }
 
+type AppleSignInVariables = AppleSignInParams | void;
+
 /**
  * Hook to sign in with Apple.
  * Uses expo-apple-authentication to get an identity token,
@@ -22,8 +24,12 @@ interface AppleSignInParams {
 export function useAppleSignIn() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
-  return useMutation({
-    mutationFn: async (params?: AppleSignInParams) => {
+  return useMutation<
+    Awaited<ReturnType<typeof supabase.auth.signInWithIdToken>>['data'],
+    Error,
+    AppleSignInVariables
+  >({
+    mutationFn: async (params) => {
       if (Platform.OS !== 'ios') {
         throw new Error('Apple Sign In is only available on iOS');
       }
@@ -56,6 +62,12 @@ export function useAppleSignIn() {
       });
 
       if (error) throw error;
+
+      // Validate refresh token - OAuth providers should always provide one
+      // Without it, session refresh will fail and user will be logged out unexpectedly
+      if (!data.session?.refresh_token) {
+        throw new Error('No refresh token received - session cannot be refreshed');
+      }
 
       // Determine display name to use:
       // 1. Use the name from onboarding if provided (user explicitly entered it)

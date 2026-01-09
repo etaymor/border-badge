@@ -220,3 +220,15 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
     console.error('Failed to clear App Group:', error);
   }
 }
+
+/**
+ * Complete processing of a share from App Group.
+ * Marks the URL as processed and clears App Group storage.
+ * Call this after successfully saving a share.
+ *
+ * @param url - The URL that was successfully processed
+ */
+export async function completeAppGroupShare(url: string): Promise<void> {
+  await markShareProcessed(url);
+  await clearSharedURLFromAppGroup();
+}

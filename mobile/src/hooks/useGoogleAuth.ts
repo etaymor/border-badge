@@ -14,6 +14,8 @@ interface GoogleSignInParams {
   displayName?: string;
 }
 
+type GoogleSignInVariables = GoogleSignInParams | void;
+
 // Ensure web browser auth sessions are properly handled
 WebBrowser.maybeCompleteAuthSession();
 
@@ -25,8 +27,12 @@ WebBrowser.maybeCompleteAuthSession();
 export function useGoogleSignIn() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
-  return useMutation({
-    mutationFn: async (params?: GoogleSignInParams) => {
+  return useMutation<
+    Awaited<ReturnType<typeof supabase.auth.setSession>>['data'],
+    Error,
+    GoogleSignInVariables
+  >({
+    mutationFn: async (params) => {
       // Create redirect URL for OAuth callback
       const redirectUrl = Linking.createURL('auth-callback');
 

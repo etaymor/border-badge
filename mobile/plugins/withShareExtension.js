@@ -88,20 +88,22 @@ function withShareExtensionTarget(config) {
 
     // Find the main app group (the group with the same name as the app)
     const mainAppGroupKey = xcodeProject.findPBXGroupKey({ name: appName });
+    const mainTarget = xcodeProject.getFirstTarget();
 
     for (const file of nativeModuleFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(appPath, file);
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
-        console.log(`Copied ${file} to main app target`);
+        console.log(`Copied ${file} to ${appPath}`);
 
-        // Add to main app's build sources with proper group reference
+        // Add to main app's build sources with proper path reference
+        // The path must be relative to ios/ directory: Atlasi/SharedGroupPreferences.swift
         if (file.endsWith('.swift') || file.endsWith('.m')) {
-          // Add file to the app's PBX group and build sources
-          const fileOptions = { target: xcodeProject.getFirstTarget().uuid };
-          xcodeProject.addSourceFile(file, fileOptions, mainAppGroupKey);
-          console.log(`Added ${file} to main app build sources`);
+          const filePath = `${appName}/${file}`;
+          const fileOptions = { target: mainTarget.uuid };
+          xcodeProject.addSourceFile(filePath, fileOptions, mainAppGroupKey);
+          console.log(`Added ${filePath} to main app build sources`);
         }
       }
     }

@@ -119,6 +119,78 @@ Apple Sign-In doesn't have a separate publishing step - it works automatically o
 
 ---
 
+## TestFlight Distribution
+
+### Prerequisites
+
+- [ ] Apple Developer Program membership active
+- [ ] App created in App Store Connect
+
+### Build for TestFlight
+
+TestFlight requires a **production build** (not preview/internal distribution):
+
+```bash
+cd mobile
+eas build --platform ios --profile production
+```
+
+### Configure Submit Credentials
+
+Set these environment variables (or configure in `eas.json`):
+
+```bash
+# Your Apple ID email
+export APPLE_ID="your@email.com"
+
+# App Store Connect App ID (App Store Connect → App → General → App Information)
+export ASC_APP_ID="1234567890"
+
+# Apple Developer Team ID (developer.apple.com → Membership)
+export APPLE_TEAM_ID="XXXXXXXXXX"
+```
+
+### Submit to TestFlight
+
+```bash
+# Submit the latest build
+eas submit --platform ios --latest
+
+# Or submit a specific build
+eas submit --platform ios --id [BUILD_ID]
+```
+
+### Set Up TestFlight in App Store Connect
+
+1. Go to [App Store Connect](https://appstoreconnect.apple.com)
+2. Navigate to your app → **TestFlight** tab
+3. Wait for build to process (5-30 minutes)
+4. Click the build and complete **Export Compliance** (select "No" for encryption if `ITSAppUsesNonExemptEncryption: false`)
+
+### Add Testers
+
+**Internal Testing** (up to 100 team members):
+- [ ] Add team members via TestFlight → Internal Testing
+- [ ] Testers get immediate access after invite
+
+**External Testing** (up to 10,000 testers):
+- [ ] Create a test group in TestFlight → External Testing
+- [ ] Add tester emails
+- [ ] First external build requires brief Apple review (~24-48 hours)
+- [ ] Subsequent builds auto-approve if no significant changes
+
+### TestFlight Checklist
+
+- [ ] Production build created and uploaded
+- [ ] Export compliance completed
+- [ ] Internal testers added and invited
+- [ ] External test group created (if needed)
+- [ ] Test notes added for testers
+- [ ] Beta App Description filled in
+- [ ] Beta App Review Information provided (for external testing)
+
+---
+
 ## App Store Submission (iOS)
 
 ### Apple Developer Account
@@ -128,27 +200,68 @@ Apple Sign-In doesn't have a separate publishing step - it works automatically o
 - [ ] Bundle identifier registered
 - [ ] Provisioning profiles configured in EAS
 
+### App Store Optimization (ASO) - Do This First!
+
+**Research keywords BEFORE finalizing your app name.** The app name is prime real estate for search.
+
+**Keyword Research Process:**
+1. [ ] Search App Store for competitor apps, note autocomplete suggestions
+2. [ ] Identify high-volume, low-competition keywords
+3. [ ] Use tools like AppTweak, Sensor Tower, or App Store Connect search popularity
+4. [ ] Document top 10-15 target keywords
+
+**Search Weight Priority (highest to lowest):**
+
+| Location | Weight | Limit | Strategy |
+|----------|--------|-------|----------|
+| App Name | Highest | 30 chars | Lead with top keywords, brand last |
+| Subtitle | High | 30 chars | Secondary keywords |
+| Keywords field | Medium | 100 chars | Everything else (don't repeat name/subtitle) |
+| Description | Low | 4000 chars | Not indexed by Apple, for humans only |
+
+**Naming Format:** `[Keywords] - [Brand]`
+
+Examples:
+- `Track & Share Trips - Atlasi`
+- `Travel Tracker & Trip Log - Atlasi`
+- `Countries Visited Map - Atlasi`
+
 ### App Store Assets
 
-- [ ] App name (30 chars max)
-- [ ] Subtitle (30 chars max)
+- [ ] App name researched and finalized (30 chars max, keywords first)
+- [ ] Subtitle with additional keywords (30 chars max)
+- [ ] Keywords field (100 chars, comma-separated, no duplicates from name/subtitle)
 - [ ] Description (4000 chars max)
-- [ ] Keywords (100 chars max)
 - [ ] Screenshots for all required device sizes:
-  - [ ] 6.7" (iPhone 15 Pro Max)
-  - [ ] 6.5" (iPhone 14 Plus)
-  - [ ] 5.5" (iPhone 8 Plus)
+  - [ ] 6.7" (iPhone 15 Pro Max) - 1290 x 2796 px
+  - [ ] 6.5" (iPhone 11 Pro Max) - 1242 x 2688 px
+  - [ ] 5.5" (iPhone 8 Plus) - 1242 x 2208 px (optional)
 - [ ] App Preview videos (optional)
 - [ ] App icon (1024x1024)
 
 ### App Store Information
 
-- [ ] Privacy Policy URL
-- [ ] Support URL
+- [ ] Privacy Policy URL (required)
+- [ ] Support URL (required)
 - [ ] Marketing URL (optional)
-- [ ] Category selected
+- [ ] Category selected (Primary: Travel, Secondary: Lifestyle)
 - [ ] Age rating questionnaire completed
-- [ ] App Privacy details filled out
+- [ ] App Privacy details filled out (see below)
+
+### App Privacy Questionnaire
+
+For each data type collected, Apple asks three questions:
+
+1. **Is it linked to identity?** → Yes if tied to user account/email/device ID
+2. **Is it used for tracking?** → Only "Yes" if sharing with third parties for advertising or data brokers
+3. **What purposes?** → App Functionality, Analytics, etc.
+
+**Atlasi collects:**
+- [ ] Name (linked to identity, not tracking, app functionality)
+- [ ] Email (linked to identity, not tracking, app functionality)
+- [ ] Photos (linked to identity, not tracking, app functionality)
+- [ ] Precise Location (if using location for places - linked, not tracking, app functionality)
+- [ ] Usage Data (linked to identity, not tracking, analytics)
 
 ### Build & Submit
 

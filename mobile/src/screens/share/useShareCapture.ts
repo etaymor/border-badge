@@ -13,6 +13,7 @@ import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
 import { enqueueFailedShare, QueuedShare } from '@services/shareQueue';
+import { completeAppGroupShare } from '@services/shareExtensionBridge';
 import { api } from '@services/api';
 
 import {
@@ -217,12 +218,17 @@ export function useShareCapture({
           place: placeInput,
         },
         {
-          onSuccess: () => {
+          onSuccess: async () => {
             Analytics.shareCompleted({
               provider: detectProviderFromUrl(url) ?? 'tiktok',
               entryType,
               tripId: selectedTripId,
             });
+            // Clear App Group storage after successful save to prevent data loss
+            // if app had crashed before this point
+            if (source === 'share_extension') {
+              await completeAppGroupShare(url);
+            }
             onComplete(selectedTripId ?? undefined);
           },
           onError: (err) => {
@@ -255,12 +261,17 @@ export function useShareCapture({
         notes: notes.trim() || undefined,
       },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           Analytics.shareCompleted({
             provider: ingestResult.provider,
             entryType,
             tripId: selectedTripId,
           });
+          // Clear App Group storage after successful save to prevent data loss
+          // if app had crashed before this point
+          if (source === 'share_extension') {
+            await completeAppGroupShare(url);
+          }
           onComplete(selectedTripId ?? undefined);
         },
         onError: (err) => {
@@ -283,6 +294,7 @@ export function useShareCapture({
     entryType,
     notes,
     url,
+    source,
     onComplete,
     ingestResult,
     saveToTrip,

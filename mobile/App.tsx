@@ -43,7 +43,7 @@ import {
   getPendingShare,
   clearPendingShare,
   getSharedURLFromAppGroup,
-  clearSharedURLFromAppGroup,
+  wasRecentlyProcessed,
 } from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -194,15 +194,19 @@ export default function App() {
 
     const sharedURL = await getSharedURLFromAppGroup();
     if (sharedURL) {
-      const result = tryNavigateToShareCapture({
+      // Skip if this URL was recently processed (prevents duplicate handling on app restart)
+      const recentlyProcessed = await wasRecentlyProcessed(sharedURL);
+      if (recentlyProcessed) {
+        return;
+      }
+
+      // Navigate to ShareCapture - App Group will be cleared after successful save
+      // in ShareCaptureScreen via completeAppGroupShare() to prevent data loss
+      // if the app crashes before processing completes
+      tryNavigateToShareCapture({
         url: sharedURL,
         source: 'share_extension',
       });
-
-      if (result === 'navigated' || result === 'queued') {
-        // Clear the App Group data since we've captured it
-        await clearSharedURLFromAppGroup();
-      }
     }
   }, [session?.user?.id, tryNavigateToShareCapture]);
 
