@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   GestureResponderEvent,
@@ -16,6 +16,7 @@ import { BlurView } from 'expo-blur';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
@@ -62,6 +63,7 @@ export const CountryCard = React.memo(function CountryCard({
   testID,
 }: CountryCardProps) {
   const { isSmallScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
   const countryImage = useMemo(() => getCountryImage(code), [code]);
 
@@ -72,6 +74,10 @@ export const CountryCard = React.memo(function CountryCard({
   const wishlistScale = useRef(new Animated.Value(1)).current;
 
   const triggerWishlistPop = useCallback(() => {
+    if (reduceMotion) {
+      wishlistScale.setValue(1);
+      return;
+    }
     // Quick pop: scale up to 1.3 then back to 1
     Animated.sequence([
       Animated.spring(wishlistScale, {
@@ -87,7 +93,7 @@ export const CountryCard = React.memo(function CountryCard({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [wishlistScale]);
+  }, [reduceMotion, wishlistScale]);
 
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
@@ -101,12 +107,22 @@ export const CountryCard = React.memo(function CountryCard({
   const handleWishlistPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (!reduceMotion) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
       triggerWishlistPop();
       onToggleWishlist();
     },
-    [onToggleWishlist, triggerWishlistPop]
+    [onToggleWishlist, triggerWishlistPop, reduceMotion]
   );
+
+  // Ensure animated values settle when reduce motion is enabled/toggled
+  useEffect(() => {
+    if (reduceMotion) {
+      wishlistScale.stopAnimation();
+      wishlistScale.setValue(1);
+    }
+  }, [reduceMotion, wishlistScale]);
 
   return (
     <Animated.View style={{ transform: [{ scale: pressScale }] }}>

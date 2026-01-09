@@ -91,22 +91,11 @@ export function useStaggeredEntrance(
   const isCompleteRef = useRef(false);
   const timeoutIdsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
-  // Create animation values for each item
-  // If reduce motion is enabled, start at 1 (visible), otherwise start at 0 (hidden)
-  const animationValues = useRef<Animated.Value[]>([]).current;
-
-  // Ensure we have the right number of animation values
-  useMemo(() => {
+  // Create animation values for each item (no mutation in memo)
+  const animationValues = useMemo<Animated.Value[]>(() => {
     const initialValue = reduceMotion ? 1 : 0;
-    // Add new values if needed
-    while (animationValues.length < itemCount) {
-      animationValues.push(new Animated.Value(initialValue));
-    }
-    // Remove extra values if count decreased
-    while (animationValues.length > itemCount) {
-      animationValues.pop();
-    }
-  }, [itemCount, animationValues, reduceMotion]);
+    return Array.from({ length: itemCount }, () => new Animated.Value(initialValue));
+  }, [itemCount, reduceMotion]);
 
   // Memoize interpolation configurations to prevent recreation
   const opacityInterpolation = useMemo(
