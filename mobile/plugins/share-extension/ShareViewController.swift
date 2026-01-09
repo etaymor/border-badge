@@ -29,8 +29,8 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
-    /// Universal Link base URL for opening the main app
-    private let universalLinkBase = "https://atlasi.app/share"
+    /// Custom URL scheme for opening the main app
+    private let customSchemeBase = "atlasi://share"
 
     /// The shared URL to pass to the main app
     private var sharedURL: String?
@@ -421,27 +421,28 @@ class ShareViewController: UIViewController {
     // MARK: - Button Actions
 
     @objc private func openAtlasiTapped() {
-        // Open the main app via Universal Link
-        // iOS will intercept this https URL and open the app directly
-        // because the app has Associated Domains configured for atlasi.app
+        // Open the main app via custom URL scheme
         openMainApp()
     }
 
-    /// Open the main app using Universal Links
+    /// Open the main app using custom URL scheme
     private func openMainApp() {
         guard let sharedURL = sharedURL,
               let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let universalLink = URL(string: "\(universalLinkBase)?url=\(encodedURL)") else {
+              let customSchemeURL = URL(string: "\(customSchemeBase)?url=\(encodedURL)") else {
             // Fallback: just dismiss if URL construction fails
             completeRequest()
             return
         }
 
-        // Use extensionContext.open() to open the Universal Link
-        // This works because it's an https:// URL, not a custom scheme
-        extensionContext?.open(universalLink) { [weak self] success in
+        // Use extensionContext.open() with custom URL scheme
+        // Note: This requires LSApplicationQueriesSchemes in Info.plist to include "atlasi"
+        extensionContext?.open(customSchemeURL) { [weak self] success in
+            if !success {
+                print("ShareExtension: Failed to open URL: \(customSchemeURL)")
+            }
             // Complete the extension request after attempting to open
-            // The app will read the URL from App Group if Universal Link fails
+            // The app will read the URL from App Group if this fails
             self?.completeRequest()
         }
     }
