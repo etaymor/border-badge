@@ -8,7 +8,10 @@ The Share Extension enables users to:
 
 1. Share a TikTok or Instagram URL from any app
 2. Select "Save Place" (Atlasi) from the iOS share sheet
-3. Have the main app open with the ShareCaptureScreen to confirm the place
+3. See a confirmation that the place was saved
+4. Open the main app (manually, from home screen) to confirm the place
+
+> **Note**: iOS does not allow Share Extensions to programmatically open the containing app. Only Today Widgets have this capability. The extension saves the URL to App Group storage, and the main app reads it when opened.
 
 ## Architecture
 
@@ -26,16 +29,19 @@ The Share Extension enables users to:
 │  3. ShareViewController.swift (Extension)                              │
 │     - Extracts URL from shared content                                 │
 │     - Writes URL to App Group UserDefaults                             │
-│     - Opens atlasi://share deep link                                   │
+│     - Shows "Place Saved!" confirmation with Done button               │
+│     - Optionally sends local notification (if permissions granted)     │
 │       │                                                                 │
 │       ▼                                                                 │
-│  4. Atlasi main app receives deep link                                 │
-│     - App.tsx handles atlasi://share                                   │
-│     - Reads URL from App Group (if native module available)            │
+│  4. User taps Done, then opens Atlasi from home screen                 │
+│       │                                                                 │
+│       ▼                                                                 │
+│  5. Atlasi main app reads URL from App Group on foreground             │
+│     - App.tsx checks App Group when app becomes active                 │
 │     - Navigates to ShareCaptureScreen                                  │
 │       │                                                                 │
 │       ▼                                                                 │
-│  5. ShareCaptureScreen                                                 │
+│  6. ShareCaptureScreen                                                 │
 │     - Calls /ingest/social API to fetch metadata                       │
 │     - Shows thumbnail, detected place for confirmation                 │
 │     - User selects trip and saves                                      │
@@ -79,7 +85,8 @@ The native Swift extension controller that:
 - Receives shared content from iOS
 - Extracts URLs from attachments (supports both URL type and plain text with embedded URLs)
 - Writes the URL to App Group shared storage
-- Opens the main app via `atlasi://share` deep link
+- Shows a branded confirmation UI with "Place Saved!" message
+- Sends an optional local notification (if user has granted notification permissions) to remind them to open the app
 
 ### 3. App Group Communication
 
@@ -90,14 +97,15 @@ The extension and main app share data via App Group UserDefaults:
   - `SharedURL`: The URL that was shared
   - `SharedURLTimestamp`: When the URL was shared
 
-### 4. Deep Link Handling (`App.tsx`)
+### 4. App Foreground Handling (`App.tsx`)
 
 The main app:
 
-- Listens for `atlasi://share` deep links
-- Reads the URL from App Group storage (when native module is available)
+- Checks App Group storage when app comes to foreground
+- Reads the URL from App Group storage (using SharedGroupPreferences native module)
 - Navigates to `ShareCaptureScreen` with the URL
 - Handles the case where user isn't authenticated (queues share for later)
+- Prevents duplicate processing with deduplication logic
 
 ## Building the Share Extension
 
@@ -219,13 +227,11 @@ Tests cover:
 2. **Check bundle IDs** - Extension must use `com.atlasi.app.ShareExtension`
 3. **Check entitlements** - App Group must match in both app and extension
 
-### Share Extension appears but app doesn't open
+### Share Extension appears but app doesn't open automatically
 
-1. **Check deep link scheme** - Must be `atlasi://`
-2. **Verify in `app.config.js`:**
-   ```javascript
-   scheme: 'atlasi',
-   ```
+**This is expected behavior.** iOS does not allow Share Extensions to open the containing app programmatically. Only Today Widgets have this capability.
+
+The extension saves the URL to App Group storage, and the main app reads it when opened manually. A notification may also appear (if permissions are granted) to remind the user to open the app.
 
 ### URL not passed to main app
 
