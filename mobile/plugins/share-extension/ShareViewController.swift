@@ -28,9 +28,6 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
-    /// Deep link URL base to open the main app (URL is appended as query parameter)
-    private let appDeepLinkBase = "atlasi://share"
-
     // MARK: - UI Elements
 
     private lazy var containerView: UIView = {
@@ -47,7 +44,7 @@ class ShareViewController: UIViewController {
 
     private lazy var statusLabel: UILabel = {
         let label = UILabel()
-        label.text = "Opening Atlasi..."
+        label.text = "Saving..."
         label.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
         label.textColor = UIColor.label
         label.textAlignment = .center
@@ -191,13 +188,14 @@ class ShareViewController: UIViewController {
 
     // MARK: - URL Processing
 
-    /// Process and save the extracted URL, then open main app
+    /// Process and save the extracted URL
     private func processURL(_ urlString: String) {
-        // Save to App Group UserDefaults (as backup/fallback)
+        // Save to App Group UserDefaults
+        // The main app will read this on next foreground
         saveToAppGroup(urlString)
 
-        // Open main app via deep link
-        openMainApp(with: urlString)
+        // Show success and dismiss
+        showSuccess()
     }
 
     /// Save URL to App Group for backup access
@@ -209,29 +207,20 @@ class ShareViewController: UIViewController {
         }
     }
 
-    // MARK: - App Opening
+    // MARK: - Success UI
 
-    /// Open the main Atlasi app via deep link with the shared URL
-    private func openMainApp(with sharedURL: String) {
-        // URL-encode the shared URL and pass it as a query parameter
-        guard let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(appDeepLinkBase)?url=\(encodedURL)") else {
-            showError("Invalid URL")
-            return
+    /// Show success state and dismiss
+    /// Note: Share Extensions cannot open custom URL schemes (atlasi://) - they can only open http/https URLs.
+    /// The URL is saved to App Group storage and the main app will read it on next foreground.
+    private func showSuccess() {
+        activityIndicator.stopAnimating()
+        statusLabel.text = "Saved! Open Atlasi to continue"
+        statusLabel.textColor = UIColor.systemGreen
+
+        // Dismiss after showing success briefly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.completeRequest()
         }
-
-        // Use the official extensionContext API to open the URL (iOS 10+)
-        // This is the correct way to open URLs from Share Extensions
-        extensionContext?.open(url, completionHandler: { [weak self] success in
-            DispatchQueue.main.async {
-                if success {
-                    self?.completeRequest()
-                } else {
-                    // App might not be installed or URL scheme not registered
-                    self?.showError("Could not open Atlasi")
-                }
-            }
-        })
     }
 
     // MARK: - Error Handling

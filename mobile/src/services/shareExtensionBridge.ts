@@ -180,9 +180,7 @@ export async function getInitialShareURL(): Promise<string | null> {
 /**
  * Read shared URL from iOS App Group storage
  *
- * Note: This function requires a native module to access App Group UserDefaults.
- * For now, it returns null and we rely on the deep link approach.
- * To fully implement, add react-native-shared-group-preferences or a custom native module.
+ * This reads the URL saved by the Share Extension to App Group UserDefaults.
  *
  * @returns The shared URL from App Group, or null if not available
  */
@@ -192,16 +190,15 @@ export async function getSharedURLFromAppGroup(): Promise<string | null> {
   // Check if native module is available
   const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
   if (!SharedGroupPreferences) {
-    // Native module not installed - rely on deep link approach
+    // Native module not installed
     return null;
   }
 
   try {
-    // This would read from the App Group if native module is available
-    // const data = await SharedGroupPreferences.getItem('SharedURL', 'group.com.atlasi.app');
-    // return data;
-    return null;
-  } catch {
+    const url = await SharedGroupPreferences.getItem('SharedURL');
+    return url || null;
+  } catch (error) {
+    console.error('Failed to read from App Group:', error);
     return null;
   }
 }
@@ -218,9 +215,8 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
   if (!SharedGroupPreferences) return;
 
   try {
-    // This would clear the App Group value if native module is available
-    // await SharedGroupPreferences.setItem('SharedURL', null, 'group.com.atlasi.app');
-  } catch {
-    // Ignore errors
+    await SharedGroupPreferences.clearAll();
+  } catch (error) {
+    console.error('Failed to clear App Group:', error);
   }
 }

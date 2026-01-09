@@ -79,6 +79,26 @@ function withShareExtensionTarget(config) {
     const extensionBundleId = `${appBundleId}${EXTENSION_BUNDLE_ID_SUFFIX}`;
     const projectRoot = mod.modRequest.projectRoot;
     const iosPath = path.join(projectRoot, 'ios');
+    const appName = mod.modRequest.projectName || 'Atlasi';
+
+    // Copy native module files to main app target
+    const pluginExtensionPath = path.join(__dirname, 'share-extension');
+    const nativeModuleFiles = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
+    const appPath = path.join(iosPath, appName);
+
+    for (const file of nativeModuleFiles) {
+      const srcPath = path.join(pluginExtensionPath, file);
+      const destPath = path.join(appPath, file);
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`Copied ${file} to main app target`);
+
+        // Add to main app's build sources
+        if (file.endsWith('.swift') || file.endsWith('.m')) {
+          xcodeProject.addSourceFile(`${appName}/${file}`, null, null);
+        }
+      }
+    }
 
     // Check if extension target already exists using our custom finder
     // (pbxTargetByName doesn't handle quoted names properly)
@@ -97,7 +117,6 @@ function withShareExtensionTarget(config) {
     }
 
     // Copy extension files from plugin directory
-    const pluginExtensionPath = path.join(__dirname, 'share-extension');
     const filesToCopy = ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'];
 
     for (const file of filesToCopy) {

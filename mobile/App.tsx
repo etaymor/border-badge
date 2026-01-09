@@ -42,6 +42,8 @@ import {
   savePendingShare,
   getPendingShare,
   clearPendingShare,
+  getSharedURLFromAppGroup,
+  clearSharedURLFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -186,10 +188,29 @@ export default function App() {
     }
   }, [session?.user?.id, tryNavigateToShareCapture]);
 
+  // Check for shared URLs in App Group (from Share Extension)
+  const checkAppGroupForSharedURL = useCallback(async () => {
+    if (!session?.user?.id) return;
+
+    const sharedURL = await getSharedURLFromAppGroup();
+    if (sharedURL) {
+      const result = tryNavigateToShareCapture({
+        url: sharedURL,
+        source: 'share_extension',
+      });
+
+      if (result === 'navigated' || result === 'queued') {
+        // Clear the App Group data since we've captured it
+        await clearSharedURLFromAppGroup();
+      }
+    }
+  }, [session?.user?.id, tryNavigateToShareCapture]);
+
   const handleNavigationReady = useCallback(() => {
     flushPendingAuthedShare();
     void processPendingShare();
-  }, [flushPendingAuthedShare, processPendingShare]);
+    void checkAppGroupForSharedURL();
+  }, [flushPendingAuthedShare, processPendingShare, checkAppGroupForSharedURL]);
 
   // If user signs out before we could navigate, persist the queued share for later.
   useEffect(() => {
@@ -208,7 +229,7 @@ export default function App() {
     }
   }, [flushPendingAuthedShare, session?.user?.id]);
 
-  // Track app_opened when app comes to foreground
+  // Track app_opened when app comes to foreground and check for shared URLs
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       // Track when app comes to foreground (only if user is authenticated)
@@ -220,6 +241,9 @@ export default function App() {
         // Generate new session ID for this foreground event
         sessionIdRef.current = generateSessionId();
         Analytics.appOpened(sessionIdRef.current);
+
+        // Check for URLs shared via Share Extension while app was in background
+        void checkAppGroupForSharedURL();
       }
       appStateRef.current = nextAppState;
     };
@@ -241,7 +265,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, checkAppGroupForSharedURL]);
 
   // Handle deep links: share extension only
   // Note: Auth callbacks (atlasi://auth-callback) are handled directly by
