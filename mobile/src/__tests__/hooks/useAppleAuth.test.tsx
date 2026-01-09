@@ -19,14 +19,12 @@ import { supabase } from '@services/supabase';
 // Note: Alert.alert is mocked in jest.setup.js at the internal path
 // but verifying Alert calls is complex due to React Native's module structure.
 // We test error logging with console.error which is the new functionality.
-import { storeTokens, clearTokens, storeOnboardingComplete } from '@services/api';
+import { storeOnboardingComplete } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { useAuthStore } from '@stores/authStore';
 import { createTestQueryClient } from '../utils/testUtils';
 
 // Type the mocks
-const mockedStoreTokens = storeTokens as jest.MockedFunction<typeof storeTokens>;
-const mockedClearTokens = clearTokens as jest.MockedFunction<typeof clearTokens>;
 const mockedStoreOnboardingComplete = storeOnboardingComplete as jest.MockedFunction<
   typeof storeOnboardingComplete
 >;
@@ -57,8 +55,6 @@ jest.mock('@services/guestMigration', () => ({
 // Mock API service functions
 jest.mock('@services/api', () => ({
   ...jest.requireActual('@services/api'),
-  storeTokens: jest.fn().mockResolvedValue(undefined),
-  clearTokens: jest.fn().mockResolvedValue(undefined),
   storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -217,36 +213,8 @@ describe('useAppleAuth', () => {
         });
       });
 
-      it('clears stale tokens before storing new ones', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        // Verify clearTokens was called before storeTokens
-        const clearCallOrder = mockedClearTokens.mock.invocationCallOrder[0];
-        const storeCallOrder = mockedStoreTokens.mock.invocationCallOrder[0];
-        expect(clearCallOrder).toBeLessThan(storeCallOrder);
-      });
-
-      it('stores new tokens on successful authentication', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(mockedStoreTokens).toHaveBeenCalledWith('test-access-token', 'test-refresh-token');
-      });
+      // Note: Token storage is handled by onAuthStateChange listener in App.tsx,
+      // not by the auth hooks directly. The hooks rely on Supabase's session management.
 
       it('detects returning user and skips migration', async () => {
         // Mock user_countries to return data (returning user)
@@ -295,22 +263,8 @@ describe('useAppleAuth', () => {
         expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
       });
 
-      it('sets session last to trigger navigation', async () => {
-        const setSession = jest.fn();
-        useAuthStore.setState({ setSession });
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(setSession).toHaveBeenCalledWith(mockSession);
-      });
+      // Note: Session is set via Supabase's signInWithIdToken which triggers
+      // onAuthStateChange in App.tsx. The hooks don't call setSession directly.
 
       it('updates display name when Apple provides it', async () => {
         const credentialWithName = createMockAppleCredential({
@@ -563,7 +517,8 @@ describe('useAppleAuth', () => {
           data: { session: mockSession, user: mockSession.user },
           error: null,
         });
-        mockRpc.mockRejectedValue(new Error('RPC failed'));
+        // Supabase RPC returns { data, error } format, not rejected promise
+        mockRpc.mockResolvedValue({ data: null, error: { message: 'RPC failed' } });
         mockSupabaseFrom.mockReturnValue({
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
