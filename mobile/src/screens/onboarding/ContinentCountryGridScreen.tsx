@@ -5,6 +5,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Keyboard,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -27,6 +28,7 @@ import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
+import { useStaggeredEntrance } from '@hooks/useStaggeredEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -51,11 +53,25 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     visitedContinents,
   } = useOnboardingStore();
 
+  // Dismiss keyboard when screen receives focus (safety net from dream country selection)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
   // Animation values
   const headerOpacity = useRef(new Animated.Value(0)).current;
-  const gridOpacity = useRef(new Animated.Value(0)).current;
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
+
+  // Staggered entrance animation for country cards (40ms delay for smooth wave)
+  const { getAnimatedStyle, startAnimation, resetAnimation } = useStaggeredEntrance({
+    itemCount: regionCountries.length,
+    staggerDelay: 40,
+    autoStart: false, // We'll start manually when region changes
+  });
 
   // Track screen view (fires when region changes)
   useEffect(() => {
@@ -65,8 +81,8 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   // Staggered entrance animations
   useEffect(() => {
     headerOpacity.setValue(0);
-    gridOpacity.setValue(0);
     footerOpacity.setValue(0);
+    resetAnimation(); // Reset staggered cards
 
     Animated.sequence([
       Animated.timing(headerOpacity, {
@@ -74,18 +90,20 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         duration: 300,
         useNativeDriver: true,
       }),
-      Animated.timing(gridOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(footerOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [region, headerOpacity, gridOpacity, footerOpacity]);
+      // Start staggered card animation after header
+      Animated.delay(100),
+    ]).start(() => {
+      startAnimation(); // Begin card-by-card stagger
+    });
+
+    // Fade in footer after a delay
+    Animated.timing(footerOpacity, {
+      toValue: 1,
+      duration: 200,
+      delay: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [region, headerOpacity, footerOpacity, startAnimation, resetAnimation]);
 
   // Bounce badge when selection count changes
   const prevSelectedCount = useRef(0);
@@ -126,6 +144,17 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleSaveAndContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Play region completion haptic if user selected countries
+    if (selectedInRegion > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+
+    // Navigate immediately for snappy UX
+    navigateToNext();
+  };
+
+  const navigateToNext = () => {
     // Find current region index and move to next
     const currentIndex = REGIONS.indexOf(region as Region);
     const nextIndex = currentIndex + 1;
@@ -168,36 +197,49 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   );
 
   const renderCountryRow = useCallback(
-    ({ item }: { item: CountryPair }) => (
-      <View style={styles.countryRow}>
-        <View style={styles.countryCardWrapper}>
-          <CountryCard
-            code={item.left.code}
-            name={item.left.name}
-            isVisited={selectedCountries.includes(item.left.code)}
-            isWishlisted={bucketListCountries.includes(item.left.code)}
-            onPress={() => handleToggleVisited(item.left.code)}
-            onAddVisited={() => handleToggleVisited(item.left.code)}
-            onToggleWishlist={() => handleToggleWishlist(item.left.code)}
-          />
-        </View>
-        {item.right && (
-          <View style={styles.countryCardWrapper}>
+    ({ item, index }: { item: CountryPair; index: number }) => {
+      // Calculate individual card indices for stagger animation
+      const leftCardIndex = index * 2;
+      const rightCardIndex = index * 2 + 1;
+
+      return (
+        <View style={styles.countryRow}>
+          <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(leftCardIndex)]}>
             <CountryCard
-              code={item.right.code}
-              name={item.right.name}
-              isVisited={selectedCountries.includes(item.right.code)}
-              isWishlisted={bucketListCountries.includes(item.right.code)}
-              onPress={() => handleToggleVisited(item.right!.code)}
-              onAddVisited={() => handleToggleVisited(item.right!.code)}
-              onToggleWishlist={() => handleToggleWishlist(item.right!.code)}
+              code={item.left.code}
+              name={item.left.name}
+              isVisited={selectedCountries.includes(item.left.code)}
+              isWishlisted={bucketListCountries.includes(item.left.code)}
+              onPress={() => handleToggleVisited(item.left.code)}
+              onAddVisited={() => handleToggleVisited(item.left.code)}
+              onToggleWishlist={() => handleToggleWishlist(item.left.code)}
             />
-          </View>
-        )}
-        {!item.right && <View style={styles.countryCardWrapper} />}
-      </View>
-    ),
-    [selectedCountries, bucketListCountries, handleToggleVisited, handleToggleWishlist]
+          </Animated.View>
+          {item.right ? (
+            <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(rightCardIndex)]}>
+              <CountryCard
+                code={item.right.code}
+                name={item.right.name}
+                isVisited={selectedCountries.includes(item.right.code)}
+                isWishlisted={bucketListCountries.includes(item.right.code)}
+                onPress={() => handleToggleVisited(item.right!.code)}
+                onAddVisited={() => handleToggleVisited(item.right!.code)}
+                onToggleWishlist={() => handleToggleWishlist(item.right!.code)}
+              />
+            </Animated.View>
+          ) : (
+            <View style={styles.countryCardWrapper} />
+          )}
+        </View>
+      );
+    },
+    [
+      selectedCountries,
+      bucketListCountries,
+      handleToggleVisited,
+      handleToggleWishlist,
+      getAnimatedStyle,
+    ]
   );
 
   if (isLoading) {
@@ -231,7 +273,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       </Animated.View>
 
       {/* Country grid */}
-      <Animated.View style={[styles.gridContainer, { opacity: gridOpacity }]}>
+      <View style={styles.gridContainer}>
         <FlatList
           data={countryPairs}
           renderItem={renderCountryRow}
@@ -244,7 +286,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           windowSize={10}
           testID="country-grid"
         />
-      </Animated.View>
+      </View>
 
       {/* Footer */}
       <Animated.View style={[styles.footer, { opacity: footerOpacity }]}>
@@ -259,16 +301,21 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
         {/* Progress indicator - 6 dots for all regions including Antarctica */}
         <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((r, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                visitedContinents.includes(r) && styles.progressDotCompleted,
-                r === region && styles.progressDotActive,
-              ]}
-            />
-          ))}
+          {ALL_REGIONS.map((r, index) => {
+            const isCurrentRegion = r === region;
+            const isCompleted = visitedContinents.includes(r);
+
+            return (
+              <View
+                key={index}
+                style={[
+                  styles.progressDot,
+                  isCurrentRegion && styles.progressDotActive,
+                  isCompleted && styles.progressDotCompleted,
+                ]}
+              />
+            );
+          })}
         </View>
       </Animated.View>
     </SafeAreaView>

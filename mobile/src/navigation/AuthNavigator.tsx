@@ -1,18 +1,19 @@
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
 import { AuthScreen } from '@screens/auth';
 // LAUNCH_SIMPLIFICATION: WelcomeScreen skipped - users go directly to Auth
 // import { WelcomeScreen } from '@screens/auth';
+import { SlideWithScalePreset } from './interpolators';
 
 import type { AuthStackParamList } from './types';
 
-const Stack = createNativeStackNavigator<AuthStackParamList>();
+const Stack = createBlankStackNavigator<AuthStackParamList>();
 
 export function AuthNavigator() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerShown: false,
+        ...SlideWithScalePreset,
       }}
       initialRouteName="Login"
     >

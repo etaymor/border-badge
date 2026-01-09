@@ -30,6 +30,24 @@ jest.mock(
       useAnimatedStyle: jest.fn(() => ({})),
       withTiming: jest.fn((value) => value),
       withSpring: jest.fn((value) => value),
+      interpolate: jest.fn((value, inputRange, outputRange) => {
+        // Linear interpolation supporting multiple keyframes
+        // Find the segment that contains our value
+        for (let i = 0; i < inputRange.length - 1; i++) {
+          const i0 = inputRange[i];
+          const i1 = inputRange[i + 1];
+          if (value >= i0 && value <= i1) {
+            const o0 = outputRange[i];
+            const o1 = outputRange[i + 1];
+            if (i1 === i0) return o0;
+            const ratio = (value - i0) / (i1 - i0);
+            return o0 + ratio * (o1 - o0);
+          }
+        }
+        // Value is outside range, clamp to nearest endpoint
+        if (value <= inputRange[0]) return outputRange[0];
+        return outputRange[outputRange.length - 1];
+      }),
       Easing: {
         linear: jest.fn(),
         ease: jest.fn(),
@@ -38,6 +56,84 @@ jest.mock(
   },
   { virtual: true }
 );
+
+// Mock react-native-screen-transitions
+jest.mock('react-native-screen-transitions', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  const TransitionView = mockReact.forwardRef(
+    ({ children, style, sharedBoundTag: _sharedBoundTag, testID }, ref) =>
+      mockReact.createElement(mockRN.View, { ref, style, testID }, children)
+  );
+
+  const TransitionPressable = mockReact.forwardRef(
+    (
+      {
+        children,
+        style,
+        sharedBoundTag: _sharedBoundTag,
+        testID,
+        onPress,
+        onLongPress,
+        onPressIn,
+        onPressOut,
+        accessibilityRole,
+        accessibilityLabel,
+      },
+      ref
+    ) =>
+      mockReact.createElement(
+        mockRN.TouchableOpacity,
+        {
+          ref,
+          style,
+          testID,
+          onPress,
+          onLongPress,
+          onPressIn,
+          onPressOut,
+          accessibilityRole,
+          accessibilityLabel,
+        },
+        children
+      )
+  );
+
+  return {
+    __esModule: true,
+    default: {
+      View: TransitionView,
+      Pressable: TransitionPressable,
+      ScrollView: mockRN.ScrollView,
+      FlatList: mockRN.FlatList,
+      Presets: {
+        SlideFromBottom: () => ({}),
+        SlideFromTop: () => ({}),
+        ZoomIn: () => ({}),
+      },
+    },
+    Transition: {
+      View: TransitionView,
+      Pressable: TransitionPressable,
+    },
+  };
+});
+
+// Mock react-native-screen-transitions/blank-stack
+jest.mock('react-native-screen-transitions/blank-stack', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  return {
+    createBlankStackNavigator: () => ({
+      Navigator: ({ children, screenOptions: _screenOptions }) =>
+        mockReact.createElement(mockRN.View, null, children),
+      Screen: ({ component: Component, options: _options }) =>
+        mockReact.createElement(Component, {}),
+    }),
+  };
+});
 
 // Mock react-native-safe-area-context
 jest.mock('react-native-safe-area-context', () => {
@@ -260,6 +356,13 @@ jest.mock('@services/countriesDb', () => ({
   searchCountries: jest.fn().mockResolvedValue([]),
   getCountryByCode: jest.fn().mockResolvedValue(null),
   getCountriesByCodes: jest.fn().mockResolvedValue([]),
+  // Local user country functions for onboarding → passport flow
+  saveLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  saveLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  removeLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  getLocalUserCountries: jest.fn().mockResolvedValue([]),
+  clearLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  hasLocalUserCountries: jest.fn().mockResolvedValue(false),
 }));
 
 // Reset all mocks between tests

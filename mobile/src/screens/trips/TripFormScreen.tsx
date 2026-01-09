@@ -1,15 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  FlatList,
-  Keyboard,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Keyboard, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
@@ -178,7 +170,7 @@ export function TripFormScreen({ navigation, route }: Props) {
 
           {/* Country Picker - only show for new trips */}
           {!isEditing && (
-            <View style={styles.section}>
+            <View style={[styles.section, styles.countryPickerSection]}>
               <Text style={styles.label}>DESTINATION</Text>
 
               {/* Show selected country or search input */}
@@ -215,11 +207,14 @@ export function TripFormScreen({ navigation, route }: Props) {
                   {/* Autocomplete dropdown */}
                   {showDropdown && filteredCountries.length > 0 && (
                     <View style={styles.dropdown}>
-                      <FlatList
-                        data={filteredCountries}
-                        keyExtractor={(item) => item.code}
-                        renderItem={({ item }) => (
+                      <ScrollView
+                        style={styles.dropdownList}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                      >
+                        {filteredCountries.map((item) => (
                           <TouchableOpacity
+                            key={item.code}
                             style={styles.dropdownItem}
                             onPress={() => handleSelectCountry(item)}
                             testID={`country-option-${item.code}`}
@@ -227,10 +222,8 @@ export function TripFormScreen({ navigation, route }: Props) {
                             <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
                             <Text style={styles.countryName}>{item.name}</Text>
                           </TouchableOpacity>
-                        )}
-                        keyboardShouldPersistTaps="handled"
-                        style={styles.dropdownList}
-                      />
+                        ))}
+                      </ScrollView>
                     </View>
                   )}
 
@@ -344,7 +337,9 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 28,
-    zIndex: 1,
+  },
+  countryPickerSection: {
+    zIndex: 10,
   },
   label: {
     fontFamily: fonts.oswald.medium,
@@ -357,6 +352,7 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     position: 'relative',
+    zIndex: 10,
   },
   searchGlassWrapper: {
     borderRadius: 12,

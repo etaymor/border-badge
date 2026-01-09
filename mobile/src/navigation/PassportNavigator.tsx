@@ -1,4 +1,5 @@
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
+import Transition from 'react-native-screen-transitions';
 import { View, StyleSheet } from 'react-native';
 
 import { ClipboardBannerOverlay } from '@components/share';
@@ -8,10 +9,11 @@ import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
 import { TripsNavigator } from './TripsNavigator';
+import { SlideWithScalePreset, SharedCountryPreset } from './interpolators';
 
 import type { PassportStackParamList } from './types';
 
-const Stack = createNativeStackNavigator<PassportStackParamList>();
+const Stack = createBlankStackNavigator<PassportStackParamList>();
 
 /**
  * Inner navigator component that has access to the navigation context.
@@ -20,40 +22,28 @@ const Stack = createNativeStackNavigator<PassportStackParamList>();
 function PassportNavigatorContent() {
   return (
     <View style={styles.container}>
-      <Stack.Navigator>
-        <Stack.Screen
-          name="PassportHome"
-          component={PassportScreen}
-          options={{ headerShown: false }}
-        />
+      <Stack.Navigator
+        screenOptions={{
+          ...SlideWithScalePreset,
+        }}
+      >
+        <Stack.Screen name="PassportHome" component={PassportScreen} />
         <Stack.Screen
           name="CountryDetail"
           component={CountryDetailScreen}
           options={{
-            headerShown: false,
+            ...SharedCountryPreset,
           }}
         />
-        <Stack.Screen
-          name="ProfileSettings"
-          component={ProfileSettingsScreen}
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="Trips"
-          component={TripsNavigator}
-          options={{
-            headerShown: false,
-          }}
-        />
+        <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+        <Stack.Screen name="Trips" component={TripsNavigator} />
         <Stack.Screen
           name="ShareCapture"
           component={ShareCaptureScreen}
           options={{
-            headerShown: false,
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
+            ...Transition.Presets.SlideFromBottom(),
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
           }}
         />
       </Stack.Navigator>

@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -119,6 +120,14 @@ const PresetCard = memo(function PresetCard({
 function TrackingPreferenceScreen({ navigation }: Props) {
   const { trackingPreference, setTrackingPreference } = useOnboardingStore();
   const { isSmallScreen } = useResponsive();
+
+  // Dismiss keyboard when screen receives focus (safety net from previous screen)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Track screen view
   useEffect(() => {

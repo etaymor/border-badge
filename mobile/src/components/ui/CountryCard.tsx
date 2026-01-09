@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
+  Animated,
   GestureResponderEvent,
   Image,
   StyleSheet,
@@ -14,6 +15,8 @@ import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
@@ -60,8 +63,47 @@ export const CountryCard = React.memo(function CountryCard({
   testID,
 }: CountryCardProps) {
   const { isSmallScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
   const countryImage = useMemo(() => getCountryImage(code), [code]);
+
+  // Press feedback animation
+  const { scaleValue: pressScale, pressHandlers } = useAnimatedPress(AnimatedPressPresets.default);
+
+  // Wishlist button pop animation
+  const wishlistScale = useRef(new Animated.Value(1)).current;
+  const wishlistAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const triggerWishlistPop = useCallback(() => {
+    if (reduceMotion) {
+      wishlistScale.setValue(1);
+      return;
+    }
+    // Stop any in-flight animation to avoid leaks/overlaps
+    if (wishlistAnimRef.current) {
+      wishlistAnimRef.current.stop();
+      wishlistAnimRef.current = null;
+    }
+    // Quick pop: scale up to 1.3 then back to 1
+    const anim = Animated.sequence([
+      Animated.spring(wishlistScale, {
+        toValue: 1.3,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(wishlistScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 100,
+        useNativeDriver: true,
+      }),
+    ]);
+    wishlistAnimRef.current = anim;
+    anim.start(() => {
+      wishlistAnimRef.current = null;
+    });
+  }, [reduceMotion, wishlistScale]);
 
   const handleAddVisitedPress = useCallback(
     (e?: GestureResponderEvent) => {
@@ -75,119 +117,146 @@ export const CountryCard = React.memo(function CountryCard({
   const handleWishlistPress = useCallback(
     (e?: GestureResponderEvent) => {
       e?.stopPropagation?.();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (!reduceMotion) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      triggerWishlistPop();
       onToggleWishlist();
     },
-    [onToggleWishlist]
+    [onToggleWishlist, triggerWishlistPop, reduceMotion]
   );
 
+  // Ensure animated values settle when reduce motion is enabled/toggled
+  useEffect(() => {
+    if (reduceMotion) {
+      wishlistScale.stopAnimation();
+      wishlistScale.setValue(1);
+      if (wishlistAnimRef.current) {
+        wishlistAnimRef.current.stop();
+        wishlistAnimRef.current = null;
+      }
+    }
+    return () => {
+      if (wishlistAnimRef.current) {
+        wishlistAnimRef.current.stop();
+        wishlistAnimRef.current = null;
+      }
+    };
+  }, [reduceMotion, wishlistScale]);
+
   return (
-    <TouchableOpacity
-      style={[styles.container, style]}
-      onPress={onPress}
-      activeOpacity={0.9}
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, tap to view details`}
-      accessibilityHint="Opens country details"
-      testID={testID || `country-card-${code}`}
-    >
-      {/* Background Image */}
-      {countryImage ? (
-        <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
-      ) : (
-        <View style={styles.imagePlaceholder}>
-          <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
-        </View>
-      )}
+    <Animated.View style={{ transform: [{ scale: pressScale }] }}>
+      <TouchableOpacity
+        style={[styles.container, style]}
+        onPress={onPress}
+        onPressIn={pressHandlers.onPressIn}
+        onPressOut={pressHandlers.onPressOut}
+        activeOpacity={1}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}, tap to view details`}
+        accessibilityHint="Opens country details"
+        testID={testID || `country-card-${code}`}
+      >
+        {/* Background Image */}
+        {countryImage ? (
+          <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
+        ) : (
+          <View style={styles.imagePlaceholder}>
+            <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
+          </View>
+        )}
 
-      {/* Top Liquid Glass Pane - Country Name */}
-      <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
-        <View style={styles.textContainer}>
-          <Text
-            style={[styles.countryName, isSmallScreen && styles.countryNameSmall]}
-            numberOfLines={2}
-          >
-            {name}
-          </Text>
-          {region && (
-            <Text style={styles.regionName} numberOfLines={1}>
-              {region}
+        {/* Top Liquid Glass Pane - Country Name */}
+        <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
+          <View style={styles.textContainer}>
+            <Text
+              style={[styles.countryName, isSmallScreen && styles.countryNameSmall]}
+              numberOfLines={2}
+            >
+              {name}
             </Text>
-          )}
-        </View>
-      </BlurView>
+            {region && (
+              <Text style={styles.regionName} numberOfLines={1}>
+                {region}
+              </Text>
+            )}
+          </View>
+        </BlurView>
 
-      {/* Bottom Row - Flag Badge Left, Action Buttons Right */}
-      <View style={styles.bottomRow}>
-        {/* Flag Badge - Bottom Left */}
-        <View style={styles.flagContainer}>
-          <BlurView intensity={30} tint="light" style={styles.glassBadge}>
-            <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-          </BlurView>
-          {/* Trips Indicator - Badge next to flag */}
-          {hasTrips && (
-            <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
-              <Image source={quillIcon} style={styles.tripsIcon} />
-            </View>
-          )}
-        </View>
-
-        {/* Action Buttons - Bottom Right */}
-        <View style={styles.actionsContainer}>
-          {/* Visited Button */}
-          <TouchableOpacity
-            onPress={handleAddVisitedPress}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
-            accessibilityHint={
-              isVisited
-                ? 'Country is already in your visited list'
-                : 'Adds country to your visited list'
-            }
-            testID={`country-card-visited-${code}`}
-          >
-            <BlurView
-              intensity={30}
-              tint="light"
-              style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
-            >
-              <Ionicons
-                name={isVisited ? 'checkmark' : 'add'}
-                size={22}
-                color={isVisited ? colors.white : colors.successDark}
-              />
+        {/* Bottom Row - Flag Badge Left, Action Buttons Right */}
+        <View style={styles.bottomRow}>
+          {/* Flag Badge - Bottom Left */}
+          <View style={styles.flagContainer}>
+            <BlurView intensity={30} tint="light" style={styles.glassBadge}>
+              <Text style={styles.flagEmoji}>{flagEmoji}</Text>
             </BlurView>
-          </TouchableOpacity>
+            {/* Trips Indicator - Badge next to flag */}
+            {hasTrips && (
+              <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
+                <Image source={quillIcon} style={styles.tripsIcon} />
+              </View>
+            )}
+          </View>
 
-          {/* Wishlist Button */}
-          <TouchableOpacity
-            onPress={handleWishlistPress}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-            accessibilityHint={
-              isWishlisted
-                ? 'Removes country from your dreams list'
-                : 'Adds country to your dreams list'
-            }
-            testID={`country-card-wishlist-${code}`}
-          >
-            <BlurView
-              intensity={30}
-              tint="light"
-              style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
+          {/* Action Buttons - Bottom Right */}
+          <View style={styles.actionsContainer}>
+            {/* Visited Button */}
+            <TouchableOpacity
+              onPress={handleAddVisitedPress}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={isVisited ? 'Already visited' : 'Mark as visited'}
+              accessibilityHint={
+                isVisited
+                  ? 'Country is already in your visited list'
+                  : 'Adds country to your visited list'
+              }
+              testID={`country-card-visited-${code}`}
             >
-              <Ionicons
-                name={isWishlisted ? 'heart' : 'heart-outline'}
-                size={20}
-                color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-              />
-            </BlurView>
-          </TouchableOpacity>
+              <BlurView
+                intensity={30}
+                tint="light"
+                style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
+              >
+                <Ionicons
+                  name={isVisited ? 'checkmark' : 'add'}
+                  size={22}
+                  color={isVisited ? colors.white : colors.successDark}
+                />
+              </BlurView>
+            </TouchableOpacity>
+
+            {/* Wishlist Button */}
+            <Animated.View style={{ transform: [{ scale: wishlistScale }] }}>
+              <TouchableOpacity
+                onPress={handleWishlistPress}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                accessibilityHint={
+                  isWishlisted
+                    ? 'Removes country from your dreams list'
+                    : 'Adds country to your dreams list'
+                }
+                testID={`country-card-wishlist-${code}`}
+              >
+                <BlurView
+                  intensity={30}
+                  tint="light"
+                  style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
+                >
+                  <Ionicons
+                    name={isWishlisted ? 'heart' : 'heart-outline'}
+                    size={20}
+                    color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+                  />
+                </BlurView>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 });
 
@@ -299,9 +368,9 @@ const styles = StyleSheet.create({
   },
   countryName: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 18,
+    fontSize: 16,
     color: colors.textPrimary,
-    lineHeight: 22,
+    lineHeight: 20,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     textShadowColor: 'rgba(255, 255, 255, 0.5)',
@@ -309,8 +378,8 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   countryNameSmall: {
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
   },
   regionName: {
     fontFamily: fonts.openSans.regular,

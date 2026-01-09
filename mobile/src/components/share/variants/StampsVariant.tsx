@@ -18,7 +18,16 @@ export const StampsVariant = memo(function StampsVariant({ context }: VariantPro
   const { visitedCountries, totalCountries, regionCount } = context;
 
   const displayStamps = useMemo(() => {
-    return visitedCountries.slice(0, 12);
+    if (visitedCountries.length <= 12) {
+      return visitedCountries;
+    }
+    // Randomly select 12 countries using Fisher-Yates shuffle
+    const shuffled = [...visitedCountries];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled.slice(0, 12);
   }, [visitedCountries]);
 
   const worldPercentage = useMemo(() => {

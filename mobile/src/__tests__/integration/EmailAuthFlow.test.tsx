@@ -381,7 +381,7 @@ describe('EmailAuthFlow Integration', () => {
       // Auth should still succeed even if migration fails
       expect(result.success).toBe(true);
       expect(setSession).toHaveBeenCalledWith(mockSession);
-      expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for magic link user');
+      expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for auth callback user');
     });
   });
 });

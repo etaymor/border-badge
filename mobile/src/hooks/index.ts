@@ -78,3 +78,20 @@ export type {
 
 export { useResponsive } from './useResponsive';
 export type { ScreenSize, ResponsiveValues } from './useResponsive';
+
+export { useAnimatedPress, AnimatedPressPresets } from './useAnimatedPress';
+export type { UseAnimatedPressOptions, UseAnimatedPressResult } from './useAnimatedPress';
+
+export { useBreathingAnimation, BreathingPresets } from './useBreathingAnimation';
+export type {
+  UseBreathingAnimationOptions,
+  UseBreathingAnimationResult,
+} from './useBreathingAnimation';
+
+export { useStaggeredEntrance, StaggeredEntrancePresets } from './useStaggeredEntrance';
+export type {
+  UseStaggeredEntranceOptions,
+  UseStaggeredEntranceResult,
+} from './useStaggeredEntrance';
+
+export { useReducedMotion } from './useReducedMotion';
