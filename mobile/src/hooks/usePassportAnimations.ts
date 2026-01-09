@@ -10,7 +10,6 @@ import { useReducedMotion } from './useReducedMotion';
 // ~100 rows covers most scrolling patterns without excessive memory
 const MAX_CACHED_ANIMATION_VALUES = 100;
 const INITIAL_BOOTSTRAP_ROWS = 6;
-
 // Diagonal wave stagger timing (passport-specific tuning)
 /** Delay between cards within a row (ms) */
 export const CARD_STAGGER_DELAY = 25;
@@ -173,22 +172,21 @@ export function usePassportAnimations(_isLoading: boolean) {
   // Implements diagonal wave stagger pattern (top-left to bottom-right)
   // Must be a stable ref for FlatList
   const handleViewableItemsChanged = useRef(
-    ({ changed }: { viewableItems: ViewToken<ListItem>[]; changed: ViewToken<ListItem>[] }) => {
+    ({ viewableItems }: { viewableItems: ViewToken<ListItem>[] }) => {
       // Skip all animations if reduce motion is enabled
       if (reduceMotionRef.current) {
         return;
       }
 
-      // Collect rows that just became viewable
+      // Collect all rows that need animation
       const rowsToAnimate: Array<{
         rowKey: string;
         rowIndex: number;
         values: Animated.Value[];
       }> = [];
 
-      changed.forEach((viewToken) => {
+      viewableItems.forEach((viewToken) => {
         const item = viewToken.item;
-        // Only animate on transition to viewable
         if (!item || !viewToken.isViewable) return;
         if (item.type !== 'stamp-row' && item.type !== 'unvisited-row') return;
 
@@ -219,9 +217,9 @@ export function usePassportAnimations(_isLoading: boolean) {
         const rowDelay = relativeRowIndex * ROW_STAGGER_DELAY;
 
         values.forEach((value, cardIndex) => {
-          // Start from low state when row first becomes visible
+          // Reset so the animation is always visible when a row enters view
           value.stopAnimation();
-          value.setValue(0.4);
+          value.setValue(reduceMotionRef.current ? 1 : 0.4);
 
           // Diagonal wave: delay = rowDelay + cardDelay
           // Cards further right start later within their row
