@@ -72,14 +72,20 @@ export const CountryCard = React.memo(function CountryCard({
 
   // Wishlist button pop animation
   const wishlistScale = useRef(new Animated.Value(1)).current;
+  const wishlistAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const triggerWishlistPop = useCallback(() => {
     if (reduceMotion) {
       wishlistScale.setValue(1);
       return;
     }
+    // Stop any in-flight animation to avoid leaks/overlaps
+    if (wishlistAnimRef.current) {
+      wishlistAnimRef.current.stop();
+      wishlistAnimRef.current = null;
+    }
     // Quick pop: scale up to 1.3 then back to 1
-    Animated.sequence([
+    const anim = Animated.sequence([
       Animated.spring(wishlistScale, {
         toValue: 1.3,
         friction: 3,
@@ -92,7 +98,11 @@ export const CountryCard = React.memo(function CountryCard({
         tension: 100,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+    wishlistAnimRef.current = anim;
+    anim.start(() => {
+      wishlistAnimRef.current = null;
+    });
   }, [reduceMotion, wishlistScale]);
 
   const handleAddVisitedPress = useCallback(
@@ -121,7 +131,17 @@ export const CountryCard = React.memo(function CountryCard({
     if (reduceMotion) {
       wishlistScale.stopAnimation();
       wishlistScale.setValue(1);
+      if (wishlistAnimRef.current) {
+        wishlistAnimRef.current.stop();
+        wishlistAnimRef.current = null;
+      }
     }
+    return () => {
+      if (wishlistAnimRef.current) {
+        wishlistAnimRef.current.stop();
+        wishlistAnimRef.current = null;
+      }
+    };
   }, [reduceMotion, wishlistScale]);
 
   return (

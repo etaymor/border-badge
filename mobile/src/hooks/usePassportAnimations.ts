@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Animated, Easing, type ViewToken } from 'react-native';
 import { ROW_HEIGHTS } from '../screens/passport/passportConstants';
+import { STAGGER_MAX_DURATION } from '../navigation/transitionConfig';
 import type { ListItem } from '../screens/passport/passportTypes';
 import { useReducedMotion } from './useReducedMotion';
 
@@ -11,13 +12,11 @@ import { useReducedMotion } from './useReducedMotion';
 const MAX_CACHED_ANIMATION_VALUES = 100;
 const INITIAL_BOOTSTRAP_ROWS = 6;
 
-// Diagonal wave stagger timing
+// Diagonal wave stagger timing (passport-specific tuning)
 /** Delay between cards within a row (ms) */
 export const CARD_STAGGER_DELAY = 25;
 /** Additional delay between rows for diagonal wave effect (ms) */
 export const ROW_STAGGER_DELAY = 12;
-/** Maximum total duration for stagger sequence (ms) */
-export const STAGGER_MAX_DURATION = 280;
 
 export function usePassportAnimations(_isLoading: boolean) {
   // Check for reduced motion preference (WCAG 2.1 Level AA)

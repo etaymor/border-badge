@@ -18,7 +18,7 @@
  * ))
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ViewStyle } from 'react-native';
 import { STAGGER_DELAY_DEFAULT, STAGGER_MAX_DURATION } from '../navigation/transitionConfig';
 import { useReducedMotion } from './useReducedMotion';
@@ -88,7 +88,8 @@ export function useStaggeredEntrance(
   const reduceMotion = useReducedMotion();
 
   // Track completion state
-  const isCompleteRef = useRef(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const runIdRef = useRef(0);
   const timeoutIdsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // Create animation values for each item (no mutation in memo)
@@ -147,57 +148,57 @@ export function useStaggeredEntrance(
 
   // Start the stagger animation
   const startAnimation = useCallback(() => {
+    // Clear pending timeouts/animations before starting
+    timeoutIdsRef.current.forEach((id) => clearTimeout(id));
+    timeoutIdsRef.current.clear();
+    animationValues.forEach((av) => av.stopAnimation());
+
+    // New run id to ignore stale callbacks
+    runIdRef.current += 1;
+    const currentRunId = runIdRef.current;
+    setIsComplete(false);
+
     // Skip animation if reduce motion is enabled - just set all values to 1
     if (reduceMotion) {
       animationValues.forEach((animValue) => animValue.setValue(1));
-      isCompleteRef.current = true;
+      setIsComplete(true);
       return;
     }
-
-    isCompleteRef.current = false;
-
-    // Clear any pending timeouts
-    timeoutIdsRef.current.forEach((id) => clearTimeout(id));
-    timeoutIdsRef.current.clear();
 
     // Track completion
     let completedCount = 0;
     const totalItems = animationValues.length;
 
     if (totalItems === 0) {
-      isCompleteRef.current = true;
+      setIsComplete(true);
       return;
     }
 
     animationValues.forEach((animValue, index) => {
       const delay = calculateStaggerDelay(index, staggerDelay, maxDuration);
 
-      if (delay === 0) {
+      const startSpring = () => {
         Animated.spring(animValue, {
           toValue: 1,
           friction: springFriction,
           tension: springTension,
           useNativeDriver: true,
         }).start(() => {
+          if (runIdRef.current !== currentRunId) return;
           completedCount++;
           if (completedCount === totalItems) {
-            isCompleteRef.current = true;
+            setIsComplete(true);
           }
         });
+      };
+
+      if (delay === 0) {
+        startSpring();
       } else {
         const timeoutId = setTimeout(() => {
           timeoutIdsRef.current.delete(timeoutId);
-          Animated.spring(animValue, {
-            toValue: 1,
-            friction: springFriction,
-            tension: springTension,
-            useNativeDriver: true,
-          }).start(() => {
-            completedCount++;
-            if (completedCount === totalItems) {
-              isCompleteRef.current = true;
-            }
-          });
+          if (runIdRef.current !== currentRunId) return;
+          startSpring();
         }, delay);
         timeoutIdsRef.current.add(timeoutId);
       }
@@ -209,15 +210,17 @@ export function useStaggeredEntrance(
     // Clear pending timeouts
     timeoutIdsRef.current.forEach((id) => clearTimeout(id));
     timeoutIdsRef.current.clear();
+    animationValues.forEach((av) => av.stopAnimation());
+    runIdRef.current += 1;
 
     // Stop and reset all animation values
     animationValues.forEach((animValue) => {
       animValue.stopAnimation();
-      animValue.setValue(0);
+      animValue.setValue(reduceMotion ? 1 : 0);
     });
 
-    isCompleteRef.current = false;
-  }, [animationValues]);
+    setIsComplete(false);
+  }, [animationValues, reduceMotion]);
 
   // Auto-start animation on mount if enabled (unless reduce motion is enabled)
   useEffect(() => {
@@ -240,7 +243,7 @@ export function useStaggeredEntrance(
     getAnimationValue,
     startAnimation,
     resetAnimation,
-    isComplete: isCompleteRef.current,
+    isComplete,
   };
 }
 
