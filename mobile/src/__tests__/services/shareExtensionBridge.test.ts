@@ -15,6 +15,8 @@ import {
   clearPendingShare,
   markShareProcessed,
   wasRecentlyProcessed,
+  completeAppGroupShare,
+  __resetProcessedCache,
 } from '@services/shareExtensionBridge';
 
 // Mock AsyncStorage
@@ -34,6 +36,7 @@ jest.mock('react-native', () => ({
 describe('shareExtensionBridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetProcessedCache();
   });
 
   describe('isShareExtensionDeepLink', () => {
@@ -234,6 +237,25 @@ describe('shareExtensionBridge', () => {
       const result = await wasRecentlyProcessed('https://vm.tiktok.com/abc123');
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('completeAppGroupShare', () => {
+    it('marks URL as processed and clears App Group (calls both functions)', async () => {
+      const testUrl = 'https://vm.tiktok.com/abc123';
+
+      await completeAppGroupShare(testUrl);
+
+      // Should call markShareProcessed (which sets LAST_PROCESSED_KEY)
+      expect(mockAsyncStorage.setItem).toHaveBeenCalledWith(
+        'share_extension_last_processed',
+        expect.any(String)
+      );
+
+      // Verify the stored data contains the URL
+      const storedData = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(storedData.url).toBe(testUrl);
+      expect(storedData.timestamp).toBeDefined();
     });
   });
 });

@@ -60,11 +60,24 @@ export function useGoogleSignIn() {
         throw new Error('ERR_REQUEST_CANCELED');
       }
 
-      // Validate the callback URL origin for security (exact match, not prefix)
-      const expectedBase = redirectUrl.split('#')[0].split('?')[0];
-      const actualBase = result.url.split('#')[0].split('?')[0];
-      if (actualBase !== expectedBase) {
-        throw new Error('Invalid OAuth callback origin');
+      // Validate the callback URL origin for security using proper URL parsing
+      try {
+        const expectedUrl = new URL(redirectUrl);
+        const actualUrl = new URL(result.url);
+
+        if (
+          actualUrl.protocol !== expectedUrl.protocol ||
+          actualUrl.host !== expectedUrl.host ||
+          actualUrl.pathname !== expectedUrl.pathname
+        ) {
+          throw new Error('Invalid OAuth callback origin');
+        }
+      } catch (urlError) {
+        // Re-throw our own error, wrap parsing errors
+        if (urlError instanceof Error && urlError.message === 'Invalid OAuth callback origin') {
+          throw urlError;
+        }
+        throw new Error('Invalid OAuth callback URL format');
       }
 
       // Extract the tokens from the callback URL using shared utility

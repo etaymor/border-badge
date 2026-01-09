@@ -21,6 +21,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const LAST_PROCESSED_KEY = 'share_extension_last_processed';
 const PENDING_SHARE_KEY = 'share_extension_pending_url';
 
+// In-memory cache to avoid AsyncStorage reads for duplicate detection
+// This is populated on first check and updated when marking processed
+let lastProcessedCache: { url: string; timestamp: number } | null = null;
+
+/**
+ * Reset the in-memory cache. Only for use in tests.
+ * @internal
+ */
+export function __resetProcessedCache(): void {
+  lastProcessedCache = null;
+}
+
 /**
  * Interface for shared data from the extension
  */
@@ -130,6 +142,8 @@ export async function markShareProcessed(url: string): Promise<void> {
       url,
       timestamp: Date.now(),
     };
+    // Update in-memory cache immediately for fast duplicate detection
+    lastProcessedCache = data;
     await AsyncStorage.setItem(LAST_PROCESSED_KEY, JSON.stringify(data));
   } catch (error) {
     console.error('Failed to mark share as processed:', error);
@@ -138,18 +152,32 @@ export async function markShareProcessed(url: string): Promise<void> {
 
 /**
  * Check if a share was recently processed (within last 5 seconds)
- * Used to prevent duplicate navigation when app is already open
+ * Uses in-memory cache to avoid AsyncStorage reads in common cases.
+ * Falls back to AsyncStorage after app restart.
  *
  * @param url - The URL to check
  * @returns True if this URL was recently processed
  */
 export async function wasRecentlyProcessed(url: string): Promise<boolean> {
+  const fiveSecondsAgo = Date.now() - 5000;
+
+  // Check in-memory cache first (fast path for same app session)
+  if (
+    lastProcessedCache &&
+    lastProcessedCache.url === url &&
+    lastProcessedCache.timestamp > fiveSecondsAgo
+  ) {
+    return true;
+  }
+
+  // Fall back to AsyncStorage (needed after app restart)
   try {
     const data = await AsyncStorage.getItem(LAST_PROCESSED_KEY);
     if (!data) return false;
 
     const parsed = JSON.parse(data);
-    const fiveSecondsAgo = Date.now() - 5000;
+    // Populate cache for future checks
+    lastProcessedCache = parsed;
 
     return parsed.url === url && parsed.timestamp > fiveSecondsAgo;
   } catch {
