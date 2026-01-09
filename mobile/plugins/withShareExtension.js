@@ -86,6 +86,9 @@ function withShareExtensionTarget(config) {
     const nativeModuleFiles = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
     const appPath = path.join(iosPath, appName);
 
+    // Find the main app group (the group with the same name as the app)
+    const mainAppGroupKey = xcodeProject.findPBXGroupKey({ name: appName });
+
     for (const file of nativeModuleFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(appPath, file);
@@ -93,9 +96,12 @@ function withShareExtensionTarget(config) {
         fs.copyFileSync(srcPath, destPath);
         console.log(`Copied ${file} to main app target`);
 
-        // Add to main app's build sources
+        // Add to main app's build sources with proper group reference
         if (file.endsWith('.swift') || file.endsWith('.m')) {
-          xcodeProject.addSourceFile(`${appName}/${file}`, null, null);
+          // Add file to the app's PBX group and build sources
+          const fileOptions = { target: xcodeProject.getFirstTarget().uuid };
+          xcodeProject.addSourceFile(file, fileOptions, mainAppGroupKey);
+          console.log(`Added ${file} to main app build sources`);
         }
       }
     }
