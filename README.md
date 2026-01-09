@@ -10,6 +10,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Social Layer** - Connect with friends, compare travel maps, consent-based trip tagging
 - **Shareable Lists** - Curate and share city-specific recommendations via public links
 - **Offline Support** - Local SQLite caching for country data
+- **Premium Animations** - Shared element transitions, micro-interactions, and staggered entrances with accessibility support
 
 ## Architecture
 
