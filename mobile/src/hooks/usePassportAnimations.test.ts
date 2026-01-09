@@ -1,7 +1,7 @@
 import {
   CARD_STAGGER_DELAY,
   ROW_STAGGER_DELAY,
-  STAGGER_MAX_DURATION,
+  STAGGER_MAX_DURATION_PASSPORT,
 } from './usePassportAnimations';
 
 describe('usePassportAnimations', () => {
@@ -14,8 +14,8 @@ describe('usePassportAnimations', () => {
       expect(ROW_STAGGER_DELAY).toBe(12);
     });
 
-    it('exports STAGGER_MAX_DURATION as 280ms', () => {
-      expect(STAGGER_MAX_DURATION).toBe(280);
+    it('exports STAGGER_MAX_DURATION_PASSPORT as 280ms', () => {
+      expect(STAGGER_MAX_DURATION_PASSPORT).toBe(280);
     });
   });
 
@@ -31,7 +31,7 @@ describe('usePassportAnimations', () => {
       const relativeRowIndex = rowIndex - baseRowIndex;
       const rowDelay = relativeRowIndex * ROW_STAGGER_DELAY;
       const cardDelay = cardIndex * CARD_STAGGER_DELAY;
-      return Math.min(rowDelay + cardDelay, STAGGER_MAX_DURATION);
+      return Math.min(rowDelay + cardDelay, STAGGER_MAX_DURATION_PASSPORT);
     }
 
     it('calculates correct delay for first card in first row', () => {
@@ -85,7 +85,7 @@ describe('usePassportAnimations', () => {
     it('respects STAGGER_MAX_DURATION cap', () => {
       // Simulate very long list (50 rows)
       const delay = calculateDiagonalDelay(50, 5, 0);
-      expect(delay).toBeLessThanOrEqual(STAGGER_MAX_DURATION);
+      expect(delay).toBeLessThanOrEqual(STAGGER_MAX_DURATION_PASSPORT);
     });
 
     it('handles non-zero base row index correctly', () => {
