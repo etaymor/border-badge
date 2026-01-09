@@ -231,16 +231,19 @@ export function useStaggeredEntrance(
 
   // Cleanup on unmount and when animationValues ref changes
   useEffect(() => {
+    const timeoutIds = timeoutIdsRef.current;
+    const anims = animationValues;
+
     return () => {
       // Invalidate any in-flight callbacks
       runIdRef.current += 1;
 
       // Clear pending timeouts
-      timeoutIdsRef.current.forEach((id) => clearTimeout(id));
-      timeoutIdsRef.current.clear();
+      timeoutIds.forEach((id) => clearTimeout(id));
+      timeoutIds.clear();
 
       // Stop any running animations
-      animationValues.forEach((animValue) => {
+      anims.forEach((animValue) => {
         animValue.stopAnimation();
       });
     };

@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { StampCard } from '@components/ui';
 import { AnimatedCardWrapper } from './AnimatedCardWrapper';
 import type { CountryDisplayItem } from '../../screens/passport/passportTypes';
@@ -14,19 +14,21 @@ interface StampItemProps {
   item: CountryDisplayItem;
   animValue: Animated.Value;
   onCountryPress: (item: CountryDisplayItem) => void;
+  wrapperStyle?: StyleProp<ViewStyle>;
 }
 
 const StampItem = React.memo<StampItemProps>(function StampItem({
   item,
   animValue,
   onCountryPress,
+  wrapperStyle,
 }) {
   const handlePress = useCallback(() => {
     onCountryPress(item);
   }, [onCountryPress, item]);
 
   return (
-    <AnimatedCardWrapper animValue={animValue} style={styles.stampCardWrapper}>
+    <AnimatedCardWrapper animValue={animValue} style={[styles.stampCardWrapper, wrapperStyle]}>
       <StampCard code={item.code} hasTrips={item.hasTrips} onPress={handlePress} />
     </AnimatedCardWrapper>
   );
@@ -47,8 +49,7 @@ export const StampRow = React.memo<StampRowProps>(function StampRow({
           item={item}
           animValue={animValues[index]}
           onCountryPress={onCountryPress}
-          // @ts-expect-error narrow prop to child via style override
-          styleOverride={isSingle ? styles.singleStampCard : undefined}
+          wrapperStyle={isSingle ? styles.singleStampCard : undefined}
         />
       ))}
     </View>
@@ -58,6 +59,7 @@ export const StampRow = React.memo<StampRowProps>(function StampRow({
 const styles = StyleSheet.create({
   stampRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     paddingHorizontal: 16,
     gap: 12,
     marginBottom: 12,
