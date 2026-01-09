@@ -10,6 +10,10 @@ import { useAuthStore } from '@stores/authStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 import { extractAuthTokensFromUrl, hasUserOnboarded } from '@utils/authHelpers';
 
+interface GoogleSignInParams {
+  displayName?: string;
+}
+
 // Ensure web browser auth sessions are properly handled
 WebBrowser.maybeCompleteAuthSession();
 
@@ -22,7 +26,7 @@ export function useGoogleSignIn() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (params?: GoogleSignInParams) => {
       // Create redirect URL for OAuth callback
       const redirectUrl = Linking.createURL('auth-callback');
 
@@ -82,6 +86,18 @@ export function useGoogleSignIn() {
       // Validate that a session was actually created
       if (!sessionData.session) {
         throw new Error('Failed to create session from Google OAuth tokens');
+      }
+
+      // Update display name if provided from onboarding
+      if (params?.displayName) {
+        try {
+          await supabase.rpc('update_display_name', {
+            new_display_name: params.displayName,
+          });
+        } catch (updateError) {
+          // Non-critical failure - user can update name later in settings
+          console.warn('Failed to update display name from Google Sign-In:', updateError);
+        }
       }
 
       return sessionData;

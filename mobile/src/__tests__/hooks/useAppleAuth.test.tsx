@@ -333,6 +333,70 @@ describe('useAppleAuth', () => {
           new_display_name: 'John Doe',
         });
       });
+
+      it('uses displayName from params over Apple-provided name', async () => {
+        // Apple provides a name, but we also pass one from onboarding
+        const credentialWithName = createMockAppleCredential({
+          fullName: { givenName: 'John', familyName: 'Doe' },
+        });
+        mockedSignInAsync.mockResolvedValue(credentialWithName as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          // Pass displayName from onboarding - should take precedence
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should use the onboarding name, not Apple's name
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('uses displayName from params when Apple does not provide name', async () => {
+        // Apple doesn't provide a name (subsequent sign-ins)
+        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('does not update display name when neither params nor Apple provides one', async () => {
+        // Apple doesn't provide a name and no params passed
+        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate(); // No displayName param
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should not call update_display_name
+        expect(mockRpc).not.toHaveBeenCalled();
+      });
     });
 
     describe('Error Handling', () => {

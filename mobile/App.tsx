@@ -36,7 +36,6 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
-import { isAuthCallbackDeepLink, processAuthCallback } from '@services/authCallback';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
@@ -244,22 +243,11 @@ export default function App() {
     };
   }, [session?.user?.id]);
 
-  // Handle deep links: auth callbacks and share extension
+  // Handle deep links: share extension only
+  // Note: Auth callbacks (atlasi://auth-callback) are handled directly by
+  // WebBrowser.openAuthSessionAsync() in OAuth hooks (useGoogleAuth, useAppleAuth).
+  // We do NOT process them here to avoid race conditions with double session setting.
   useEffect(() => {
-    /**
-     * Process an auth callback deep link (magic links, OAuth).
-     * Extracts tokens and sets the Supabase session.
-     */
-    const handleAuthCallbackDeepLink = async (deepLinkUrl: string) => {
-      if (!isAuthCallbackDeepLink(deepLinkUrl)) return;
-
-      console.log('Processing auth callback deep link');
-      const result = await processAuthCallback(deepLinkUrl);
-      if (!result.success) {
-        console.error('Failed to process auth callback:', result.error);
-      }
-    };
-
     /**
      * Process a share extension deep link.
      * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
@@ -285,24 +273,13 @@ export default function App() {
       }
     };
 
-    /**
-     * Route incoming deep links to the appropriate handler.
-     */
-    const handleDeepLink = async (deepLinkUrl: string) => {
-      if (isAuthCallbackDeepLink(deepLinkUrl)) {
-        await handleAuthCallbackDeepLink(deepLinkUrl);
-      } else if (isShareExtensionDeepLink(deepLinkUrl)) {
-        await handleShareDeepLink(deepLinkUrl);
-      }
-    };
-
     // Subscribe to deep link events
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleDeepLink(url);
+      void handleShareDeepLink(url);
     });
 
-    // Check for initial URL (app opened via deep link - auth callback or share extension)
-    // This handles cold start scenarios where the app is opened via a magic link or share
+    // Check for initial URL (app opened via share extension deep link)
+    // This handles cold start scenarios where the app is opened via share
     // Note: We set the ref inside the promise to avoid race conditions where a URL
     // could arrive between setting the ref and promise resolution
     if (!hasProcessedInitialDeepLinkRef.current) {
@@ -311,7 +288,7 @@ export default function App() {
           // Set ref after getting URL to prevent race condition
           hasProcessedInitialDeepLinkRef.current = true;
           if (url) {
-            void handleDeepLink(url);
+            void handleShareDeepLink(url);
           }
         })
         .catch((error) => {

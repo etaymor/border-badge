@@ -10,6 +10,10 @@ import { useAuthStore } from '@stores/authStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 import { hasUserOnboarded } from '@utils/authHelpers';
 
+interface AppleSignInParams {
+  displayName?: string;
+}
+
 /**
  * Hook to sign in with Apple.
  * Uses expo-apple-authentication to get an identity token,
@@ -19,7 +23,7 @@ export function useAppleSignIn() {
   const { setSession, setHasCompletedOnboarding } = useAuthStore();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (params?: AppleSignInParams) => {
       if (Platform.OS !== 'ios') {
         throw new Error('Apple Sign In is only available on iOS');
       }
@@ -53,22 +57,25 @@ export function useAppleSignIn() {
 
       if (error) throw error;
 
-      // Update display name if Apple provided it (only on first sign-in)
-      // Apple only provides name on the very first sign-in attempt
-      if (credential.fullName?.givenName) {
-        const displayName = [credential.fullName.givenName, credential.fullName.familyName]
+      // Determine display name to use:
+      // 1. Use the name from onboarding if provided (user explicitly entered it)
+      // 2. Fall back to Apple's provided name (only available on first sign-in)
+      let nameToUse = params?.displayName;
+
+      if (!nameToUse && credential.fullName?.givenName) {
+        nameToUse = [credential.fullName.givenName, credential.fullName.familyName]
           .filter(Boolean)
           .join(' ');
+      }
 
-        if (displayName) {
-          try {
-            await supabase.rpc('update_display_name', {
-              new_display_name: displayName,
-            });
-          } catch (error) {
-            // Non-critical failure - user can update name later in settings
-            console.warn('Failed to update display name from Apple Sign-In:', error);
-          }
+      if (nameToUse) {
+        try {
+          await supabase.rpc('update_display_name', {
+            new_display_name: nameToUse,
+          });
+        } catch (updateError) {
+          // Non-critical failure - user can update name later in settings
+          console.warn('Failed to update display name from Apple Sign-In:', updateError);
         }
       }
 

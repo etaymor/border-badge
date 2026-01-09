@@ -6,10 +6,10 @@
  *
  * Flow:
  * 1. User taps Share in TikTok/Instagram
- * 2. Selects "Save Place" (Atlasi)
+ * 2. Selects "Atlasi" from share sheet
  * 3. Extension extracts URL from shared content
- * 4. Writes URL to App Group shared storage
- * 5. Opens main app via atlasi://share deep link
+ * 4. Writes URL to App Group shared storage (backup)
+ * 5. Opens main app via atlasi://share deep link using extensionContext.open()
  * 6. Completes extension request
  */
 
@@ -31,17 +31,84 @@ class ShareViewController: UIViewController {
     /// Deep link URL base to open the main app (URL is appended as query parameter)
     private let appDeepLinkBase = "atlasi://share"
 
+    // MARK: - UI Elements
+
+    private lazy var containerView: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.systemBackground
+        view.layer.cornerRadius = 16
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = 0.15
+        view.layer.shadowOffset = CGSize(width: 0, height: 4)
+        view.layer.shadowRadius = 12
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private lazy var statusLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Opening Atlasi..."
+        label.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        label.textColor = UIColor.label
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private lazy var activityIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.startAnimating()
+        return indicator
+    }()
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Set a minimal background - extension will close quickly
-        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.1)
+        setupUI()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         handleSharedContent()
+    }
+
+    // MARK: - UI Setup
+
+    private func setupUI() {
+        // Semi-transparent background
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+
+        // Add container card
+        view.addSubview(containerView)
+        containerView.addSubview(activityIndicator)
+        containerView.addSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            // Container centered in view
+            containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            containerView.widthAnchor.constraint(equalToConstant: 220),
+            containerView.heightAnchor.constraint(equalToConstant: 100),
+
+            // Activity indicator
+            activityIndicator.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 20),
+            activityIndicator.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+
+            // Status label
+            statusLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 12),
+            statusLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+            statusLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+        ])
+
+        // Animate in
+        containerView.alpha = 0
+        containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        UIView.animate(withDuration: 0.2) {
+            self.containerView.alpha = 1
+            self.containerView.transform = .identity
+        }
     }
 
     // MARK: - Content Handling
@@ -50,7 +117,7 @@ class ShareViewController: UIViewController {
     private func handleSharedContent() {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
               let attachments = extensionItem.attachments else {
-            completeRequest()
+            showError("No content to share")
             return
         }
 
@@ -89,7 +156,7 @@ class ShareViewController: UIViewController {
                         if let text = item as? String, let url = self?.extractURL(from: text) {
                             self?.processURL(url)
                         } else {
-                            self?.completeRequest()
+                            self?.showError("No URL found")
                         }
                     }
                 }
@@ -98,7 +165,7 @@ class ShareViewController: UIViewController {
         }
 
         // No usable content found
-        completeRequest()
+        showError("No URL found")
     }
 
     // MARK: - URL Extraction
@@ -126,39 +193,19 @@ class ShareViewController: UIViewController {
 
     /// Process and save the extracted URL, then open main app
     private func processURL(_ urlString: String) {
-        // Validate it's a supported URL (TikTok or Instagram)
-        guard isSupportedURL(urlString) else {
-            // Still save it - the main app will handle validation
-            saveAndOpenApp(urlString)
-            return
-        }
-
-        saveAndOpenApp(urlString)
-    }
-
-    /// Check if URL is from a supported platform
-    private func isSupportedURL(_ url: String) -> Bool {
-        let lowercased = url.lowercased()
-        return lowercased.contains("tiktok.com") ||
-               lowercased.contains("instagram.com") ||
-               lowercased.contains("instagr.am")
-    }
-
-    /// Save URL to App Group and open main app
-    private func saveAndOpenApp(_ urlString: String) {
         // Save to App Group UserDefaults (as backup/fallback)
+        saveToAppGroup(urlString)
+
+        // Open main app via deep link
+        openMainApp(with: urlString)
+    }
+
+    /// Save URL to App Group for backup access
+    private func saveToAppGroup(_ urlString: String) {
         if let userDefaults = UserDefaults(suiteName: appGroupID) {
             userDefaults.set(urlString, forKey: sharedURLKey)
             userDefaults.set(Date().timeIntervalSince1970, forKey: timestampKey)
             userDefaults.synchronize()
-        }
-
-        // Open main app via deep link with URL as query parameter
-        openMainApp(with: urlString)
-
-        // Complete extension after brief delay to allow app launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.completeRequest()
         }
     }
 
@@ -168,19 +215,35 @@ class ShareViewController: UIViewController {
     private func openMainApp(with sharedURL: String) {
         // URL-encode the shared URL and pass it as a query parameter
         guard let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(appDeepLinkBase)?url=\(encodedURL)") else { return }
+              let url = URL(string: "\(appDeepLinkBase)?url=\(encodedURL)") else {
+            showError("Invalid URL")
+            return
+        }
 
-        // Use responder chain to access UIApplication.shared.open
-        // This is the approved way to open URLs from extensions
-        var responder: UIResponder? = self
-
-        while let currentResponder = responder {
-            let selector = NSSelectorFromString("openURL:")
-            if currentResponder.responds(to: selector) {
-                currentResponder.perform(selector, with: url)
-                return
+        // Use the official extensionContext API to open the URL (iOS 10+)
+        // This is the correct way to open URLs from Share Extensions
+        extensionContext?.open(url, completionHandler: { [weak self] success in
+            DispatchQueue.main.async {
+                if success {
+                    self?.completeRequest()
+                } else {
+                    // App might not be installed or URL scheme not registered
+                    self?.showError("Could not open Atlasi")
+                }
             }
-            responder = currentResponder.next
+        })
+    }
+
+    // MARK: - Error Handling
+
+    private func showError(_ message: String) {
+        activityIndicator.stopAnimating()
+        statusLabel.text = message
+        statusLabel.textColor = UIColor.systemRed
+
+        // Dismiss after showing error briefly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.completeRequest()
         }
     }
 
@@ -188,6 +251,13 @@ class ShareViewController: UIViewController {
 
     /// Complete the extension request and dismiss
     private func completeRequest() {
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        // Animate out
+        UIView.animate(withDuration: 0.2, animations: {
+            self.containerView.alpha = 0
+            self.containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            self.view.backgroundColor = UIColor.clear
+        }) { _ in
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
     }
 }

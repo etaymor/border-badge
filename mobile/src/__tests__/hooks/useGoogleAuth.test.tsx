@@ -29,6 +29,7 @@ const mockedMigrateGuestData = migrateGuestData as jest.MockedFunction<typeof mi
 // Mock supabase methods
 const mockSignInWithOAuth = jest.fn();
 const mockSetSession = jest.fn();
+const mockRpc = jest.fn();
 const mockSupabaseFrom = supabase.from as jest.Mock;
 
 // Mock guestMigration service
@@ -109,6 +110,9 @@ describe('useGoogleAuth', () => {
     Object.assign(supabase.auth, {
       signInWithOAuth: mockSignInWithOAuth,
       setSession: mockSetSession,
+    });
+    Object.assign(supabase, {
+      rpc: mockRpc,
     });
   });
 
@@ -332,6 +336,59 @@ describe('useGoogleAuth', () => {
           access_token: 'query-token',
           refresh_token: 'query-refresh',
         });
+      });
+
+      it('updates display name when provided from onboarding', async () => {
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('does not update display name when not provided', async () => {
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate(); // No displayName param
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should not call update_display_name
+        expect(mockRpc).not.toHaveBeenCalled();
+      });
+
+      it('handles display name update failure gracefully', async () => {
+        mockRpc.mockRejectedValue(new Error('RPC failed'));
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should still succeed, just log warning
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          'Failed to update display name from Google Sign-In:',
+          expect.any(Error)
+        );
       });
     });
 
