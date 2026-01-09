@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import {
+  api,
   clearOnboardingComplete,
   clearTokens,
   storeOnboardingComplete,
@@ -53,7 +54,7 @@ export function useSignUpWithPassword() {
 
       return data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables) => {
       if (data.session) {
         await clearTokens();
         await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
@@ -62,7 +63,15 @@ export function useSignUpWithPassword() {
         // This ensures useUserCountries shows onboarding data immediately
         setIsMigrating(true);
 
-        // Set session now so navigation can proceed
+        // Schedule welcome emails for new user
+        try {
+          await api.post('/welcome/emails', {
+            display_name: variables.displayName,
+          });
+        } catch (error) {
+          console.warn('Failed to schedule welcome emails:', error);
+        }
+
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
         setSession(data.session);

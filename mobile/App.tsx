@@ -41,13 +41,16 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
-import { isAuthCallbackDeepLink, processAuthCallback } from '@services/authCallback';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
   savePendingShare,
   getPendingShare,
   clearPendingShare,
+  getSharedURLFromAppGroup,
+  wasRecentlyProcessed,
+  isCurrentlyProcessing,
+  markAsProcessing,
 } from '@services/shareExtensionBridge';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -192,10 +195,42 @@ export default function App() {
     }
   }, [session?.user?.id, tryNavigateToShareCapture]);
 
+  // Check for shared URLs in App Group (from Share Extension)
+  const checkAppGroupForSharedURL = useCallback(async () => {
+    if (!session?.user?.id) return;
+
+    const sharedURL = await getSharedURLFromAppGroup();
+    if (sharedURL) {
+      // Skip if this URL is already being processed (prevents race condition when
+      // multiple events trigger simultaneously, e.g., app foreground + navigation ready)
+      if (isCurrentlyProcessing(sharedURL)) {
+        return;
+      }
+
+      // Skip if this URL was recently processed (prevents duplicate handling on app restart)
+      const recentlyProcessed = await wasRecentlyProcessed(sharedURL);
+      if (recentlyProcessed) {
+        return;
+      }
+
+      // Mark as processing BEFORE navigation to prevent race conditions
+      markAsProcessing(sharedURL);
+
+      // Navigate to ShareCapture - App Group will be cleared after successful save
+      // in ShareCaptureScreen via completeAppGroupShare() to prevent data loss
+      // if the app crashes before processing completes
+      tryNavigateToShareCapture({
+        url: sharedURL,
+        source: 'share_extension',
+      });
+    }
+  }, [session?.user?.id, tryNavigateToShareCapture]);
+
   const handleNavigationReady = useCallback(() => {
     flushPendingAuthedShare();
     void processPendingShare();
-  }, [flushPendingAuthedShare, processPendingShare]);
+    void checkAppGroupForSharedURL();
+  }, [flushPendingAuthedShare, processPendingShare, checkAppGroupForSharedURL]);
 
   // If user signs out before we could navigate, persist the queued share for later.
   useEffect(() => {
@@ -214,7 +249,7 @@ export default function App() {
     }
   }, [flushPendingAuthedShare, session?.user?.id]);
 
-  // Track app_opened when app comes to foreground
+  // Track app_opened when app comes to foreground and check for shared URLs
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       // Track when app comes to foreground (only if user is authenticated)
@@ -226,6 +261,9 @@ export default function App() {
         // Generate new session ID for this foreground event
         sessionIdRef.current = generateSessionId();
         Analytics.appOpened(sessionIdRef.current);
+
+        // Check for URLs shared via Share Extension while app was in background
+        void checkAppGroupForSharedURL();
       }
       appStateRef.current = nextAppState;
     };
@@ -247,24 +285,13 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, checkAppGroupForSharedURL]);
 
-  // Handle deep links: auth callbacks and share extension
+  // Handle deep links: share extension only
+  // Note: Auth callbacks (atlasi://auth-callback) are handled directly by
+  // WebBrowser.openAuthSessionAsync() in OAuth hooks (useGoogleAuth, useAppleAuth).
+  // We do NOT process them here to avoid race conditions with double session setting.
   useEffect(() => {
-    /**
-     * Process an auth callback deep link (magic links, OAuth).
-     * Extracts tokens and sets the Supabase session.
-     */
-    const handleAuthCallbackDeepLink = async (deepLinkUrl: string) => {
-      if (!isAuthCallbackDeepLink(deepLinkUrl)) return;
-
-      console.log('Processing auth callback deep link');
-      const result = await processAuthCallback(deepLinkUrl);
-      if (!result.success) {
-        console.error('Failed to process auth callback:', result.error);
-      }
-    };
-
     /**
      * Process a share extension deep link.
      * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
@@ -290,24 +317,13 @@ export default function App() {
       }
     };
 
-    /**
-     * Route incoming deep links to the appropriate handler.
-     */
-    const handleDeepLink = async (deepLinkUrl: string) => {
-      if (isAuthCallbackDeepLink(deepLinkUrl)) {
-        await handleAuthCallbackDeepLink(deepLinkUrl);
-      } else if (isShareExtensionDeepLink(deepLinkUrl)) {
-        await handleShareDeepLink(deepLinkUrl);
-      }
-    };
-
     // Subscribe to deep link events
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleDeepLink(url);
+      void handleShareDeepLink(url);
     });
 
-    // Check for initial URL (app opened via deep link - auth callback or share extension)
-    // This handles cold start scenarios where the app is opened via a magic link or share
+    // Check for initial URL (app opened via share extension deep link)
+    // This handles cold start scenarios where the app is opened via share
     // Note: We set the ref inside the promise to avoid race conditions where a URL
     // could arrive between setting the ref and promise resolution
     if (!hasProcessedInitialDeepLinkRef.current) {
@@ -316,7 +332,7 @@ export default function App() {
           // Set ref after getting URL to prevent race condition
           hasProcessedInitialDeepLinkRef.current = true;
           if (url) {
-            void handleDeepLink(url);
+            void handleShareDeepLink(url);
           }
         })
         .catch((error) => {

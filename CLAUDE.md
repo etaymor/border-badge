@@ -119,6 +119,8 @@ GOOGLE_ANALYTICS_ID=<ga4-measurement-id>  # Optional: GA4 ID for public pages (e
 AFFILIATE_SIGNING_SECRET=<secret-key>  # Required in production: HMAC signing for affiliate redirect URLs
 SKIMLINKS_API_KEY=<skimlinks-api-key>  # Optional: for affiliate link wrapping via Skimlinks
 SKIMLINKS_PUBLISHER_ID=<publisher-id>  # Optional: your Skimlinks publisher ID
+RESEND_API_KEY=<resend-api-key>  # Optional: for welcome email drip campaign (get key from resend.com)
+WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 ```
 
 ## Key Architecture Patterns

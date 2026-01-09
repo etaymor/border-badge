@@ -164,7 +164,7 @@ Click **Save** to apply the Google provider settings.
 4. Select **App** type and click **Continue**
 5. Enter:
    - **Description**: Atlasi (or your app name)
-   - **Bundle ID**: `com.borderbadge.app` (must match your app's bundle ID)
+   - **Bundle ID**: `com.atlasi.app` (must match your app's bundle ID)
 6. Scroll to **Capabilities** and check **Sign In with Apple**
 7. Click **Continue**, then **Register**
 
@@ -174,12 +174,12 @@ Click **Save** to apply the Google provider settings.
 3. Select **Services IDs** and click **Continue**
 4. Enter:
    - **Description**: Atlasi Auth (or similar)
-   - **Identifier**: `com.borderbadge.app.auth` (convention: bundle ID + `.auth`)
+   - **Identifier**: `com.atlasi.app.auth` (convention: bundle ID + `.auth`)
 5. Click **Continue**, then **Register**
 6. Click on your new Services ID to edit it
 7. Check **Sign In with Apple** and click **Configure**
 8. In the configuration:
-   - **Primary App ID**: Select your App ID (`com.borderbadge.app`)
+   - **Primary App ID**: Select your App ID (`com.atlasi.app`)
    - **Domains**: Add your Supabase domain (e.g., `xxxx.supabase.co`)
    - **Return URLs**: Add `https://xxxx.supabase.co/auth/v1/callback`
    - Replace `xxxx` with your Supabase project reference
@@ -191,7 +191,7 @@ Click **Save** to apply the Google provider settings.
 3. Enter:
    - **Key Name**: Atlasi Sign In Key
 4. Check **Sign In with Apple** and click **Configure**
-5. Select your **Primary App ID** (`com.borderbadge.app`)
+5. Select your **Primary App ID** (`com.atlasi.app`)
 6. Click **Save**, then **Continue**, then **Register**
 7. **IMPORTANT**: Download the key file (`.p8`) - you can only download it once!
 8. Note down:
@@ -211,7 +211,7 @@ In the Apple provider settings, enter:
 | Field | Value |
 |-------|-------|
 | **Secret Key** | Contents of your `.p8` file (including `-----BEGIN/END PRIVATE KEY-----`) |
-| **Services ID** | Your Services ID identifier (e.g., `com.borderbadge.app.auth`) |
+| **Services ID** | Your Services ID identifier (e.g., `com.atlasi.app.auth`) |
 | **Key ID** | Your Sign-In Key ID (10-character string) |
 | **Team ID** | Your Apple Developer Team ID (10-character string) |
 

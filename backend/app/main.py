@@ -16,7 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 
 from app.core.config import get_settings
 from app.core.logging import setup_logging
@@ -162,3 +162,37 @@ async def health_check() -> dict[str, str]:
     Returns a simple status to verify the API is running.
     """
     return {"status": "ok"}
+
+
+@app.get("/.well-known/apple-app-site-association", tags=["apple"])
+async def apple_app_site_association() -> FileResponse:
+    """
+    Serve Apple App Site Association file for Universal Links.
+
+    This file tells iOS which app should handle links from atlasi.app domain.
+    Must be served with application/json content type.
+    """
+    aasa_path = STATIC_DIR / ".well-known" / "apple-app-site-association"
+    return FileResponse(
+        path=str(aasa_path),
+        media_type="application/json",
+    )
+
+
+@app.get("/share", tags=["apple"])
+async def share_universal_link(request: Request, url: str | None = None) -> Response:
+    """
+    Universal Link handler for iOS Share Extension.
+
+    When the Atlasi app is installed with Associated Domains, iOS intercepts
+    this URL and opens the app directly, passing the url parameter.
+
+    If the app isn't installed, this page is shown as a fallback with
+    instructions to download the app.
+    """
+    # Use template to properly include CSP nonce for inline styles
+    return templates.TemplateResponse(
+        request=request,
+        name="share_fallback.html",
+        context={"nonce": request.state.csp_nonce},
+    )

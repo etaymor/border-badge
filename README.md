@@ -161,6 +161,8 @@ poetry run ruff format --check .
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
 | `SUPABASE_JWT_SECRET` | JWT secret for token validation |
+| `RESEND_API_KEY` | Resend API key for welcome emails (optional) |
+| `WELCOME_EMAIL_FROM` | From address for welcome emails (default: hello@atlasi.app) |
 
 ## CI/CD
 

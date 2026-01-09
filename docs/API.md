@@ -570,6 +570,69 @@ Update user profile.
 
 ---
 
+### Welcome Emails
+
+#### `POST /welcome/emails`
+
+Schedule welcome email sequence for a new user. This endpoint should be called immediately after successful signup. It schedules a series of welcome emails using Resend's scheduled delivery feature.
+
+**Auth:** Required
+
+**Rate Limit:** 3 requests per hour
+
+**Request:**
+```json
+{
+  "display_name": "John"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `display_name` | string | No | User's display name for email personalization (max 100 chars). Defaults to "there" if not provided. |
+
+**Response:**
+```json
+{
+  "status": "scheduled",
+  "email_count": 4
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | Result status (see below) |
+| `email_count` | integer | Number of emails successfully scheduled |
+
+**Status Values:**
+
+| Status | Description |
+|--------|-------------|
+| `scheduled` | Emails successfully scheduled for delivery |
+| `already_scheduled` | Welcome emails were already scheduled for this user (idempotency protection) |
+| `skipped` | Email service not configured (development mode) |
+| `failed` | All emails failed to schedule |
+
+**Email Schedule:**
+
+The welcome sequence consists of 4 emails sent at the following intervals after signup:
+
+| Email | Delay | Subject |
+|-------|-------|---------|
+| Welcome | Immediate | "You're awesome" |
+| Day 2 | 24 hours | "The apps out there just didn't cut it" |
+| Day 4 | 72 hours | "The feature I use every single day" |
+| Day 7 | 144 hours | '"Can you send me your recommendations?"' |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 422 | `UnprocessableEntity` | User email is missing |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (3/hour) |
+
+---
+
 ### Public Endpoints
 
 These endpoints do not require authentication.
@@ -647,6 +710,7 @@ Rate limits are applied per endpoint:
 
 | Endpoint | Limit |
 |----------|-------|
+| `POST /welcome/emails` | 3/hour |
 | `GET /profile` | 30/minute |
 | `POST /media/files/upload-url` | 60/minute |
 | Other endpoints | 120/minute |

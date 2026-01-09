@@ -19,12 +19,14 @@ export default {
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.borderbadge.app',
+      bundleIdentifier: 'com.atlasi.app',
       usesAppleSignIn: true,
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
         dark: './assets/Atlasi-book-app-icon-midnight.png',
-        tinted: true,
+      },
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
       },
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
@@ -37,7 +39,7 @@ export default {
         backgroundColor: '#FDF6ED',
       },
       edgeToEdgeEnabled: true,
-      package: 'com.borderbadge.app',
+      package: 'com.atlasi.app',
     },
     web: {
       favicon: './assets/favicon.png',
@@ -47,6 +49,7 @@ export default {
       'expo-font',
       'expo-video',
       'expo-apple-authentication',
+      'expo-secure-store',
       './plugins/withShareExtension',
     ],
     updates: {
@@ -60,6 +63,24 @@ export default {
         projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
       },
       EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
+      eas: {
+        projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
+        build: {
+          experimental: {
+            ios: {
+              appExtensions: [
+                {
+                  targetName: 'ShareExtension',
+                  bundleIdentifier: 'com.atlasi.app.ShareExtension',
+                  entitlements: {
+                    'com.apple.security.application-groups': ['group.com.atlasi.app'],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
     },
   },
 };

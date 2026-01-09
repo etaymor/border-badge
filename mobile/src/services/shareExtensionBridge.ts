@@ -21,6 +21,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const LAST_PROCESSED_KEY = 'share_extension_last_processed';
 const PENDING_SHARE_KEY = 'share_extension_pending_url';
 
+// In-memory cache to avoid AsyncStorage reads for duplicate detection
+// This is populated on first check and updated when marking processed
+let lastProcessedCache: { url: string; timestamp: number } | null = null;
+
+// In-memory set of URLs currently being processed (to prevent race conditions)
+// URLs are added here before navigation and removed after completion or failure
+const processingUrls = new Set<string>();
+
+/**
+ * Reset the in-memory cache. Only for use in tests.
+ * @internal
+ */
+export function __resetProcessedCache(): void {
+  lastProcessedCache = null;
+  processingUrls.clear();
+}
+
 /**
  * Interface for shared data from the extension
  */
@@ -32,12 +49,16 @@ export interface SharedData {
 /**
  * Check if the current deep link is from the share extension
  *
+ * Supports both:
+ * - Custom scheme: atlasi://share?url=...
+ * - Universal Link: https://atlasi.app/share?url=...
+ *
  * @param url - The deep link URL to check
  * @returns True if this is a share extension deep link
  */
 export function isShareExtensionDeepLink(url: string | null): boolean {
   if (!url) return false;
-  return url.startsWith('atlasi://share');
+  return url.startsWith('atlasi://share') || url.startsWith('https://atlasi.app/share');
 }
 
 /**
@@ -130,6 +151,8 @@ export async function markShareProcessed(url: string): Promise<void> {
       url,
       timestamp: Date.now(),
     };
+    // Update in-memory cache immediately for fast duplicate detection
+    lastProcessedCache = data;
     await AsyncStorage.setItem(LAST_PROCESSED_KEY, JSON.stringify(data));
   } catch (error) {
     console.error('Failed to mark share as processed:', error);
@@ -137,19 +160,63 @@ export async function markShareProcessed(url: string): Promise<void> {
 }
 
 /**
+ * Check if a URL is currently being processed (prevents race conditions)
+ *
+ * @param url - The URL to check
+ * @returns True if this URL is currently being processed
+ */
+export function isCurrentlyProcessing(url: string): boolean {
+  return processingUrls.has(url);
+}
+
+/**
+ * Mark a URL as currently being processed (call before navigation)
+ * This prevents race conditions when multiple events trigger processing.
+ *
+ * @param url - The URL being processed
+ */
+export function markAsProcessing(url: string): void {
+  processingUrls.add(url);
+}
+
+/**
+ * Clear a URL from the processing set (call on failure/cancellation)
+ * Note: On success, use completeAppGroupShare which also clears this.
+ *
+ * @param url - The URL to clear
+ */
+export function clearProcessingStatus(url: string): void {
+  processingUrls.delete(url);
+}
+
+/**
  * Check if a share was recently processed (within last 5 seconds)
- * Used to prevent duplicate navigation when app is already open
+ * Uses in-memory cache to avoid AsyncStorage reads in common cases.
+ * Falls back to AsyncStorage after app restart.
  *
  * @param url - The URL to check
  * @returns True if this URL was recently processed
  */
 export async function wasRecentlyProcessed(url: string): Promise<boolean> {
+  const fiveSecondsAgo = Date.now() - 5000;
+
+  // Check in-memory cache first (fast path for same app session)
+  if (
+    lastProcessedCache &&
+    lastProcessedCache.url === url &&
+    lastProcessedCache.timestamp > fiveSecondsAgo
+  ) {
+    return true;
+  }
+
+  // Fall back to AsyncStorage (needed after app restart)
   try {
     const data = await AsyncStorage.getItem(LAST_PROCESSED_KEY);
     if (!data) return false;
 
     const parsed = JSON.parse(data);
-    const fiveSecondsAgo = Date.now() - 5000;
+    // Populate cache for future checks
+    lastProcessedCache = parsed;
 
     return parsed.url === url && parsed.timestamp > fiveSecondsAgo;
   } catch {
@@ -180,9 +247,7 @@ export async function getInitialShareURL(): Promise<string | null> {
 /**
  * Read shared URL from iOS App Group storage
  *
- * Note: This function requires a native module to access App Group UserDefaults.
- * For now, it returns null and we rely on the deep link approach.
- * To fully implement, add react-native-shared-group-preferences or a custom native module.
+ * This reads the URL saved by the Share Extension to App Group UserDefaults.
  *
  * @returns The shared URL from App Group, or null if not available
  */
@@ -192,16 +257,15 @@ export async function getSharedURLFromAppGroup(): Promise<string | null> {
   // Check if native module is available
   const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
   if (!SharedGroupPreferences) {
-    // Native module not installed - rely on deep link approach
+    // Native module not installed
     return null;
   }
 
   try {
-    // This would read from the App Group if native module is available
-    // const data = await SharedGroupPreferences.getItem('SharedURL', 'group.com.borderbadge.app');
-    // return data;
-    return null;
-  } catch {
+    const url = await SharedGroupPreferences.getItem('SharedURL');
+    return url || null;
+  } catch (error) {
+    console.error('Failed to read from App Group:', error);
     return null;
   }
 }
@@ -218,9 +282,21 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
   if (!SharedGroupPreferences) return;
 
   try {
-    // This would clear the App Group value if native module is available
-    // await SharedGroupPreferences.setItem('SharedURL', null, 'group.com.borderbadge.app');
-  } catch {
-    // Ignore errors
+    await SharedGroupPreferences.clearAll();
+  } catch (error) {
+    console.error('Failed to clear App Group:', error);
   }
+}
+
+/**
+ * Complete processing of a share from App Group.
+ * Marks the URL as processed, clears processing status, and clears App Group storage.
+ * Call this after successfully saving a share.
+ *
+ * @param url - The URL that was successfully processed
+ */
+export async function completeAppGroupShare(url: string): Promise<void> {
+  clearProcessingStatus(url);
+  await markShareProcessed(url);
+  await clearSharedURLFromAppGroup();
 }

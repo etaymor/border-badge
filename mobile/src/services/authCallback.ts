@@ -37,14 +37,25 @@ export function isAuthCallbackDeepLink(url: string | null): boolean {
 /**
  * Validate that the URL origin matches our expected auth callback prefix.
  * This prevents potential attacks from malicious apps crafting fake callback URLs.
+ * Uses proper URL parsing for security.
  *
  * @param url - The deep link URL to validate
  * @returns True if the URL has the expected origin
  */
 function validateCallbackOrigin(url: string): boolean {
-  // Extract base URL without fragment or query params
-  const baseUrl = url.split('#')[0].split('?')[0];
-  return baseUrl === EXPECTED_CALLBACK_PREFIX;
+  try {
+    const expectedUrl = new URL(EXPECTED_CALLBACK_PREFIX);
+    const actualUrl = new URL(url);
+
+    return (
+      actualUrl.protocol === expectedUrl.protocol &&
+      actualUrl.host === expectedUrl.host &&
+      actualUrl.pathname === expectedUrl.pathname
+    );
+  } catch {
+    // Invalid URL format
+    return false;
+  }
 }
 
 /**
