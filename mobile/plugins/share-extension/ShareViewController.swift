@@ -364,6 +364,7 @@ class ShareViewController: UIViewController {
     @discardableResult
     private func saveToAppGroup(_ urlString: String) -> Bool {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            NSLog("[Atlasi ShareExtension] Failed to access App Group: %@", appGroupID)
             return false
         }
         userDefaults.set(urlString, forKey: sharedURLKey)

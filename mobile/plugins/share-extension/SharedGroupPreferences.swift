@@ -44,7 +44,6 @@ class SharedGroupPreferences: NSObject {
         } else {
             userDefaults.removeObject(forKey: key)
         }
-        userDefaults.synchronize()
         resolve(nil)
     }
 
@@ -74,7 +73,6 @@ class SharedGroupPreferences: NSObject {
 
         userDefaults.removeObject(forKey: "SharedURL")
         userDefaults.removeObject(forKey: "SharedURLTimestamp")
-        userDefaults.synchronize()
         resolve(nil)
     }
 }
