@@ -12,6 +12,7 @@ import { useProfile } from '@hooks/useProfile';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import { getTravelStatus as getTravelTier } from '@utils/travelTier';
+import { useAuthStore } from '@stores/authStore';
 import {
   DEFAULT_FILTERS,
   hasActiveFilters,
@@ -31,6 +32,7 @@ export function usePassportData() {
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const { data: trips, isLoading: loadingTrips } = useTrips();
   const { data: profile, isLoading: loadingProfile } = useProfile();
+  const isMigrating = useAuthStore((s) => s.isMigrating);
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
 
@@ -50,7 +52,8 @@ export function usePassportData() {
     loadingTrips ||
     loadingProfile ||
     userCountries === undefined ||
-    (countries !== undefined && countries.length === 0); // SQLite countries not yet loaded
+    (countries !== undefined && countries.length === 0) || // SQLite countries not yet loaded
+    (isMigrating && (!userCountries || userCountries.length === 0)); // hold skeleton during migration when data not ready
 
   // Track passport view only when visited count changes
   const lastTrackedCountRef = useRef<number | null>(null);

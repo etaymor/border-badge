@@ -35,7 +35,11 @@ export function PassportSectionHeader({
     );
   }
 
-  return <Text style={[styles.sectionTitle, isScript && styles.scriptTitle]}>{title}</Text>;
+  return (
+    <View>
+      <Text style={[styles.sectionTitle, isScript && styles.scriptTitle]}>{title}</Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

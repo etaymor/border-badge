@@ -28,9 +28,6 @@ export default {
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
-      infoPlist: {
-        ITSAppUsesNonExemptEncryption: false,
-      },
     },
     android: {
       adaptiveIcon: {
@@ -61,10 +58,6 @@ export default {
     extra: {
       eas: {
         projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
-      },
-      EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
-      eas: {
-        projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
         build: {
           experimental: {
             ios: {
@@ -81,6 +74,7 @@ export default {
           },
         },
       },
+      EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
     },
   },
 };

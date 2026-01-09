@@ -24,11 +24,12 @@ export const SPRING_TENSION_OUT = 300;
 /**
  * Default spring config for screen transitions
  * Uses moderate stiffness for smooth, premium feel
+ * Mass reduced from 3 to 1.5 for faster settling (reduces jitter)
  */
 export const SPRING_CONFIG_DEFAULT = {
   stiffness: 1000,
   damping: 500,
-  mass: 3,
+  mass: 1.5,
 } as const;
 
 /**

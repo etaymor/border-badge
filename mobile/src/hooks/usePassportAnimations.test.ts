@@ -2,22 +2,20 @@ import {
   CARD_STAGGER_DELAY,
   ROW_STAGGER_DELAY,
   STAGGER_MAX_DURATION,
-  resetInitialAnimationFlag,
-  hasInitialAnimationPlayed,
 } from './usePassportAnimations';
 
 describe('usePassportAnimations', () => {
   describe('diagonal wave stagger constants', () => {
-    it('exports CARD_STAGGER_DELAY as 50ms', () => {
-      expect(CARD_STAGGER_DELAY).toBe(50);
+    it('exports CARD_STAGGER_DELAY as 25ms', () => {
+      expect(CARD_STAGGER_DELAY).toBe(25);
     });
 
-    it('exports ROW_STAGGER_DELAY as 30ms', () => {
-      expect(ROW_STAGGER_DELAY).toBe(30);
+    it('exports ROW_STAGGER_DELAY as 12ms', () => {
+      expect(ROW_STAGGER_DELAY).toBe(12);
     });
 
-    it('exports STAGGER_MAX_DURATION as 1500ms', () => {
-      expect(STAGGER_MAX_DURATION).toBe(1500);
+    it('exports STAGGER_MAX_DURATION as 280ms', () => {
+      expect(STAGGER_MAX_DURATION).toBe(280);
     });
   });
 
@@ -41,18 +39,18 @@ describe('usePassportAnimations', () => {
     });
 
     it('calculates correct delay for second card in first row', () => {
-      // Row 0, Card 1: 0 * 30 + 1 * 50 = 50ms
-      expect(calculateDiagonalDelay(0, 1, 0)).toBe(50);
+      // Row 0, Card 1: 0 * 12 + 1 * 25 = 25ms
+      expect(calculateDiagonalDelay(0, 1, 0)).toBe(25);
     });
 
     it('calculates correct delay for first card in second row', () => {
-      // Row 1, Card 0: 1 * 30 + 0 * 50 = 30ms
-      expect(calculateDiagonalDelay(1, 0, 0)).toBe(30);
+      // Row 1, Card 0: 1 * 12 + 0 * 25 = 12ms
+      expect(calculateDiagonalDelay(1, 0, 0)).toBe(12);
     });
 
     it('calculates correct delay for second card in second row', () => {
-      // Row 1, Card 1: 1 * 30 + 1 * 50 = 80ms
-      expect(calculateDiagonalDelay(1, 1, 0)).toBe(80);
+      // Row 1, Card 1: 1 * 12 + 1 * 25 = 37ms
+      expect(calculateDiagonalDelay(1, 1, 0)).toBe(37);
     });
 
     it('creates diagonal wave pattern (sorted by delay)', () => {
@@ -73,14 +71,14 @@ describe('usePassportAnimations', () => {
       delays.sort((a, b) => a.delay - b.delay);
 
       // Expected diagonal wave order:
-      // (0,0)=0ms, (1,0)=30ms, (0,1)=50ms, (2,0)=60ms, (1,1)=80ms, (2,1)=110ms
+      // (0,0)=0ms, (1,0)=12ms, (2,0)=24ms, (0,1)=25ms, (1,1)=37ms, (2,1)=49ms
       expect(delays.map((d) => `(${d.row},${d.card})`)).toEqual([
         '(0,0)', // 0ms
-        '(1,0)', // 30ms
-        '(0,1)', // 50ms
-        '(2,0)', // 60ms
-        '(1,1)', // 80ms
-        '(2,1)', // 110ms
+        '(1,0)', // 12ms
+        '(2,0)', // 24ms
+        '(0,1)', // 25ms
+        '(1,1)', // 37ms
+        '(2,1)', // 49ms
       ]);
     });
 
@@ -95,26 +93,8 @@ describe('usePassportAnimations', () => {
       // Row 5, Card 0 should have 0 delay (it's the base)
       expect(calculateDiagonalDelay(5, 0, 5)).toBe(0);
 
-      // Row 6, Card 1 should be: (6-5)*30 + 1*50 = 80ms
-      expect(calculateDiagonalDelay(6, 1, 5)).toBe(80);
-    });
-  });
-
-  describe('first-load-only flag', () => {
-    beforeEach(() => {
-      // Reset the flag before each test
-      resetInitialAnimationFlag();
-    });
-
-    it('starts with flag set to false', () => {
-      expect(hasInitialAnimationPlayed()).toBe(false);
-    });
-
-    it('resetInitialAnimationFlag resets to false', () => {
-      // We can't directly set it to true without calling the hook
-      // But we can verify reset works
-      resetInitialAnimationFlag();
-      expect(hasInitialAnimationPlayed()).toBe(false);
+      // Row 6, Card 1 should be: (6-5)*12 + 1*25 = 37ms
+      expect(calculateDiagonalDelay(6, 1, 5)).toBe(37);
     });
   });
 });

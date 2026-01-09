@@ -4,6 +4,7 @@ import type { AxiosError } from 'axios';
 import { queryClient } from '../queryClient';
 import { api, getStoredToken, setSuppressAutoSignOut } from './api';
 import { useOnboardingStore } from '@stores/onboardingStore';
+import { getLocalUserCountries, clearLocalUserCountries } from './countriesDb';
 
 // Helper to delay execution (useful for rate limiting)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -132,22 +133,43 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   let migratedCountries = 0;
   let migratedProfile = false;
 
-  // Combine all visited countries (home country is already in selectedCountries if set)
+  // Also read from SQLite as backup source of truth
+  // This ensures we capture all countries even if Zustand/AsyncStorage got out of sync
+  let sqliteCountries: { country_code: string; status: 'visited' | 'wishlist' }[] = [];
+  try {
+    const localCountries = await getLocalUserCountries();
+    sqliteCountries = localCountries.map((c) => ({
+      country_code: c.country_code,
+      status: c.status,
+    }));
+  } catch (err) {
+    console.warn('Failed to read SQLite countries for migration:', err);
+  }
+
+  // Combine all visited countries from both Zustand store and SQLite
   const allVisitedCountries = new Set(selectedCountries);
   if (homeCountry) {
     allVisitedCountries.add(homeCountry);
   }
+  // Add visited countries from SQLite
+  sqliteCountries
+    .filter((c) => c.status === 'visited')
+    .forEach((c) => allVisitedCountries.add(c.country_code));
 
   // Migrate visited countries
   const visitedResult = await migrateCountries(allVisitedCountries, 'visited');
   migratedCountries += visitedResult.data.length;
   errors.push(...visitedResult.errors);
 
-  // Combine all wishlist countries (bucket list + dream destination)
+  // Combine all wishlist countries from both Zustand store and SQLite
   const allWishlistCountries = new Set(bucketListCountries);
   if (dreamDestination) {
     allWishlistCountries.add(dreamDestination);
   }
+  // Add wishlist countries from SQLite
+  sqliteCountries
+    .filter((c) => c.status === 'wishlist')
+    .forEach((c) => allWishlistCountries.add(c.country_code));
 
   // Migrate wishlist countries
   const wishlistResult = await migrateCountries(allWishlistCountries, 'wishlist');
@@ -188,11 +210,17 @@ async function doMigration(session: Session): Promise<MigrationResult> {
     }
   }
 
-  // If everything migrated successfully, clear the onboarding store
+  // If everything migrated successfully, clear the onboarding store and SQLite
   // On failure, the store is preserved so users can retry migration
   // Caller should present retry UI when success === false
   if (errors.length === 0) {
-    reset();
+    reset(); // Clears Zustand store (which also clears SQLite via syncToSQLite)
+    // Explicitly clear SQLite as backup in case store reset doesn't catch everything
+    try {
+      await clearLocalUserCountries();
+    } catch (err) {
+      console.warn('Failed to clear SQLite user countries after migration:', err);
+    }
   }
 
   return {

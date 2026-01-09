@@ -6,6 +6,7 @@ import {
   Animated,
   FlatList,
   Image,
+  InteractionManager,
   Keyboard,
   Modal,
   StyleSheet,
@@ -132,7 +133,10 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
     // Play celebration animation then navigate
     playCelebration(() => {
-      handleNavigateNext();
+      Keyboard.dismiss();
+      InteractionManager.runAfterInteractions(() => {
+        handleNavigateNext();
+      });
     });
   };
 

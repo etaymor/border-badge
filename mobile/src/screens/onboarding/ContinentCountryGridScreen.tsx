@@ -5,6 +5,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Keyboard,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -51,6 +52,14 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     toggleBucketListCountry,
     visitedContinents,
   } = useOnboardingStore();
+
+  // Dismiss keyboard when screen receives focus (safety net from dream country selection)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Animation values
   const headerOpacity = useRef(new Animated.Value(0)).current;

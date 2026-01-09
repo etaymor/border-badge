@@ -332,9 +332,9 @@ const styles = StyleSheet.create({
   },
   countryName: {
     fontFamily: fonts.oswald.bold,
-    fontSize: 18,
+    fontSize: 16,
     color: colors.textPrimary,
-    lineHeight: 22,
+    lineHeight: 20,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     textShadowColor: 'rgba(255, 255, 255, 0.5)',
@@ -342,8 +342,8 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   countryNameSmall: {
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
   },
   regionName: {
     fontFamily: fonts.openSans.regular,

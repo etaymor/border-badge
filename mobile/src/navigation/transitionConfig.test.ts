@@ -33,7 +33,7 @@ describe('transitionConfig', () => {
       expect(SPRING_CONFIG_DEFAULT).toEqual({
         stiffness: 1000,
         damping: 500,
-        mass: 3,
+        mass: 1.5,
       });
     });
 

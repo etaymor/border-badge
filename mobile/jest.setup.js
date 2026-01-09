@@ -356,6 +356,13 @@ jest.mock('@services/countriesDb', () => ({
   searchCountries: jest.fn().mockResolvedValue([]),
   getCountryByCode: jest.fn().mockResolvedValue(null),
   getCountriesByCodes: jest.fn().mockResolvedValue([]),
+  // Local user country functions for onboarding → passport flow
+  saveLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  saveLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  removeLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  getLocalUserCountries: jest.fn().mockResolvedValue([]),
+  clearLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  hasLocalUserCountries: jest.fn().mockResolvedValue(false),
 }));
 
 // Reset all mocks between tests
