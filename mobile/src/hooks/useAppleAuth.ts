@@ -81,13 +81,12 @@ export function useAppleSignIn() {
       }
 
       if (nameToUse) {
-        try {
-          await supabase.rpc('update_display_name', {
-            new_display_name: nameToUse,
-          });
-        } catch (updateError) {
+        const { error: updateError } = await supabase.rpc('update_display_name', {
+          new_display_name: nameToUse,
+        });
+        if (updateError) {
           // Non-critical failure - user can update name later in settings
-          console.warn('Failed to update display name from Apple Sign-In:', updateError);
+          console.warn('Failed to update display name from Apple Sign-In:', updateError.message);
         }
       }
 

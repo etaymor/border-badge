@@ -230,7 +230,6 @@ export function useShareCapture({
         },
         {
           onSuccess: async () => {
-            setSaveCompleted(true);
             Analytics.shareCompleted({
               provider: detectProviderFromUrl(url) ?? 'tiktok',
               entryType,
@@ -241,6 +240,9 @@ export function useShareCapture({
             if (source === 'share_extension') {
               await completeAppGroupShare(url);
             }
+            // Mark save as completed AFTER all async work finishes
+            // so unmount cleanup doesn't run prematurely
+            setSaveCompleted(true);
             onComplete(selectedTripId ?? undefined);
           },
           onError: (err) => {
@@ -274,7 +276,6 @@ export function useShareCapture({
       },
       {
         onSuccess: async () => {
-          setSaveCompleted(true);
           Analytics.shareCompleted({
             provider: ingestResult.provider,
             entryType,
@@ -285,6 +286,9 @@ export function useShareCapture({
           if (source === 'share_extension') {
             await completeAppGroupShare(url);
           }
+          // Mark save as completed AFTER all async work finishes
+          // so unmount cleanup doesn't run prematurely
+          setSaveCompleted(true);
           onComplete(selectedTripId ?? undefined);
         },
         onError: (err) => {

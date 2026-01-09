@@ -109,13 +109,12 @@ export function useGoogleSignIn() {
 
       // Update display name if provided from onboarding
       if (params?.displayName) {
-        try {
-          await supabase.rpc('update_display_name', {
-            new_display_name: params.displayName,
-          });
-        } catch (updateError) {
+        const { error: updateError } = await supabase.rpc('update_display_name', {
+          new_display_name: params.displayName,
+        });
+        if (updateError) {
           // Non-critical failure - user can update name later in settings
-          console.warn('Failed to update display name from Google Sign-In:', updateError);
+          console.warn('Failed to update display name from Google Sign-In:', updateError.message);
         }
       }
 

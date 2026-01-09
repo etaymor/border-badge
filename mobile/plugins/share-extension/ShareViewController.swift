@@ -350,19 +350,25 @@ class ShareViewController: UIViewController {
 
         // Save to App Group UserDefaults as backup
         // The main app will read this on next foreground if Universal Link fails
-        saveToAppGroup(urlString)
+        if !saveToAppGroup(urlString) {
+            showError("Unable to save place")
+            return
+        }
 
         // Show success UI
         showSuccess()
     }
 
     /// Save URL to App Group for backup access
-    private func saveToAppGroup(_ urlString: String) {
-        if let userDefaults = UserDefaults(suiteName: appGroupID) {
-            userDefaults.set(urlString, forKey: sharedURLKey)
-            userDefaults.set(Date().timeIntervalSince1970, forKey: timestampKey)
-            userDefaults.synchronize()
+    /// Returns true if save succeeded, false if App Group is unavailable
+    @discardableResult
+    private func saveToAppGroup(_ urlString: String) -> Bool {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            return false
         }
+        userDefaults.set(urlString, forKey: sharedURLKey)
+        userDefaults.set(Date().timeIntervalSince1970, forKey: timestampKey)
+        return true
     }
 
     // MARK: - Success UI

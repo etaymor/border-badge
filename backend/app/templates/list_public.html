@@ -47,7 +47,7 @@
     <img src="{{ list.cover_image_url }}" alt="Cover image for {{ list.name }} travel list" class="hero-bg">
     {% else %}
     <!-- Fallback pattern if no image -->
-    <div class="hero-bg" style="background-color: var(--color-midnight-navy); background-image: radial-gradient(circle at 10% 20%, rgba(255,255,255,0.05) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.05) 0%, transparent 20%);"></div>
+    <div class="hero-bg hero-bg-fallback"></div>
     {% endif %}
     <div class="hero-overlay"></div>
 </section>
@@ -60,22 +60,22 @@
         <div class="list-meta">
             {% if list.country_name %}
             <div class="meta-item">
-                <span style="font-size: 1.2em;">{{ list.country_flag or '🌍' }}</span> {{ list.country_name }}
+                <span class="emoji-icon">{{ list.country_flag or '🌍' }}</span> {{ list.country_name }}
             </div>
             {% endif %}
-            
+
             {% if list.trip_name %}
             <div class="meta-item">
-                <span style="font-size: 1.2em;">✈️</span> {{ list.trip_name }}
+                <span class="emoji-icon">✈️</span> {{ list.trip_name }}
             </div>
             {% endif %}
 
             <div class="meta-item">
-                <span style="font-size: 1.2em;">📍</span> {{ list.entries|length }} Places
+                <span class="emoji-icon">📍</span> {{ list.entries|length }} Places
             </div>
 
             <div class="meta-item">
-                <span style="font-size: 1.2em;">📅</span> Shared {{ list.created_at.strftime('%B %d, %Y') }}
+                <span class="emoji-icon">📅</span> Shared {{ list.created_at.strftime('%B %d, %Y') }}
             </div>
         </div>
 

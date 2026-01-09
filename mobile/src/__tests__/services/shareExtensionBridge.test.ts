@@ -23,15 +23,24 @@ import {
 jest.mock('@react-native-async-storage/async-storage');
 const mockAsyncStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
 
-// Mock Platform
+// Mock Platform and NativeModules
+// Must use inline mock functions since jest.mock is hoisted before variable declarations
 jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
   Linking: {
     getInitialURL: jest.fn(),
     addEventListener: jest.fn(() => ({ remove: jest.fn() })),
   },
-  NativeModules: {},
+  NativeModules: {
+    SharedGroupPreferences: {
+      getItem: jest.fn().mockResolvedValue(null),
+      clearAll: jest.fn().mockResolvedValue(undefined),
+    },
+  },
 }));
+
+// Get reference to the mock after module initialization
+const { NativeModules } = jest.requireMock('react-native');
 
 describe('shareExtensionBridge', () => {
   beforeEach(() => {
@@ -256,6 +265,9 @@ describe('shareExtensionBridge', () => {
       const storedData = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
       expect(storedData.url).toBe(testUrl);
       expect(storedData.timestamp).toBeDefined();
+
+      // Verify App Group was cleared via native module
+      expect(NativeModules.SharedGroupPreferences.clearAll).toHaveBeenCalled();
     });
   });
 });
