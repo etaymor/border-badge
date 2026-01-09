@@ -44,9 +44,7 @@ function withAppGroupEntitlement(config) {
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
 
     // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
-    mod.modResults['com.apple.developer.associated-domains'] = [
-      `applinks:${ASSOCIATED_DOMAIN}`,
-    ];
+    mod.modResults['com.apple.developer.associated-domains'] = [`applinks:${ASSOCIATED_DOMAIN}`];
 
     return mod;
   });
