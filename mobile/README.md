@@ -126,6 +126,8 @@ mobile/src/
 | `@react-navigation/native` | Navigation              |
 | `expo-secure-store`        | Secure token storage    |
 | `expo-sqlite`              | Local database          |
+| `react-native-reanimated`  | High-performance animations |
+| `react-native-screen-transitions` | Shared element transitions |
 
 ## Available Scripts
 
@@ -190,6 +192,59 @@ Axios instance with automatic token injection:
 // - Auto sign-out on 401 responses
 // - 10 second timeout
 ```
+
+### Animation System
+
+The app includes a premium animation system built on `react-native-reanimated` and `react-native-screen-transitions`. All animations respect the user's "Reduce Motion" accessibility preference (WCAG 2.1 Level AA).
+
+**Animation Hooks** (`src/hooks/`):
+
+| Hook | Purpose |
+|------|---------|
+| `useAnimatedPress` | Spring-based press feedback for buttons and interactive elements |
+| `useBreathingAnimation` | Subtle looping scale animation for "alive" feel on stamps |
+| `useStaggeredEntrance` | Staggered fade-in and slide-up for list items |
+| `useReducedMotion` | Detects user's accessibility preference for reduced motion |
+
+```typescript
+// Example: Press feedback
+const { scaleValue, pressHandlers } = useAnimatedPress();
+<Animated.View style={{ transform: [{ scale: scaleValue }] }}>
+  <TouchableOpacity {...pressHandlers} onPress={handlePress}>
+    ...
+  </TouchableOpacity>
+</Animated.View>
+
+// Example: Staggered list entrance
+const { getAnimatedStyle } = useStaggeredEntrance({ itemCount: items.length });
+items.map((item, index) => (
+  <Animated.View style={getAnimatedStyle(index)}>...</Animated.View>
+))
+```
+
+**Shared Element Transitions** (`src/components/transitions/`):
+
+| Component | Purpose |
+|-----------|---------|
+| `SharedCountryImage` | Morphing transitions for country flags/stamps |
+| `SharedTripImage` | Shared element transitions for trip cards |
+| `SharedEntryImage` | Shared element transitions for entry images |
+
+```typescript
+// In source screen (e.g., PassportScreen)
+<SharedCountryImage countryId="US">
+  <CountryStamp />
+</SharedCountryImage>
+
+// In destination screen (e.g., CountryDetailScreen)
+<SharedCountryImage countryId="US">
+  <CountryHeader />
+</SharedCountryImage>
+```
+
+**Screen Transitions** (`src/navigation/interpolators/`):
+
+Custom interpolators provide premium screen transitions including parallax slides, zoom reveals, and shared element morphing. Transition configs in `transitionConfig.ts` define spring physics constants used throughout the app.
 
 ## Testing
 
