@@ -2,15 +2,16 @@
  * ShareViewController - iOS Share Extension for Atlasi
  *
  * This extension receives shared URLs from TikTok, Instagram, and other apps,
- * then opens the main Atlasi app with the URL for processing.
+ * saves them to App Group storage, and prompts the user to open the main app.
  *
  * Flow:
  * 1. User taps Share in TikTok/Instagram
  * 2. Selects "Atlasi" from share sheet
  * 3. Extension extracts URL from shared content
- * 4. Writes URL to App Group shared storage (backup)
- * 5. Opens main app via atlasi://share deep link using extensionContext.open()
- * 6. Completes extension request
+ * 4. Writes URL to App Group shared storage
+ * 5. Shows branded confirmation with "Open Atlasi" button
+ * 6. User taps button to dismiss, then opens main app manually
+ * 7. Main app reads URL from App Group on foreground
  */
 
 import UIKit
@@ -28,35 +29,133 @@ class ShareViewController: UIViewController {
     /// Key for storing timestamp of when URL was shared
     private let timestampKey = "SharedURLTimestamp"
 
+    // MARK: - Brand Colors
+
+    private let warmCream = UIColor(red: 253/255, green: 246/255, blue: 237/255, alpha: 1.0)
+    private let midnightNavy = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 1.0)
+    private let mossGreen = UIColor(red: 84/255, green: 122/255, blue: 95/255, alpha: 1.0)
+    private let paperBeige = UIColor(red: 245/255, green: 236/255, blue: 224/255, alpha: 1.0)
+
     // MARK: - UI Elements
 
     private lazy var containerView: UIView = {
         let view = UIView()
-        view.backgroundColor = UIColor.systemBackground
-        view.layer.cornerRadius = 16
-        view.layer.shadowColor = UIColor.black.cgColor
+        view.backgroundColor = warmCream
+        view.layer.cornerRadius = 20
+        view.layer.shadowColor = midnightNavy.cgColor
         view.layer.shadowOpacity = 0.15
         view.layer.shadowOffset = CGSize(width: 0, height: 4)
-        view.layer.shadowRadius = 12
+        view.layer.shadowRadius = 16
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
 
-    private lazy var statusLabel: UILabel = {
+    private lazy var activityIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.color = midnightNavy
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.startAnimating()
+        return indicator
+    }()
+
+    private lazy var loadingLabel: UILabel = {
         let label = UILabel()
-        label.text = "Saving..."
-        label.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-        label.textColor = UIColor.label
+        label.text = "Saving place..."
+        label.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        label.textColor = midnightNavy
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
 
-    private lazy var activityIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.startAnimating()
-        return indicator
+    private lazy var checkmarkIcon: UIImageView = {
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
+        let image = UIImage(systemName: "checkmark.circle.fill", withConfiguration: config)
+        let imageView = UIImageView(image: image)
+        imageView.tintColor = mossGreen
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isHidden = true
+        return imageView
+    }()
+
+    private lazy var titleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Place Saved!"
+        label.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+        label.textColor = midnightNavy
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
+    private lazy var subtitleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Open Atlasi to add it to a trip"
+        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        label.textColor = midnightNavy.withAlphaComponent(0.6)
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
+    private lazy var openButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("Open Atlasi", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        button.backgroundColor = mossGreen
+        button.layer.cornerRadius = 12
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(openAtlasiTapped), for: .touchUpInside)
+        button.isHidden = true
+        return button
+    }()
+
+    private lazy var cancelButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("Not now", for: .normal)
+        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        button.isHidden = true
+        return button
+    }()
+
+    private lazy var errorIcon: UIImageView = {
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
+        let image = UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: config)
+        let imageView = UIImageView(image: image)
+        imageView.tintColor = UIColor(red: 193/255, green: 84/255, blue: 62/255, alpha: 1.0) // adobeBrick
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isHidden = true
+        return imageView
+    }()
+
+    private lazy var errorLabel: UILabel = {
+        let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        label.textColor = midnightNavy
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
+    private lazy var dismissButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("Dismiss", for: .normal)
+        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        button.isHidden = true
+        return button
     }()
 
     // MARK: - Lifecycle
@@ -74,35 +173,85 @@ class ShareViewController: UIViewController {
     // MARK: - UI Setup
 
     private func setupUI() {
-        // Semi-transparent background
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        // Semi-transparent overlay with brand tint
+        view.backgroundColor = midnightNavy.withAlphaComponent(0.4)
 
         // Add container card
         view.addSubview(containerView)
+
+        // Add loading elements
         containerView.addSubview(activityIndicator)
-        containerView.addSubview(statusLabel)
+        containerView.addSubview(loadingLabel)
+
+        // Add success elements
+        containerView.addSubview(checkmarkIcon)
+        containerView.addSubview(titleLabel)
+        containerView.addSubview(subtitleLabel)
+        containerView.addSubview(openButton)
+        containerView.addSubview(cancelButton)
+
+        // Add error elements
+        containerView.addSubview(errorIcon)
+        containerView.addSubview(errorLabel)
+        containerView.addSubview(dismissButton)
 
         NSLayoutConstraint.activate([
             // Container centered in view
             containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            containerView.widthAnchor.constraint(equalToConstant: 220),
-            containerView.heightAnchor.constraint(equalToConstant: 100),
+            containerView.widthAnchor.constraint(equalToConstant: 280),
 
-            // Activity indicator
-            activityIndicator.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 20),
+            // Loading state
             activityIndicator.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            activityIndicator.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 32),
 
-            // Status label
-            statusLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 12),
-            statusLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-            statusLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+            loadingLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 16),
+            loadingLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            loadingLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+            loadingLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -32),
+
+            // Success state
+            checkmarkIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            checkmarkIcon.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
+            checkmarkIcon.widthAnchor.constraint(equalToConstant: 56),
+            checkmarkIcon.heightAnchor.constraint(equalToConstant: 56),
+
+            titleLabel.topAnchor.constraint(equalTo: checkmarkIcon.bottomAnchor, constant: 16),
+            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+            subtitleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            subtitleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            openButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
+            openButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            openButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+            openButton.heightAnchor.constraint(equalToConstant: 50),
+
+            cancelButton.topAnchor.constraint(equalTo: openButton.bottomAnchor, constant: 12),
+            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
+
+            // Error state
+            errorIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            errorIcon.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
+            errorIcon.widthAnchor.constraint(equalToConstant: 56),
+            errorIcon.heightAnchor.constraint(equalToConstant: 56),
+
+            errorLabel.topAnchor.constraint(equalTo: errorIcon.bottomAnchor, constant: 16),
+            errorLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            errorLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            dismissButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 20),
+            dismissButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            dismissButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
         ])
 
         // Animate in
         containerView.alpha = 0
         containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-        UIView.animate(withDuration: 0.2) {
+        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
             self.containerView.alpha = 1
             self.containerView.transform = .identity
         }
@@ -194,7 +343,7 @@ class ShareViewController: UIViewController {
         // The main app will read this on next foreground
         saveToAppGroup(urlString)
 
-        // Show success and dismiss
+        // Show success UI
         showSuccess()
     }
 
@@ -209,31 +358,61 @@ class ShareViewController: UIViewController {
 
     // MARK: - Success UI
 
-    /// Show success state and dismiss
-    /// Note: Share Extensions cannot open custom URL schemes (atlasi://) - they can only open http/https URLs.
-    /// The URL is saved to App Group storage and the main app will read it on next foreground.
+    /// Show success state with buttons
     private func showSuccess() {
+        // Hide loading elements
         activityIndicator.stopAnimating()
-        statusLabel.text = "Saved! Open Atlasi to continue"
-        statusLabel.textColor = UIColor.systemGreen
+        activityIndicator.isHidden = true
+        loadingLabel.isHidden = true
 
-        // Dismiss after showing success briefly
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.completeRequest()
+        // Show success elements with animation
+        UIView.animate(withDuration: 0.3) {
+            self.checkmarkIcon.isHidden = false
+            self.titleLabel.isHidden = false
+            self.subtitleLabel.isHidden = false
+            self.openButton.isHidden = false
+            self.cancelButton.isHidden = false
+
+            self.checkmarkIcon.alpha = 1
+            self.titleLabel.alpha = 1
+            self.subtitleLabel.alpha = 1
+            self.openButton.alpha = 1
+            self.cancelButton.alpha = 1
         }
     }
 
     // MARK: - Error Handling
 
     private func showError(_ message: String) {
+        // Hide loading elements
         activityIndicator.stopAnimating()
-        statusLabel.text = message
-        statusLabel.textColor = UIColor.systemRed
+        activityIndicator.isHidden = true
+        loadingLabel.isHidden = true
 
-        // Dismiss after showing error briefly
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.completeRequest()
+        // Show error elements
+        errorLabel.text = message
+        UIView.animate(withDuration: 0.3) {
+            self.errorIcon.isHidden = false
+            self.errorLabel.isHidden = false
+            self.dismissButton.isHidden = false
+
+            self.errorIcon.alpha = 1
+            self.errorLabel.alpha = 1
+            self.dismissButton.alpha = 1
         }
+    }
+
+    // MARK: - Button Actions
+
+    @objc private func openAtlasiTapped() {
+        // Dismiss the extension - user will open the main app manually
+        // The URL is already saved to App Group storage
+        completeRequest()
+    }
+
+    @objc private func cancelTapped() {
+        // Just dismiss without any action
+        completeRequest()
     }
 
     // MARK: - Completion
