@@ -23,8 +23,7 @@ class MockURLProtocol: URLProtocol {
 
     override func startLoading() {
         guard let handler = MockURLProtocol.requestHandler else {
-            XCTFail("Handler is unavailable")
-            return
+            fatalError("MockURLProtocol.requestHandler is unavailable")
         }
 
         do {
@@ -60,16 +59,19 @@ class MockKeychainHelper {
 final class APIClientTests: XCTestCase {
 
     var apiClient: APIClient!
+    var mockSession: URLSession!
     let testBaseURL = "https://api.test.atlasi.com"
 
     override func setUp() async throws {
         try await super.setUp()
-        // Create API client with test base URL
-        apiClient = await APIClient(baseURL: testBaseURL)
 
         // Configure URLSession to use mock protocol
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
+        mockSession = URLSession(configuration: config)
+
+        // Create API client with test base URL and mock session
+        apiClient = await APIClient(baseURL: testBaseURL, session: mockSession)
 
         // Reset mock handler
         MockURLProtocol.requestHandler = nil
@@ -77,6 +79,7 @@ final class APIClientTests: XCTestCase {
 
     override func tearDown() {
         apiClient = nil
+        mockSession = nil
         MockURLProtocol.requestHandler = nil
         MockKeychainHelper.reset()
         super.tearDown()

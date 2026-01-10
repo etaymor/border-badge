@@ -148,18 +148,40 @@ class ShareViewController: UIViewController {
         // Save to App Group as backup
         saveToAppGroup(urlString)
 
-        // Check if user has a token (server handles expiration via 401)
-        if KeychainHelper.hasToken {
-            // Show full SwiftUI capture form
-            showCaptureForm(url: urlString)
-        } else {
-            // Queue for later and show message
-            OfflineQueueService.queueShare(
-                url: urlString,
-                caption: captionText,
-                reason: .unauthenticated
-            )
-            showUnauthenticatedUI()
+        // Check auth on background thread (Keychain access can block main thread)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let hasToken = KeychainHelper.hasToken
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                if hasToken {
+                    // Show full SwiftUI capture form
+                    self.showCaptureForm(url: urlString)
+                } else {
+                    // Queue for later and show message
+                    self.queueShareForLater(
+                        url: urlString,
+                        reason: .unauthenticated
+                    )
+                    self.showUnauthenticatedUI()
+                }
+            }
+        }
+    }
+
+    /// Queue a share for later processing with error handling
+    private func queueShareForLater(url: String, reason: QueuedShare.QueueReason) {
+        let success = OfflineQueueService.queueShare(
+            url: url,
+            caption: captionText,
+            reason: reason
+        )
+
+        if !success {
+            NSLog("[Atlasi ShareExtension] Failed to queue share for later: \(url)")
+            // Still save to App Group as a fallback
+            saveToAppGroup(url)
         }
     }
 
@@ -391,9 +413,23 @@ class ShareViewController: UIViewController {
 
     /// Open the main app using custom URL scheme
     private func openMainApp() {
-        guard let sharedURL = sharedURL,
-              let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let customSchemeURL = URL(string: "\(customSchemeBase)?url=\(encodedURL)") else {
+        guard let sharedURL = sharedURL else {
+            completeRequest()
+            return
+        }
+
+        // Use URLComponents for safe query parameter encoding
+        // This properly encodes the URL value including any special characters
+        guard var components = URLComponents(string: customSchemeBase) else {
+            NSLog("[Atlasi ShareExtension] Failed to create URL components from: \(customSchemeBase)")
+            completeRequest()
+            return
+        }
+
+        components.queryItems = [URLQueryItem(name: "url", value: sharedURL)]
+
+        guard let customSchemeURL = components.url else {
+            NSLog("[Atlasi ShareExtension] Failed to create URL from components")
             completeRequest()
             return
         }

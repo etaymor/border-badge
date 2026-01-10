@@ -64,12 +64,14 @@ Before launch, your Google OAuth app must be published for all users to sign in.
 - [ ] Confirm publishing (app moves from "Testing" to "In production")
 
 **Notes:**
+
 - While in "Testing" mode, only emails added to test users list can sign in (max 100)
 - Publishing to production allows any Google user to sign in
 - If requesting sensitive/restricted scopes, Google verification may be required (can take weeks)
 - For basic scopes (email, profile, openid), no verification needed
 
 **Verification:**
+
 - [ ] Test Google Sign-In with an email NOT in test users list
 - [ ] Confirm sign-in works for new users
 
@@ -98,22 +100,26 @@ Before launch, your Facebook app must be in Live mode.
   - Go to top of dashboard, toggle **App Mode** to **Live**
 
 **Notes:**
+
 - While in "Development" mode, only app admins/developers/testers can log in
 - Switching to Live mode requires Privacy Policy URL
 - Some permissions require App Review before going live
 - Basic permissions (email, public_profile) don't require review
 
 **Verification:**
+
 - [ ] Test Facebook Sign-In with an account NOT added as tester
 - [ ] Confirm sign-in works for new users
 
 ### Apple Sign-In
 
 Apple Sign-In doesn't have a separate publishing step - it works automatically once configured in:
+
 - [ ] Apple Developer Portal (App ID with Sign In with Apple capability)
 - [ ] Supabase (Apple provider with Services ID, Key ID, Team ID, Secret Key)
 
 **Verification:**
+
 - [ ] Test Apple Sign-In on physical iOS device
 - [ ] Confirm user created in Supabase Auth
 
@@ -144,10 +150,10 @@ Set these environment variables (or configure in `eas.json`):
 export APPLE_ID="your@email.com"
 
 # App Store Connect App ID (App Store Connect → App → General → App Information)
-export ASC_APP_ID="1234567890"
+export ASC_APP_ID="6757568311"
 
 # Apple Developer Team ID (developer.apple.com → Membership)
-export APPLE_TEAM_ID="XXXXXXXXXX"
+export APPLE_TEAM_ID="2AB5M8J3G6"
 ```
 
 ### Submit to TestFlight
@@ -170,10 +176,12 @@ eas submit --platform ios --id [BUILD_ID]
 ### Add Testers
 
 **Internal Testing** (up to 100 team members):
+
 - [ ] Add team members via TestFlight → Internal Testing
 - [ ] Testers get immediate access after invite
 
 **External Testing** (up to 10,000 testers):
+
 - [ ] Create a test group in TestFlight → External Testing
 - [ ] Add tester emails
 - [ ] First external build requires brief Apple review (~24-48 hours)
@@ -205,6 +213,7 @@ eas submit --platform ios --id [BUILD_ID]
 **Research keywords BEFORE finalizing your app name.** The app name is prime real estate for search.
 
 **Keyword Research Process:**
+
 1. [ ] Search App Store for competitor apps, note autocomplete suggestions
 2. [ ] Identify high-volume, low-competition keywords
 3. [ ] Use tools like AppTweak, Sensor Tower, or App Store Connect search popularity
@@ -212,16 +221,17 @@ eas submit --platform ios --id [BUILD_ID]
 
 **Search Weight Priority (highest to lowest):**
 
-| Location | Weight | Limit | Strategy |
-|----------|--------|-------|----------|
-| App Name | Highest | 30 chars | Lead with top keywords, brand last |
-| Subtitle | High | 30 chars | Secondary keywords |
-| Keywords field | Medium | 100 chars | Everything else (don't repeat name/subtitle) |
-| Description | Low | 4000 chars | Not indexed by Apple, for humans only |
+| Location       | Weight  | Limit      | Strategy                                     |
+| -------------- | ------- | ---------- | -------------------------------------------- |
+| App Name       | Highest | 30 chars   | Lead with top keywords, brand last           |
+| Subtitle       | High    | 30 chars   | Secondary keywords                           |
+| Keywords field | Medium  | 100 chars  | Everything else (don't repeat name/subtitle) |
+| Description    | Low     | 4000 chars | Not indexed by Apple, for humans only        |
 
 **Naming Format:** `[Keywords] - [Brand]`
 
 Examples:
+
 - `Track & Share Trips - Atlasi`
 - `Travel Tracker & Trip Log - Atlasi`
 - `Countries Visited Map - Atlasi`
@@ -257,6 +267,7 @@ For each data type collected, Apple asks three questions:
 3. **What purposes?** → App Functionality, Analytics, etc.
 
 **Atlasi collects:**
+
 - [ ] Name (linked to identity, not tracking, app functionality)
 - [ ] Email (linked to identity, not tracking, app functionality)
 - [ ] Photos (linked to identity, not tracking, app functionality)

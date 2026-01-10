@@ -15,6 +15,25 @@ enum ShareCaptureState: Equatable {
     case form
     case saving
     case success
+    case successQueued(reason: QueueReason)
+
+    /// Reason why the save was queued instead of completed immediately
+    enum QueueReason: Equatable {
+        case networkError
+        case serverError
+        case unauthenticated
+
+        var message: String {
+            switch self {
+            case .networkError:
+                return "Saved for later - will sync when online"
+            case .serverError:
+                return "Saved for later - will retry automatically"
+            case .unauthenticated:
+                return "Saved for later - sign in to sync"
+            }
+        }
+    }
 
     static func == (lhs: ShareCaptureState, rhs: ShareCaptureState) -> Bool {
         switch (lhs, rhs) {
@@ -23,6 +42,7 @@ enum ShareCaptureState: Equatable {
         case (.form, .form): return true
         case (.saving, .saving): return true
         case (.success, .success): return true
+        case (.successQueued(let a), .successQueued(let b)): return a == b
         default: return false
         }
     }
@@ -63,7 +83,7 @@ struct ShareCaptureError: Equatable {
 
     static func invalidURL() -> ShareCaptureError {
         ShareCaptureError(
-            message: "This link couldn't be processed.",
+            message: "Only TikTok and Instagram links are supported. You can still add the place manually.",
             canRetry: false,
             canManualEntry: true,
             canSaveForLater: false
@@ -100,6 +120,13 @@ class ShareCaptureViewModel: ObservableObject {
     private let apiClient = APIClient()
     private var originalURL: String = ""
     private var caption: String?
+    private var currentTask: Task<Void, Never>?
+
+    // MARK: - Lifecycle
+
+    deinit {
+        currentTask?.cancel()
+    }
 
     // MARK: - Computed Properties
 
@@ -129,9 +156,12 @@ class ShareCaptureViewModel: ObservableObject {
     func processURL(_ url: String, caption: String? = nil) {
         self.originalURL = url
         self.caption = caption
-        self.state = .loading(message: "Processing \(detectProviderName(url)) link...")
+        let providerName = detectProviderName(url)
+        let linkType = providerName.isEmpty ? "link" : providerName
+        self.state = .loading(message: "Processing \(linkType)...")
 
-        Task {
+        currentTask?.cancel()
+        currentTask = Task {
             await ingestURL()
         }
     }
@@ -141,7 +171,8 @@ class ShareCaptureViewModel: ObservableObject {
         guard !originalURL.isEmpty else { return }
 
         state = .loading(message: "Retrying...")
-        Task {
+        currentTask?.cancel()
+        currentTask = Task {
             await ingestURL()
         }
     }
@@ -155,6 +186,7 @@ class ShareCaptureViewModel: ObservableObject {
     /// Save for later (add to offline queue)
     func saveForLater() {
         let reason: QueuedShare.QueueReason = KeychainHelper.hasToken ? .networkError : .unauthenticated
+        let stateReason: ShareCaptureState.QueueReason = KeychainHelper.hasToken ? .networkError : .unauthenticated
 
         OfflineQueueService.queueShare(
             url: originalURL,
@@ -167,7 +199,7 @@ class ShareCaptureViewModel: ObservableObject {
             notes: notes.isEmpty ? nil : notes
         )
 
-        state = .success
+        state = .successQueued(reason: stateReason)
     }
 
     /// Select a place from autocomplete or detected
@@ -200,7 +232,8 @@ class ShareCaptureViewModel: ObservableObject {
 
         state = .saving
 
-        Task {
+        currentTask?.cancel()
+        currentTask = Task {
             await saveEntry(place: place, tripId: tripId)
         }
     }
@@ -289,6 +322,17 @@ class ShareCaptureViewModel: ObservableObject {
     private func handleSaveError(_ error: APIError, place: DetectedPlace, tripId: String) {
         // Queue for later if it's a retryable error
         if error.isRetryable {
+            // Determine the queue reason based on error type
+            let queueReason: ShareCaptureState.QueueReason
+            switch error {
+            case .networkError, .timeout:
+                queueReason = .networkError
+            case .noToken, .unauthorized:
+                queueReason = .unauthenticated
+            default:
+                queueReason = .serverError
+            }
+
             OfflineQueueService.queueShare(
                 url: originalURL,
                 caption: caption,
@@ -299,7 +343,7 @@ class ShareCaptureViewModel: ObservableObject {
                 entryType: entryType,
                 notes: notes.isEmpty ? nil : notes
             )
-            state = .success
+            state = .successQueued(reason: queueReason)
         } else {
             state = .error(.serverError(error.errorDescription))
         }
@@ -311,6 +355,6 @@ class ShareCaptureViewModel: ObservableObject {
         } else if url.contains("instagram") {
             return "Instagram"
         }
-        return "link"
+        return ""
     }
 }

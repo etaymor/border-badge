@@ -51,6 +51,9 @@ actor APIClient {
     /// In production, this should be loaded from Info.plist or a config file
     private let baseURL: String
 
+    /// URLSession for network requests (injectable for testing)
+    private let session: URLSession
+
     /// Timeout for ingest requests (longer due to oEmbed + Place extraction)
     private let ingestTimeout: TimeInterval = 15.0
 
@@ -59,7 +62,7 @@ actor APIClient {
 
     // MARK: - Initialization
 
-    init() {
+    init(session: URLSession = .shared) {
         // Priority:
         // 1. App Group storage (set by main app from EXPO_PUBLIC_API_URL)
         // 2. Info.plist API_BASE_URL (can be set by Expo config plugin)
@@ -73,10 +76,12 @@ actor APIClient {
             // Default to production URL
             self.baseURL = "https://api.atlasi.com"
         }
+        self.session = session
     }
 
-    init(baseURL: String) {
+    init(baseURL: String, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.session = session
     }
 
     // MARK: - Public API
@@ -173,7 +178,7 @@ actor APIClient {
         let response: URLResponse
 
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError where error.code == .timedOut {
             throw APIError.timeout
         } catch {

@@ -29,6 +29,45 @@ let cachedToken: string | null = null;
 // Promise to deduplicate concurrent token fetches
 let tokenFetchPromise: Promise<string | null> | null = null;
 
+/**
+ * Fetch token with migration from legacy keychain storage.
+ *
+ * Existing users may have tokens stored without the accessGroup (before Share Extension).
+ * This function tries the new accessGroup location first, then falls back to legacy,
+ * and migrates tokens to the new location if found in legacy storage.
+ */
+async function fetchTokenWithMigration(key: string): Promise<string | null> {
+  const options = getSecureStoreOptions();
+
+  // Try to get token from shared keychain (with accessGroup)
+  let token = await SecureStore.getItemAsync(key, options);
+  if (token) {
+    return token;
+  }
+
+  // If not found and on iOS, try legacy location (without accessGroup)
+  if (Platform.OS === 'ios') {
+    try {
+      token = await SecureStore.getItemAsync(key);
+      if (token) {
+        // Migrate to shared keychain for Share Extension access
+        await SecureStore.setItemAsync(key, token, options);
+        // Clean up legacy location
+        try {
+          await SecureStore.deleteItemAsync(key);
+        } catch {
+          // Ignore cleanup errors - not critical
+        }
+        return token;
+      }
+    } catch {
+      // Ignore errors reading legacy keychain
+    }
+  }
+
+  return null;
+}
+
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
 
@@ -94,13 +133,11 @@ api.interceptors.request.use(
     if (!token) {
       // Deduplicate concurrent token fetches - only one SecureStore read at a time
       if (!tokenFetchPromise) {
-        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY, getSecureStoreOptions()).then(
-          (t) => {
-            cachedToken = t;
-            tokenFetchPromise = null;
-            return t;
-          }
-        );
+        tokenFetchPromise = fetchTokenWithMigration(TOKEN_KEY).then((t) => {
+          cachedToken = t;
+          tokenFetchPromise = null;
+          return t;
+        });
       }
       token = await tokenFetchPromise;
     }
@@ -133,26 +170,51 @@ api.interceptors.response.use(
 
 // Helper to store tokens after login/signup
 // Uses accessGroup on iOS to share tokens with Share Extension
+// Also cleans up any legacy tokens stored without accessGroup
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
   cachedToken = accessToken; // Update in-memory cache
   const options = getSecureStoreOptions();
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
+
+  // On iOS, clean up any legacy tokens stored without accessGroup
+  if (Platform.OS === 'ios') {
+    try {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    } catch {
+      // Ignore cleanup errors - not critical
+    }
+  }
 }
 
 // Helper to clear tokens on logout
 // Uses accessGroup on iOS to clear tokens from shared keychain
+// Also clears any legacy tokens stored without accessGroup
 export async function clearTokens(): Promise<void> {
   cachedToken = null; // Clear in-memory cache
   const options = getSecureStoreOptions();
+
+  // Clear from shared keychain (with accessGroup)
   await SecureStore.deleteItemAsync(TOKEN_KEY, options);
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, options);
+
+  // On iOS, also clear any legacy tokens stored without accessGroup
+  if (Platform.OS === 'ios') {
+    try {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    } catch {
+      // Ignore cleanup errors - not critical
+    }
+  }
 }
 
 // Helper to get stored token
 // Uses accessGroup on iOS to read from shared keychain
+// Also migrates legacy tokens stored without accessGroup
 export async function getStoredToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY, getSecureStoreOptions());
+  return fetchTokenWithMigration(TOKEN_KEY);
 }
 
 // Helper to persist onboarding completion state

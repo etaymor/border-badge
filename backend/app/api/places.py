@@ -4,7 +4,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -32,6 +32,17 @@ class PlaceAutocompleteRequest(BaseModel):
 
     query: str = Field(..., min_length=2, max_length=200)
     country_code: str | None = Field(None, min_length=2, max_length=2)
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str | None) -> str | None:
+        """Normalize country code to uppercase and validate format."""
+        if v is None:
+            return None
+        v = v.upper()
+        if not v.isalpha():
+            raise ValueError("Country code must contain only letters")
+        return v
 
 
 class PlacePrediction(BaseModel):
@@ -83,7 +94,10 @@ async def autocomplete_places(
     """
     if not google_places_configured():
         logger.warning("places_autocomplete_not_configured")
-        return []
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Place search is temporarily unavailable",
+        )
 
     try:
         results = await search_places(
@@ -108,6 +122,11 @@ async def autocomplete_places(
 
         return predictions
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"places_autocomplete_error: {type(e).__name__}: {e}")
-        return []
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Place search is temporarily unavailable",
+        ) from None

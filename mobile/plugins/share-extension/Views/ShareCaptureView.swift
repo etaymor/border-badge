@@ -52,6 +52,9 @@ struct ShareCaptureView: View {
 
             case .success:
                 SuccessStateView(onDismiss: onDismiss)
+
+            case .successQueued(let reason):
+                SuccessQueuedView(reason: reason, onDismiss: onDismiss)
             }
         }
         .onAppear {

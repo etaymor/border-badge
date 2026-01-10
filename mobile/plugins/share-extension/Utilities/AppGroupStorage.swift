@@ -158,7 +158,9 @@ enum AppGroupStorage {
 
     /// Add a share to the offline queue
     /// - Note: This operation is not atomic. See Concurrency Limitation comment above.
-    static func addToOfflineQueue(_ share: QueuedShare) {
+    /// - Returns: True if the share was successfully added, false if storage failed
+    @discardableResult
+    static func addToOfflineQueue(_ share: QueuedShare) -> Bool {
         // Read-modify-write: potential race condition with concurrent access
         var queue = getOfflineQueue()    // Read
         queue.append(share)              // Modify
@@ -171,7 +173,7 @@ enum AppGroupStorage {
             queue = Array(queue.suffix(maxQueueSize))
         }
 
-        saveOfflineQueue(queue)                 // Write - may overwrite concurrent changes
+        return saveOfflineQueue(queue)          // Write - may overwrite concurrent changes
     }
 
     /// Remove a share from the offline queue

@@ -1,5 +1,7 @@
 """Tests for places API endpoints."""
 
+from collections.abc import Callable, Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -26,10 +28,12 @@ def mock_user() -> AuthUser:
 
 
 @pytest.fixture
-def auth_override(mock_user):
+def auth_override(
+    mock_user: AuthUser,
+) -> Callable[[], Coroutine[Any, Any, AuthUser]]:
     """Override auth dependency."""
 
-    async def override():
+    async def override() -> AuthUser:
         return mock_user
 
     return override
@@ -38,7 +42,7 @@ def auth_override(mock_user):
 class TestPlaceAutocomplete:
     """Tests for POST /places/autocomplete endpoint."""
 
-    def test_rejects_unauthenticated_request(self, client):
+    def test_rejects_unauthenticated_request(self, client: TestClient) -> None:
         """Autocomplete requires authentication."""
         response = client.post(
             "/places/autocomplete",
@@ -47,7 +51,11 @@ class TestPlaceAutocomplete:
         # FastAPI returns 403 Forbidden when no auth is provided
         assert response.status_code in (401, 403)
 
-    def test_rejects_short_query(self, client, auth_override):
+    def test_rejects_short_query(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Query must be at least 2 characters."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -61,7 +69,11 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_rejects_long_query(self, client, auth_override):
+    def test_rejects_long_query(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Query must be at most 200 characters."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -75,19 +87,15 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_rejects_invalid_country_code(self, client, auth_override):
-        """Country code must be 2 uppercase letters."""
+    def test_rejects_invalid_country_code(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
+        """Country code must be 2 letters (too long/short/numeric rejected)."""
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
-            # Test lowercase
-            response = client.post(
-                "/places/autocomplete",
-                json={"query": "coffee shop", "country_code": "us"},
-                headers={"Authorization": "Bearer test-token"},
-            )
-            assert response.status_code == 422
-
             # Test too long
             response = client.post(
                 "/places/autocomplete",
@@ -103,10 +111,52 @@ class TestPlaceAutocomplete:
                 headers={"Authorization": "Bearer test-token"},
             )
             assert response.status_code == 422
+
+            # Test numeric (should be rejected)
+            response = client.post(
+                "/places/autocomplete",
+                json={"query": "coffee shop", "country_code": "12"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 422
         finally:
             app.dependency_overrides.clear()
 
-    def test_returns_503_when_not_configured(self, client, auth_override):
+    def test_normalizes_lowercase_country_code(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
+        """Lowercase country codes are normalized to uppercase."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.places.google_places_configured", return_value=True):
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
+                    mock_search.return_value = []
+
+                    response = client.post(
+                        "/places/autocomplete",
+                        json={"query": "restaurant", "country_code": "us"},
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 200
+                    # Verify the normalized uppercase code was passed to search
+                    mock_search.assert_called_once_with(
+                        query="restaurant",
+                        country_code="US",
+                    )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_returns_503_when_not_configured(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Returns 503 when Google Places API is not configured."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -126,13 +176,19 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_returns_empty_list_when_no_results(self, client, auth_override):
+    def test_returns_empty_list_when_no_results(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Returns empty list when no places match."""
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
             with patch("app.api.places.google_places_configured", return_value=True):
-                with patch("app.api.places.search_places") as mock_search:
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
                     mock_search.return_value = []
 
                     response = client.post(
@@ -150,7 +206,11 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_returns_predictions_successfully(self, client, auth_override):
+    def test_returns_predictions_successfully(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Successfully returns place predictions."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -169,7 +229,9 @@ class TestPlaceAutocomplete:
 
         try:
             with patch("app.api.places.google_places_configured", return_value=True):
-                with patch("app.api.places.search_places") as mock_search:
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
                     mock_search.return_value = mock_results
 
                     response = client.post(
@@ -192,13 +254,19 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_passes_country_code_to_search(self, client, auth_override):
+    def test_passes_country_code_to_search(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Country code is passed to search_places when provided."""
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
             with patch("app.api.places.google_places_configured", return_value=True):
-                with patch("app.api.places.search_places") as mock_search:
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
                     mock_search.return_value = []
 
                     response = client.post(
@@ -215,7 +283,11 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_skips_results_without_place_id(self, client, auth_override):
+    def test_skips_results_without_place_id(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Results without place_id are filtered out."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -228,7 +300,9 @@ class TestPlaceAutocomplete:
 
         try:
             with patch("app.api.places.google_places_configured", return_value=True):
-                with patch("app.api.places.search_places") as mock_search:
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
                     mock_search.return_value = mock_results
 
                     response = client.post(
@@ -246,13 +320,19 @@ class TestPlaceAutocomplete:
         finally:
             app.dependency_overrides.clear()
 
-    def test_handles_search_exception_gracefully(self, client, auth_override):
+    def test_handles_search_exception_gracefully(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Returns 503 when search_places raises an exception."""
         app.dependency_overrides[get_current_user] = auth_override
 
         try:
             with patch("app.api.places.google_places_configured", return_value=True):
-                with patch("app.api.places.search_places") as mock_search:
+                with patch(
+                    "app.api.places.search_places", new_callable=AsyncMock
+                ) as mock_search:
                     mock_search.side_effect = Exception("Network error")
 
                     response = client.post(
@@ -270,12 +350,16 @@ class TestPlaceAutocomplete:
 class TestGetPlace:
     """Tests for GET /places/{place_id} endpoint."""
 
-    def test_rejects_unauthenticated_request(self, client):
+    def test_rejects_unauthenticated_request(self, client: TestClient) -> None:
         """Get place requires authentication."""
         response = client.get(f"/places/{TEST_PLACE_ID}")
         assert response.status_code in (401, 403)
 
-    def test_returns_404_for_nonexistent_place(self, client, auth_override):
+    def test_returns_404_for_nonexistent_place(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Returns 404 when place is not found."""
         app.dependency_overrides[get_current_user] = auth_override
 
@@ -296,7 +380,11 @@ class TestGetPlace:
         finally:
             app.dependency_overrides.clear()
 
-    def test_returns_place_successfully(self, client, auth_override):
+    def test_returns_place_successfully(
+        self,
+        client: TestClient,
+        auth_override: Callable[[], Coroutine[Any, Any, AuthUser]],
+    ) -> None:
         """Successfully returns place data."""
         app.dependency_overrides[get_current_user] = auth_override
 

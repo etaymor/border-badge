@@ -94,7 +94,7 @@ final class ShareCaptureViewModelTests: XCTestCase {
 
         // Then
         if case .loading(let message) = viewModel.state {
-            XCTAssertEqual(message, "Processing TikTok link...")
+            XCTAssertEqual(message, "Processing TikTok...")
         } else {
             XCTFail("Expected loading state")
         }
@@ -106,7 +106,7 @@ final class ShareCaptureViewModelTests: XCTestCase {
 
         // Then
         if case .loading(let message) = viewModel.state {
-            XCTAssertEqual(message, "Processing Instagram link...")
+            XCTAssertEqual(message, "Processing Instagram...")
         } else {
             XCTFail("Expected loading state")
         }
@@ -118,7 +118,7 @@ final class ShareCaptureViewModelTests: XCTestCase {
 
         // Then
         if case .loading(let message) = viewModel.state {
-            XCTAssertEqual(message, "Processing link link...")
+            XCTAssertEqual(message, "Processing link...")
         } else {
             XCTFail("Expected loading state")
         }
@@ -394,6 +394,44 @@ final class ShareCaptureViewModelTests: XCTestCase {
         XCTAssertNotEqual(
             ShareCaptureState.error(error1),
             ShareCaptureState.error(error3)
+        )
+    }
+
+    func testShareCaptureStateSuccessQueuedEquality() {
+        XCTAssertEqual(
+            ShareCaptureState.successQueued(reason: .networkError),
+            ShareCaptureState.successQueued(reason: .networkError)
+        )
+        XCTAssertEqual(
+            ShareCaptureState.successQueued(reason: .serverError),
+            ShareCaptureState.successQueued(reason: .serverError)
+        )
+        XCTAssertEqual(
+            ShareCaptureState.successQueued(reason: .unauthenticated),
+            ShareCaptureState.successQueued(reason: .unauthenticated)
+        )
+
+        XCTAssertNotEqual(
+            ShareCaptureState.successQueued(reason: .networkError),
+            ShareCaptureState.successQueued(reason: .serverError)
+        )
+        XCTAssertNotEqual(
+            ShareCaptureState.successQueued(reason: .networkError),
+            ShareCaptureState.success
+        )
+    }
+
+    // MARK: - QueueReason Message Tests
+
+    func testQueueReasonMessages() {
+        XCTAssertTrue(
+            ShareCaptureState.QueueReason.networkError.message.contains("online")
+        )
+        XCTAssertTrue(
+            ShareCaptureState.QueueReason.serverError.message.contains("retry")
+        )
+        XCTAssertTrue(
+            ShareCaptureState.QueueReason.unauthenticated.message.contains("sign in")
         )
     }
 }
