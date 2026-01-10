@@ -6,9 +6,9 @@ import SwiftUI
 import Combine
 
 struct LocationSearchView: View {
-    @Binding var selectedPlace: SelectedPlace?
+    @Binding var selectedPlace: DetectedPlace?
     let countryCode: String?
-    let onPlaceSelected: (SelectedPlace) -> Void
+    let onPlaceSelected: (DetectedPlace) -> Void
 
     @StateObject private var viewModel = LocationSearchViewModel()
     @State private var isEditing: Bool = false
@@ -42,7 +42,7 @@ struct LocationSearchView: View {
                         SearchResultsList(
                             predictions: viewModel.predictions,
                             onSelect: { prediction in
-                                let place = SelectedPlace(from: prediction)
+                                let place = DetectedPlace.from(prediction: prediction)
                                 selectedPlace = place
                                 onPlaceSelected(place)
                                 isEditing = false
@@ -136,7 +136,7 @@ private struct SearchResultsList: View {
 // MARK: - Selected Place Display
 
 private struct SelectedPlaceDisplay: View {
-    let place: SelectedPlace
+    let place: DetectedPlace
     let onChangePlace: () -> Void
 
     var body: some View {

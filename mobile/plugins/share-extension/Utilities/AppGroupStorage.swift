@@ -3,6 +3,35 @@
  *
  * Provides read/write access to the shared App Group container used by
  * both the main app and share extension.
+ *
+ * ## Concurrency Limitation (MVP)
+ *
+ * The offline queue operations (read-modify-write) in this file are NOT atomic.
+ * Concurrent access from the share extension and main app could result in data loss.
+ *
+ * **Race Condition Scenario:**
+ * 1. Share extension reads queue: `[A, B]`
+ * 2. Main app reads queue: `[A, B]`
+ * 3. Share extension adds C, writes: `[A, B, C]`
+ * 4. Main app removes A, writes: `[B]` - Share C is lost!
+ *
+ * **Why this is acceptable for MVP:**
+ * - The share extension is the primary writer (adding new shares)
+ * - The main app is the primary reader (syncing shares to server)
+ * - Main app only modifies queue after successful sync (removing items)
+ * - Users rarely share while the main app is actively syncing
+ * - Worst case: a share is lost, user can re-share
+ *
+ * **Future Improvement:**
+ * Implement `NSFileCoordinator` for atomic cross-process access:
+ * ```swift
+ * let coordinator = NSFileCoordinator()
+ * coordinator.coordinate(writingItemAt: queueFileURL, options: .forMerging, error: &error) { url in
+ *     // Atomic read-modify-write here
+ * }
+ * ```
+ *
+ * See: https://developer.apple.com/documentation/foundation/nsfilecoordinator
  */
 
 import Foundation
@@ -94,6 +123,18 @@ enum AppGroupStorage {
     }
 
     // MARK: - Offline Queue
+    // MARK: - Concurrency Limitation
+    //
+    // WARNING: The queue operations below use a read-modify-write pattern that is NOT atomic.
+    // Concurrent access from the share extension and main app could cause data loss.
+    //
+    // This is acceptable for MVP because:
+    // - Share extension writes (adds items), main app reads (syncs to server)
+    // - Main app only removes items after successful sync
+    // - Concurrent modification is rare in practice
+    //
+    // TODO: For production, wrap queue operations with NSFileCoordinator for atomic access.
+    // See file header documentation for implementation details.
 
     /// Get the offline share queue
     static func getOfflineQueue() -> [QueuedShare] {
@@ -105,26 +146,41 @@ enum AppGroupStorage {
     }
 
     /// Save the offline share queue
-    static func saveOfflineQueue(_ queue: [QueuedShare]) {
+    @discardableResult
+    static func saveOfflineQueue(_ queue: [QueuedShare]) -> Bool {
         guard let data = try? JSONEncoder().encode(queue) else {
             NSLog("[Atlasi AppGroupStorage] Failed to encode offline queue")
-            return
+            return false
         }
         setData(offlineQueueKey, value: data)
+        return true
     }
 
     /// Add a share to the offline queue
+    /// - Note: This operation is not atomic. See Concurrency Limitation comment above.
     static func addToOfflineQueue(_ share: QueuedShare) {
-        var queue = getOfflineQueue()
-        queue.append(share)
-        saveOfflineQueue(queue)
+        // Read-modify-write: potential race condition with concurrent access
+        var queue = getOfflineQueue()    // Read
+        queue.append(share)              // Modify
+
+        // Keep only newest 50 items
+        let maxQueueSize = 50
+        if queue.count > maxQueueSize {
+            let evictedCount = queue.count - maxQueueSize
+            NSLog("[Atlasi AppGroupStorage] Queue size exceeded, evicting \(evictedCount) oldest items")
+            queue = Array(queue.suffix(maxQueueSize))
+        }
+
+        saveOfflineQueue(queue)                 // Write - may overwrite concurrent changes
     }
 
     /// Remove a share from the offline queue
+    /// - Note: This operation is not atomic. See Concurrency Limitation comment above.
     static func removeFromOfflineQueue(id: String) {
-        var queue = getOfflineQueue()
-        queue.removeAll { $0.id == id }
-        saveOfflineQueue(queue)
+        // Read-modify-write: potential race condition with concurrent access
+        var queue = getOfflineQueue()    // Read
+        queue.removeAll { $0.id == id }  // Modify
+        saveOfflineQueue(queue)          // Write - may overwrite concurrent changes
     }
 
     /// Clear the entire offline queue

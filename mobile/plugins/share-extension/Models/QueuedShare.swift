@@ -12,7 +12,6 @@ struct QueuedShare: Codable, Identifiable, Equatable {
     let url: String
     let caption: String?
     let timestamp: Date
-    var attemptCount: Int
 
     /// Reason the share was queued
     let reason: QueueReason
@@ -22,7 +21,7 @@ struct QueuedShare: Codable, Identifiable, Equatable {
 
     /// Optional user-selected data if we got that far
     let selectedTripId: String?
-    let selectedPlace: SelectedPlace?
+    let selectedPlace: DetectedPlace?
     let entryType: EntryType?
     let notes: String?
 
@@ -40,7 +39,7 @@ struct QueuedShare: Codable, Identifiable, Equatable {
         reason: QueueReason,
         ingestResult: SocialIngestResponse? = nil,
         selectedTripId: String? = nil,
-        selectedPlace: SelectedPlace? = nil,
+        selectedPlace: DetectedPlace? = nil,
         entryType: EntryType? = nil,
         notes: String? = nil
     ) {
@@ -48,7 +47,6 @@ struct QueuedShare: Codable, Identifiable, Equatable {
         self.url = url
         self.caption = caption
         self.timestamp = Date()
-        self.attemptCount = 0
         self.reason = reason
         self.ingestResult = ingestResult
         self.selectedTripId = selectedTripId
@@ -57,22 +55,10 @@ struct QueuedShare: Codable, Identifiable, Equatable {
         self.notes = notes
     }
 
-    /// Check if the share should be retried based on attempt count and age
-    var shouldRetry: Bool {
-        // Max 3 retry attempts
-        guard attemptCount < 3 else { return false }
-
-        // Don't retry items older than 7 days
+    /// Check if the share is still valid (not expired)
+    var isValid: Bool {
+        // Don't process items older than 7 days
         let maxAge: TimeInterval = 7 * 24 * 60 * 60
-        guard Date().timeIntervalSince(timestamp) < maxAge else { return false }
-
-        return true
-    }
-
-    /// Create a copy with incremented attempt count
-    func incrementingAttempt() -> QueuedShare {
-        var copy = self
-        copy.attemptCount += 1
-        return copy
+        return Date().timeIntervalSince(timestamp) < maxAge
     }
 }

@@ -21,6 +21,7 @@ const path = require('path');
 const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
+const APP_BUNDLE_ID = 'com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const ASSOCIATED_DOMAIN = 'atlasi.app';
 // Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
@@ -36,12 +37,21 @@ function getAppleTeamId() {
 }
 
 /**
- * Add App Group and Associated Domains entitlements to the main app
+ * Add App Group, Keychain Access Groups, and Associated Domains entitlements to the main app.
+ * These entitlements enable:
+ * - App Groups: Sharing UserDefaults data between main app and Share Extension
+ * - Keychain Access Groups: Sharing auth tokens between main app and Share Extension
+ * - Associated Domains: Universal Links for Share Extension to open app via https URL
  */
 function withAppGroupEntitlement(config) {
   return withEntitlementsPlist(config, (mod) => {
     // App Groups for sharing data with Share Extension
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
+
+    // Keychain Access Groups for sharing auth tokens with Share Extension
+    // Uses $(AppIdentifierPrefix) which Xcode substitutes with TeamID. at build time
+    // Must match the access group in ShareExtension.entitlements and KeychainHelper.swift
+    mod.modResults['keychain-access-groups'] = [`$(AppIdentifierPrefix)${APP_BUNDLE_ID}`];
 
     // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
     mod.modResults['com.apple.developer.associated-domains'] = [`applinks:${ASSOCIATED_DOMAIN}`];

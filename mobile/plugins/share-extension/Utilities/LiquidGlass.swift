@@ -28,25 +28,6 @@ enum LiquidGlass {
         }
     }
 
-    /// Floating card style: more opaque white with thicker border
-    struct FloatingCardStyle: ViewModifier {
-        func body(content: Content) -> some View {
-            content
-                .background(Color.white.opacity(0.75))
-                .clipShape(RoundedRectangle(cornerRadius: 24))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24)
-                        .stroke(Color.white, lineWidth: 2)
-                )
-                .shadow(
-                    color: BrandColors.midnightNavy.opacity(0.15),
-                    radius: 20,
-                    x: 0,
-                    y: 8
-                )
-        }
-    }
-
     /// Input field style: lighter glass effect
     struct InputStyle: ViewModifier {
         func body(content: Content) -> some View {
@@ -80,11 +61,6 @@ extension View {
     /// Apply container glass styling
     func glassContainer() -> some View {
         modifier(LiquidGlass.ContainerStyle())
-    }
-
-    /// Apply floating card glass styling
-    func glassCard() -> some View {
-        modifier(LiquidGlass.FloatingCardStyle())
     }
 
     /// Apply input field glass styling

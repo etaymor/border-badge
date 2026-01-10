@@ -41,16 +41,6 @@ enum EntryType: String, CaseIterable, Codable {
         case .experience: return BrandColors.midnightNavy
         }
     }
-
-    /// Emoji representation
-    var emoji: String {
-        switch self {
-        case .place: return "📍"
-        case .food: return "🍽️"
-        case .stay: return "🏨"
-        case .experience: return "✨"
-        }
-    }
 }
 
 // MARK: - Type Inference from Google Places

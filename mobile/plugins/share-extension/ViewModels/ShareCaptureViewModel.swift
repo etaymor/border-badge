@@ -88,7 +88,7 @@ class ShareCaptureViewModel: ObservableObject {
 
     @Published var state: ShareCaptureState = .loading(message: "Processing link...")
     @Published var ingestResult: SocialIngestResponse?
-    @Published var selectedPlace: SelectedPlace?
+    @Published var selectedPlace: DetectedPlace?
     @Published var selectedTripId: String?
     @Published var entryType: EntryType = .place
     @Published var hasSelectedType: Bool = false
@@ -154,7 +154,7 @@ class ShareCaptureViewModel: ObservableObject {
 
     /// Save for later (add to offline queue)
     func saveForLater() {
-        let reason: QueuedShare.QueueReason = AuthService.isAuthenticated ? .networkError : .unauthenticated
+        let reason: QueuedShare.QueueReason = KeychainHelper.hasToken ? .networkError : .unauthenticated
 
         OfflineQueueService.queueShare(
             url: originalURL,
@@ -171,7 +171,7 @@ class ShareCaptureViewModel: ObservableObject {
     }
 
     /// Select a place from autocomplete or detected
-    func selectPlace(_ place: SelectedPlace) {
+    func selectPlace(_ place: DetectedPlace) {
         selectedPlace = place
 
         // Infer entry type from place types if not manually selected
@@ -214,7 +214,7 @@ class ShareCaptureViewModel: ObservableObject {
 
             // Auto-select detected place
             if let detected = response.detectedPlace {
-                selectedPlace = SelectedPlace(from: detected)
+                selectedPlace = detected
 
                 // Infer entry type from place types
                 entryType = EntryType.from(
@@ -232,7 +232,7 @@ class ShareCaptureViewModel: ObservableObject {
         }
     }
 
-    private func saveEntry(place: SelectedPlace, tripId: String) async {
+    private func saveEntry(place: DetectedPlace, tripId: String) async {
         guard let result = ingestResult else {
             // Manual entry mode - we don't have ingest result
             // For now, just show success since manual entry would need different API
@@ -248,7 +248,7 @@ class ShareCaptureViewModel: ObservableObject {
                 thumbnailUrl: result.thumbnailUrl,
                 authorHandle: result.authorHandle,
                 title: result.title,
-                place: place.toDetectedPlace(),
+                place: place,
                 entryType: entryType.rawValue,
                 notes: notes.isEmpty ? nil : notes
             )
@@ -286,7 +286,7 @@ class ShareCaptureViewModel: ObservableObject {
         }
     }
 
-    private func handleSaveError(_ error: APIError, place: SelectedPlace, tripId: String) {
+    private func handleSaveError(_ error: APIError, place: DetectedPlace, tripId: String) {
         // Queue for later if it's a retryable error
         if error.isRetryable {
             OfflineQueueService.queueShare(

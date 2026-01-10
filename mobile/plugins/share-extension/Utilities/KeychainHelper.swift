@@ -19,9 +19,17 @@ enum KeychainHelper {
     private static let refreshTokenKey = "refresh_token"
 
     /// Keychain access group for sharing between app and extension
-    /// Format: $(AppIdentifierPrefix)$(CFBundleIdentifier)
-    /// Note: The main app must also have this access group configured
-    private static let accessGroup: String? = nil  // Use default for now, configure if needed
+    /// Format: <TeamID>.<BundleIdentifier>
+    ///
+    /// This must match the keychain-access-groups entry in both:
+    /// - ShareExtension.entitlements (as $(AppIdentifierPrefix)com.atlasi.app)
+    /// - Main app entitlements (configured in withShareExtension.js)
+    ///
+    /// The main app must also use this access group when storing tokens.
+    /// See: docs/ios-share-extension.md for configuration details.
+    ///
+    /// Team ID: 2AB5M8J3G6 (from eas.json submit.production.ios.appleTeamId)
+    private static let accessGroup: String? = "2AB5M8J3G6.com.atlasi.app"
 
     // MARK: - Public API
 
@@ -39,9 +47,7 @@ enum KeychainHelper {
 
     /// Check if a valid token exists
     /// - Returns: True if a token is stored (doesn't validate expiration)
-    static func hasToken() -> Bool {
-        return getToken() != nil
-    }
+    static var hasToken: Bool { getToken() != nil }
 
     // MARK: - Private Helpers
 

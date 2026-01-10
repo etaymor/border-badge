@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 // NOTE: iOS Simulator cannot access localhost. Use your machine's IP address instead.
 // Example: http://192.168.1.100:8000
@@ -8,6 +9,20 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
+
+// Keychain access group for sharing tokens with iOS Share Extension
+// Format: <TeamID>.<BundleIdentifier> - must match ShareExtension.entitlements
+// and KeychainHelper.swift accessGroup
+// Team ID from eas.json submit.production.ios.appleTeamId
+const KEYCHAIN_ACCESS_GROUP = '2AB5M8J3G6.com.atlasi.app';
+
+// SecureStore options for iOS to enable keychain sharing with Share Extension
+const getSecureStoreOptions = (): SecureStore.SecureStoreOptions => {
+  if (Platform.OS === 'ios') {
+    return { accessGroup: KEYCHAIN_ACCESS_GROUP };
+  }
+  return {};
+};
 
 // In-memory token cache to avoid SecureStore I/O on every request
 let cachedToken: string | null = null;
@@ -79,11 +94,13 @@ api.interceptors.request.use(
     if (!token) {
       // Deduplicate concurrent token fetches - only one SecureStore read at a time
       if (!tokenFetchPromise) {
-        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY).then((t) => {
-          cachedToken = t;
-          tokenFetchPromise = null;
-          return t;
-        });
+        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY, getSecureStoreOptions()).then(
+          (t) => {
+            cachedToken = t;
+            tokenFetchPromise = null;
+            return t;
+          }
+        );
       }
       token = await tokenFetchPromise;
     }
@@ -115,22 +132,27 @@ api.interceptors.response.use(
 );
 
 // Helper to store tokens after login/signup
+// Uses accessGroup on iOS to share tokens with Share Extension
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
   cachedToken = accessToken; // Update in-memory cache
-  await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+  const options = getSecureStoreOptions();
+  await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
 }
 
 // Helper to clear tokens on logout
+// Uses accessGroup on iOS to clear tokens from shared keychain
 export async function clearTokens(): Promise<void> {
   cachedToken = null; // Clear in-memory cache
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  const options = getSecureStoreOptions();
+  await SecureStore.deleteItemAsync(TOKEN_KEY, options);
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, options);
 }
 
 // Helper to get stored token
+// Uses accessGroup on iOS to read from shared keychain
 export async function getStoredToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY);
+  return SecureStore.getItemAsync(TOKEN_KEY, getSecureStoreOptions());
 }
 
 // Helper to persist onboarding completion state

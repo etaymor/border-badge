@@ -71,6 +71,28 @@ struct DetectedPlace: Codable, Equatable {
         self.types = types
         self.googlePhotoUrl = googlePhotoUrl
     }
+
+    // MARK: - Factory Methods
+
+    /// Create from a PlacePrediction (partial data, needs details fetch)
+    static func from(prediction: PlacePrediction) -> DetectedPlace {
+        DetectedPlace(
+            googlePlaceId: prediction.placeId,
+            name: prediction.mainText,
+            address: prediction.secondaryText,
+            confidence: 1.0,  // User explicitly selected
+            types: prediction.types
+        )
+    }
+
+    /// Create for manual entry
+    static func manualEntry(name: String, address: String? = nil) -> DetectedPlace {
+        DetectedPlace(
+            name: name,
+            address: address,
+            confidence: 1.0
+        )
+    }
 }
 
 // MARK: - Detected Country

@@ -1,5 +1,5 @@
 /**
- * Share Queue Service
+ * Share Queue Service (TypeScript/React Native)
  *
  * Provides a persistent queue for failed share submissions with exponential backoff.
  * Shares are stored in AsyncStorage and automatically retried when the app comes
@@ -11,6 +11,36 @@
  * - Automatic expiration of old shares (7 days)
  * - Deduplication by URL
  * - Silent error handling (logs but doesn't throw)
+ *
+ * ============================================================================
+ * IMPORTANT: DUAL QUEUE SYSTEM LIMITATION
+ * ============================================================================
+ *
+ * There are TWO separate offline queue systems in this app:
+ *
+ * 1. **This TypeScript queue** - Uses AsyncStorage, accessible from React Native
+ *    - Location: mobile/src/services/shareQueue.ts (this file)
+ *    - Storage: AsyncStorage with key 'share_queue'
+ *    - Used by: Main React Native app for retry logic
+ *
+ * 2. **Swift queue** - Uses App Group UserDefaults, accessible from iOS extensions
+ *    - Location: mobile/plugins/share-extension/Services/OfflineQueueService.swift
+ *    - Storage: App Group UserDefaults (group.com.taymor.atlasi)
+ *    - Used by: iOS Share Extension when shares fail or need user input
+ *
+ * These queues DO NOT communicate with each other. Items queued by the share
+ * extension (Swift) are stored in App Group UserDefaults, which this TypeScript
+ * code cannot read directly.
+ *
+ * CURRENT BEHAVIOR:
+ * - Share extension queues to Swift queue -> may not be processed by main app
+ * - Main app queues to TypeScript queue -> processed correctly on retry
+ *
+ * TODO: Implement native bridge to sync Swift queue to TypeScript queue
+ * This requires adding `react-native-shared-group-preferences` or a custom
+ * native module to read App Group UserDefaults from React Native.
+ * See: todos/014-ready-p2-dual-queue-systems.md
+ * ============================================================================
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';

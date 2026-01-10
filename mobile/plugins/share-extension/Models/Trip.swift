@@ -54,9 +54,3 @@ struct CreateTripRequest: Codable {
         case countryCode = "country_code"
     }
 }
-
-// MARK: - Trip Response
-
-struct TripsResponse: Codable {
-    let trips: [Trip]
-}

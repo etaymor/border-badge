@@ -11,12 +11,14 @@
  * 4. If authenticated: Shows full capture form (SwiftUI)
  * 5. If not authenticated: Queues for later and shows message
  * 6. User completes form and saves directly to trip
+ *
+ * NOTE: Swift unit tests for share extension are planned for post-MVP.
+ * See todos/019-ready-p3-missing-swift-tests.md for details.
  */
 
 import UIKit
 import SwiftUI
 import UniformTypeIdentifiers
-import UserNotifications
 
 class ShareViewController: UIViewController {
     // MARK: - Constants
@@ -46,7 +48,7 @@ class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 0.4)
+        view.backgroundColor = BrandColors.midnightNavyUI.withAlphaComponent(0.4)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -146,15 +148,11 @@ class ShareViewController: UIViewController {
         // Save to App Group as backup
         saveToAppGroup(urlString)
 
-        // Check authentication status
-        let authState = AuthService.checkAuthState()
-
-        switch authState {
-        case .authenticated:
+        // Check if user has a token (server handles expiration via 401)
+        if KeychainHelper.hasToken {
             // Show full SwiftUI capture form
             showCaptureForm(url: urlString)
-
-        case .unauthenticated, .expired:
+        } else {
             // Queue for later and show message
             OfflineQueueService.queueShare(
                 url: urlString,
@@ -215,11 +213,6 @@ class ShareViewController: UIViewController {
 
     // MARK: - Fallback UI (for errors and unauthenticated state)
 
-    private let warmCream = UIColor(red: 253/255, green: 246/255, blue: 237/255, alpha: 1.0)
-    private let midnightNavy = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 1.0)
-    private let mossGreen = UIColor(red: 84/255, green: 122/255, blue: 95/255, alpha: 1.0)
-    private let adobeBrick = UIColor(red: 193/255, green: 84/255, blue: 62/255, alpha: 1.0)
-
     /// Show UI for unauthenticated users
     private func showUnauthenticatedUI() {
         let containerView = createContainerView()
@@ -229,7 +222,7 @@ class ShareViewController: UIViewController {
         let iconView = UIImageView()
         let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
         iconView.image = UIImage(systemName: "clock.badge.checkmark.fill", withConfiguration: config)
-        iconView.tintColor = mossGreen
+        iconView.tintColor = BrandColors.mossGreenUI
         iconView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(iconView)
 
@@ -237,7 +230,7 @@ class ShareViewController: UIViewController {
         let titleLabel = UILabel()
         titleLabel.text = "Saved for Later"
         titleLabel.font = UIFont.systemFont(ofSize: 22, weight: .bold)
-        titleLabel.textColor = midnightNavy
+        titleLabel.textColor = BrandColors.midnightNavyUI
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(titleLabel)
@@ -246,7 +239,7 @@ class ShareViewController: UIViewController {
         let subtitleLabel = UILabel()
         subtitleLabel.text = "Sign in to Atlasi to add this place to a trip"
         subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        subtitleLabel.textColor = midnightNavy.withAlphaComponent(0.6)
+        subtitleLabel.textColor = BrandColors.midnightNavyUI.withAlphaComponent(0.6)
         subtitleLabel.textAlignment = .center
         subtitleLabel.numberOfLines = 2
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -302,7 +295,7 @@ class ShareViewController: UIViewController {
         let iconView = UIImageView()
         let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
         iconView.image = UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: config)
-        iconView.tintColor = adobeBrick
+        iconView.tintColor = BrandColors.adobeBrickUI
         iconView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(iconView)
 
@@ -310,7 +303,7 @@ class ShareViewController: UIViewController {
         let errorLabel = UILabel()
         errorLabel.text = error
         errorLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        errorLabel.textColor = midnightNavy
+        errorLabel.textColor = BrandColors.midnightNavyUI
         errorLabel.textAlignment = .center
         errorLabel.numberOfLines = 2
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -347,9 +340,9 @@ class ShareViewController: UIViewController {
 
     private func createContainerView() -> UIView {
         let containerView = UIView()
-        containerView.backgroundColor = warmCream
+        containerView.backgroundColor = BrandColors.warmCreamUI
         containerView.layer.cornerRadius = 20
-        containerView.layer.shadowColor = midnightNavy.cgColor
+        containerView.layer.shadowColor = BrandColors.midnightNavyUI.cgColor
         containerView.layer.shadowOpacity = 0.15
         containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
         containerView.layer.shadowRadius = 16
@@ -362,7 +355,7 @@ class ShareViewController: UIViewController {
         button.setTitle(title, for: .normal)
         button.setTitleColor(.white, for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-        button.backgroundColor = mossGreen
+        button.backgroundColor = BrandColors.mossGreenUI
         button.layer.cornerRadius = 12
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -371,7 +364,7 @@ class ShareViewController: UIViewController {
     private func createSecondaryButton(title: String) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
+        button.setTitleColor(BrandColors.midnightNavyUI.withAlphaComponent(0.5), for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -426,35 +419,4 @@ class ShareViewController: UIViewController {
         }
     }
 
-    // MARK: - Notifications
-
-    /// Schedule an optional notification to remind user to open the app
-    /// Only sends if user has previously granted notification permissions
-    private func scheduleOpenAppReminder() {
-        let center = UNUserNotificationCenter.current()
-
-        center.getNotificationSettings { settings in
-            // Only send notification if user has granted permission
-            guard settings.authorizationStatus == .authorized else { return }
-
-            let content = UNMutableNotificationContent()
-            content.title = "Place saved!"
-            content.body = "Tap to add it to your trip in Atlasi"
-            content.sound = .default
-
-            // Show notification 2 seconds after extension closes
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
-            let request = UNNotificationRequest(
-                identifier: "atlasi-share-extension-reminder",
-                content: content,
-                trigger: trigger
-            )
-
-            center.add(request) { error in
-                if let error = error {
-                    NSLog("[Atlasi ShareExtension] Notification error: %@", error.localizedDescription)
-                }
-            }
-        }
-    }
 }
