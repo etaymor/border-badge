@@ -101,20 +101,25 @@ class SharedGroupPreferences: NSObject {
         // Convert to JS-compatible format
         // Swift Date default encoding is seconds since reference date (Jan 1, 2001)
         // JS expects milliseconds since epoch (Jan 1, 1970)
-        let jsShares = shares.map { share -> [String: Any?] in
+        // Use [String: Any] with NSNull() for nil values to ensure JSON serialization works
+        let jsShares: [[String: Any]] = shares.map { share in
             // Convert Swift Date to JS milliseconds since epoch
-            let timestampMs = share.timestamp.timeIntervalSince1970 * 1000
+            let timestampMs: Double = share.timestamp.timeIntervalSince1970 * 1000
 
-            return [
+            var dict: [String: Any] = [
                 "id": share.id,
                 "url": share.url,
-                "caption": share.caption,
                 "timestamp": timestampMs,
-                "reason": share.reason.rawValue,
-                "selectedTripId": share.selectedTripId,
-                "entryType": share.entryType?.rawValue,
-                "notes": share.notes
+                "reason": share.reason.rawValue
             ]
+
+            // Add optional fields with NSNull() for nil values
+            dict["caption"] = share.caption ?? NSNull()
+            dict["selectedTripId"] = share.selectedTripId ?? NSNull()
+            dict["entryType"] = share.entryType?.rawValue ?? NSNull()
+            dict["notes"] = share.notes ?? NSNull()
+
+            return dict
         }
 
         // Serialize to JSON string for React Native

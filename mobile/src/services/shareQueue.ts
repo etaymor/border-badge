@@ -614,8 +614,13 @@ function reasonToError(reason: string): string {
  * Called by syncOfflineQueueFromExtension() in shareExtensionBridge.ts
  * after reading the Swift queue via the SharedGroupPreferences native module.
  *
+ * IMPORTANT: This function throws on failure to ensure the caller knows
+ * whether it's safe to clear the Swift queue. Only clear the Swift queue
+ * if this function resolves successfully.
+ *
  * @param swiftShares - Array of shares from the Swift offline queue
  * @returns Number of new items added (not counting duplicates that were updated)
+ * @throws Error if the merge operation fails (e.g., AsyncStorage write failure)
  */
 export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promise<number> {
   if (!swiftShares.length) return 0;
@@ -624,6 +629,7 @@ export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promi
   try {
     const queue = await readQueue();
     let addedCount = 0;
+    let hasUpdates = false;
 
     for (const swiftShare of swiftShares) {
       // Skip expired items (7 days)
@@ -650,26 +656,31 @@ export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promi
       };
 
       if (existingIndex !== -1) {
-        // Keep the more recent one
+        // Keep the more recent one, but preserve retry state for stability
         if (swiftShare.timestamp > queue[existingIndex].createdAt) {
-          queue[existingIndex] = tsShare;
+          const prev = queue[existingIndex];
+          queue[existingIndex] = {
+            ...tsShare,
+            id: prev.id, // Keep original ID for consistency
+            retryCount: prev.retryCount, // Preserve retry progress
+            lastRetryAt: prev.lastRetryAt, // Preserve backoff timing
+          };
+          hasUpdates = true;
         }
         // Don't increment addedCount for duplicates
       } else {
         queue.push(tsShare);
         addedCount++;
+        hasUpdates = true;
       }
     }
 
-    // Write queue if anything changed
-    if (addedCount > 0) {
-      await writeQueue(queue);
+    // Write queue if anything changed (new items OR updated duplicates)
+    if (hasUpdates) {
+      await AsyncStorage.setItem(SHARE_QUEUE_KEY, JSON.stringify(queue));
     }
 
     return addedCount;
-  } catch (error) {
-    console.error('Failed to merge shares from extension:', error);
-    return 0;
   } finally {
     queueLock.release();
   }

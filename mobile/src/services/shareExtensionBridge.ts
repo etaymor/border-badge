@@ -335,6 +335,9 @@ import { mergeFromExtension, type SwiftQueuedShare } from './shareQueue';
  * converts them to the TypeScript queue format, and merges them into AsyncStorage.
  * After successful merge, clears the Swift queue.
  *
+ * IMPORTANT: The Swift queue is only cleared after mergeFromExtension succeeds.
+ * If the merge fails (throws), the Swift queue is preserved to prevent data loss.
+ *
  * This should be called on every app foreground to ensure shares queued by the
  * extension are picked up by the main app's retry logic.
  *
@@ -356,9 +359,10 @@ export async function syncOfflineQueueFromExtension(): Promise<number> {
     if (!swiftShares.length) return 0;
 
     // Merge into TypeScript queue (handles deduplication and expiry)
+    // This throws on failure to ensure we don't clear the Swift queue on error
     const count = await mergeFromExtension(swiftShares);
 
-    // Clear the Swift queue after successful merge
+    // Only clear the Swift queue after successful merge
     // We clear even if count is 0 (duplicates were updated but no new items added)
     await SharedGroupPreferences.clearOfflineQueue();
 
@@ -368,6 +372,7 @@ export async function syncOfflineQueueFromExtension(): Promise<number> {
 
     return count;
   } catch (error) {
+    // Do NOT clear the Swift queue on failure - preserve data for next sync attempt
     console.error('Failed to sync offline queue from extension:', error);
     return 0;
   }
