@@ -17,6 +17,18 @@ export interface Country {
   recognition: string | null;
 }
 
+/**
+ * Local user country data - stored in SQLite during onboarding
+ * for immediate display before backend sync completes.
+ */
+export interface LocalUserCountry {
+  id: string;
+  country_code: string;
+  status: 'visited' | 'wishlist';
+  created_at: string;
+  added_during_onboarding: boolean;
+}
+
 const DB_NAME = 'countries.db';
 const SYNC_KEY = 'countries_last_sync';
 const SYNC_INTERVAL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -55,8 +67,17 @@ async function initSchema(): Promise<void> {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS user_countries (
+      id TEXT PRIMARY KEY NOT NULL,
+      country_code TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      added_during_onboarding INTEGER DEFAULT 1
+    );
+
     CREATE INDEX IF NOT EXISTS idx_countries_region ON countries(region);
     CREATE INDEX IF NOT EXISTS idx_countries_name ON countries(name);
+    CREATE INDEX IF NOT EXISTS idx_user_countries_code ON user_countries(country_code);
   `);
 
   // Migrate existing tables: add new columns if they don't exist
@@ -252,4 +273,91 @@ export async function closeDb(): Promise<void> {
     await db.closeAsync();
     db = null;
   }
+}
+
+// =============================================================================
+// Local User Countries - for onboarding data persistence
+// =============================================================================
+
+/**
+ * Save a user country to local SQLite database.
+ * Uses INSERT OR REPLACE to upsert (update if country_code exists).
+ */
+export async function saveLocalUserCountry(country: LocalUserCountry): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO user_countries (id, country_code, status, created_at, added_during_onboarding)
+     VALUES (?, ?, ?, ?, ?)`,
+    [country.id, country.country_code, country.status, country.created_at, 1]
+  );
+}
+
+/**
+ * Save multiple user countries to local SQLite database.
+ * Uses INSERT OR REPLACE to upsert.
+ */
+export async function saveLocalUserCountries(countries: LocalUserCountry[]): Promise<void> {
+  if (countries.length === 0) return;
+
+  const database = await getDb();
+
+  await database.withTransactionAsync(async () => {
+    for (const country of countries) {
+      await database.runAsync(
+        `INSERT OR REPLACE INTO user_countries (id, country_code, status, created_at, added_during_onboarding)
+         VALUES (?, ?, ?, ?, ?)`,
+        [country.id, country.country_code, country.status, country.created_at, 1]
+      );
+    }
+  });
+}
+
+/**
+ * Remove a user country from local SQLite database.
+ */
+export async function removeLocalUserCountry(countryCode: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM user_countries WHERE country_code = ?', [countryCode]);
+}
+
+/**
+ * Get all user countries from local SQLite database.
+ */
+export async function getLocalUserCountries(): Promise<LocalUserCountry[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{
+    id: string;
+    country_code: string;
+    status: string;
+    created_at: string;
+    added_during_onboarding: number;
+  }>('SELECT id, country_code, status, created_at, added_during_onboarding FROM user_countries');
+
+  return rows.map((row) => ({
+    id: row.id,
+    country_code: row.country_code,
+    status: row.status as 'visited' | 'wishlist',
+    created_at: row.created_at,
+    added_during_onboarding: row.added_during_onboarding === 1,
+  }));
+}
+
+/**
+ * Clear all user countries from local SQLite database.
+ * Called after successful migration to backend.
+ */
+export async function clearLocalUserCountries(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM user_countries');
+}
+
+/**
+ * Check if there are any local user countries stored.
+ */
+export async function hasLocalUserCountries(): Promise<boolean> {
+  const database = await getDb();
+  const result = await database.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM user_countries'
+  );
+  return (result?.count ?? 0) > 0;
 }

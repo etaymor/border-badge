@@ -56,7 +56,6 @@ export default {
       policy: 'appVersion',
     },
     extra: {
-      EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
       eas: {
         projectId: '4b406924-7c4e-4723-87a1-c40ad227d873',
         build: {
@@ -75,6 +74,7 @@ export default {
           },
         },
       },
+      EXPO_PUBLIC_GOOGLE_PLACES_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY,
     },
   },
 };

@@ -95,13 +95,13 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.backButtonContainer}>
-        <GlassBackButton onPress={() => navigation.goBack()} />
+    <View style={styles.container}>
+      <View style={[styles.closeButtonContainer, { top: insets.top + 12 }]}>
+        <GlassBackButton icon="close" onPress={() => navigation.goBack()} />
       </View>
 
       <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
+        style={[styles.keyboardAvoid, { paddingTop: insets.top }]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
       >
@@ -205,10 +205,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.warmCream,
   },
-  backButtonContainer: {
+  closeButtonContainer: {
     position: 'absolute',
-    top: 8,
-    left: 16,
+    right: 16,
     zIndex: 3000,
   },
   scrollHeaderTitle: {

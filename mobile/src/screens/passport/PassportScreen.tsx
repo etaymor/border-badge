@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   CountryRow,
@@ -25,6 +26,8 @@ import type { CountryDisplayItem, ListItem, UnvisitedCountry } from './passportT
 type Props = PassportStackScreenProps<'PassportHome'>;
 
 export function PassportScreen({ navigation }: Props) {
+  const queryClient = useQueryClient();
+
   // Data hook
   const data = usePassportData();
   const {
@@ -54,7 +57,6 @@ export function PassportScreen({ navigation }: Props) {
     fadeAnim,
     viewabilityConfig,
     getRowAnimationValues,
-    ensureRowVisible,
     handleViewableItemsChanged,
     computeLayoutData,
     getItemKey,
@@ -128,8 +130,10 @@ export function PassportScreen({ navigation }: Props) {
 
   const handlePassportShare = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Refresh user countries to ensure stamps shown are up-to-date
+    queryClient.invalidateQueries({ queryKey: ['user-countries'] });
     setPassportShareVisible(true);
-  }, []);
+  }, [queryClient]);
 
   const handlePassportShareDismiss = useCallback(() => {
     setPassportShareVisible(false);
@@ -233,18 +237,16 @@ export function PassportScreen({ navigation }: Props) {
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, stamps.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <StampRow stamps={stamps} animValues={animValues} onCountryPress={handleCountryPress} />
       );
     },
-    [getRowAnimationValues, ensureRowVisible, handleCountryPress]
+    [getRowAnimationValues, handleCountryPress]
   );
 
   const renderUnvisitedRow = useCallback(
     (countries: UnvisitedCountry[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, countries.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <CountryRow
           countries={countries}
@@ -255,13 +257,7 @@ export function PassportScreen({ navigation }: Props) {
         />
       );
     },
-    [
-      getRowAnimationValues,
-      ensureRowVisible,
-      handleUnvisitedCountryPress,
-      handleAddVisited,
-      handleToggleWishlist,
-    ]
+    [getRowAnimationValues, handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
   );
 
   const renderItem = useCallback(
@@ -349,11 +345,11 @@ export function PassportScreen({ navigation }: Props) {
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={20}
-          windowSize={11}
-          initialNumToRender={15}
-          updateCellsBatchingPeriod={30}
+          removeClippedSubviews={false}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
         />

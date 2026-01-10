@@ -12,6 +12,7 @@ import { useProfile } from '@hooks/useProfile';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import { getTravelStatus as getTravelTier } from '@utils/travelTier';
+import { useAuthStore } from '@stores/authStore';
 import {
   DEFAULT_FILTERS,
   hasActiveFilters,
@@ -31,6 +32,7 @@ export function usePassportData() {
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const { data: trips, isLoading: loadingTrips } = useTrips();
   const { data: profile, isLoading: loadingProfile } = useProfile();
+  const isMigrating = useAuthStore((s) => s.isMigrating);
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
 
@@ -42,12 +44,16 @@ export function usePassportData() {
 
   // Consider loading if any query is still loading OR if essential data isn't available yet
   // This prevents showing empty state flash before data loads
+  // CRITICAL: Check both loading flags AND actual data availability
+  // After onboarding, userCountries may be set but countries SQLite may still be loading
   const isLoading =
     loadingUserCountries ||
     loadingCountries ||
     loadingTrips ||
     loadingProfile ||
-    userCountries === undefined;
+    userCountries === undefined ||
+    (countries !== undefined && countries.length === 0) || // SQLite countries not yet loaded
+    (isMigrating && (!userCountries || userCountries.length === 0)); // hold skeleton during migration when data not ready
 
   // Track passport view only when visited count changes
   const lastTrackedCountRef = useRef<number | null>(null);
@@ -77,13 +83,33 @@ export function usePassportData() {
   }, [trackingPreference, filters.recognitionGroups]);
 
   // Compute visited and wishlist countries
+  // Memoize based on country codes to avoid recalculation when transitioning from fallback to real data
+  const visitedCountryCodes = useMemo(() => {
+    if (!userCountries) return '';
+    return userCountries
+      .filter((uc) => uc.status === 'visited')
+      .map((uc) => uc.country_code)
+      .sort()
+      .join(',');
+  }, [userCountries]);
+
+  const wishlistCountryCodes = useMemo(() => {
+    if (!userCountries) return '';
+    return userCountries
+      .filter((uc) => uc.status === 'wishlist')
+      .map((uc) => uc.country_code)
+      .sort()
+      .join(',');
+  }, [userCountries]);
+
   const { visitedCountries, wishlistCountries } = useMemo(() => {
     if (!userCountries) return { visitedCountries: [], wishlistCountries: [] };
     return {
       visitedCountries: userCountries.filter((uc) => uc.status === 'visited'),
       wishlistCountries: userCountries.filter((uc) => uc.status === 'wishlist'),
     };
-  }, [userCountries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally depend on code strings for stable memoization
+  }, [userCountries, visitedCountryCodes, wishlistCountryCodes]);
 
   // Pre-compute visited, wishlist, and trip code sets
   const { visitedCodes, wishlistCodes, countriesWithTrips } = useMemo(() => {
@@ -172,12 +198,31 @@ export function usePassportData() {
 
   // Compute all stats
   const stats: PassportStats = useMemo(() => {
+    // If countries haven't loaded yet, use visited/wishlist counts directly
+    // This prevents 0s flash during migration when userCountries has data but countries is loading
+    if (!countries || countries.length === 0) {
+      const stampedCount = visitedCountries.length;
+      const dreamsCount = wishlistCountries.length;
+      const totalCountries = getCountryCountForPreference(trackingPreference);
+      const worldPercentage =
+        totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
+
+      return {
+        stampedCount,
+        dreamsCount,
+        totalCountries,
+        worldPercentage,
+        regionsCount: 0, // Unknown until countries load
+        travelStatus: getTravelTier(stampedCount).status,
+      };
+    }
+
     const allowedVisitedCountries = visitedCountries.filter((uc) => {
-      const country = countries?.find((c) => c.code === uc.country_code);
+      const country = countries.find((c) => c.code === uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
     const allowedWishlistCountries = wishlistCountries.filter((uc) => {
-      const country = countries?.find((c) => c.code === uc.country_code);
+      const country = countries.find((c) => c.code === uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
 
@@ -188,7 +233,7 @@ export function usePassportData() {
       totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
     const visitedCodesSet = new Set(allowedVisitedCountries.map((uc) => uc.country_code));
-    const visitedCountryDetails = countries?.filter((c) => visitedCodesSet.has(c.code)) || [];
+    const visitedCountryDetails = countries.filter((c) => visitedCodesSet.has(c.code));
     const uniqueRegions = new Set(visitedCountryDetails.map((c) => c.region));
     const regionsCount = uniqueRegions.size;
 
@@ -304,7 +349,7 @@ export function usePassportData() {
     }
 
     return items;
-  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount]);
+  }, [displayItems, unvisitedCountries, searchQuery, stats.stampedCount, userCountries]);
 
   const activeFilterCount = countActiveFilters(filters);
   const filtersActive = hasActiveFilters(filters);

@@ -120,7 +120,8 @@ class SaveToTripRequest(BaseModel):
     canonical_url: str = Field(..., max_length=2048)
     thumbnail_url: str | None = Field(None, max_length=2048)
     author_handle: str | None = Field(None, max_length=200)
-    title: str | None = Field(None, max_length=200)
+    # Instagram captions can be up to 2200 chars, allow full caption
+    title: str | None = Field(None, max_length=2200)
     # User-provided data
     place: DetectedPlace | None = None
     entry_type: str = Field("place", max_length=50)

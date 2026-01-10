@@ -13,29 +13,33 @@ interface GlassBackButtonProps {
   variant?: 'light' | 'dark';
   /** Size variant */
   size?: 'default' | 'small';
+  /** Icon type: 'back' for arrow, 'close' for X */
+  icon?: 'back' | 'close';
   testID?: string;
 }
 
 /**
- * A consistent back button component with liquid glass styling.
- * Uses the ← arrow character for a clean, on-brand appearance.
+ * A consistent back/close button component with liquid glass styling.
+ * Uses the ← arrow or × close character for a clean, on-brand appearance.
  */
 export function GlassBackButton({
   onPress,
   variant = 'light',
   size = 'default',
+  icon = 'back',
   testID,
 }: GlassBackButtonProps) {
   const sizeStyles = size === 'small' ? styles.containerSmall : styles.containerDefault;
-  const arrowSizeStyle = size === 'small' ? styles.arrowSmall : styles.arrowDefault;
+  const iconSizeStyle = size === 'small' ? styles.iconSmall : styles.iconDefault;
   const isDark = variant === 'dark';
+  const isClose = icon === 'close';
 
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       accessibilityRole="button"
-      accessibilityLabel="Go back"
+      accessibilityLabel={isClose ? 'Close' : 'Go back'}
       testID={testID}
       style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
     >
@@ -45,7 +49,16 @@ export function GlassBackButton({
           tint={isDark ? 'dark' : 'light'}
           style={[styles.glass, sizeStyles, isDark && styles.glassDark]}
         >
-          <Text style={[styles.arrow, arrowSizeStyle, isDark && styles.arrowDark]}>{'←'}</Text>
+          <Text
+            style={[
+              styles.icon,
+              iconSizeStyle,
+              isDark && styles.iconDark,
+              isClose && styles.closeIcon,
+            ]}
+          >
+            {isClose ? '×' : '←'}
+          </Text>
         </BlurView>
       </View>
     </Pressable>
@@ -81,16 +94,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  arrow: {
+  icon: {
     color: colors.midnightNavy,
     fontWeight: '300',
   },
-  arrowDefault: {
+  iconDefault: {
     fontSize: 28,
     marginTop: -2, // Optical centering adjustment
   },
-  arrowSmall: {
+  iconSmall: {
     fontSize: 22,
+    marginTop: -1,
+  },
+  closeIcon: {
+    fontSize: 32, // X needs to be slightly larger to look balanced
+    fontWeight: '200',
     marginTop: -1,
   },
   // Dark variant styles (for use over images)
@@ -100,7 +118,7 @@ const styles = StyleSheet.create({
   glassDark: {
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
-  arrowDark: {
+  iconDark: {
     color: '#fff',
   },
 });

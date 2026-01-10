@@ -1,11 +1,17 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { Animated, Easing } from 'react-native';
+import { useReducedMotion } from './useReducedMotion';
 
 export interface CelebrationAnimationRefs {
   selectionScale: Animated.Value;
   selectionOpacity: Animated.Value;
   flagScale: Animated.Value;
   flagRotate: Animated.Value;
+  // Enhanced celebration effects
+  rippleScale: Animated.Value;
+  rippleOpacity: Animated.Value;
+  sparkleScale: Animated.Value;
+  sparkleRotate: Animated.Value;
 }
 
 export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs {
@@ -40,6 +46,9 @@ export function useCountrySelectionAnimations(
 ): UseCountrySelectionAnimationsReturn {
   const { hasLocationPin = false, hasBackButton = false, celebrationHoldDuration = 600 } = options;
 
+  // Check for reduced motion preference (WCAG 2.1 Level AA)
+  const reduceMotion = useReducedMotion();
+
   // Track mounted state to prevent callbacks after unmount
   const isMountedRef = useRef(true);
 
@@ -64,6 +73,7 @@ export function useCountrySelectionAnimations(
   const pinOpacity = useRef(new Animated.Value(0)).current;
   const pinScale = useRef(new Animated.Value(0.8)).current;
   const pinBounce = useRef(new Animated.Value(0)).current;
+  const pinBounceLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Celebration animation refs
   const selectionScale = useRef(new Animated.Value(0)).current;
@@ -71,8 +81,29 @@ export function useCountrySelectionAnimations(
   const flagScale = useRef(new Animated.Value(0.5)).current;
   const flagRotate = useRef(new Animated.Value(0)).current;
 
+  // Enhanced celebration effects
+  const rippleScale = useRef(new Animated.Value(0)).current;
+  const rippleOpacity = useRef(new Animated.Value(0)).current;
+  const sparkleScale = useRef(new Animated.Value(0)).current;
+  const sparkleRotate = useRef(new Animated.Value(0)).current;
+
   // Entrance animations
   useEffect(() => {
+    // If reduce motion is enabled, skip animations and set all values to final state
+    if (reduceMotion) {
+      if (hasBackButton) backButtonOpacity.setValue(1);
+      titleOpacity.setValue(1);
+      titleTranslate.setValue(0);
+      searchOpacity.setValue(1);
+      searchTranslate.setValue(0);
+      if (hasLocationPin) {
+        pinOpacity.setValue(1);
+        pinScale.setValue(1);
+      }
+      buttonOpacity.setValue(1);
+      return;
+    }
+
     const entranceSequence: Animated.CompositeAnimation[] = [];
 
     // Back button fade in (if present)
@@ -150,9 +181,9 @@ export function useCountrySelectionAnimations(
 
     Animated.sequence(entranceSequence).start();
 
-    // Floating animation for location pin
-    if (hasLocationPin) {
-      Animated.loop(
+    // Floating animation for location pin (skip if reduce motion is enabled)
+    if (hasLocationPin && !reduceMotion) {
+      pinBounceLoopRef.current = Animated.loop(
         Animated.sequence([
           Animated.timing(pinBounce, {
             toValue: -8,
@@ -167,11 +198,22 @@ export function useCountrySelectionAnimations(
             useNativeDriver: true,
           }),
         ])
-      ).start();
+      );
+      pinBounceLoopRef.current.start();
     }
+
+    // Cleanup loop animation on unmount
+    return () => {
+      if (pinBounceLoopRef.current) {
+        pinBounceLoopRef.current.stop();
+        pinBounceLoopRef.current = null;
+      }
+      pinBounce.setValue(0);
+    };
   }, [
     hasBackButton,
     hasLocationPin,
+    reduceMotion,
     titleOpacity,
     titleTranslate,
     searchOpacity,
@@ -186,6 +228,18 @@ export function useCountrySelectionAnimations(
   // Dropdown animation
   const animateDropdown = useCallback(
     (show: boolean) => {
+      if (reduceMotion) {
+        // Skip animation if reduce motion is enabled
+        if (show) {
+          dropdownOpacity.setValue(1);
+          dropdownTranslate.setValue(0);
+        } else {
+          dropdownOpacity.setValue(0);
+          dropdownTranslate.setValue(-10);
+        }
+        return;
+      }
+
       if (show) {
         Animated.parallel([
           Animated.timing(dropdownOpacity, {
@@ -205,17 +259,29 @@ export function useCountrySelectionAnimations(
         dropdownTranslate.setValue(-10);
       }
     },
-    [dropdownOpacity, dropdownTranslate]
+    [dropdownOpacity, dropdownTranslate, reduceMotion]
   );
 
-  // Celebration animation
+  // Celebration animation with enhanced effects
   const playCelebration = useCallback(
     (onComplete: () => void) => {
+      // If reduce motion is enabled, skip animation and call onComplete immediately
+      if (reduceMotion) {
+        if (isMountedRef.current) {
+          onComplete();
+        }
+        return;
+      }
+
       // Reset animation values
       selectionScale.setValue(0);
       selectionOpacity.setValue(0);
       flagScale.setValue(0.5);
       flagRotate.setValue(0);
+      rippleScale.setValue(0);
+      rippleOpacity.setValue(0.8);
+      sparkleScale.setValue(0);
+      sparkleRotate.setValue(0);
 
       Animated.sequence([
         // Fade in backdrop and scale up container with flag animation
@@ -243,6 +309,36 @@ export function useCountrySelectionAnimations(
             easing: Easing.out(Easing.back(1.5)),
             useNativeDriver: true,
           }),
+          // Ripple effect: expands outward and fades
+          Animated.parallel([
+            Animated.timing(rippleScale, {
+              toValue: 3,
+              duration: 800,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.timing(rippleOpacity, {
+              toValue: 0,
+              duration: 800,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+          ]),
+          // Sparkle effect: scales up with rotation
+          Animated.parallel([
+            Animated.spring(sparkleScale, {
+              toValue: 1,
+              friction: 5,
+              tension: 120,
+              useNativeDriver: true,
+            }),
+            Animated.timing(sparkleRotate, {
+              toValue: 1,
+              duration: 600,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+          ]),
         ]),
         // Hold for a moment
         Animated.delay(celebrationHoldDuration),
@@ -259,7 +355,18 @@ export function useCountrySelectionAnimations(
         }
       });
     },
-    [celebrationHoldDuration, selectionScale, selectionOpacity, flagScale, flagRotate]
+    [
+      celebrationHoldDuration,
+      reduceMotion,
+      selectionScale,
+      selectionOpacity,
+      flagScale,
+      flagRotate,
+      rippleScale,
+      rippleOpacity,
+      sparkleScale,
+      sparkleRotate,
+    ]
   );
 
   return {
@@ -279,6 +386,10 @@ export function useCountrySelectionAnimations(
       selectionOpacity,
       flagScale,
       flagRotate,
+      rippleScale,
+      rippleOpacity,
+      sparkleScale,
+      sparkleRotate,
     },
     animateDropdown,
     playCelebration,

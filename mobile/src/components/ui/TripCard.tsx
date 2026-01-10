@@ -1,11 +1,12 @@
-import { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { colors } from '@constants/colors';
 import { isDevelopment } from '@config/env';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
 
 export interface TripCardTrip {
   id: string;
@@ -19,6 +20,8 @@ interface TripCardProps {
   flagEmoji: string;
   onPress: () => void;
   testID?: string;
+  /** Whether to enable shared element transition for the thumbnail */
+  enableSharedElement?: boolean;
 }
 
 // Helper to format date range from PostgreSQL format
@@ -61,50 +64,45 @@ function formatDateRange(dateRange?: string): string {
   }
 }
 
-export function TripCard({ trip, flagEmoji, onPress, testID }: TripCardProps) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+export function TripCard({
+  trip,
+  flagEmoji,
+  onPress,
+  testID,
+  enableSharedElement = true,
+}: TripCardProps) {
+  const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
   const dateStr = formatDateRange(trip.date_range);
 
-  // Cleanup: stop any running animation and reset value on unmount
-  useEffect(() => {
-    return () => {
-      scaleAnim.stopAnimation();
-      scaleAnim.setValue(1);
-    };
-  }, [scaleAnim]);
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.98,
-      friction: 8,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 8,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View style={[styles.container, { transform: [{ scale: scaleValue }] }]}>
       <Pressable
         style={styles.pressable}
         onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
+        {...pressHandlers}
         testID={testID}
         accessibilityRole="button"
         accessibilityLabel={`View trip: ${trip.name}`}
         accessibilityHint="Opens trip details"
       >
         {/* Thumbnail */}
-        {trip.cover_image_url ? (
+        {enableSharedElement ? (
+          <SharedTripImage tripId={trip.id} style={styles.thumbnailWrapper}>
+            {trip.cover_image_url ? (
+              <Image source={{ uri: trip.cover_image_url }} style={styles.thumbnail} />
+            ) : (
+              <View style={styles.thumbnailPlaceholder}>
+                <LinearGradient
+                  colors={[colors.lakeBlue, colors.mossGreen]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.thumbnailGradient}
+                />
+                <Text style={styles.thumbnailFlag}>{flagEmoji}</Text>
+              </View>
+            )}
+          </SharedTripImage>
+        ) : trip.cover_image_url ? (
           <Image source={{ uri: trip.cover_image_url }} style={styles.thumbnail} />
         ) : (
           <View style={styles.thumbnailPlaceholder}>
@@ -156,6 +154,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
+  },
+  thumbnailWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   thumbnail: {
     width: 72,

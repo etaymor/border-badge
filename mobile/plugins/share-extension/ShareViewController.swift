@@ -16,6 +16,7 @@
 import UIKit
 import SwiftUI
 import UniformTypeIdentifiers
+import UserNotifications
 
 class ShareViewController: UIViewController {
     // MARK: - Constants
@@ -422,6 +423,38 @@ class ShareViewController: UIViewController {
             self.view.backgroundColor = UIColor.clear
         }) { _ in
             self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
+    }
+
+    // MARK: - Notifications
+
+    /// Schedule an optional notification to remind user to open the app
+    /// Only sends if user has previously granted notification permissions
+    private func scheduleOpenAppReminder() {
+        let center = UNUserNotificationCenter.current()
+
+        center.getNotificationSettings { settings in
+            // Only send notification if user has granted permission
+            guard settings.authorizationStatus == .authorized else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Place saved!"
+            content.body = "Tap to add it to your trip in Atlasi"
+            content.sound = .default
+
+            // Show notification 2 seconds after extension closes
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "atlasi-share-extension-reminder",
+                content: content,
+                trigger: trigger
+            )
+
+            center.add(request) { error in
+                if let error = error {
+                    NSLog("[Atlasi ShareExtension] Notification error: %@", error.localizedDescription)
+                }
+            }
         }
     }
 }

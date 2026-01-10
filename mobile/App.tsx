@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, Linking } from 'react-native';
+import { AppState, AppStateStatus, Linking, LogBox } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
+
+// Suppress known harmless Reanimated warnings about off-screen FlatList items
+LogBox.ignoreLogs([
+  '[Reanimated] The view has some undefined, not-yet-computed or meaningless value of `LayoutMetrics` type',
+]);
 
 import {
   useFonts,
