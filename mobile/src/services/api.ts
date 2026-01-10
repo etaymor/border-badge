@@ -52,12 +52,10 @@ async function fetchTokenWithMigration(key: string): Promise<string | null> {
       if (token) {
         // Migrate to shared keychain for Share Extension access
         await SecureStore.setItemAsync(key, token, options);
-        // Clean up legacy location
-        try {
-          await SecureStore.deleteItemAsync(key);
-        } catch {
-          // Ignore cleanup errors - not critical
-        }
+        // NOTE: We intentionally do NOT delete from legacy location here.
+        // Supabase may have stored its session data there, and deleting it
+        // would cause "Auth session missing" errors on sign out.
+        // The legacy location will be overwritten on next sign in anyway.
         return token;
       }
     } catch {
