@@ -24,6 +24,30 @@ const APP_GROUP_ID = 'group.com.atlasi.app';
 const APP_BUNDLE_ID = 'com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const ASSOCIATED_DOMAIN = 'atlasi.app';
+
+/**
+ * Recursively find all Swift files in a directory, excluding Tests folder.
+ * @param {string} dir - The directory to search
+ * @param {string} basePath - The relative path from the root (for recursion)
+ * @returns {string[]} - Array of relative file paths
+ */
+function getSwiftFilesRecursively(dir, basePath = '') {
+  let files = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relativePath = basePath ? path.join(basePath, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      // Skip Tests directory - not needed in production build
+      if (entry.name !== 'Tests') {
+        files = files.concat(getSwiftFilesRecursively(fullPath, relativePath));
+      }
+    } else if (entry.name.endsWith('.swift')) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
 // Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
 function getAppleTeamId() {
   const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
@@ -140,16 +164,27 @@ function withShareExtensionTarget(config) {
       fs.mkdirSync(extensionPath, { recursive: true });
     }
 
-    // Copy extension files from plugin directory
-    const filesToCopy = ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'];
+    // Get all Swift files recursively (excluding Tests directory)
+    const swiftFiles = getSwiftFilesRecursively(pluginExtensionPath);
+    const staticFiles = ['Info.plist', 'ShareExtension.entitlements'];
+    const allFiles = [...swiftFiles, ...staticFiles];
 
-    for (const file of filesToCopy) {
+    // Copy files preserving directory structure
+    for (const file of allFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(extensionPath, file);
+
+      // Create subdirectory if needed
+      const destDir = path.dirname(destPath);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
       }
     }
+    console.log(`Copied ${swiftFiles.length} Swift files to ${extensionPath}`);
 
     // Create PBXNativeTarget for extension
     const target = xcodeProject.addTarget(
@@ -164,9 +199,9 @@ function withShareExtensionTarget(config) {
       return mod;
     }
 
-    // Add source files to target
+    // Add source files to target - include all Swift files
     const extensionGroup = xcodeProject.addPbxGroup(
-      ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'],
+      [...swiftFiles, ...staticFiles],
       EXTENSION_NAME,
       EXTENSION_NAME
     );
@@ -177,21 +212,21 @@ function withShareExtensionTarget(config) {
       xcodeProject.addToPbxGroup(extensionGroup.uuid, mainGroupKey);
     }
 
-    // Add Swift file to build sources
-    // The file path must include the extension directory for Xcode to find it
-    const swiftFilePath = `${EXTENSION_NAME}/ShareViewController.swift`;
+    // Add all Swift files to build sources
+    // File paths must include the extension directory for Xcode to find them
+    const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
 
-    // Add a Sources build phase with the Swift file to the extension target
+    // Add a Sources build phase with all Swift files to the extension target
     // Use the full relative path from the ios directory
     xcodeProject.addBuildPhase(
-      [swiftFilePath],
+      swiftFilePaths,
       'PBXSourcesBuildPhase',
       'Sources',
       target.uuid,
       'app_extension',
       EXTENSION_NAME
     );
-    console.log(`Added Sources build phase with ${swiftFilePath} to ${EXTENSION_NAME}`);
+    console.log(`Added Sources build phase with ${swiftFilePaths.length} files to ${EXTENSION_NAME}`);
 
     // Configure build settings for extension
     // Note on quoting: Values containing spaces, special chars, or Xcode variables like
