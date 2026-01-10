@@ -1,9 +1,7 @@
-/**
- * QueuedShare - Offline queue item for pending shares
- *
- * Stores share data when the user is offline or unauthenticated,
- * to be processed when conditions allow.
- */
+//
+// QueuedShare.swift
+// Offline queue item for pending shares (extension + main app decode)
+//
 
 import Foundation
 

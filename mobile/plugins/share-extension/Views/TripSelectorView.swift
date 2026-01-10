@@ -4,20 +4,27 @@
 
 import SwiftUI
 
+/// Tracks which sheet is currently being presented
+private enum ActiveSheet: Identifiable {
+    case selection
+    case create
+
+    var id: Int { hashValue }
+}
+
 struct TripSelectorView: View {
     @Binding var selectedTripId: String?
     let countryCode: String?
     @ObservedObject var viewModel: TripSelectorViewModel
     let onTripSelected: (String) -> Void
 
-    @State private var isShowingSheet: Bool = false
-    @State private var isShowingCreateForm: Bool = false
+    @State private var activeSheet: ActiveSheet?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(text: "Trip")
 
-            Button(action: { isShowingSheet = true }) {
+            Button(action: { activeSheet = .selection }) {
                 HStack(spacing: 12) {
                     Image(systemName: "suitcase.fill")
                         .font(.system(size: 16))
@@ -53,74 +60,75 @@ struct TripSelectorView: View {
             }
             .buttonStyle(.plain)
         }
-        .sheet(isPresented: $isShowingSheet) {
-            if #available(iOS 16.0, *) {
-                TripSelectionSheet(
-                    selectedTripId: $selectedTripId,
-                    countryCode: countryCode,
-                    viewModel: viewModel,
-                    onTripSelected: { tripId in
-                        onTripSelected(tripId)
-                        isShowingSheet = false
-                    },
-                    onCreateTrip: {
-                        isShowingCreateForm = true
-                    },
-                    onDismiss: {
-                        isShowingSheet = false
-                    }
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-            } else {
-                TripSelectionSheet(
-                    selectedTripId: $selectedTripId,
-                    countryCode: countryCode,
-                    viewModel: viewModel,
-                    onTripSelected: { tripId in
-                        onTripSelected(tripId)
-                        isShowingSheet = false
-                    },
-                    onCreateTrip: {
-                        isShowingCreateForm = true
-                    },
-                    onDismiss: {
-                        isShowingSheet = false
-                    }
-                )
-            }
-        }
-        .sheet(isPresented: $isShowingCreateForm) {
-            if #available(iOS 16.0, *) {
-                InlineTripFormView(
-                    countryCode: countryCode,
-                    viewModel: viewModel,
-                    onTripCreated: { tripId in
-                        selectedTripId = tripId
-                        onTripSelected(tripId)
-                        isShowingCreateForm = false
-                        isShowingSheet = false
-                    },
-                    onCancel: {
-                        isShowingCreateForm = false
-                    }
-                )
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-            } else {
-                InlineTripFormView(
-                    countryCode: countryCode,
-                    viewModel: viewModel,
-                    onTripCreated: { tripId in
-                        selectedTripId = tripId
-                        onTripSelected(tripId)
-                        isShowingCreateForm = false
-                        isShowingSheet = false
-                    },
-                    onCancel: {
-                        isShowingCreateForm = false
-                    }
-                )
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .selection:
+                if #available(iOS 16.0, *) {
+                    TripSelectionSheet(
+                        selectedTripId: $selectedTripId,
+                        countryCode: countryCode,
+                        viewModel: viewModel,
+                        onTripSelected: { tripId in
+                            onTripSelected(tripId)
+                            activeSheet = nil
+                        },
+                        onCreateTrip: {
+                            activeSheet = .create
+                        },
+                        onDismiss: {
+                            activeSheet = nil
+                        }
+                    )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                } else {
+                    TripSelectionSheet(
+                        selectedTripId: $selectedTripId,
+                        countryCode: countryCode,
+                        viewModel: viewModel,
+                        onTripSelected: { tripId in
+                            onTripSelected(tripId)
+                            activeSheet = nil
+                        },
+                        onCreateTrip: {
+                            activeSheet = .create
+                        },
+                        onDismiss: {
+                            activeSheet = nil
+                        }
+                    )
+                }
+
+            case .create:
+                if #available(iOS 16.0, *) {
+                    InlineTripFormView(
+                        countryCode: countryCode,
+                        viewModel: viewModel,
+                        onTripCreated: { tripId in
+                            selectedTripId = tripId
+                            onTripSelected(tripId)
+                            activeSheet = nil
+                        },
+                        onCancel: {
+                            activeSheet = nil
+                        }
+                    )
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+                } else {
+                    InlineTripFormView(
+                        countryCode: countryCode,
+                        viewModel: viewModel,
+                        onTripCreated: { tripId in
+                            selectedTripId = tripId
+                            onTripSelected(tripId)
+                            activeSheet = nil
+                        },
+                        onCancel: {
+                            activeSheet = nil
+                        }
+                    )
+                }
             }
         }
         .onAppear {

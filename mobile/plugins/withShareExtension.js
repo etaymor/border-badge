@@ -27,7 +27,16 @@ const ASSOCIATED_DOMAIN = 'atlasi.app';
 
 // Files that are React Native native modules - these should only be in the main app target,
 // not in the ShareExtension target (which doesn't link to React Native)
-const MAIN_APP_ONLY_FILES = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
+const MAIN_APP_ONLY_FILES = [
+  'SharedGroupPreferences.swift',
+  'SharedGroupPreferences.m',
+  'Models/QueuedShareApp.swift',
+  'QueuedShareApp.swift',
+];
+
+// Files to copy into the main app target (Atlasi) in addition to the native modules
+// (e.g., shared models the app needs to decode extension data)
+const MAIN_APP_EXTRA_FILES = ['Models/QueuedShareApp.swift'];
 
 /**
  * Recursively find all Swift files in a directory, excluding Tests folder
@@ -37,8 +46,31 @@ const MAIN_APP_ONLY_FILES = ['SharedGroupPreferences.swift', 'SharedGroupPrefere
  * @returns {string[]} - Array of relative file paths
  */
 function getSwiftFilesRecursively(dir, basePath = '') {
+  // Validate directory exists and is accessible
+  try {
+    if (!fs.existsSync(dir)) {
+      console.warn(`getSwiftFilesRecursively: Directory does not exist: ${dir}`);
+      return [];
+    }
+    const stat = fs.statSync(dir);
+    if (!stat.isDirectory()) {
+      console.warn(`getSwiftFilesRecursively: Path is not a directory: ${dir}`);
+      return [];
+    }
+  } catch (err) {
+    console.warn(`getSwiftFilesRecursively: Cannot access directory ${dir}: ${err.message}`);
+    return [];
+  }
+
   let files = [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`getSwiftFilesRecursively: Cannot read directory ${dir}: ${err.message}`);
+    return [];
+  }
+
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     const relativePath = basePath ? path.join(basePath, entry.name) : entry.name;
@@ -138,10 +170,16 @@ function withShareExtensionTarget(config) {
     const mainAppGroupKey = xcodeProject.findPBXGroupKey({ name: appName });
     const mainTarget = xcodeProject.getFirstTarget();
 
-    for (const file of nativeModuleFiles) {
+    const mainAppFiles = [...nativeModuleFiles, ...MAIN_APP_EXTRA_FILES];
+
+    for (const file of mainAppFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(appPath, file);
       if (fs.existsSync(srcPath)) {
+        const destDir = path.dirname(destPath);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
         fs.copyFileSync(srcPath, destPath);
         console.log(`Copied ${file} to ${appPath}`);
 
@@ -174,10 +212,20 @@ function withShareExtensionTarget(config) {
 
     // Get all Swift files recursively (excluding Tests directory)
     const swiftFiles = getSwiftFilesRecursively(pluginExtensionPath);
+
+    // Validate that we found Swift files - abort if none found
+    if (swiftFiles.length === 0) {
+      throw new Error(
+        `No Swift files found in ${pluginExtensionPath}. ` +
+          'Share Extension requires Swift source files to build.'
+      );
+    }
+
     const staticFiles = ['Info.plist', 'ShareExtension.entitlements'];
     const allFiles = [...swiftFiles, ...staticFiles];
 
-    // Copy files preserving directory structure
+    // Copy files preserving directory structure, tracking actual copies
+    let filesCopied = 0;
     for (const file of allFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(extensionPath, file);
@@ -190,9 +238,12 @@ function withShareExtensionTarget(config) {
 
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
+        filesCopied++;
+      } else {
+        console.warn(`Share Extension: Missing source file: ${srcPath}`);
       }
     }
-    console.log(`Copied ${swiftFiles.length} Swift files to ${extensionPath}`);
+    console.log(`Copied ${filesCopied} files to ${extensionPath}`);
 
     // Create PBXNativeTarget for extension
     const target = xcodeProject.addTarget(
