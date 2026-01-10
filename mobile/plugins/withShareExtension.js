@@ -226,7 +226,9 @@ function withShareExtensionTarget(config) {
       'app_extension',
       EXTENSION_NAME
     );
-    console.log(`Added Sources build phase with ${swiftFilePaths.length} files to ${EXTENSION_NAME}`);
+    console.log(
+      `Added Sources build phase with ${swiftFilePaths.length} files to ${EXTENSION_NAME}`
+    );
 
     // Configure build settings for extension
     // Note on quoting: Values containing spaces, special chars, or Xcode variables like

@@ -627,7 +627,10 @@ export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promi
 
   await queueLock.acquire();
   try {
-    const queue = await readQueue();
+    // Read queue directly (don't use readQueue() which swallows errors)
+    // Let AsyncStorage/JSON errors propagate so caller knows merge failed
+    const data = await AsyncStorage.getItem(SHARE_QUEUE_KEY);
+    const queue: QueuedShare[] = data ? JSON.parse(data) : [];
     let addedCount = 0;
     let hasUpdates = false;
 
