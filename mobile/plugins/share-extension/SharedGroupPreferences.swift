@@ -75,4 +75,67 @@ class SharedGroupPreferences: NSObject {
         userDefaults.removeObject(forKey: "SharedURLTimestamp")
         resolve(nil)
     }
+
+    /// Get the offline share queue from App Group UserDefaults
+    /// Returns JSON string with queue items, or nil if empty/unavailable
+    @objc
+    func getOfflineQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            resolve(nil)
+            return
+        }
+
+        guard let data = userDefaults.data(forKey: "OfflineShareQueue") else {
+            resolve(nil)
+            return
+        }
+
+        // Decode the Swift queue format
+        let decoder = JSONDecoder()
+        guard let shares = try? decoder.decode([QueuedShare].self, from: data) else {
+            // Could not decode, queue may be corrupted or empty
+            resolve(nil)
+            return
+        }
+
+        // Convert to JS-compatible format
+        // Swift Date default encoding is seconds since reference date (Jan 1, 2001)
+        // JS expects milliseconds since epoch (Jan 1, 1970)
+        let jsShares = shares.map { share -> [String: Any?] in
+            // Convert Swift Date to JS milliseconds since epoch
+            let timestampMs = share.timestamp.timeIntervalSince1970 * 1000
+
+            return [
+                "id": share.id,
+                "url": share.url,
+                "caption": share.caption,
+                "timestamp": timestampMs,
+                "reason": share.reason.rawValue,
+                "selectedTripId": share.selectedTripId,
+                "entryType": share.entryType?.rawValue,
+                "notes": share.notes
+            ]
+        }
+
+        // Serialize to JSON string for React Native
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: jsShares),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            resolve(nil)
+            return
+        }
+
+        resolve(jsonString)
+    }
+
+    /// Clear the offline share queue from App Group UserDefaults
+    @objc
+    func clearOfflineQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            resolve(nil)
+            return
+        }
+
+        userDefaults.removeObject(forKey: "OfflineShareQueue")
+        resolve(nil)
+    }
 }

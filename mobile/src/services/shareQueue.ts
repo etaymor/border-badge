@@ -36,10 +36,10 @@
  * - Share extension queues to Swift queue -> may not be processed by main app
  * - Main app queues to TypeScript queue -> processed correctly on retry
  *
- * TODO: Implement native bridge to sync Swift queue to TypeScript queue
- * This requires adding `react-native-shared-group-preferences` or a custom
- * native module to read App Group UserDefaults from React Native.
- * See: todos/014-ready-p2-dual-queue-systems.md
+ * RESOLVED: The native bridge is now implemented via SharedGroupPreferences
+ * native module. The syncOfflineQueueFromExtension() function in
+ * shareExtensionBridge.ts reads the Swift queue and calls mergeFromExtension()
+ * in this file to sync items to the TypeScript queue.
  * ============================================================================
  */
 
@@ -566,5 +566,111 @@ export async function retrySingleShare(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await markRetryAttempt(id, errorMessage);
     return 'failed';
+  }
+}
+
+// ============================================================================
+// SWIFT QUEUE BRIDGE
+// ============================================================================
+
+/**
+ * Swift QueuedShare format (from App Group via SharedGroupPreferences native module)
+ * This matches the JSON structure returned by SharedGroupPreferences.getOfflineQueue()
+ */
+export interface SwiftQueuedShare {
+  id: string;
+  url: string;
+  caption: string | null;
+  timestamp: number; // milliseconds since epoch
+  reason: 'unauthenticated' | 'networkError' | 'serverError' | 'timeout';
+  selectedTripId: string | null;
+  entryType: EntryType | null;
+  notes: string | null;
+}
+
+/**
+ * Convert Swift queue reason to error message
+ */
+function reasonToError(reason: string): string {
+  switch (reason) {
+    case 'unauthenticated':
+      return 'Queued while not signed in';
+    case 'networkError':
+      return 'Network error';
+    case 'serverError':
+      return 'Server error';
+    case 'timeout':
+      return 'Request timed out';
+    default:
+      return 'Queued from share extension';
+  }
+}
+
+/**
+ * Merge shares from iOS Share Extension into the TypeScript queue.
+ * Deduplicates by URL (keeps the most recent).
+ * Uses locking to prevent race conditions.
+ *
+ * Called by syncOfflineQueueFromExtension() in shareExtensionBridge.ts
+ * after reading the Swift queue via the SharedGroupPreferences native module.
+ *
+ * @param swiftShares - Array of shares from the Swift offline queue
+ * @returns Number of new items added (not counting duplicates that were updated)
+ */
+export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promise<number> {
+  if (!swiftShares.length) return 0;
+
+  await queueLock.acquire();
+  try {
+    const queue = await readQueue();
+    let addedCount = 0;
+
+    for (const swiftShare of swiftShares) {
+      // Skip expired items (7 days)
+      const ageMs = Date.now() - swiftShare.timestamp;
+      if (ageMs > EXPIRY_DAYS * 24 * 60 * 60 * 1000) {
+        continue;
+      }
+
+      // Check for existing item with same URL
+      const existingIndex = queue.findIndex((s) => s.url === swiftShare.url);
+
+      // Convert to TypeScript format
+      const tsShare: QueuedShare = {
+        id: swiftShare.id,
+        url: swiftShare.url,
+        source: 'share_extension',
+        tripId: swiftShare.selectedTripId ?? undefined,
+        entryType: swiftShare.entryType ?? undefined,
+        notes: swiftShare.notes ?? undefined,
+        createdAt: swiftShare.timestamp,
+        retryCount: 0,
+        lastRetryAt: null,
+        error: reasonToError(swiftShare.reason),
+      };
+
+      if (existingIndex !== -1) {
+        // Keep the more recent one
+        if (swiftShare.timestamp > queue[existingIndex].createdAt) {
+          queue[existingIndex] = tsShare;
+        }
+        // Don't increment addedCount for duplicates
+      } else {
+        queue.push(tsShare);
+        addedCount++;
+      }
+    }
+
+    // Write queue if anything changed
+    if (addedCount > 0) {
+      await writeQueue(queue);
+    }
+
+    return addedCount;
+  } catch (error) {
+    console.error('Failed to merge shares from extension:', error);
+    return 0;
+  } finally {
+    queueLock.release();
   }
 }

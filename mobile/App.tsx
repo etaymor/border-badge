@@ -52,6 +52,7 @@ import {
   isCurrentlyProcessing,
   markAsProcessing,
   syncApiUrlToAppGroup,
+  syncOfflineQueueFromExtension,
 } from '@services/shareExtensionBridge';
 import { env } from '@config/env';
 import { supabase } from '@services/supabase';
@@ -143,10 +144,16 @@ export default function App() {
   }, [syncState.error]);
 
   // Initialize analytics and sync API URL to App Group for Share Extension
+  // Note: The share extension has a production URL fallback if this hasn't completed yet,
+  // but we sync eagerly on app start to ensure development builds hit the correct server.
   useEffect(() => {
     void initAnalytics();
     // Sync API URL to App Group so Share Extension can use it
-    void syncApiUrlToAppGroup(env.apiUrl);
+    // This is awaited internally but we don't block app initialization on it
+    // since the Share Extension has a fallback to production URL if not set
+    syncApiUrlToAppGroup(env.apiUrl).catch((error) => {
+      console.error('Failed to sync API URL to App Group:', error);
+    });
   }, []);
 
   // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
@@ -256,18 +263,23 @@ export default function App() {
   // Track app_opened when app comes to foreground and check for shared URLs
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      // Track when app comes to foreground (only if user is authenticated)
-      if (
-        appStateRef.current.match(/inactive|background/) &&
-        nextAppState === 'active' &&
-        session?.user?.id
-      ) {
-        // Generate new session ID for this foreground event
-        sessionIdRef.current = generateSessionId();
-        Analytics.appOpened(sessionIdRef.current);
+      // When app comes to foreground
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        // Sync offline queue from Share Extension (runs regardless of auth state)
+        // Items will be available for processing once user is authenticated
+        syncOfflineQueueFromExtension().catch((error) => {
+          console.error('Failed to sync offline queue from extension:', error);
+        });
 
-        // Check for URLs shared via Share Extension while app was in background
-        void checkAppGroupForSharedURL();
+        // Track analytics and check for immediate shares (only if authenticated)
+        if (session?.user?.id) {
+          // Generate new session ID for this foreground event
+          sessionIdRef.current = generateSessionId();
+          Analytics.appOpened(sessionIdRef.current);
+
+          // Check for URLs shared via Share Extension while app was in background
+          void checkAppGroupForSharedURL();
+        }
       }
       appStateRef.current = nextAppState;
     };

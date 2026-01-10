@@ -19,17 +19,13 @@
  *    - Storage: AsyncStorage with key 'share_queue'
  *    - Used by: Main React Native app for retry logic
  *
- * These queues DO NOT communicate with each other. Items queued here (Swift)
- * are stored in App Group UserDefaults, which React Native cannot read directly.
+ * These queues now communicate via the SharedGroupPreferences native module.
+ * The main app syncs this Swift queue to its AsyncStorage queue on every
+ * app foreground via syncOfflineQueueFromExtension() in shareExtensionBridge.ts.
  *
  * CURRENT BEHAVIOR:
- * - Items queued here may not be automatically processed by the main app
- * - The main app has its own queue in AsyncStorage for its retry logic
- *
- * TODO: Implement native bridge to sync this queue to the TypeScript queue
- * This requires adding `react-native-shared-group-preferences` or a custom
- * native module to read App Group UserDefaults from React Native.
- * See: todos/014-ready-p2-dual-queue-systems.md
+ * - Items queued here are synced to the TypeScript queue when the main app foregrounds
+ * - The main app's retry logic processes all queued items (from both queues)
  * ============================================================================
  */
 
@@ -37,6 +33,8 @@ import Foundation
 
 enum OfflineQueueService {
     /// Add a URL to the offline queue
+    /// - Returns: True if the share was successfully queued, false if storage failed
+    @discardableResult
     static func queueShare(
         url: String,
         caption: String? = nil,
@@ -46,7 +44,7 @@ enum OfflineQueueService {
         selectedPlace: DetectedPlace? = nil,
         entryType: EntryType? = nil,
         notes: String? = nil
-    ) {
+    ) -> Bool {
         let share = QueuedShare(
             url: url,
             caption: caption,
@@ -58,8 +56,13 @@ enum OfflineQueueService {
             notes: notes
         )
 
-        AppGroupStorage.addToOfflineQueue(share)
-        NSLog("[Atlasi OfflineQueue] Queued share: \(url) reason: \(reason.rawValue)")
+        let success = AppGroupStorage.addToOfflineQueue(share)
+        if success {
+            NSLog("[Atlasi OfflineQueue] Queued share: \(url) reason: \(reason.rawValue)")
+        } else {
+            NSLog("[Atlasi OfflineQueue] Failed to queue share: \(url)")
+        }
+        return success
     }
 
     /// Get the current queue
