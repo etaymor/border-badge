@@ -36,7 +36,9 @@ enum APIError: Error, LocalizedError {
 
     var isRetryable: Bool {
         switch self {
-        case .networkError, .timeout, .serverError(let code, _):
+        case .networkError, .timeout:
+            return true
+        case .serverError(let code, _):
             return code >= 500
         default:
             return false

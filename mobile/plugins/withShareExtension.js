@@ -25,8 +25,13 @@ const APP_BUNDLE_ID = 'com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const ASSOCIATED_DOMAIN = 'atlasi.app';
 
+// Files that are React Native native modules - these should only be in the main app target,
+// not in the ShareExtension target (which doesn't link to React Native)
+const MAIN_APP_ONLY_FILES = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
+
 /**
- * Recursively find all Swift files in a directory, excluding Tests folder.
+ * Recursively find all Swift files in a directory, excluding Tests folder
+ * and files that should only be in the main app target.
  * @param {string} dir - The directory to search
  * @param {string} basePath - The relative path from the root (for recursion)
  * @returns {string[]} - Array of relative file paths
@@ -43,7 +48,10 @@ function getSwiftFilesRecursively(dir, basePath = '') {
         files = files.concat(getSwiftFilesRecursively(fullPath, relativePath));
       }
     } else if (entry.name.endsWith('.swift')) {
-      files.push(relativePath);
+      // Skip files that should only be in the main app target (React Native native modules)
+      if (!MAIN_APP_ONLY_FILES.includes(entry.name)) {
+        files.push(relativePath);
+      }
     }
   }
   return files;

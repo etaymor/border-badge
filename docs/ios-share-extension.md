@@ -195,6 +195,37 @@ cd mobile
 eas build --platform ios --profile production
 ```
 
+### Preflight build checks (fast failure before EAS)
+
+Run these locally (or in CI) after dependencies are installed to catch Swift/share-extension issues before a full EAS upload.
+
+**Share extension-only compile (no code signing, Simulator):**
+```bash
+cd mobile/ios
+xcodebuild \
+  -workspace Atlasi.xcworkspace \
+  -scheme ShareExtension \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  CODE_SIGNING_ALLOWED=NO \
+  SKIP_INSTALL=NO \
+  build
+```
+- Fastest check; fails on Swift or asset errors in the extension without needing provisioning.
+
+**Full Debug archive (mirrors EAS path):**
+```bash
+cd mobile/ios
+xcodebuild \
+  -workspace Atlasi.xcworkspace \
+  -scheme Atlasi \
+  -configuration Debug \
+  -destination 'generic/platform=iOS' \
+  -archivePath /tmp/Atlasi-Debug.xcarchive \
+  archive
+```
+- Matches the EAS Debug archive flow to surface signing or packaging issues earlier.
+
 ### Local Development (Optional)
 
 If you need to debug the native code:

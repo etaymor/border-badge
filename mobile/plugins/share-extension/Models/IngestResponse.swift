@@ -120,7 +120,7 @@ struct SocialIngestRequest: Codable {
 
 // MARK: - Social Ingest Response
 
-struct SocialIngestResponse: Codable {
+struct SocialIngestResponse: Codable, Equatable {
     let provider: SocialProvider
     let canonicalUrl: String
     let thumbnailUrl: String?

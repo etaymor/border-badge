@@ -115,12 +115,22 @@ private struct NotesField: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(text: "Notes (optional)")
 
-            TextField("Add a note...", text: $notes, axis: .vertical)
-                .font(.system(size: 16))
-                .foregroundColor(BrandColors.midnightNavy)
-                .lineLimit(3...6)
-                .padding(16)
-                .glassInput()
+            if #available(iOS 16.0, *) {
+                TextField("Add a note...", text: $notes, axis: .vertical)
+                    .font(.system(size: 16))
+                    .foregroundColor(BrandColors.midnightNavy)
+                    .lineLimit(3...6)
+                    .padding(16)
+                    .glassInput()
+            } else {
+                // Fallback for iOS 15 where multiline TextField axis API is unavailable
+                TextEditor(text: $notes)
+                    .font(.system(size: 16))
+                    .foregroundColor(BrandColors.midnightNavy)
+                    .frame(minHeight: 80, maxHeight: 140)
+                    .padding(16)
+                    .glassInput()
+            }
         }
     }
 }

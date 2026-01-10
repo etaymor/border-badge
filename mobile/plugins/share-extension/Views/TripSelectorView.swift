@@ -54,40 +54,74 @@ struct TripSelectorView: View {
             .buttonStyle(.plain)
         }
         .sheet(isPresented: $isShowingSheet) {
-            TripSelectionSheet(
-                selectedTripId: $selectedTripId,
-                countryCode: countryCode,
-                viewModel: viewModel,
-                onTripSelected: { tripId in
-                    onTripSelected(tripId)
-                    isShowingSheet = false
-                },
-                onCreateTrip: {
-                    isShowingCreateForm = true
-                },
-                onDismiss: {
-                    isShowingSheet = false
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            if #available(iOS 16.0, *) {
+                TripSelectionSheet(
+                    selectedTripId: $selectedTripId,
+                    countryCode: countryCode,
+                    viewModel: viewModel,
+                    onTripSelected: { tripId in
+                        onTripSelected(tripId)
+                        isShowingSheet = false
+                    },
+                    onCreateTrip: {
+                        isShowingCreateForm = true
+                    },
+                    onDismiss: {
+                        isShowingSheet = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            } else {
+                TripSelectionSheet(
+                    selectedTripId: $selectedTripId,
+                    countryCode: countryCode,
+                    viewModel: viewModel,
+                    onTripSelected: { tripId in
+                        onTripSelected(tripId)
+                        isShowingSheet = false
+                    },
+                    onCreateTrip: {
+                        isShowingCreateForm = true
+                    },
+                    onDismiss: {
+                        isShowingSheet = false
+                    }
+                )
+            }
         }
         .sheet(isPresented: $isShowingCreateForm) {
-            InlineTripFormView(
-                countryCode: countryCode,
-                viewModel: viewModel,
-                onTripCreated: { tripId in
-                    selectedTripId = tripId
-                    onTripSelected(tripId)
-                    isShowingCreateForm = false
-                    isShowingSheet = false
-                },
-                onCancel: {
-                    isShowingCreateForm = false
-                }
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            if #available(iOS 16.0, *) {
+                InlineTripFormView(
+                    countryCode: countryCode,
+                    viewModel: viewModel,
+                    onTripCreated: { tripId in
+                        selectedTripId = tripId
+                        onTripSelected(tripId)
+                        isShowingCreateForm = false
+                        isShowingSheet = false
+                    },
+                    onCancel: {
+                        isShowingCreateForm = false
+                    }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+            } else {
+                InlineTripFormView(
+                    countryCode: countryCode,
+                    viewModel: viewModel,
+                    onTripCreated: { tripId in
+                        selectedTripId = tripId
+                        onTripSelected(tripId)
+                        isShowingCreateForm = false
+                        isShowingSheet = false
+                    },
+                    onCancel: {
+                        isShowingCreateForm = false
+                    }
+                )
+            }
         }
         .onAppear {
             if viewModel.trips.isEmpty {
