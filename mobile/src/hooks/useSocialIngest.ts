@@ -5,6 +5,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
+import { AxiosError } from 'axios';
 
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
@@ -135,6 +136,45 @@ export function useSocialIngest() {
 }
 
 /**
+ * Extract a user-friendly error message from an axios error response.
+ * Handles Pydantic validation errors (422) specially to show field-level details.
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError && error.response) {
+    const { status, data } = error.response;
+
+    // Handle 422 validation errors (Pydantic)
+    if (status === 422 && data?.detail) {
+      // Pydantic returns errors as array of {loc, msg, type}
+      if (Array.isArray(data.detail)) {
+        const fieldErrors = data.detail
+          .map((err: { loc?: string[]; msg?: string }) => {
+            const field = err.loc?.slice(1).join('.') || 'unknown';
+            return `${field}: ${err.msg || 'invalid'}`;
+          })
+          .join(', ');
+        return `Validation error: ${fieldErrors}`;
+      }
+      // Handle string detail
+      if (typeof data.detail === 'string') {
+        return data.detail;
+      }
+    }
+
+    // Handle other HTTP errors with detail message
+    if (data?.detail && typeof data.detail === 'string') {
+      return data.detail;
+    }
+
+    // Fallback to status text
+    return `Request failed (${status})`;
+  }
+
+  // Generic error message
+  return error instanceof Error ? error.message : 'Failed to save to trip';
+}
+
+/**
  * Mutation to save social ingest data to a trip as an entry.
  */
 export function useSaveToTrip() {
@@ -159,7 +199,7 @@ export function useSaveToTrip() {
       queryClient.invalidateQueries({ queryKey: ['trips'] });
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to save to trip';
+      const message = getErrorMessage(error);
       Alert.alert('Error', message);
     },
   });
