@@ -1,15 +1,46 @@
 """Place endpoints."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.schemas.entries import Place
+from app.services.place_extractor.google_places_client import (
+    is_configured as google_places_configured,
+)
+from app.services.place_extractor.google_places_client import (
+    search_places,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+
+
+# --- Autocomplete schemas ---
+
+
+class PlaceAutocompleteRequest(BaseModel):
+    """Request for place autocomplete search."""
+
+    query: str = Field(..., min_length=2, max_length=200)
+    country_code: str | None = Field(None, min_length=2, max_length=2)
+
+
+class PlacePrediction(BaseModel):
+    """Autocomplete prediction result."""
+
+    place_id: str
+    main_text: str
+    secondary_text: str | None = None
+    types: list[str] = Field(default_factory=list)
 
 
 @router.get("/{place_id}", response_model=Place)
@@ -30,3 +61,53 @@ async def get_place(
         )
 
     return Place(**places[0])
+
+
+@router.post("/autocomplete", response_model=list[PlacePrediction])
+@limiter.limit("30/minute")
+async def autocomplete_places(
+    request: Request,
+    body: PlaceAutocompleteRequest,
+    user: CurrentUser,
+) -> list[PlacePrediction]:
+    """Search for places using Google Places Autocomplete.
+
+    This endpoint is used by the iOS share extension for location search.
+    It wraps the Google Places API to keep the API key server-side.
+
+    Args:
+        body: Search query and optional country code bias
+
+    Returns:
+        List of place predictions with IDs for later details lookup
+    """
+    if not google_places_configured():
+        logger.warning("places_autocomplete_not_configured")
+        return []
+
+    try:
+        results = await search_places(
+            query=body.query,
+            country_code=body.country_code,
+        )
+
+        predictions = []
+        for result in results:
+            place_id = result.get("place_id")
+            if not place_id:
+                continue
+
+            predictions.append(
+                PlacePrediction(
+                    place_id=place_id,
+                    main_text=result.get("name", ""),
+                    secondary_text=result.get("address"),
+                    types=[],  # Types not available in autocomplete, get from details
+                )
+            )
+
+        return predictions
+
+    except Exception as e:
+        logger.error(f"places_autocomplete_error: {type(e).__name__}: {e}")
+        return []

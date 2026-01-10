@@ -300,3 +300,22 @@ export async function completeAppGroupShare(url: string): Promise<void> {
   await markShareProcessed(url);
   await clearSharedURLFromAppGroup();
 }
+
+/**
+ * Sync the API base URL to App Group storage for the Share Extension to use.
+ * This should be called on app startup to ensure the extension has the correct URL.
+ *
+ * @param apiUrl - The API base URL (from EXPO_PUBLIC_API_URL)
+ */
+export async function syncApiUrlToAppGroup(apiUrl: string): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+
+  const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
+  if (!SharedGroupPreferences) return;
+
+  try {
+    await SharedGroupPreferences.setItem('API_BASE_URL', apiUrl);
+  } catch (error) {
+    console.error('Failed to sync API URL to App Group:', error);
+  }
+}

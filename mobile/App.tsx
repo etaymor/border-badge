@@ -46,7 +46,9 @@ import {
   wasRecentlyProcessed,
   isCurrentlyProcessing,
   markAsProcessing,
+  syncApiUrlToAppGroup,
 } from '@services/shareExtensionBridge';
+import { env } from '@config/env';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import {
@@ -135,9 +137,11 @@ export default function App() {
     }
   }, [syncState.error]);
 
-  // Initialize analytics
+  // Initialize analytics and sync API URL to App Group for Share Extension
   useEffect(() => {
     void initAnalytics();
+    // Sync API URL to App Group so Share Extension can use it
+    void syncApiUrlToAppGroup(env.apiUrl);
   }, []);
 
   // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.

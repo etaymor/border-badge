@@ -2,19 +2,19 @@
  * ShareViewController - iOS Share Extension for Atlasi
  *
  * This extension receives shared URLs from TikTok, Instagram, and other apps,
- * saves them to App Group storage, and prompts the user to open the main app.
+ * and presents a full capture form to save places directly from the share sheet.
  *
  * Flow:
  * 1. User taps Share in TikTok/Instagram
  * 2. Selects "Atlasi" from share sheet
  * 3. Extension extracts URL from shared content
- * 4. Writes URL to App Group shared storage
- * 5. Shows branded confirmation with "Open Atlasi" button
- * 6. User taps button to dismiss, then opens main app manually
- * 7. Main app reads URL from App Group on foreground
+ * 4. If authenticated: Shows full capture form (SwiftUI)
+ * 5. If not authenticated: Queues for later and shows message
+ * 6. User completes form and saves directly to trip
  */
 
 import UIKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 class ShareViewController: UIViewController {
@@ -32,235 +32,25 @@ class ShareViewController: UIViewController {
     /// Custom URL scheme for opening the main app
     private let customSchemeBase = "atlasi://share"
 
-    /// The shared URL to pass to the main app
+    /// The shared URL to process
     private var sharedURL: String?
 
-    // MARK: - Brand Colors
+    /// The caption text if available
+    private var captionText: String?
 
-    private let warmCream = UIColor(red: 253/255, green: 246/255, blue: 237/255, alpha: 1.0)
-    private let midnightNavy = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 1.0)
-    private let mossGreen = UIColor(red: 84/255, green: 122/255, blue: 95/255, alpha: 1.0)
-    private let paperBeige = UIColor(red: 245/255, green: 236/255, blue: 224/255, alpha: 1.0)
-
-    // MARK: - UI Elements
-
-    private lazy var containerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = warmCream
-        view.layer.cornerRadius = 20
-        view.layer.shadowColor = midnightNavy.cgColor
-        view.layer.shadowOpacity = 0.15
-        view.layer.shadowOffset = CGSize(width: 0, height: 4)
-        view.layer.shadowRadius = 16
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private lazy var activityIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.color = midnightNavy
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.startAnimating()
-        return indicator
-    }()
-
-    private lazy var loadingLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Saving place..."
-        label.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        label.textColor = midnightNavy
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-
-    private lazy var checkmarkIcon: UIImageView = {
-        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
-        let image = UIImage(systemName: "checkmark.circle.fill", withConfiguration: config)
-        let imageView = UIImageView(image: image)
-        imageView.tintColor = mossGreen
-        imageView.contentMode = .scaleAspectFit
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
-        return imageView
-    }()
-
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Place Saved!"
-        label.font = UIFont.systemFont(ofSize: 22, weight: .bold)
-        label.textColor = midnightNavy
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.isHidden = true
-        return label
-    }()
-
-    private lazy var subtitleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Open Atlasi to add it to a trip"
-        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        label.textColor = midnightNavy.withAlphaComponent(0.6)
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.isHidden = true
-        return label
-    }()
-
-    private lazy var openButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle("Open Atlasi", for: .normal)
-        button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-        button.backgroundColor = mossGreen
-        button.layer.cornerRadius = 12
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(openAtlasiTapped), for: .touchUpInside)
-        button.isHidden = true
-        return button
-    }()
-
-    private lazy var cancelButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle("Not now", for: .normal)
-        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
-        button.isHidden = true
-        return button
-    }()
-
-    private lazy var errorIcon: UIImageView = {
-        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
-        let image = UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: config)
-        let imageView = UIImageView(image: image)
-        imageView.tintColor = UIColor(red: 193/255, green: 84/255, blue: 62/255, alpha: 1.0) // adobeBrick
-        imageView.contentMode = .scaleAspectFit
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
-        return imageView
-    }()
-
-    private lazy var errorLabel: UILabel = {
-        let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        label.textColor = midnightNavy
-        label.textAlignment = .center
-        label.numberOfLines = 2
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.isHidden = true
-        return label
-    }()
-
-    private lazy var dismissButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle("Dismiss", for: .normal)
-        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
-        button.isHidden = true
-        return button
-    }()
+    /// SwiftUI hosting controller
+    private var hostingController: UIHostingController<ShareCaptureView>?
 
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
+        view.backgroundColor = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 0.4)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         handleSharedContent()
-    }
-
-    // MARK: - UI Setup
-
-    private func setupUI() {
-        // Semi-transparent overlay with brand tint
-        view.backgroundColor = midnightNavy.withAlphaComponent(0.4)
-
-        // Add container card
-        view.addSubview(containerView)
-
-        // Add loading elements
-        containerView.addSubview(activityIndicator)
-        containerView.addSubview(loadingLabel)
-
-        // Add success elements
-        containerView.addSubview(checkmarkIcon)
-        containerView.addSubview(titleLabel)
-        containerView.addSubview(subtitleLabel)
-        containerView.addSubview(openButton)
-        containerView.addSubview(cancelButton)
-
-        // Add error elements
-        containerView.addSubview(errorIcon)
-        containerView.addSubview(errorLabel)
-        containerView.addSubview(dismissButton)
-
-        NSLayoutConstraint.activate([
-            // Container centered in view
-            containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            containerView.widthAnchor.constraint(equalToConstant: 280),
-
-            // Loading state
-            activityIndicator.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            activityIndicator.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 32),
-
-            loadingLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 16),
-            loadingLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            loadingLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-            loadingLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -32),
-
-            // Success state
-            checkmarkIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            checkmarkIcon.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
-            checkmarkIcon.widthAnchor.constraint(equalToConstant: 56),
-            checkmarkIcon.heightAnchor.constraint(equalToConstant: 56),
-
-            titleLabel.topAnchor.constraint(equalTo: checkmarkIcon.bottomAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            subtitleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            subtitleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-
-            openButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
-            openButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            openButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-            openButton.heightAnchor.constraint(equalToConstant: 50),
-
-            cancelButton.topAnchor.constraint(equalTo: openButton.bottomAnchor, constant: 12),
-            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
-
-            // Error state
-            errorIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            errorIcon.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
-            errorIcon.widthAnchor.constraint(equalToConstant: 56),
-            errorIcon.heightAnchor.constraint(equalToConstant: 56),
-
-            errorLabel.topAnchor.constraint(equalTo: errorIcon.bottomAnchor, constant: 16),
-            errorLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
-            errorLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-
-            dismissButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 20),
-            dismissButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            dismissButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
-        ])
-
-        // Animate in
-        containerView.alpha = 0
-        containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
-            self.containerView.alpha = 1
-            self.containerView.transform = .identity
-        }
     }
 
     // MARK: - Content Handling
@@ -269,7 +59,7 @@ class ShareViewController: UIViewController {
     private func handleSharedContent() {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
               let attachments = extensionItem.attachments else {
-            showError("No content to share")
+            showFallbackUI(error: "No content to share")
             return
         }
 
@@ -305,10 +95,17 @@ class ShareViewController: UIViewController {
             if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                 attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, error in
                     DispatchQueue.main.async {
-                        if let text = item as? String, let url = self?.extractURL(from: text) {
-                            self?.processURL(url)
+                        if let text = item as? String {
+                            // Store the full text as potential caption
+                            self?.captionText = text
+
+                            if let url = self?.extractURL(from: text) {
+                                self?.processURL(url)
+                            } else {
+                                self?.showFallbackUI(error: "No URL found")
+                            }
                         } else {
-                            self?.showError("No URL found")
+                            self?.showFallbackUI(error: "No URL found")
                         }
                     }
                 }
@@ -317,15 +114,13 @@ class ShareViewController: UIViewController {
         }
 
         // No usable content found
-        showError("No URL found")
+        showFallbackUI(error: "No URL found")
     }
 
     // MARK: - URL Extraction
 
     /// Extract the first URL from a text string
-    /// Handles various URL formats from TikTok and Instagram
     private func extractURL(from text: String) -> String? {
-        // Pattern matches http/https URLs with common URL characters
         let urlPattern = "https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+"
 
         guard let regex = try? NSRegularExpression(pattern: urlPattern, options: .caseInsensitive) else {
@@ -343,24 +138,33 @@ class ShareViewController: UIViewController {
 
     // MARK: - URL Processing
 
-    /// Process and save the extracted URL
+    /// Process and show the capture form
     private func processURL(_ urlString: String) {
-        // Store for later use when opening the app
         sharedURL = urlString
 
-        // Save to App Group UserDefaults as backup
-        // The main app will read this on next foreground if Universal Link fails
-        if !saveToAppGroup(urlString) {
-            showError("Unable to save place")
-            return
-        }
+        // Save to App Group as backup
+        saveToAppGroup(urlString)
 
-        // Show success UI
-        showSuccess()
+        // Check authentication status
+        let authState = AuthService.checkAuthState()
+
+        switch authState {
+        case .authenticated:
+            // Show full SwiftUI capture form
+            showCaptureForm(url: urlString)
+
+        case .unauthenticated, .expired:
+            // Queue for later and show message
+            OfflineQueueService.queueShare(
+                url: urlString,
+                caption: captionText,
+                reason: .unauthenticated
+            )
+            showUnauthenticatedUI()
+        }
     }
 
     /// Save URL to App Group for backup access
-    /// Returns true if save succeeded, false if App Group is unavailable
     @discardableResult
     private func saveToAppGroup(_ urlString: String) -> Bool {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
@@ -372,57 +176,223 @@ class ShareViewController: UIViewController {
         return true
     }
 
-    // MARK: - Success UI
+    // MARK: - SwiftUI Capture Form
 
-    /// Show success state with buttons
-    private func showSuccess() {
-        // Hide loading elements
-        activityIndicator.stopAnimating()
-        activityIndicator.isHidden = true
-        loadingLabel.isHidden = true
+    /// Show the full capture form
+    private func showCaptureForm(url: String) {
+        let captureView = ShareCaptureView(
+            url: url,
+            caption: captionText,
+            onDismiss: { [weak self] in
+                self?.completeRequest()
+            }
+        )
 
-        // Show success elements with animation
-        UIView.animate(withDuration: 0.3) {
-            self.checkmarkIcon.isHidden = false
-            self.titleLabel.isHidden = false
-            self.subtitleLabel.isHidden = false
-            self.openButton.isHidden = false
-            self.cancelButton.isHidden = false
+        let hostingController = UIHostingController(rootView: captureView)
+        hostingController.view.backgroundColor = .clear
 
-            self.checkmarkIcon.alpha = 1
-            self.titleLabel.alpha = 1
-            self.subtitleLabel.alpha = 1
-            self.openButton.alpha = 1
-            self.cancelButton.alpha = 1
+        addChild(hostingController)
+        view.addSubview(hostingController.view)
+
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+
+        hostingController.didMove(toParent: self)
+        self.hostingController = hostingController
+
+        // Animate in
+        hostingController.view.alpha = 0
+        UIView.animate(withDuration: 0.25) {
+            hostingController.view.alpha = 1
         }
     }
 
-    // MARK: - Error Handling
+    // MARK: - Fallback UI (for errors and unauthenticated state)
 
-    private func showError(_ message: String) {
-        // Hide loading elements
-        activityIndicator.stopAnimating()
-        activityIndicator.isHidden = true
-        loadingLabel.isHidden = true
+    private let warmCream = UIColor(red: 253/255, green: 246/255, blue: 237/255, alpha: 1.0)
+    private let midnightNavy = UIColor(red: 23/255, green: 42/255, blue: 58/255, alpha: 1.0)
+    private let mossGreen = UIColor(red: 84/255, green: 122/255, blue: 95/255, alpha: 1.0)
+    private let adobeBrick = UIColor(red: 193/255, green: 84/255, blue: 62/255, alpha: 1.0)
 
-        // Show error elements
-        errorLabel.text = message
-        UIView.animate(withDuration: 0.3) {
-            self.errorIcon.isHidden = false
-            self.errorLabel.isHidden = false
-            self.dismissButton.isHidden = false
+    /// Show UI for unauthenticated users
+    private func showUnauthenticatedUI() {
+        let containerView = createContainerView()
+        view.addSubview(containerView)
 
-            self.errorIcon.alpha = 1
-            self.errorLabel.alpha = 1
-            self.dismissButton.alpha = 1
+        // Checkmark icon (saved for later)
+        let iconView = UIImageView()
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
+        iconView.image = UIImage(systemName: "clock.badge.checkmark.fill", withConfiguration: config)
+        iconView.tintColor = mossGreen
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(iconView)
+
+        // Title
+        let titleLabel = UILabel()
+        titleLabel.text = "Saved for Later"
+        titleLabel.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+        titleLabel.textColor = midnightNavy
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(titleLabel)
+
+        // Subtitle
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Sign in to Atlasi to add this place to a trip"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.textColor = midnightNavy.withAlphaComponent(0.6)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 2
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(subtitleLabel)
+
+        // Open button
+        let openButton = createPrimaryButton(title: "Open Atlasi")
+        openButton.addTarget(self, action: #selector(openAtlasiTapped), for: .touchUpInside)
+        containerView.addSubview(openButton)
+
+        // Cancel button
+        let cancelButton = createSecondaryButton(title: "Not now")
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        containerView.addSubview(cancelButton)
+
+        NSLayoutConstraint.activate([
+            containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            containerView.widthAnchor.constraint(equalToConstant: 300),
+
+            iconView.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            iconView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
+            iconView.widthAnchor.constraint(equalToConstant: 56),
+            iconView.heightAnchor.constraint(equalToConstant: 56),
+
+            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 16),
+            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            subtitleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            subtitleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            openButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
+            openButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            openButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+            openButton.heightAnchor.constraint(equalToConstant: 50),
+
+            cancelButton.topAnchor.constraint(equalTo: openButton.bottomAnchor, constant: 12),
+            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20)
+        ])
+
+        animateContainerIn(containerView)
+    }
+
+    /// Show fallback UI for errors
+    private func showFallbackUI(error: String) {
+        let containerView = createContainerView()
+        view.addSubview(containerView)
+
+        // Error icon
+        let iconView = UIImageView()
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
+        iconView.image = UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: config)
+        iconView.tintColor = adobeBrick
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(iconView)
+
+        // Error message
+        let errorLabel = UILabel()
+        errorLabel.text = error
+        errorLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        errorLabel.textColor = midnightNavy
+        errorLabel.textAlignment = .center
+        errorLabel.numberOfLines = 2
+        errorLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(errorLabel)
+
+        // Dismiss button
+        let dismissButton = createSecondaryButton(title: "Dismiss")
+        dismissButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        containerView.addSubview(dismissButton)
+
+        NSLayoutConstraint.activate([
+            containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            containerView.widthAnchor.constraint(equalToConstant: 280),
+
+            iconView.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            iconView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 28),
+            iconView.widthAnchor.constraint(equalToConstant: 56),
+            iconView.heightAnchor.constraint(equalToConstant: 56),
+
+            errorLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 16),
+            errorLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+            errorLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+
+            dismissButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 20),
+            dismissButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            dismissButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20)
+        ])
+
+        animateContainerIn(containerView)
+    }
+
+    // MARK: - UI Helpers
+
+    private func createContainerView() -> UIView {
+        let containerView = UIView()
+        containerView.backgroundColor = warmCream
+        containerView.layer.cornerRadius = 20
+        containerView.layer.shadowColor = midnightNavy.cgColor
+        containerView.layer.shadowOpacity = 0.15
+        containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        containerView.layer.shadowRadius = 16
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        return containerView
+    }
+
+    private func createPrimaryButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        button.backgroundColor = mossGreen
+        button.layer.cornerRadius = 12
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+
+    private func createSecondaryButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setTitleColor(midnightNavy.withAlphaComponent(0.5), for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+
+    private func animateContainerIn(_ containerView: UIView) {
+        containerView.alpha = 0
+        containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+            containerView.alpha = 1
+            containerView.transform = .identity
         }
     }
 
     // MARK: - Button Actions
 
     @objc private func openAtlasiTapped() {
-        // Open the main app via custom URL scheme
         openMainApp()
+    }
+
+    @objc private func cancelTapped() {
+        completeRequest()
     }
 
     /// Open the main app using custom URL scheme
@@ -430,26 +400,16 @@ class ShareViewController: UIViewController {
         guard let sharedURL = sharedURL,
               let encodedURL = sharedURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let customSchemeURL = URL(string: "\(customSchemeBase)?url=\(encodedURL)") else {
-            // Fallback: just dismiss if URL construction fails
             completeRequest()
             return
         }
 
-        // Use extensionContext.open() with custom URL scheme
-        // Note: This requires LSApplicationQueriesSchemes in Info.plist to include "atlasi"
         extensionContext?.open(customSchemeURL) { [weak self] success in
             if !success {
-                print("ShareExtension: Failed to open URL: \(customSchemeURL)")
+                NSLog("[Atlasi ShareExtension] Failed to open URL: \(customSchemeURL)")
             }
-            // Complete the extension request after attempting to open
-            // The app will read the URL from App Group if this fails
             self?.completeRequest()
         }
-    }
-
-    @objc private func cancelTapped() {
-        // Just dismiss without any action
-        completeRequest()
     }
 
     // MARK: - Completion
@@ -458,8 +418,7 @@ class ShareViewController: UIViewController {
     private func completeRequest() {
         // Animate out
         UIView.animate(withDuration: 0.2, animations: {
-            self.containerView.alpha = 0
-            self.containerView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            self.view.subviews.forEach { $0.alpha = 0 }
             self.view.backgroundColor = UIColor.clear
         }) { _ in
             self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
