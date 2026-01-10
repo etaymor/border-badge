@@ -269,8 +269,14 @@ async def save_to_trip(
             "extra_data": extra_data,
         }
 
-    # Determine entry title: prefer place name, fall back to Instagram caption
-    entry_title = data.place.name if data.place else data.title or "Saved from social"
+    # Determine entry title: prefer place name, fall back to social media title (truncated to 2200 chars)
+    if data.place:
+        entry_title = data.place.name
+    elif data.title:
+        # Truncate to 2200 chars to match schema validation and Instagram caption limit
+        entry_title = data.title[:2200]
+    else:
+        entry_title = "Saved from social"
 
     # Build entry data for atomic operation
     entry_data = {
