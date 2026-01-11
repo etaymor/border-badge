@@ -21,7 +21,6 @@ const path = require('path');
 const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
 const APP_GROUP_ID = 'group.com.atlasi.app';
-const APP_BUNDLE_ID = 'com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const ASSOCIATED_DOMAIN = 'atlasi.app';
 
@@ -120,8 +119,11 @@ function getAppleTeamId() {
  * - App Groups: Sharing UserDefaults data between main app and Share Extension
  * - Keychain Access Groups: Sharing auth tokens between main app and Share Extension
  * - Associated Domains: Universal Links for Share Extension to open app via https URL
+ *
+ * @param {Object} config - Expo config object
+ * @param {string} bundleIdentifier - The app's bundle identifier (e.g., 'com.atlasi.app')
  */
-function withAppGroupEntitlement(config) {
+function withAppGroupEntitlement(config, bundleIdentifier) {
   return withEntitlementsPlist(config, (mod) => {
     // App Groups for sharing data with Share Extension
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
@@ -129,7 +131,7 @@ function withAppGroupEntitlement(config) {
     // Keychain Access Groups for sharing auth tokens with Share Extension
     // Uses $(AppIdentifierPrefix) which Xcode substitutes with TeamID. at build time
     // Must match the access group in ShareExtension.entitlements and KeychainHelper.swift
-    mod.modResults['keychain-access-groups'] = [`$(AppIdentifierPrefix)${APP_BUNDLE_ID}`];
+    mod.modResults['keychain-access-groups'] = [`$(AppIdentifierPrefix)${bundleIdentifier}`];
 
     // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
     mod.modResults['com.apple.developer.associated-domains'] = [`applinks:${ASSOCIATED_DOMAIN}`];
@@ -297,6 +299,34 @@ function withShareExtensionTarget(config) {
       // This handles cases where files were added/removed in plugins/share-extension/
       const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
       const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
+      const extensionGroupKey = xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME });
+
+      // Helper to check if a file reference path is plugin-managed
+      // Plugin-managed source files are under ShareExtension/ directory
+      const isPluginManagedSource = (fileRefPath) => {
+        if (!fileRefPath) return false;
+        return fileRefPath.startsWith(`${EXTENSION_NAME}/`) && fileRefPath.endsWith('.swift');
+      };
+
+      // Plugin-managed resource files are fonts under ShareExtension/Resources/Fonts/
+      const isPluginManagedResource = (fileRefPath) => {
+        if (!fileRefPath) return false;
+        return fileRefPath.startsWith(`${EXTENSION_NAME}/Resources/Fonts/`);
+      };
+
+      // Helper to get file path from a build file reference
+      const getFilePathFromBuildFile = (buildFileValue) => {
+        const buildFiles = xcodeProject.pbxBuildFileSection();
+        const buildFile = buildFiles[buildFileValue];
+        if (!buildFile || !buildFile.fileRef) return null;
+
+        const fileRefs = xcodeProject.pbxFileReferenceSection();
+        const fileRef = fileRefs[buildFile.fileRef];
+        if (!fileRef || !fileRef.path) return null;
+
+        // Remove quotes if present
+        return fileRef.path.replace(/^"(.*)"$/, '$1');
+      };
 
       // Find and update the Sources build phase
       const buildPhases = xcodeProject.pbxBuildPhaseObj(
@@ -304,19 +334,22 @@ function withShareExtensionTarget(config) {
         'PBXSourcesBuildPhase'
       );
       if (buildPhases) {
-        // Clear existing files and add current ones
         const sourcesBuildPhase = buildPhases.buildPhase;
         if (sourcesBuildPhase && sourcesBuildPhase.files) {
-          // Remove old file references from build phase
-          sourcesBuildPhase.files = [];
+          // Filter out only plugin-managed files, keeping user-owned files
+          const originalCount = sourcesBuildPhase.files.length;
+          sourcesBuildPhase.files = sourcesBuildPhase.files.filter((fileEntry) => {
+            const filePath = getFilePathFromBuildFile(fileEntry.value);
+            return !isPluginManagedSource(filePath);
+          });
+          const removedCount = originalCount - sourcesBuildPhase.files.length;
+          if (removedCount > 0) {
+            console.log(`Removed ${removedCount} plugin-managed source files from build phase`);
+          }
         }
-        // Re-add all Swift files to the Sources build phase
+        // Add all current Swift files (addSourceFile is idempotent for non-plugin files)
         for (const filePath of swiftFilePaths) {
-          xcodeProject.addSourceFile(
-            filePath,
-            { target: existingTarget.uuid },
-            xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME })
-          );
+          xcodeProject.addSourceFile(filePath, { target: existingTarget.uuid }, extensionGroupKey);
         }
         console.log(`Updated Sources build phase with ${swiftFilePaths.length} Swift files`);
       } else {
@@ -338,18 +371,22 @@ function withShareExtensionTarget(config) {
         'PBXResourcesBuildPhase'
       );
       if (resourcesBuildPhase) {
-        // Clear existing files and add current ones
         const resBuildPhase = resourcesBuildPhase.buildPhase;
         if (resBuildPhase && resBuildPhase.files) {
-          resBuildPhase.files = [];
+          // Filter out only plugin-managed font files, keeping user-owned resources
+          const originalCount = resBuildPhase.files.length;
+          resBuildPhase.files = resBuildPhase.files.filter((fileEntry) => {
+            const filePath = getFilePathFromBuildFile(fileEntry.value);
+            return !isPluginManagedResource(filePath);
+          });
+          const removedCount = originalCount - resBuildPhase.files.length;
+          if (removedCount > 0) {
+            console.log(`Removed ${removedCount} plugin-managed resource files from build phase`);
+          }
         }
-        // Re-add all font files to the Resources build phase
+        // Add all current font files
         for (const filePath of fontFilePaths) {
-          xcodeProject.addResourceFile(
-            filePath,
-            { target: existingTarget.uuid },
-            xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME })
-          );
+          xcodeProject.addResourceFile(filePath, { target: existingTarget.uuid }, extensionGroupKey);
         }
         console.log(`Updated Resources build phase with ${fontFilePaths.length} font files`);
       } else {
@@ -504,8 +541,11 @@ function withShareExtensionTarget(config) {
  * Main plugin function
  */
 function withShareExtension(config) {
-  // Add App Group entitlement to main app
-  config = withAppGroupEntitlement(config);
+  // Get bundle identifier from config, with fallback for safety
+  const bundleIdentifier = config.ios?.bundleIdentifier ?? 'com.atlasi.app';
+
+  // Add App Group entitlement to main app (uses dynamic bundle ID for keychain-access-groups)
+  config = withAppGroupEntitlement(config, bundleIdentifier);
 
   // Add Share Extension target
   config = withShareExtensionTarget(config);
