@@ -10,7 +10,10 @@ import Security
 
 enum KeychainHelper {
     /// Keychain service identifier used by expo-secure-store
-    private static let service = "app"
+    /// IMPORTANT: expo-secure-store appends ":no-auth" or ":auth" suffix based on requireAuthentication option
+    /// Since the main app stores tokens without requireAuthentication (defaults to false), it uses "app:no-auth"
+    /// See: node_modules/expo-secure-store/ios/SecureStoreModule.swift lines 173-176
+    private static let service = "app:no-auth"
 
     /// Key for the JWT access token
     private static let tokenKey = "auth_token"
