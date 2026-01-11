@@ -386,7 +386,11 @@ function withShareExtensionTarget(config) {
         }
         // Add all current font files
         for (const filePath of fontFilePaths) {
-          xcodeProject.addResourceFile(filePath, { target: existingTarget.uuid }, extensionGroupKey);
+          xcodeProject.addResourceFile(
+            filePath,
+            { target: existingTarget.uuid },
+            extensionGroupKey
+          );
         }
         console.log(`Updated Resources build phase with ${fontFilePaths.length} font files`);
       } else {
