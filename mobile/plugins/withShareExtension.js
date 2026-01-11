@@ -52,7 +52,7 @@ const MAIN_APP_EXTRA_FILES = ['Models/QueuedShareApp.swift'];
  * and files that should only be in the main app target.
  * @param {string} dir - The directory to search
  * @param {string} basePath - The relative path from the root (for recursion)
- * @returns {string[]} - Array of relative file paths
+ * @returns {string[]} - Array of relative file paths (always forward slashes for Xcode)
  */
 function getSwiftFilesRecursively(dir, basePath = '') {
   // Validate directory exists and is accessible
@@ -82,7 +82,8 @@ function getSwiftFilesRecursively(dir, basePath = '') {
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    const relativePath = basePath ? path.join(basePath, entry.name) : entry.name;
+    // Use path.posix.join to ensure forward slashes for Xcode (works on Windows too)
+    const relativePath = basePath ? path.posix.join(basePath, entry.name) : entry.name;
     if (entry.isDirectory()) {
       // Skip Tests directory - not needed in production build
       if (entry.name !== 'Tests') {
@@ -90,7 +91,10 @@ function getSwiftFilesRecursively(dir, basePath = '') {
       }
     } else if (entry.name.endsWith('.swift')) {
       // Skip files that should only be in the main app target (React Native native modules)
-      if (!MAIN_APP_ONLY_FILES.includes(entry.name)) {
+      // Check both the full relative path and just the filename for exclusion
+      const shouldExclude =
+        MAIN_APP_ONLY_FILES.includes(relativePath) || MAIN_APP_ONLY_FILES.includes(entry.name);
+      if (!shouldExclude) {
         files.push(relativePath);
       }
     }
@@ -247,34 +251,56 @@ function withShareExtensionTarget(config) {
     console.log(`Copied ${filesCopied} files to ${extensionPath}`);
 
     // Copy font files to extension Resources directory
+    // Track which fonts were actually copied for build phase accuracy
     const fontSrcDir = path.join(pluginExtensionPath, 'Resources', 'Fonts');
     const fontDestDir = path.join(extensionPath, 'Resources', 'Fonts');
     if (!fs.existsSync(fontDestDir)) {
       fs.mkdirSync(fontDestDir, { recursive: true });
     }
 
-    let fontsCopied = 0;
+    const copiedFonts = [];
+    const missingFonts = [];
     for (const fontFile of FONT_FILES) {
       const srcPath = path.join(fontSrcDir, fontFile);
       const destPath = path.join(fontDestDir, fontFile);
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
-        fontsCopied++;
+        copiedFonts.push(fontFile);
       } else {
+        missingFonts.push(fontFile);
         console.warn(`Share Extension: Missing font file: ${srcPath}`);
       }
     }
-    console.log(`Copied ${fontsCopied} font files to ${fontDestDir}`);
+    console.log(`Copied ${copiedFonts.length} font files to ${fontDestDir}`);
+
+    // Warn clearly if any expected fonts are missing (could break build)
+    if (missingFonts.length > 0) {
+      console.warn(
+        `Share Extension: ${missingFonts.length} font file(s) missing: ${missingFonts.join(', ')}. ` +
+          'The extension may fail to build or display text incorrectly.'
+      );
+    }
 
     // Check if extension target already exists using our custom finder
     // (pbxTargetByName doesn't handle quoted names properly)
     const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
     if (existingTarget) {
       console.log(
-        `Share Extension target "${EXTENSION_NAME}" already exists, skipping target creation...`
+        `Share Extension target "${EXTENSION_NAME}" already exists, updating build phases...`
       );
-      // The target already exists with all its build phases and dependencies
-      // Files were already copied above, so we're done
+
+      // Even though target exists, we need to ensure build phases are up to date
+      // This handles cases where Swift files were added/removed in plugins/share-extension/
+      // Without this, the Xcode project would be out of sync with disk
+
+      // NOTE: The xcode npm package doesn't have a clean API for updating existing build phases.
+      // For now, log a warning if files have changed so developers know to clean rebuild.
+      // A full solution would require removing and re-adding build phases.
+      console.log(
+        `Share Extension: Files copied to disk. If you added/removed Swift files, ` +
+          `run 'npx expo prebuild --clean' to update Xcode build phases.`
+      );
+
       return mod;
     }
 
@@ -323,8 +349,8 @@ function withShareExtensionTarget(config) {
     );
 
     // Add font files to Resources build phase
-    // Font paths are relative to ios/ directory
-    const fontFilePaths = FONT_FILES.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
+    // Use copiedFonts (not FONT_FILES) to only include fonts that actually exist on disk
+    const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
     xcodeProject.addBuildPhase(
       fontFilePaths,
       'PBXResourcesBuildPhase',

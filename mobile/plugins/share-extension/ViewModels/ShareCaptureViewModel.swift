@@ -324,27 +324,34 @@ class ShareCaptureViewModel: ObservableObject {
         // Queue for later if it's a retryable error
         if error.isRetryable {
             // Determine the queue reason based on error type
-            let queueReason: ShareCaptureState.QueueReason
+            let stateReason: ShareCaptureState.QueueReason
+            let queueReason: QueuedShare.QueueReason
             switch error {
-            case .networkError, .timeout:
+            case .networkError:
+                stateReason = .networkError
                 queueReason = .networkError
+            case .timeout:
+                stateReason = .networkError
+                queueReason = .timeout
             case .noToken, .unauthorized:
+                stateReason = .unauthenticated
                 queueReason = .unauthenticated
             default:
+                stateReason = .serverError
                 queueReason = .serverError
             }
 
             OfflineQueueService.queueShare(
                 url: originalURL,
                 caption: caption,
-                reason: .serverError,
+                reason: queueReason,
                 ingestResult: ingestResult,
                 selectedTripId: tripId,
                 selectedPlace: place,
                 entryType: entryType,
                 notes: notes.isEmpty ? nil : notes
             )
-            state = .successQueued(reason: queueReason)
+            state = .successQueued(reason: stateReason)
         } else {
             state = .error(.serverError(error.errorDescription))
         }

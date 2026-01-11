@@ -2,10 +2,18 @@
 // QueuedShareApp.swift
 // Minimal queue model for the main app (Atlasi) to decode the extension queue.
 //
+// IMPORTANT: This file is copied to the main Atlasi app target by withShareExtension.js.
+// It contains self-contained copies of all models needed to decode QueuedShare items
+// from App Group storage. The main app doesn't link against Share Extension Swift files,
+// so it needs these lightweight copies.
+//
+// See also: QueuedShare.swift (used by Share Extension, has constructors for creating items)
+//
 
 import Foundation
 
 // Lightweight copies of extension models to keep Atlasi target independent.
+// These must stay in sync with the extension's model definitions.
 struct DetectedCountry: Codable, Equatable {
     let countryCode: String?
     let countryName: String?

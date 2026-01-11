@@ -1,6 +1,14 @@
 //
 // QueuedShare.swift
-// Offline queue item for pending shares (extension + main app decode)
+// Offline queue item for pending shares - used by Share Extension.
+//
+// This file is used by the Share Extension to create and manage queued items.
+// For the main app's decode-only copy, see QueuedShareApp.swift.
+//
+// The two files exist because:
+// 1. Share Extension needs constructors to create items
+// 2. Main app only needs to decode items (no constructors needed)
+// 3. Main app doesn't link against Share Extension Swift files
 //
 
 import Foundation
