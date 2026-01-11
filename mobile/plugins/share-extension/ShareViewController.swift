@@ -240,6 +240,32 @@ class ShareViewController: UIViewController {
         }
     }
 
+    // MARK: - Diagnostics
+
+    /// Get diagnostic information about keychain access for debugging
+    /// This helps identify why auth tokens may not be accessible
+    private func getDiagnostics() -> String {
+        var lines: [String] = []
+
+        // Check Info.plist KeychainAccessGroup value
+        if let plistGroup = Bundle.main.object(forInfoDictionaryKey: "KeychainAccessGroup") as? String {
+            if plistGroup.contains("$(") {
+                lines.append("PLIST:UNRESOLVED")
+            } else {
+                // Truncate for display
+                let displayGroup = plistGroup.count > 30 ? String(plistGroup.prefix(30)) + "..." : plistGroup
+                lines.append("PLIST:\(displayGroup)")
+            }
+        } else {
+            lines.append("PLIST:MISSING")
+        }
+
+        // Get keychain diagnostics
+        lines.append(KeychainHelper.diagnose())
+
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - Fallback UI (for errors and unauthenticated state)
 
     /// Show UI for unauthenticated users
@@ -284,6 +310,16 @@ class ShareViewController: UIViewController {
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         containerView.addSubview(cancelButton)
 
+        // Diagnostic label (small, subtle text at bottom for debugging)
+        let diagLabel = UILabel()
+        diagLabel.text = getDiagnostics()
+        diagLabel.font = UIFont.monospacedSystemFont(ofSize: 7, weight: .regular)
+        diagLabel.textColor = BrandColors.midnightNavyUI.withAlphaComponent(0.25)
+        diagLabel.numberOfLines = 0
+        diagLabel.textAlignment = .center
+        diagLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(diagLabel)
+
         NSLayoutConstraint.activate([
             containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -309,7 +345,11 @@ class ShareViewController: UIViewController {
 
             cancelButton.topAnchor.constraint(equalTo: openButton.bottomAnchor, constant: 12),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20)
+
+            diagLabel.topAnchor.constraint(equalTo: cancelButton.bottomAnchor, constant: 12),
+            diagLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+            diagLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            diagLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -12)
         ])
 
         animateContainerIn(containerView)

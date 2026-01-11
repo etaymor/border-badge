@@ -81,6 +81,45 @@ enum KeychainHelper {
     /// - Returns: True if a token is stored (doesn't validate expiration)
     static var hasToken: Bool { getToken() != nil }
 
+    // MARK: - Diagnostics
+
+    /// Diagnostic method to help debug keychain access issues
+    /// Returns a string with all relevant keychain query parameters and results
+    /// Status codes: 0=success, -25300=notFound, -34018=missingEntitlement, -25308=interactionNotAllowed
+    static func diagnose() -> String {
+        var info: [String] = []
+
+        // 1. What access group are we using?
+        info.append("grp:\(accessGroup ?? "nil")")
+        info.append("svc:\(service)")
+        info.append("key:\(tokenKey)")
+
+        // 2. Try to query WITHOUT access group (see if token exists anywhere in extension's keychain)
+        let encodedKey = Data(tokenKey.utf8)
+        let noGroupQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrGeneric: encodedKey,
+            kSecAttrAccount: encodedKey,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+        var noGroupResult: AnyObject?
+        let noGroupStatus = SecItemCopyMatching(noGroupQuery as CFDictionary, &noGroupResult)
+        info.append("noGrp:\(noGroupStatus)")
+
+        // 3. Try WITH access group
+        var withGroupQuery = noGroupQuery
+        if let group = accessGroup {
+            withGroupQuery[kSecAttrAccessGroup] = group
+        }
+        var withGroupResult: AnyObject?
+        let withGroupStatus = SecItemCopyMatching(withGroupQuery as CFDictionary, &withGroupResult)
+        info.append("wGrp:\(withGroupStatus)")
+
+        return info.joined(separator: "|")
+    }
+
     // MARK: - Private Helpers
 
     /// Read a value from Keychain
