@@ -76,7 +76,7 @@ actor APIClient {
             self.baseURL = url
         } else {
             // Default to production URL
-            self.baseURL = "https://api.atlasi.com"
+            self.baseURL = "https://atlasi.app"
         }
         self.session = session
     }

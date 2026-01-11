@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>API_BASE_URL</key>
-	<string>https://api.atlasi.com</string>
+	<string>https://atlasi.app</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

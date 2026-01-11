@@ -60,7 +60,7 @@ final class APIClientTests: XCTestCase {
 
     var apiClient: APIClient!
     var mockSession: URLSession!
-    let testBaseURL = "https://api.test.atlasi.com"
+    let testBaseURL = "https://test.atlasi.app"
 
     override func setUp() async throws {
         try await super.setUp()
