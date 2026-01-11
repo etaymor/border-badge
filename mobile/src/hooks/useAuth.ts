@@ -150,7 +150,11 @@ export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Ignore "Auth session missing" error - user is effectively signed out
+      // This can happen if the session was already cleared or expired
+      if (error && !error.message.includes('Auth session missing')) {
+        throw error;
+      }
     },
     onSuccess: async () => {
       signOut();
