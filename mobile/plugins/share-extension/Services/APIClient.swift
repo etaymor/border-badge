@@ -66,13 +66,16 @@ actor APIClient {
 
     init(session: URLSession = .shared) {
         // Priority:
-        // 1. App Group storage (set by main app from EXPO_PUBLIC_API_URL)
-        // 2. Info.plist API_BASE_URL (can be set by Expo config plugin)
+        // 1. Info.plist API_BASE_URL (set by Expo config plugin at build time - most reliable for dev)
+        // 2. App Group storage (runtime sync from main app - may not exist on first launch)
         // 3. Production URL fallback
-        if let url = AppGroupStorage.getString("API_BASE_URL"), !url.isEmpty {
+        //
+        // Info.plist is checked first because during development, the share extension
+        // could be used before the main app has written to App Group storage.
+        if let url = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
+           !url.isEmpty {
             self.baseURL = url
-        } else if let url = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
-                  !url.isEmpty {
+        } else if let url = AppGroupStorage.getString("API_BASE_URL"), !url.isEmpty {
             self.baseURL = url
         } else {
             // Default to production URL

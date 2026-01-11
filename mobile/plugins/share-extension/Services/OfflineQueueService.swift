@@ -11,7 +11,7 @@
  *
  * 1. **This Swift queue** - Uses App Group UserDefaults, accessible from iOS extensions
  *    - Location: mobile/plugins/share-extension/Services/OfflineQueueService.swift (this file)
- *    - Storage: App Group UserDefaults (group.com.taymor.atlasi)
+ *    - Storage: App Group UserDefaults (group.com.atlasi.app)
  *    - Used by: iOS Share Extension when shares fail or need user input
  *
  * 2. **TypeScript queue** - Uses AsyncStorage, accessible from React Native

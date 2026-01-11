@@ -97,6 +97,7 @@ function getSwiftFilesRecursively(dir, basePath = '') {
   }
   return files;
 }
+
 // Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
 function getAppleTeamId() {
   const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
@@ -269,7 +270,9 @@ function withShareExtensionTarget(config) {
     // (pbxTargetByName doesn't handle quoted names properly)
     const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
     if (existingTarget) {
-      console.log(`Share Extension target "${EXTENSION_NAME}" already exists, skipping target creation...`);
+      console.log(
+        `Share Extension target "${EXTENSION_NAME}" already exists, skipping target creation...`
+      );
       // The target already exists with all its build phases and dependencies
       // Files were already copied above, so we're done
       return mod;

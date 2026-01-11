@@ -46,6 +46,13 @@ class ShareViewController: UIViewController {
 
     // MARK: - Lifecycle
 
+    deinit {
+        // Clean up SwiftUI hosting controller to prevent memory leaks
+        hostingController?.view.removeFromSuperview()
+        hostingController?.removeFromParent()
+        hostingController = nil
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = BrandColors.midnightNavyUI.withAlphaComponent(0.4)
