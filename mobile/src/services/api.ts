@@ -102,6 +102,9 @@ export function setSuppressAutoSignOut(suppress: boolean): void {
   // This prevents the flag from getting stuck if migration fails unexpectedly
   if (suppress) {
     suppressTimeout = setTimeout(() => {
+      console.warn(
+        '[API] Auto-signout suppress safety timeout triggered - this may indicate a slow migration'
+      );
       suppressAutoSignOut = false;
       suppressTimeout = null;
     }, 30000);
@@ -177,21 +180,16 @@ export async function storeTokens(accessToken: string, refreshToken: string): Pr
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
   console.log('[API] Tokens stored successfully to shared keychain');
-
-  // On iOS, clean up any legacy tokens stored without accessGroup
-  if (Platform.OS === 'ios') {
-    try {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
-      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-    } catch {
-      // Ignore cleanup errors - not critical
-    }
-  }
+  // Note: We do NOT delete legacy tokens here. iOS Keychain delete queries without
+  // accessGroup can match and delete items WITH accessGroup (same service/account).
+  // Legacy token migration is handled in fetchTokenWithMigration() on read.
 }
 
 // Helper to clear tokens on logout
 // Uses accessGroup on iOS to clear tokens from shared keychain
-// Also clears any legacy tokens stored without accessGroup
+// Note: We only clear from shared keychain. Attempting to also delete from "legacy"
+// location (without accessGroup) can inadvertently delete the shared keychain item
+// due to iOS Keychain matching behavior.
 export async function clearTokens(): Promise<void> {
   cachedToken = null; // Clear in-memory cache
   const options = getSecureStoreOptions();
@@ -199,16 +197,6 @@ export async function clearTokens(): Promise<void> {
   // Clear from shared keychain (with accessGroup)
   await SecureStore.deleteItemAsync(TOKEN_KEY, options);
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, options);
-
-  // On iOS, also clear any legacy tokens stored without accessGroup
-  if (Platform.OS === 'ios') {
-    try {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
-      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-    } catch {
-      // Ignore cleanup errors - not critical
-    }
-  }
 }
 
 // Helper to get stored token
