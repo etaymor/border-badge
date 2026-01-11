@@ -32,6 +32,11 @@
 import Foundation
 
 enum OfflineQueueService {
+    /// Serial queue for synchronizing all offline queue access within this process.
+    /// Prevents race conditions from concurrent calls to queue operations.
+    /// Note: This does NOT protect against cross-process races (see AppGroupStorage docs).
+    private static let queueAccessQueue = DispatchQueue(label: "com.atlasi.offlinequeue.access")
+
     /// Add a URL to the offline queue
     /// - Returns: True if the share was successfully queued, false if storage failed
     @discardableResult
@@ -56,7 +61,9 @@ enum OfflineQueueService {
             notes: notes
         )
 
-        let success = AppGroupStorage.addToOfflineQueue(share)
+        let success = queueAccessQueue.sync {
+            AppGroupStorage.addToOfflineQueue(share)
+        }
         if success {
             NSLog("[Atlasi OfflineQueue] Queued share: \(url) reason: \(reason.rawValue)")
         } else {
@@ -67,7 +74,9 @@ enum OfflineQueueService {
 
     /// Get the current queue
     static func getQueue() -> [QueuedShare] {
-        AppGroupStorage.getOfflineQueue()
+        queueAccessQueue.sync {
+            AppGroupStorage.getOfflineQueue()
+        }
     }
 
     /// Get count of pending shares
@@ -82,24 +91,30 @@ enum OfflineQueueService {
 
     /// Remove a share from the queue (after successful processing)
     static func removeShare(id: String) {
-        AppGroupStorage.removeFromOfflineQueue(id: id)
+        queueAccessQueue.sync {
+            AppGroupStorage.removeFromOfflineQueue(id: id)
+        }
     }
 
     /// Clear expired shares from the queue
     static func cleanupExpiredShares() {
-        var queue = getQueue()
-        let beforeCount = queue.count
+        queueAccessQueue.sync {
+            var queue = AppGroupStorage.getOfflineQueue()
+            let beforeCount = queue.count
 
-        queue.removeAll { !$0.isValid }
+            queue.removeAll { !$0.isValid }
 
-        if queue.count != beforeCount {
-            AppGroupStorage.saveOfflineQueue(queue)
-            NSLog("[Atlasi OfflineQueue] Cleaned up \(beforeCount - queue.count) expired shares")
+            if queue.count != beforeCount {
+                AppGroupStorage.saveOfflineQueue(queue)
+                NSLog("[Atlasi OfflineQueue] Cleaned up \(beforeCount - queue.count) expired shares")
+            }
         }
     }
 
     /// Clear the entire queue
     static func clearQueue() {
-        AppGroupStorage.clearOfflineQueue()
+        queueAccessQueue.sync {
+            AppGroupStorage.clearOfflineQueue()
+        }
     }
 }

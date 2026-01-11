@@ -29,6 +29,8 @@
 	</array>
 	<key>API_BASE_URL</key>
 	<string>https://atlasi.app</string>
+	<key>KeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)com.atlasi.app</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

@@ -69,6 +69,25 @@ export function useAppleSignIn() {
         throw new Error('No refresh token received - session cannot be refreshed');
       }
 
+      // Store tokens explicitly for Share Extension access
+      // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+      // Do this in mutationFn so failures reject the mutation and trigger onError
+      try {
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token);
+      } catch (tokenError) {
+        // Token storage failed - rollback to safe state
+        console.error('Failed to store tokens for Share Extension:', tokenError);
+        try {
+          await clearTokens(); // Ensure no partial tokens remain
+        } catch {
+          // Ignore cleanup errors
+        }
+        // Sign out from Supabase to avoid session without Share Extension access
+        await supabase.auth.signOut();
+        throw new Error('Failed to store authentication tokens. Please try again.');
+      }
+
       // Determine display name to use:
       // 1. Use the name from onboarding if provided (user explicitly entered it)
       // 2. Fall back to Apple's provided name (only available on first sign-in)
@@ -94,24 +113,6 @@ export function useAppleSignIn() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        // Store tokens explicitly for Share Extension access
-        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
-        try {
-          await clearTokens();
-          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
-        } catch (tokenError) {
-          // Token storage failed - rollback to safe state
-          console.error('Failed to store tokens for Share Extension:', tokenError);
-          try {
-            await clearTokens(); // Ensure no partial tokens remain
-          } catch {
-            // Ignore cleanup errors
-          }
-          // Sign out from Supabase to avoid session without Share Extension access
-          await supabase.auth.signOut();
-          throw new Error('Failed to store authentication tokens. Please try again.');
-        }
-
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
 

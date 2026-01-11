@@ -175,6 +175,10 @@ function withShareExtensionTarget(config) {
     const iosPath = path.join(projectRoot, 'ios');
     const appName = mod.modRequest.projectName || 'Atlasi';
 
+    // Validate model sync before copying - fail fast if models have drifted
+    const { validate } = require('./share-extension/scripts/validate-model-sync');
+    validate(); // Throws and exits if validation fails
+
     // Copy native module files to main app target
     const pluginExtensionPath = path.join(__dirname, 'share-extension');
     const nativeModuleFiles = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
@@ -289,17 +293,77 @@ function withShareExtensionTarget(config) {
         `Share Extension target "${EXTENSION_NAME}" already exists, updating build phases...`
       );
 
-      // Even though target exists, we need to ensure build phases are up to date
-      // This handles cases where Swift files were added/removed in plugins/share-extension/
-      // Without this, the Xcode project would be out of sync with disk
+      // Update build phases for existing target to ensure Swift files and fonts are in sync
+      // This handles cases where files were added/removed in plugins/share-extension/
+      const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
+      const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
 
-      // NOTE: The xcode npm package doesn't have a clean API for updating existing build phases.
-      // For now, log a warning if files have changed so developers know to clean rebuild.
-      // A full solution would require removing and re-adding build phases.
-      console.log(
-        `Share Extension: Files copied to disk. If you added/removed Swift files, ` +
-          `run 'npx expo prebuild --clean' to update Xcode build phases.`
+      // Find and update the Sources build phase
+      const buildPhases = xcodeProject.pbxBuildPhaseObj(
+        existingTarget.uuid,
+        'PBXSourcesBuildPhase'
       );
+      if (buildPhases) {
+        // Clear existing files and add current ones
+        const sourcesBuildPhase = buildPhases.buildPhase;
+        if (sourcesBuildPhase && sourcesBuildPhase.files) {
+          // Remove old file references from build phase
+          sourcesBuildPhase.files = [];
+        }
+        // Re-add all Swift files to the Sources build phase
+        for (const filePath of swiftFilePaths) {
+          xcodeProject.addSourceFile(
+            filePath,
+            { target: existingTarget.uuid },
+            xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME })
+          );
+        }
+        console.log(`Updated Sources build phase with ${swiftFilePaths.length} Swift files`);
+      } else {
+        // No Sources build phase exists, create one
+        xcodeProject.addBuildPhase(
+          swiftFilePaths,
+          'PBXSourcesBuildPhase',
+          'Sources',
+          existingTarget.uuid,
+          'app_extension',
+          EXTENSION_NAME
+        );
+        console.log(`Created Sources build phase with ${swiftFilePaths.length} Swift files`);
+      }
+
+      // Find and update the Resources build phase for fonts
+      const resourcesBuildPhase = xcodeProject.pbxBuildPhaseObj(
+        existingTarget.uuid,
+        'PBXResourcesBuildPhase'
+      );
+      if (resourcesBuildPhase) {
+        // Clear existing files and add current ones
+        const resBuildPhase = resourcesBuildPhase.buildPhase;
+        if (resBuildPhase && resBuildPhase.files) {
+          resBuildPhase.files = [];
+        }
+        // Re-add all font files to the Resources build phase
+        for (const filePath of fontFilePaths) {
+          xcodeProject.addResourceFile(
+            filePath,
+            { target: existingTarget.uuid },
+            xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME })
+          );
+        }
+        console.log(`Updated Resources build phase with ${fontFilePaths.length} font files`);
+      } else {
+        // No Resources build phase exists, create one
+        xcodeProject.addBuildPhase(
+          fontFilePaths,
+          'PBXResourcesBuildPhase',
+          'Resources',
+          existingTarget.uuid,
+          'app_extension',
+          EXTENSION_NAME
+        );
+        console.log(`Created Resources build phase with ${fontFilePaths.length} font files`);
+      }
 
       return mod;
     }

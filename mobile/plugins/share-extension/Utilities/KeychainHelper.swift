@@ -31,8 +31,25 @@ enum KeychainHelper {
     /// The main app must also use this access group when storing tokens.
     /// See: docs/ios-share-extension.md for configuration details.
     ///
-    /// Team ID: 2AB5M8J3G6 (from eas.json submit.production.ios.appleTeamId)
-    private static let accessGroup: String? = "2AB5M8J3G6.com.atlasi.app"
+    /// Loaded dynamically from Info.plist (KeychainAccessGroup) to avoid hardcoding Team ID.
+    private static let accessGroup: String? = {
+        // Try to load from Info.plist first (allows environment-specific configuration)
+        if let group = Bundle.main.object(forInfoDictionaryKey: "KeychainAccessGroup") as? String,
+           !group.isEmpty {
+            return group
+        }
+        // Fallback: derive from bundle identifier by stripping extension suffix
+        // Extension bundle: com.atlasi.app.ShareExtension -> access group: <TeamID>.com.atlasi.app
+        // This requires the team ID prefix, which we get from the app identifier prefix
+        if let bundleId = Bundle.main.bundleIdentifier {
+            // Strip .ShareExtension suffix to get main app bundle ID
+            let mainAppBundleId = bundleId.replacingOccurrences(of: ".ShareExtension", with: "")
+            // The app identifier prefix includes the team ID and trailing dot
+            // It's available via SecTask but not directly in extensions, so we rely on Info.plist
+            NSLog("[Atlasi KeychainHelper] No KeychainAccessGroup in Info.plist, using nil (shared keychain disabled)")
+        }
+        return nil
+    }()
 
     // MARK: - Public API
 

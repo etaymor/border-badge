@@ -31,6 +31,26 @@ class PlaceAutocompleteRequest(BaseModel):
     query: str = Field(..., min_length=2, max_length=200)
     country_code: str | None = Field(None, min_length=2, max_length=2)
 
+    @field_validator("query")
+    @classmethod
+    def sanitize_query(cls, v: str) -> str:
+        """Sanitize query by removing control characters and normalizing whitespace."""
+        import unicodedata
+
+        # Remove control characters (C0, C1, and other control categories)
+        # Keep printable characters, spaces, and common punctuation
+        sanitized = "".join(
+            char
+            for char in v
+            if unicodedata.category(char)[0] not in ("C",)  # Control characters
+            or char in ("\t", "\n")  # Allow tabs/newlines (will be normalized)
+        )
+        # Normalize whitespace: collapse multiple spaces, strip leading/trailing
+        sanitized = " ".join(sanitized.split())
+        if len(sanitized) < 2:
+            raise ValueError("Query must contain at least 2 printable characters")
+        return sanitized
+
     @field_validator("country_code")
     @classmethod
     def validate_country_code(cls, v: str | None) -> str | None:
