@@ -67,6 +67,9 @@ export default {
                   bundleIdentifier: 'com.atlasi.app.ShareExtension',
                   entitlements: {
                     'com.apple.security.application-groups': ['group.com.atlasi.app'],
+                    // Keychain sharing for auth tokens between main app and extension
+                    // Must match the accessGroup used in api.ts and KeychainHelper.swift
+                    'keychain-access-groups': ['$(AppIdentifierPrefix)com.atlasi.app'],
                   },
                 },
               ],

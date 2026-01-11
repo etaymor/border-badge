@@ -39,7 +39,12 @@ enum KeychainHelper {
     /// Retrieve the JWT access token from Keychain
     /// - Returns: The token string, or nil if not found or expired
     static func getToken() -> String? {
-        return read(key: tokenKey)
+        let result = read(key: tokenKey)
+        NSLog("[Atlasi KeychainHelper] getToken: %@, service=%@, group=%@",
+              result != nil ? "FOUND" : "NOT_FOUND",
+              service,
+              accessGroup ?? "nil")
+        return result
     }
 
     /// Retrieve the refresh token from Keychain
@@ -82,9 +87,13 @@ enum KeychainHelper {
         guard status == errSecSuccess,
               let data = result as? Data,
               let value = String(data: data, encoding: .utf8) else {
-            if status != errSecItemNotFound {
-                NSLog("[Atlasi KeychainHelper] Read failed for key \(key): \(status)")
-            }
+            // Log all failures including errSecItemNotFound (-25300) for debugging
+            NSLog("[Atlasi KeychainHelper] Read failed: key=%@, status=%d (%@)",
+                  key,
+                  status,
+                  status == errSecItemNotFound ? "errSecItemNotFound" :
+                  status == errSecAuthFailed ? "errSecAuthFailed" :
+                  status == errSecMissingEntitlement ? "errSecMissingEntitlement" : "unknown")
             return nil
         }
 

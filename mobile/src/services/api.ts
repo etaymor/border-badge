@@ -170,10 +170,13 @@ api.interceptors.response.use(
 // Uses accessGroup on iOS to share tokens with Share Extension
 // Also cleans up any legacy tokens stored without accessGroup
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
-  cachedToken = accessToken; // Update in-memory cache
   const options = getSecureStoreOptions();
+  console.log('[API] Storing tokens with options:', JSON.stringify(options));
+
+  cachedToken = accessToken; // Update in-memory cache
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
+  console.log('[API] Tokens stored successfully to shared keychain');
 
   // On iOS, clean up any legacy tokens stored without accessGroup
   if (Platform.OS === 'ios') {
