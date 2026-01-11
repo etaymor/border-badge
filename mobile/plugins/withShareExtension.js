@@ -492,6 +492,9 @@ function withShareExtensionTarget(config) {
         '"@executable_path/Frameworks"',
         '"@executable_path/../../Frameworks"',
       ],
+      // Main app bundle ID for shared keychain access group
+      // Used in Info.plist as $(AppIdentifierPrefix)$(MAIN_APP_BUNDLE_ID)
+      MAIN_APP_BUNDLE_ID: appBundleId,
       MARKETING_VERSION: '1.0',
       PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
       PRODUCT_NAME: '"$(TARGET_NAME)"',

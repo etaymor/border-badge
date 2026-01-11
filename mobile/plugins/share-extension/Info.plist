@@ -30,7 +30,7 @@
 	<key>API_BASE_URL</key>
 	<string>https://atlasi.app</string>
 	<key>KeychainAccessGroup</key>
-	<string>$(AppIdentifierPrefix)com.atlasi.app</string>
+	<string>$(AppIdentifierPrefix)$(MAIN_APP_BUNDLE_ID)</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

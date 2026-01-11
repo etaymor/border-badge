@@ -36,17 +36,24 @@ enum KeychainHelper {
         // Try to load from Info.plist first (allows environment-specific configuration)
         if let group = Bundle.main.object(forInfoDictionaryKey: "KeychainAccessGroup") as? String,
            !group.isEmpty {
+            // Validate the group doesn't contain unresolved build variables
+            if group.contains("$(") {
+                NSLog("⚠️ [Atlasi KeychainHelper] CRITICAL: KeychainAccessGroup contains unresolved build variable: %@", group)
+                NSLog("⚠️ [Atlasi KeychainHelper] Shared keychain access is DISABLED - extension cannot read auth tokens!")
+                NSLog("⚠️ [Atlasi KeychainHelper] Verify MAIN_APP_BUNDLE_ID build setting in withShareExtension.js")
+                return nil
+            }
             return group
         }
         // Fallback: derive from bundle identifier by stripping extension suffix
         // Extension bundle: com.atlasi.app.ShareExtension -> access group: <TeamID>.com.atlasi.app
         // This requires the team ID prefix, which we get from the app identifier prefix
-        if let bundleId = Bundle.main.bundleIdentifier {
-            // Strip .ShareExtension suffix to get main app bundle ID
-            let mainAppBundleId = bundleId.replacingOccurrences(of: ".ShareExtension", with: "")
+        if Bundle.main.bundleIdentifier != nil {
             // The app identifier prefix includes the team ID and trailing dot
             // It's available via SecTask but not directly in extensions, so we rely on Info.plist
-            NSLog("[Atlasi KeychainHelper] No KeychainAccessGroup in Info.plist, using nil (shared keychain disabled)")
+            NSLog("⚠️ [Atlasi KeychainHelper] CRITICAL: No KeychainAccessGroup in Info.plist!")
+            NSLog("⚠️ [Atlasi KeychainHelper] Shared keychain access is DISABLED - extension cannot read auth tokens!")
+            NSLog("⚠️ [Atlasi KeychainHelper] Add KeychainAccessGroup key to ShareExtension/Info.plist")
         }
         return nil
     }()
