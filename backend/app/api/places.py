@@ -5,12 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
+from app.main import limiter  # Shared limiter registered with FastAPI app
 from app.schemas.entries import Place
 from app.services.place_extractor.google_places_client import (
     is_configured as google_places_configured,
@@ -21,7 +20,6 @@ from app.services.place_extractor.google_places_client import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 # --- Autocomplete schemas ---
