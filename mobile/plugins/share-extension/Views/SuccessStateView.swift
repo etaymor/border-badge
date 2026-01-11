@@ -20,7 +20,7 @@ struct SuccessStateView: View {
                 .opacity(checkmarkOpacity)
 
             Text("Saved!")
-                .font(.system(size: 24, weight: .bold))
+                .font(Typography.header(24))
                 .foregroundColor(BrandColors.midnightNavy)
                 .opacity(checkmarkOpacity)
         }

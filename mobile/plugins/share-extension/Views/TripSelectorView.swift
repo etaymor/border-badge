@@ -1,5 +1,11 @@
 /**
  * TripSelectorView - Trip selection dropdown with inline creation
+ *
+ * Matches React Native TripSelector.tsx styling:
+ * - Glass dropdown button (52px min height)
+ * - Playfair modal title, Open Sans body text
+ * - Sunset Gold "Create New Trip" button
+ * - Glass-styled trip items with mossGreen selection
  */
 
 import SwiftUI
@@ -22,40 +28,40 @@ struct TripSelectorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionLabel(text: "Trip")
+            SectionLabel(text: "Save to Trip")
 
             Button(action: { activeSheet = .selection }) {
-                HStack(spacing: 12) {
-                    Image(systemName: "suitcase.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(BrandColors.mossGreen)
-
+                HStack(spacing: 8) {
                     if let tripId = selectedTripId,
                        let trip = viewModel.trips.first(where: { $0.id == tripId }) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(trip.name)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(BrandColors.midnightNavy)
+                        // Selected trip name + country code
+                        Text(trip.name)
+                            .font(Typography.semibold(16))
+                            .foregroundColor(BrandColors.midnightNavy)
+                            .lineLimit(1)
 
-                            if let code = trip.countryCode {
-                                Text(viewModel.countryName(for: code))
-                                    .font(.system(size: 14))
-                                    .foregroundColor(BrandColors.stormGray)
-                            }
+                        Spacer()
+
+                        if let code = trip.countryCode {
+                            Text(code)
+                                .font(Typography.body(14))
+                                .foregroundColor(BrandColors.stormGray)
                         }
                     } else {
                         Text("Select a trip...")
-                            .font(.system(size: 16))
+                            .font(Typography.body(16))
                             .foregroundColor(BrandColors.stormGray)
+
+                        Spacer()
                     }
 
-                    Spacer()
-
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 20))
                         .foregroundColor(BrandColors.stormGray)
                 }
-                .padding(16)
+                .frame(minHeight: 52)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
                 .glassInput()
             }
             .buttonStyle(.plain)
@@ -154,70 +160,95 @@ private struct TripSelectionSheet: View {
     }
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                BrandColors.warmCream.ignoresSafeArea()
+        ZStack {
+            BrandColors.warmCream.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Modal handle
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.black.opacity(0.2))
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+
+                // Title - Playfair Display Bold
+                Text("Select Trip")
+                    .font(Typography.header(22))
+                    .foregroundColor(BrandColors.midnightNavy)
+                    .padding(.bottom, 20)
 
                 if viewModel.isLoading {
+                    Spacer()
                     ProgressView()
+                        .tint(BrandColors.sunsetGold)
+                    Spacer()
                 } else if filteredTrips.isEmpty {
                     // No trips for this country
                     VStack(spacing: 16) {
-                        Image(systemName: "suitcase")
-                            .font(.system(size: 48))
+                        Spacer()
+
+                        Text(countryCode != nil
+                            ? "No trips for this country yet. Create one below!"
+                            : "No trips yet. Create one below!")
+                            .font(Typography.body(14))
                             .foregroundColor(BrandColors.stormGray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
 
-                        Text("No trips yet")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(BrandColors.midnightNavy)
-
-                        Text("Create a trip to save this place")
-                            .font(.system(size: 14))
-                            .foregroundColor(BrandColors.stormGray)
-
-                        Button(action: onCreateTrip) {
-                            HStack {
-                                Image(systemName: "plus")
-                                Text("Create Trip")
-                            }
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .padding(.horizontal, 40)
-                        .padding(.top, 8)
+                        Spacer()
                     }
                 } else {
+                    // Trip list
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        VStack(spacing: 8) {
                             ForEach(filteredTrips) { trip in
                                 TripRow(
                                     trip: trip,
                                     isSelected: trip.id == selectedTripId,
-                                    countryName: trip.countryCode.map { viewModel.countryName(for: $0) },
                                     onTap: { onTripSelected(trip.id) }
                                 )
-
-                                if trip.id != filteredTrips.last?.id {
-                                    Divider()
-                                        .padding(.leading, 56)
-                                }
                             }
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, 24)
                     }
-                }
-            }
-            .navigationTitle("Select Trip")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel", action: onDismiss)
+                    .frame(maxHeight: 300)
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: onCreateTrip) {
-                        Image(systemName: "plus")
+                // Create New Trip Button - Sunset Gold
+                Button(action: onCreateTrip) {
+                    HStack(spacing: 8) {
+                        // Plus icon in circle
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.1))
+                                .frame(width: 24, height: 24)
+
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+
+                        Text("Create New Trip")
+                            .font(Typography.semibold(16))
+                            .foregroundColor(BrandColors.midnightNavy)
                     }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(BrandColors.sunsetGold)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: BrandColors.sunsetGold.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+
+                // Cancel Button
+                Button(action: onDismiss) {
+                    Text("Cancel")
+                        .font(Typography.semibold(16))
+                        .foregroundColor(BrandColors.stormGray)
+                        .frame(height: 48)
+                }
+                .padding(.bottom, 24)
             }
         }
     }
@@ -228,31 +259,48 @@ private struct TripSelectionSheet: View {
 private struct TripRow: View {
     let trip: Trip
     let isSelected: Bool
-    let countryName: String?
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 24))
-                    .foregroundColor(isSelected ? BrandColors.mossGreen : BrandColors.stormGray.opacity(0.5))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(trip.name)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(BrandColors.midnightNavy)
-
-                    if let country = countryName {
-                        Text(country)
-                            .font(.system(size: 14))
-                            .foregroundColor(BrandColors.stormGray)
-                    }
-                }
+            HStack(spacing: 8) {
+                // Trip name
+                Text(trip.name)
+                    .font(Typography.semibold(15))
+                    .foregroundColor(isSelected ? BrandColors.mossGreen : BrandColors.midnightNavy)
+                    .lineLimit(1)
 
                 Spacer()
+
+                // Country code
+                if let code = trip.countryCode {
+                    Text(code)
+                        .font(Typography.body(13))
+                        .foregroundColor(BrandColors.stormGray)
+                }
+
+                // Checkmark when selected
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(BrandColors.mossGreen)
+                }
             }
-            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                isSelected
+                    ? Color(red: 84/255, green: 122/255, blue: 95/255).opacity(0.15)  // mossGreen 0.15
+                    : Color.white.opacity(0.4)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        isSelected ? BrandColors.mossGreen : Color.white.opacity(0.4),
+                        lineWidth: 1
+                    )
+            )
         }
         .buttonStyle(.plain)
     }

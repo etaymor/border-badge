@@ -25,6 +25,15 @@ const APP_BUNDLE_ID = 'com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
 const ASSOCIATED_DOMAIN = 'atlasi.app';
 
+// Font files to include in the Share Extension bundle
+// These are copied from Resources/Fonts/ to the extension target
+const FONT_FILES = [
+  'PlayfairDisplay_700Bold.ttf',
+  'OpenSans_400Regular.ttf',
+  'OpenSans_600SemiBold.ttf',
+  'Oswald_500Medium.ttf',
+];
+
 // Files that are React Native native modules - these should only be in the main app target,
 // not in the ShareExtension target (which doesn't link to React Native)
 const MAIN_APP_ONLY_FILES = [
@@ -194,16 +203,6 @@ function withShareExtensionTarget(config) {
       }
     }
 
-    // Check if extension target already exists using our custom finder
-    // (pbxTargetByName doesn't handle quoted names properly)
-    const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
-    if (existingTarget) {
-      console.log(`Share Extension target "${EXTENSION_NAME}" already exists, skipping...`);
-      // The target already exists with all its build phases and dependencies
-      // (addTarget automatically adds them for app_extension type)
-      return mod;
-    }
-
     // Create extension directory
     const extensionPath = path.join(iosPath, EXTENSION_NAME);
     if (!fs.existsSync(extensionPath)) {
@@ -224,7 +223,8 @@ function withShareExtensionTarget(config) {
     const staticFiles = ['Info.plist', 'ShareExtension.entitlements'];
     const allFiles = [...swiftFiles, ...staticFiles];
 
-    // Copy files preserving directory structure, tracking actual copies
+    // Always copy files preserving directory structure (even if target exists)
+    // This ensures plugin source changes are reflected in the iOS project
     let filesCopied = 0;
     for (const file of allFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
@@ -244,6 +244,36 @@ function withShareExtensionTarget(config) {
       }
     }
     console.log(`Copied ${filesCopied} files to ${extensionPath}`);
+
+    // Copy font files to extension Resources directory
+    const fontSrcDir = path.join(pluginExtensionPath, 'Resources', 'Fonts');
+    const fontDestDir = path.join(extensionPath, 'Resources', 'Fonts');
+    if (!fs.existsSync(fontDestDir)) {
+      fs.mkdirSync(fontDestDir, { recursive: true });
+    }
+
+    let fontsCopied = 0;
+    for (const fontFile of FONT_FILES) {
+      const srcPath = path.join(fontSrcDir, fontFile);
+      const destPath = path.join(fontDestDir, fontFile);
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        fontsCopied++;
+      } else {
+        console.warn(`Share Extension: Missing font file: ${srcPath}`);
+      }
+    }
+    console.log(`Copied ${fontsCopied} font files to ${fontDestDir}`);
+
+    // Check if extension target already exists using our custom finder
+    // (pbxTargetByName doesn't handle quoted names properly)
+    const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
+    if (existingTarget) {
+      console.log(`Share Extension target "${EXTENSION_NAME}" already exists, skipping target creation...`);
+      // The target already exists with all its build phases and dependencies
+      // Files were already copied above, so we're done
+      return mod;
+    }
 
     // Create PBXNativeTarget for extension
     const target = xcodeProject.addTarget(
@@ -287,6 +317,21 @@ function withShareExtensionTarget(config) {
     );
     console.log(
       `Added Sources build phase with ${swiftFilePaths.length} files to ${EXTENSION_NAME}`
+    );
+
+    // Add font files to Resources build phase
+    // Font paths are relative to ios/ directory
+    const fontFilePaths = FONT_FILES.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
+    xcodeProject.addBuildPhase(
+      fontFilePaths,
+      'PBXResourcesBuildPhase',
+      'Resources',
+      target.uuid,
+      'app_extension',
+      EXTENSION_NAME
+    );
+    console.log(
+      `Added Resources build phase with ${fontFilePaths.length} font files to ${EXTENSION_NAME}`
     );
 
     // Configure build settings for extension

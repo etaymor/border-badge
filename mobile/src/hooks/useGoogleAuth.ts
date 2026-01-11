@@ -3,7 +3,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { storeOnboardingComplete } from '@services/api';
+import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -121,15 +121,12 @@ export function useGoogleSignIn() {
       return sessionData;
     },
     onSuccess: async (data) => {
-      // Session is set via supabase.auth.setSession() in mutationFn, which triggers
-      // onAuthStateChange in App.tsx. That listener handles:
-      // - Updating Zustand session state
-      // - Storing tokens to SecureStore
-      // - Identifying user in analytics
-      //
-      // We only handle onboarding-specific logic here to avoid race conditions
-      // where duplicate setSession() calls cause navigation to re-render mid-flow.
       if (data.session) {
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
 

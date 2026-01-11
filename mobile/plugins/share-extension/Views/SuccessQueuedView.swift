@@ -25,11 +25,11 @@ struct SuccessQueuedView: View {
 
             VStack(spacing: 8) {
                 Text("Saved for Later")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(Typography.header(24))
                     .foregroundColor(BrandColors.midnightNavy)
 
                 Text(reason.message)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(Typography.body(15))
                     .foregroundColor(BrandColors.midnightNavy.opacity(0.6))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)

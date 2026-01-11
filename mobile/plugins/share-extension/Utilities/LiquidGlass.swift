@@ -111,15 +111,4 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Section Label Style
-
-struct SectionLabel: View {
-    let text: String
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 12, weight: .medium))
-            .tracking(1.5)
-            .foregroundColor(BrandColors.midnightNavy.opacity(0.7))
-    }
-}
+// Note: SectionLabel is now defined in Views/SectionLabel.swift with Typography support

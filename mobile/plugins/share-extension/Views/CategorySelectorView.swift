@@ -1,5 +1,9 @@
 /**
  * CategorySelectorView - Entry type selection grid
+ *
+ * Matches the React Native app's category selector:
+ * - 2x2 grid with vertical icon+label layout when selecting
+ * - Compact pill with Change button when selected
  */
 
 import SwiftUI
@@ -64,22 +68,41 @@ private struct CategoryButton: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 8) {
-                Image(systemName: type.icon)
-                    .font(.system(size: 16, weight: .medium))
+            VStack(spacing: 10) {
+                // Icon in circle
+                ZStack {
+                    Circle()
+                        .fill(type.color.opacity(0.15))
+                        .frame(width: 44, height: 44)
 
+                    Image(systemName: type.icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(type.color)
+                }
+
+                // Label
                 Text(type.label)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(Typography.body(14))
+                    .foregroundColor(BrandColors.midnightNavy)
             }
-            .foregroundColor(isSelected ? .white : BrandColors.midnightNavy)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .background(isSelected ? type.color : Color.white.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.vertical, 16)
+            .background(Color.white.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.clear : Color.white, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white, lineWidth: 2)
             )
+            .overlay(alignment: .bottom) {
+                // Colored underline when selected
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(type.color)
+                        .frame(height: 3)
+                        .padding(.horizontal, 16)
+                        .offset(y: -4)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -93,27 +116,37 @@ private struct SelectedCategoryDisplay: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Icon and label
-            HStack(spacing: 8) {
-                Image(systemName: entryType.icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(entryType.color)
+            // Icon in small circle
+            ZStack {
+                Circle()
+                    .fill(entryType.color.opacity(0.15))
+                    .frame(width: 32, height: 32)
 
-                Text(entryType.label)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(BrandColors.midnightNavy)
+                Image(systemName: entryType.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(entryType.color)
             }
+
+            // Label
+            Text(entryType.label)
+                .font(Typography.semibold(16))
+                .foregroundColor(BrandColors.midnightNavy)
 
             Spacer()
 
-            // Change button
+            // Change button with swap arrows
             Button(action: onChangeType) {
-                Text("Change")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(BrandColors.stormGray)
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Change")
+                        .font(Typography.body(14))
+                }
+                .foregroundColor(BrandColors.stormGray)
             }
         }
         .padding(16)
+        .background(entryType.color.opacity(0.08))
         .glassInput()
     }
 }

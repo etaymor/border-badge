@@ -15,7 +15,7 @@ struct LoadingStateView: View {
                 .tint(BrandColors.midnightNavy)
 
             Text(message)
-                .font(.system(size: 16, weight: .medium))
+                .font(Typography.semibold(16))
                 .foregroundColor(BrandColors.midnightNavy)
                 .multilineTextAlignment(.center)
         }

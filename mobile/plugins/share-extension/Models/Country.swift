@@ -24,4 +24,9 @@ struct Country: Codable, Identifiable, Equatable {
         }
         return name
     }
+
+    /// Flag emoji (convenience accessor)
+    var flag: String {
+        return flagEmoji ?? ""
+    }
 }

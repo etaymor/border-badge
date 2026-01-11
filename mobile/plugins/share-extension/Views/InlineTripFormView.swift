@@ -1,5 +1,11 @@
 /**
  * InlineTripFormView - Create a new trip inline
+ *
+ * Matches React Native InlineTripForm.tsx styling:
+ * - Playfair Display Bold title
+ * - Oswald section labels
+ * - Glass inputs with Open Sans text
+ * - Sunset Gold create button
  */
 
 import SwiftUI
@@ -19,97 +25,142 @@ struct InlineTripFormView: View {
         !selectedCountryCode.isEmpty
     }
 
+    /// Is the country locked from place detection
+    var isCountryLocked: Bool {
+        countryCode != nil
+    }
+
     var body: some View {
-        NavigationView {
-            ZStack {
-                BrandColors.warmCream.ignoresSafeArea()
+        ZStack {
+            BrandColors.warmCream.ignoresSafeArea()
 
-                VStack(spacing: 24) {
-                    // Trip name field
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "Trip Name")
+            VStack(spacing: 0) {
+                // Modal handle
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.black.opacity(0.2))
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
 
-                        TextField("e.g., Summer in Italy", text: $tripName)
-                            .font(.system(size: 16))
-                            .foregroundColor(BrandColors.midnightNavy)
-                            .padding(16)
-                            .glassInput()
-                    }
+                // Title - Playfair Display Bold
+                Text("Create New Trip")
+                    .font(Typography.header(22))
+                    .foregroundColor(BrandColors.midnightNavy)
+                    .padding(.bottom, 20)
 
-                    // Country selector
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "Country")
+                // Trip name field
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel(text: "Trip Name")
 
-                        Button(action: {
-                            if countryCode == nil {
-                                isShowingCountryPicker = true
+                    TextField("e.g., Summer in Italy", text: $tripName)
+                        .font(Typography.body(16))
+                        .foregroundColor(BrandColors.midnightNavy)
+                        .frame(minHeight: 52)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .glassInput()
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 20)
+
+                // Country selector
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel(text: "Country")
+
+                    if isCountryLocked {
+                        // Locked country (from place detection)
+                        if let country = viewModel.country(for: selectedCountryCode) {
+                            HStack(spacing: 10) {
+                                Text(country.flag)
+                                    .font(.system(size: 20))
+
+                                Text(country.name)
+                                    .font(Typography.semibold(16))
+                                    .foregroundColor(BrandColors.midnightNavy)
                             }
-                        }) {
+                            .padding(.vertical, 8)
+                        }
+                    } else {
+                        // Selectable country
+                        Button(action: { isShowingCountryPicker = true }) {
                             HStack {
                                 if let country = viewModel.country(for: selectedCountryCode) {
-                                    Text(country.displayName)
-                                        .font(.system(size: 16))
-                                        .foregroundColor(BrandColors.midnightNavy)
+                                    HStack(spacing: 10) {
+                                        Text(country.flag)
+                                            .font(.system(size: 20))
+
+                                        Text(country.name)
+                                            .font(Typography.semibold(16))
+                                            .foregroundColor(BrandColors.midnightNavy)
+                                    }
                                 } else {
                                     Text("Select a country...")
-                                        .font(.system(size: 16))
+                                        .font(Typography.body(16))
                                         .foregroundColor(BrandColors.stormGray)
                                 }
 
                                 Spacer()
 
-                                if countryCode == nil {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(BrandColors.stormGray)
-                                } else {
-                                    Image(systemName: "lock.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(BrandColors.stormGray.opacity(0.5))
-                                }
+                                Image(systemName: "chevron.forward")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(BrandColors.stormGray)
                             }
-                            .padding(16)
+                            .frame(minHeight: 52)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
                             .glassInput()
                         }
                         .buttonStyle(.plain)
-                        .disabled(countryCode != nil)
                     }
+                }
+                .padding(.horizontal, 24)
 
-                    Spacer()
+                Spacer()
 
-                    // Create button
-                    Button(action: createTrip) {
-                        if viewModel.isCreating {
-                            ProgressView()
-                                .tint(BrandColors.midnightNavy)
-                        } else {
-                            Text("Create Trip")
-                        }
+                // Create button - Sunset Gold
+                Button(action: createTrip) {
+                    if viewModel.isCreating {
+                        ProgressView()
+                            .tint(BrandColors.midnightNavy)
+                    } else {
+                        Text("Create Trip")
+                            .font(Typography.semibold(16))
+                            .foregroundColor(BrandColors.midnightNavy)
                     }
-                    .buttonStyle(PrimaryButtonStyle(isEnabled: canCreate))
-                    .disabled(!canCreate || viewModel.isCreating)
                 }
-                .padding(24)
-            }
-            .navigationTitle("New Trip")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel", action: onCancel)
-                }
-            }
-            .sheet(isPresented: $isShowingCountryPicker) {
-                CountryPickerView(
-                    countries: viewModel.countries,
-                    selectedCode: $selectedCountryCode,
-                    onDismiss: { isShowingCountryPicker = false }
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(canCreate ? BrandColors.sunsetGold : BrandColors.sunsetGold.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(
+                    color: canCreate ? BrandColors.sunsetGold.opacity(0.3) : Color.clear,
+                    radius: 8, x: 0, y: 4
                 )
-            }
-            .onAppear {
-                // Lock to detected country if provided
-                if let code = countryCode {
-                    selectedCountryCode = code
+                .disabled(!canCreate || viewModel.isCreating)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+
+                // Cancel Button
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(Typography.semibold(16))
+                        .foregroundColor(BrandColors.stormGray)
+                        .frame(height: 48)
                 }
+                .padding(.bottom, 24)
+            }
+        }
+        .sheet(isPresented: $isShowingCountryPicker) {
+            CountryPickerView(
+                countries: viewModel.countries,
+                selectedCode: $selectedCountryCode,
+                onDismiss: { isShowingCountryPicker = false }
+            )
+        }
+        .onAppear {
+            // Lock to detected country if provided
+            if let code = countryCode {
+                selectedCountryCode = code
             }
         }
     }
@@ -123,6 +174,41 @@ struct InlineTripFormView: View {
                 onTripCreated(trip.id)
             }
         }
+    }
+}
+
+// MARK: - Country Row
+
+private struct CountryRow: View {
+    let country: Country
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Text(country.flag)
+                    .font(.system(size: 20))
+
+                Text(country.name)
+                    .font(isSelected ? Typography.semibold(15) : Typography.body(15))
+                    .foregroundColor(isSelected ? BrandColors.mossGreen : BrandColors.midnightNavy)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(BrandColors.mossGreen)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(isSelected ? BrandColors.mossGreen.opacity(0.1) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -146,41 +232,52 @@ private struct CountryPickerView: View {
     }
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                BrandColors.warmCream.ignoresSafeArea()
+        ZStack {
+            BrandColors.warmCream.ignoresSafeArea()
 
-                List(filteredCountries) { country in
-                    Button(action: {
-                        selectedCode = country.code
-                        onDismiss()
-                    }) {
-                        HStack {
-                            Text(country.displayName)
-                                .font(.system(size: 16))
-                                .foregroundColor(BrandColors.midnightNavy)
+            VStack(spacing: 0) {
+                // Header with back button
+                HStack {
+                    Button(action: onDismiss) {
+                        Image(systemName: "arrow.left")
+                            .font(.system(size: 24))
+                            .foregroundColor(BrandColors.midnightNavy)
+                    }
 
-                            Spacer()
+                    Spacer()
 
-                            if country.code == selectedCode {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(BrandColors.mossGreen)
-                            }
+                    Text("Select Country")
+                        .font(Typography.header(22))
+                        .foregroundColor(BrandColors.midnightNavy)
+
+                    Spacer()
+
+                    // Spacer to balance header
+                    Color.clear.frame(width: 24, height: 24)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
+
+                // Country list
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(filteredCountries) { country in
+                            CountryRow(
+                                country: country,
+                                isSelected: country.code == selectedCode,
+                                onTap: {
+                                    selectedCode = country.code
+                                    onDismiss()
+                                }
+                            )
                         }
                     }
-                    .listRowBackground(Color.clear)
-                }
-                .listStyle(.plain)
-                .searchable(text: $searchText, prompt: "Search countries")
-            }
-            .navigationTitle("Select Country")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done", action: onDismiss)
+                    .padding(.horizontal, 24)
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search countries")
     }
 }
 

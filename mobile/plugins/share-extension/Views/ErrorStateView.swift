@@ -20,7 +20,7 @@ struct ErrorStateView: View {
 
             // Error message
             Text(error.message)
-                .font(.system(size: 16, weight: .medium))
+                .font(Typography.semibold(16))
                 .foregroundColor(BrandColors.midnightNavy)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
@@ -59,7 +59,7 @@ struct ErrorStateView: View {
 
                 Button(action: onCancel) {
                     Text("Cancel")
-                        .font(.system(size: 15, weight: .regular))
+                        .font(Typography.body(15))
                         .foregroundColor(BrandColors.stormGray)
                 }
                 .padding(.top, 8)

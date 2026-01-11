@@ -20,6 +20,13 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PlayfairDisplay_700Bold.ttf</string>
+		<string>OpenSans_400Regular.ttf</string>
+		<string>OpenSans_600SemiBold.ttf</string>
+		<string>Oswald_500Medium.ttf</string>
+	</array>
 	<key>API_BASE_URL</key>
 	<string>https://atlasi.app</string>
 	<key>NSExtension</key>

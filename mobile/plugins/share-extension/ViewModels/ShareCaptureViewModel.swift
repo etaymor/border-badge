@@ -309,7 +309,8 @@ class ShareCaptureViewModel: ObservableObject {
         case .networkError:
             state = .error(.network())
         case .serverError(let code, let message):
-            if code == 422 {
+            // 400 = unsupported provider, 422 = validation error
+            if code == 400 || code == 422 {
                 state = .error(.invalidURL())
             } else {
                 state = .error(.serverError(message))

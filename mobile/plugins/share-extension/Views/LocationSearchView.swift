@@ -10,12 +10,25 @@ struct LocationSearchView: View {
     let countryCode: String?
     let onPlaceSelected: (DetectedPlace) -> Void
 
-    @StateObject private var viewModel = LocationSearchViewModel()
+    /// Optional injected viewModel for testing. If nil, creates default.
+    @ObservedObject private var viewModel: LocationSearchViewModel
     @State private var isEditing: Bool = false
+
+    init(
+        selectedPlace: Binding<DetectedPlace?>,
+        countryCode: String?,
+        onPlaceSelected: @escaping (DetectedPlace) -> Void,
+        viewModel: LocationSearchViewModel? = nil
+    ) {
+        self._selectedPlace = selectedPlace
+        self.countryCode = countryCode
+        self.onPlaceSelected = onPlaceSelected
+        self._viewModel = ObservedObject(wrappedValue: viewModel ?? LocationSearchViewModel())
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionLabel(text: "Location")
+            SectionLabel(text: "Confirm Location")
 
             if let place = selectedPlace, !isEditing {
                 // Selected place display
@@ -32,7 +45,8 @@ struct LocationSearchView: View {
                     SearchField(
                         text: $viewModel.searchText,
                         placeholder: "Search for a place...",
-                        isLoading: viewModel.isSearching
+                        isLoading: viewModel.isSearching,
+                        errorMessage: viewModel.errorMessage
                     )
                     .onChange(of: viewModel.searchText) { newValue in
                         viewModel.search(query: newValue, countryCode: countryCode)
@@ -62,30 +76,48 @@ private struct SearchField: View {
     @Binding var text: String
     let placeholder: String
     let isLoading: Bool
+    var errorMessage: String? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 16))
-                .foregroundColor(BrandColors.stormGray)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18))
+                    .foregroundColor(BrandColors.stormGray)
 
-            TextField(placeholder, text: $text)
-                .font(.system(size: 16))
-                .foregroundColor(BrandColors.midnightNavy)
+                TextField(placeholder, text: $text)
+                    .font(Typography.body(16))
+                    .foregroundColor(BrandColors.midnightNavy)
 
-            if isLoading {
-                ProgressView()
-                    .scaleEffect(0.8)
-            } else if !text.isEmpty {
-                Button(action: { text = "" }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(BrandColors.stormGray)
+                if isLoading {
+                    ProgressView()
+                        .tint(BrandColors.sunsetGold)
+                        .scaleEffect(0.8)
+                } else if !text.isEmpty {
+                    Button(action: { text = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(BrandColors.stormGray.opacity(0.6))
+                    }
                 }
             }
+            .frame(minHeight: 48)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .glassInput()
+
+            // Error message below the field
+            if let error = errorMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 12))
+                    Text(error)
+                        .font(Typography.body(12))
+                }
+                .foregroundColor(BrandColors.adobeBrick)
+                .padding(.leading, 4)
+            }
         }
-        .padding(16)
-        .glassInput()
     }
 }
 
@@ -96,39 +128,59 @@ private struct SearchResultsList: View {
     let onSelect: (PlacePrediction) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(predictions) { prediction in
-                Button(action: { onSelect(prediction) }) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(prediction.mainText)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(BrandColors.midnightNavy)
-                            .lineLimit(1)
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(predictions) { prediction in
+                    Button(action: { onSelect(prediction) }) {
+                        HStack(spacing: 12) {
+                            // Location pin icon
+                            Image(systemName: "mappin")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(BrandColors.adobeBrick)
+                                .frame(width: 20)
 
-                        if let secondary = prediction.secondaryText {
-                            Text(secondary)
-                                .font(.system(size: 14))
-                                .foregroundColor(BrandColors.stormGray)
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(prediction.mainText)
+                                    .font(Typography.predictionMain())
+                                    .foregroundColor(BrandColors.midnightNavy)
+                                    .lineLimit(1)
+
+                                if let secondary = prediction.secondaryText {
+                                    Text(secondary)
+                                        .font(Typography.predictionSecondary())
+                                        .foregroundColor(BrandColors.stormGray)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer()
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 16)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 16)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                if prediction.id != predictions.last?.id {
-                    Divider()
-                        .padding(.leading, 16)
+                    if prediction.id != predictions.last?.id {
+                        Divider()
+                            .background(BrandColors.midnightNavy.opacity(0.1))
+                            .padding(.leading, 48)
+                    }
                 }
             }
         }
-        .background(Color.white.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .frame(maxHeight: 250)
+        .background(Color.white.opacity(0.75))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white, lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white, lineWidth: 2)
+        )
+        .shadow(
+            color: BrandColors.midnightNavy.opacity(0.15),
+            radius: 20,
+            x: 0,
+            y: 8
         )
     }
 }
@@ -141,19 +193,19 @@ private struct SelectedPlaceDisplay: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "mappin.circle.fill")
-                .font(.system(size: 20))
+            Image(systemName: "mappin")
+                .font(.system(size: 18, weight: .medium))
                 .foregroundColor(BrandColors.adobeBrick)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(place.name)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(Typography.semibold(16))
                     .foregroundColor(BrandColors.midnightNavy)
                     .lineLimit(1)
 
                 if let address = place.address {
                     Text(address)
-                        .font(.system(size: 14))
+                        .font(Typography.body(14))
                         .foregroundColor(BrandColors.stormGray)
                         .lineLimit(1)
                 }
@@ -162,12 +214,14 @@ private struct SelectedPlaceDisplay: View {
             Spacer()
 
             Button(action: onChangePlace) {
-                Text("Change")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(BrandColors.stormGray)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(BrandColors.stormGray.opacity(0.6))
             }
         }
-        .padding(16)
+        .frame(minHeight: 48)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .glassInput()
     }
 }
@@ -175,18 +229,25 @@ private struct SelectedPlaceDisplay: View {
 // MARK: - ViewModel
 
 @MainActor
-private class LocationSearchViewModel: ObservableObject {
+class LocationSearchViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var predictions: [PlacePrediction] = []
     @Published var isSearching: Bool = false
+    @Published var errorMessage: String?
 
     private let apiClient = APIClient()
     private var searchTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
 
+    #if DEBUG
+    /// Mock predictions for testing (bypasses API calls)
+    var mockPredictions: [PlacePrediction]?
+    #endif
+
     func search(query: String, countryCode: String?) {
         // Cancel previous debounce
         debounceTask?.cancel()
+        errorMessage = nil
 
         guard query.count >= 2 else {
             predictions = []
@@ -210,13 +271,44 @@ private class LocationSearchViewModel: ObservableObject {
         searchTask?.cancel()
 
         searchTask = Task {
+            #if DEBUG
+            // Use mock predictions if available (for test app)
+            if let mockData = mockPredictions {
+                let filtered = mockData.filter {
+                    $0.mainText.localizedCaseInsensitiveContains(query) ||
+                    ($0.secondaryText?.localizedCaseInsensitiveContains(query) ?? false)
+                }
+                predictions = filtered
+                isSearching = false
+                return
+            }
+            #endif
+
             do {
                 let results = try await apiClient.searchPlaces(query: query, countryCode: countryCode)
                 guard !Task.isCancelled else { return }
                 predictions = results
+                errorMessage = nil
+            } catch let error as APIError {
+                guard !Task.isCancelled else { return }
+                predictions = []
+                switch error {
+                case .noToken:
+                    errorMessage = "Sign in to search places"
+                case .unauthorized:
+                    errorMessage = "Session expired"
+                case .networkError:
+                    errorMessage = "Network error"
+                case .timeout:
+                    errorMessage = "Request timed out"
+                default:
+                    errorMessage = nil
+                }
+                NSLog("[Atlasi] Places search error: \(error.localizedDescription)")
             } catch {
                 guard !Task.isCancelled else { return }
                 predictions = []
+                NSLog("[Atlasi] Places search error: \(error.localizedDescription)")
             }
             isSearching = false
         }
@@ -225,6 +317,7 @@ private class LocationSearchViewModel: ObservableObject {
     func clearSearch() {
         searchText = ""
         predictions = []
+        errorMessage = nil
         debounceTask?.cancel()
         searchTask?.cancel()
     }

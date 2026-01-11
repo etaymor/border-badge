@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
-import { storeOnboardingComplete } from '@services/api';
+import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -93,15 +93,12 @@ export function useAppleSignIn() {
       return data;
     },
     onSuccess: async (data) => {
-      // Session is set via supabase.auth.signInWithIdToken() in mutationFn, which triggers
-      // onAuthStateChange in App.tsx. That listener handles:
-      // - Updating Zustand session state
-      // - Storing tokens to SecureStore
-      // - Identifying user in analytics
-      //
-      // We only handle onboarding-specific logic here for consistency with Google auth
-      // and to avoid any potential race conditions with duplicate setSession() calls.
       if (data.session) {
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
 

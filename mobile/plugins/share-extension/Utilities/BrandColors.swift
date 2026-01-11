@@ -65,12 +65,6 @@ enum BrandColors {
 
 // MARK: - Opacity Helpers
 
-extension Color {
-    func opacity(_ value: Double) -> Color {
-        self.opacity(value)
-    }
-}
-
 extension BrandColors {
     /// Midnight navy with custom opacity
     static func midnightNavy(opacity: Double) -> Color {

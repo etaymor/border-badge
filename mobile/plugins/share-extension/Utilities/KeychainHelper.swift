@@ -55,11 +55,18 @@ enum KeychainHelper {
     // MARK: - Private Helpers
 
     /// Read a value from Keychain
+    /// IMPORTANT: Must match expo-secure-store's query format exactly.
+    /// expo-secure-store uses Data(key.utf8) for both kSecAttrGeneric and kSecAttrAccount.
+    /// See: node_modules/expo-secure-store/ios/SecureStoreModule.swift lines 178-185
     private static func read(key: String) -> String? {
+        // expo-secure-store encodes the key as Data, not String
+        let encodedKey = Data(key.utf8)
+
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
-            kSecAttrAccount: key,
+            kSecAttrGeneric: encodedKey,    // Must match expo-secure-store
+            kSecAttrAccount: encodedKey,    // Must be Data, not String
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne
         ]
@@ -85,14 +92,19 @@ enum KeychainHelper {
     }
 
     /// Write a value to Keychain (for future use if needed)
+    /// IMPORTANT: Must match expo-secure-store's query format for consistency.
     static func write(key: String, value: String) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
+        guard let valueData = value.data(using: .utf8) else { return false }
+
+        // expo-secure-store encodes the key as Data, not String
+        let encodedKey = Data(key.utf8)
 
         // First try to update existing item
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
-            kSecAttrAccount: key
+            kSecAttrGeneric: encodedKey,    // Must match expo-secure-store
+            kSecAttrAccount: encodedKey     // Must be Data, not String
         ]
 
         if let group = accessGroup {
@@ -100,14 +112,14 @@ enum KeychainHelper {
         }
 
         let attributes: [CFString: Any] = [
-            kSecValueData: data
+            kSecValueData: valueData
         ]
 
         var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
         if status == errSecItemNotFound {
             // Item doesn't exist, add it
-            query[kSecValueData] = data
+            query[kSecValueData] = valueData
             query[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
             status = SecItemAdd(query as CFDictionary, nil)
         }
@@ -121,11 +133,16 @@ enum KeychainHelper {
     }
 
     /// Delete a value from Keychain
+    /// IMPORTANT: Must match expo-secure-store's query format for consistency.
     static func delete(key: String) -> Bool {
+        // expo-secure-store encodes the key as Data, not String
+        let encodedKey = Data(key.utf8)
+
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
-            kSecAttrAccount: key
+            kSecAttrGeneric: encodedKey,    // Must match expo-secure-store
+            kSecAttrAccount: encodedKey     // Must be Data, not String
         ]
 
         if let group = accessGroup {

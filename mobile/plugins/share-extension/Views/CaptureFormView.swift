@@ -7,17 +7,19 @@ import SwiftUI
 struct CaptureFormView: View {
     @ObservedObject var viewModel: ShareCaptureViewModel
     @ObservedObject var tripViewModel: TripSelectorViewModel
+    var locationViewModel: LocationSearchViewModel?
     let onSave: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Header
-                HeaderView(
+                // Header card with close button
+                HeaderCard(
                     providerName: viewModel.providerName,
                     title: viewModel.ingestResult?.title,
-                    isManualEntry: viewModel.isManualEntryMode
+                    isManualEntry: viewModel.isManualEntryMode,
+                    onClose: onCancel
                 )
 
                 // Location search
@@ -26,7 +28,8 @@ struct CaptureFormView: View {
                     countryCode: viewModel.detectedCountryCode,
                     onPlaceSelected: { place in
                         viewModel.selectPlace(place)
-                    }
+                    },
+                    viewModel: locationViewModel
                 )
 
                 // Trip selector
@@ -60,49 +63,62 @@ struct CaptureFormView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle(isEnabled: viewModel.canSave))
                 .disabled(!viewModel.canSave)
-
-                // Cancel button
-                Button(action: onCancel) {
-                    Text("Cancel")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(BrandColors.stormGray)
-                }
             }
             .padding(20)
         }
     }
 }
 
-// MARK: - Header View
+// MARK: - Header Card
 
-private struct HeaderView: View {
+private struct HeaderCard: View {
     let providerName: String
     let title: String?
     let isManualEntry: Bool
+    let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            Text("Save Place")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(BrandColors.midnightNavy)
+        HStack {
+            Spacer()
 
-            if isManualEntry {
-                Text("Enter details manually")
-                    .font(.system(size: 14))
-                    .foregroundColor(BrandColors.stormGray)
-            } else if let title = title {
-                Text(title)
-                    .font(.system(size: 14))
-                    .foregroundColor(BrandColors.stormGray)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-            } else {
-                Text("From \(providerName)")
-                    .font(.system(size: 14))
-                    .foregroundColor(BrandColors.stormGray)
+            VStack(spacing: 8) {
+                Text("Save Place")
+                    .font(Typography.header(24))
+                    .foregroundColor(BrandColors.midnightNavy)
+
+                if isManualEntry {
+                    Text("Enter details manually")
+                        .font(Typography.body(14))
+                        .foregroundColor(BrandColors.stormGray)
+                } else if let title = title {
+                    Text(title)
+                        .font(Typography.body(14))
+                        .foregroundColor(BrandColors.stormGray)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text("From \(providerName)")
+                        .font(Typography.body(14))
+                        .foregroundColor(BrandColors.stormGray)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 16)
+        .overlay(alignment: .topTrailing) {
+            // Close button in top right
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(BrandColors.midnightNavy)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(BrandColors.stormGray.opacity(0.15))
+                    )
             }
         }
-        .padding(.bottom, 8)
     }
 }
 
@@ -116,18 +132,19 @@ private struct NotesField: View {
             SectionLabel(text: "Notes (optional)")
 
             if #available(iOS 16.0, *) {
-                TextField("Add a note...", text: $notes, axis: .vertical)
-                    .font(.system(size: 16))
+                TextField("Why did this catch your eye?", text: $notes, axis: .vertical)
+                    .font(Typography.body(16))
                     .foregroundColor(BrandColors.midnightNavy)
                     .lineLimit(3...6)
                     .padding(16)
+                    .frame(minHeight: 100)
                     .glassInput()
             } else {
                 // Fallback for iOS 15 where multiline TextField axis API is unavailable
                 TextEditor(text: $notes)
-                    .font(.system(size: 16))
+                    .font(Typography.body(16))
                     .foregroundColor(BrandColors.midnightNavy)
-                    .frame(minHeight: 80, maxHeight: 140)
+                    .frame(minHeight: 100, maxHeight: 140)
                     .padding(16)
                     .glassInput()
             }
