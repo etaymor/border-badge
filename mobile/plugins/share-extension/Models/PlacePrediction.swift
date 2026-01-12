@@ -34,4 +34,3 @@ struct PlaceAutocompleteRequest: Codable {
         case countryCode = "country_code"
     }
 }
-

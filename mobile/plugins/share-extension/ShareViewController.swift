@@ -85,7 +85,7 @@ class ShareViewController: UIViewController {
         // Try to find a URL attachment first (most reliable)
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, error in
+                attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
                     DispatchQueue.main.async {
                         if let url = item as? URL {
                             self?.processURL(url.absoluteString)
@@ -106,7 +106,7 @@ class ShareViewController: UIViewController {
     private func tryTextAttachments(_ attachments: [NSItemProvider]) {
         for attachment in attachments {
             if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, error in
+                attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, _ in
                     DispatchQueue.main.async {
                         if let text = item as? String {
                             // Store the full text as potential caption
@@ -501,6 +501,12 @@ class ShareViewController: UIViewController {
 
     /// Complete the extension request and dismiss
     private func completeRequest() {
+        // Clean up SwiftUI hosting controller before completing
+        // This ensures cleanup happens even if iOS kills the extension before deinit runs
+        hostingController?.view.removeFromSuperview()
+        hostingController?.removeFromParent()
+        hostingController = nil
+
         // Animate out
         UIView.animate(withDuration: 0.2, animations: {
             self.view.subviews.forEach { $0.alpha = 0 }

@@ -380,6 +380,13 @@ poetry run ruff format --check . # Must pass
 poetry run pytest              # Must pass all tests
 ```
 
+### iOS Share Extension (if modifying Swift code)
+
+```bash
+# Install SwiftLint if not already installed: brew install swiftlint
+swiftlint lint --strict mobile/plugins/share-extension/
+```
+
 ### CSS (if modifying public page styles)
 
 ```bash
