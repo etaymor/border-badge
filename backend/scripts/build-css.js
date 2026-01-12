@@ -29,6 +29,7 @@ const CSS_FILES = [
   'pages/list.css',
   'pages/landing.css',
   'pages/legal.css',
+  'pages/contact.css',
   'responsive.css',
 ];
 

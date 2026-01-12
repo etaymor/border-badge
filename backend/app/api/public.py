@@ -5,8 +5,8 @@ import html
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import APIRouter, Form, HTTPException, Path, Request, status
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
@@ -22,6 +22,8 @@ from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
 )
+from app.services.email import send_contact_email
+from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
 
@@ -497,3 +499,107 @@ async def sitemap_xml() -> PlainTextResponse:
     response = PlainTextResponse(content=content, media_type="application/xml")
     response.headers["Cache-Control"] = "public, max-age=3600"
     return response
+
+
+# Contact form category options
+CONTACT_CATEGORIES = [
+    {"value": "feature_request", "label": "Feature Request"},
+    {"value": "data_deletion", "label": "Data Deletion Request"},
+    {"value": "bug_report", "label": "Bug Report"},
+    {"value": "general_inquiry", "label": "General Inquiry"},
+]
+
+VALID_CATEGORY_VALUES = {cat["value"] for cat in CONTACT_CATEGORIES}
+
+
+@router.get("/contact", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def contact_page(
+    request: Request,
+    success: bool | None = None,
+    error: str | None = None,
+) -> HTMLResponse:
+    """Render the contact form page."""
+    settings = get_settings()
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="contact.html",
+        context={
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": "Contact Us - Atlasi",
+            "og_description": "Get in touch with the Atlasi team",
+            "turnstile_site_key": settings.turnstile_site_key,
+            "categories": CONTACT_CATEGORIES,
+            "success": success,
+            "error": error,
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@router.post("/contact", response_class=RedirectResponse)
+@limiter.limit("5/minute")
+async def submit_contact_form(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    category: str = Form(...),
+    message: str = Form(...),
+    cf_turnstile_response: str = Form(alias="cf-turnstile-response"),
+) -> RedirectResponse:
+    """Handle contact form submission."""
+    # Get client IP for Turnstile verification
+    client_ip = request.client.host if request.client else None
+
+    # Verify Turnstile token
+    is_valid = await verify_turnstile_token(cf_turnstile_response, client_ip)
+    if not is_valid:
+        return RedirectResponse(
+            url="/contact?error=captcha",
+            status_code=303,
+        )
+
+    # Validate category
+    if category not in VALID_CATEGORY_VALUES:
+        return RedirectResponse(
+            url="/contact?error=invalid_category",
+            status_code=303,
+        )
+
+    # Basic validation
+    name = name.strip()
+    if len(name) < 1 or len(name) > 100:
+        return RedirectResponse(
+            url="/contact?error=invalid_name",
+            status_code=303,
+        )
+
+    message = message.strip()
+    if len(message) < 10 or len(message) > 5000:
+        return RedirectResponse(
+            url="/contact?error=invalid_message",
+            status_code=303,
+        )
+
+    # Send email
+    success = await send_contact_email(
+        name=name,
+        email=email.strip(),
+        category=category,
+        message=message,
+    )
+
+    if success:
+        return RedirectResponse(
+            url="/contact?success=true",
+            status_code=303,
+        )
+    else:
+        return RedirectResponse(
+            url="/contact?error=send_failed",
+            status_code=303,
+        )

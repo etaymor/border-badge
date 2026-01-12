@@ -209,3 +209,97 @@ async def schedule_welcome_emails(email: str, display_name: str) -> WelcomeEmail
                 # Continue scheduling remaining emails even if one fails
 
     return WelcomeEmailResult(email_ids=email_ids, total_attempted=total_attempted)
+
+
+async def send_contact_email(
+    name: str,
+    email: str,
+    category: str,
+    message: str,
+) -> bool:
+    """Send a contact form submission email.
+
+    Args:
+        name: Sender's name
+        email: Sender's email address
+        category: Contact category (feature_request, data_deletion, bug_report, general_inquiry)
+        message: The message content
+
+    Returns:
+        True if email sent successfully, False otherwise
+    """
+    settings = get_settings()
+
+    if not settings.resend_api_key:
+        logger.warning("Resend API key not configured, skipping contact email")
+        return False
+
+    # Map category to human-readable label
+    category_labels = {
+        "feature_request": "Feature Request",
+        "data_deletion": "Data Deletion Request",
+        "bug_report": "Bug Report",
+        "general_inquiry": "General Inquiry",
+    }
+    category_label = category_labels.get(category, category)
+
+    subject = f"[Atlasi Contact] {category_label} from {name}"
+
+    body = f"""New contact form submission:
+
+Name: {name}
+Email: {email}
+Category: {category_label}
+
+Message:
+{message}
+
+---
+Reply directly to this email to respond to {name}.
+"""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "Authorization": f"Bearer {settings.resend_api_key}",
+                "Content-Type": "application/json",
+            }
+
+            payload = {
+                "from": settings.welcome_email_from,
+                "to": [settings.contact_email_to],
+                "reply_to": email,
+                "subject": subject,
+                "text": body,
+            }
+
+            response = await client.post(
+                RESEND_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(
+                "Contact email sent successfully",
+                extra={
+                    "email_id": result.get("id"),
+                    "category": category,
+                },
+            )
+            return True
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Failed to send contact email - HTTP error",
+            extra={
+                "status_code": e.response.status_code,
+                "error": str(e),
+            },
+        )
+        return False
+    except Exception as e:
+        logger.error(f"Failed to send contact email: {e}")
+        return False

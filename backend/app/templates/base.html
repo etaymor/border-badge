@@ -75,7 +75,7 @@
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
-    <script>
+    <script nonce="{{ request.state.csp_nonce }}">
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
@@ -127,6 +127,7 @@
             <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link">Download App</a>
             <a href="/privacy" class="footer-link">Privacy</a>
             <a href="/terms" class="footer-link">Terms</a>
+            <a href="/contact" class="footer-link">Contact</a>
           </nav>
         </div>
         {% endblock %}
@@ -142,7 +143,7 @@
 
     <!-- Analytics event listeners -->
     {% if google_analytics_id %}
-    <script>
+    <script nonce="{{ request.state.csp_nonce }}">
       document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('[data-track-location]').forEach(function(el) {
           el.addEventListener('click', function() {
