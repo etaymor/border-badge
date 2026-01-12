@@ -51,7 +51,7 @@ private struct CategoryGrid: View {
             ForEach(EntryType.allCases, id: \.self) { type in
                 CategoryButton(
                     type: type,
-                    isSelected: type == selectedType,
+                    isSelected: false,  // Don't show selection in grid - user taps to select
                     onTap: { onTypeSelect(type) }
                 )
             }

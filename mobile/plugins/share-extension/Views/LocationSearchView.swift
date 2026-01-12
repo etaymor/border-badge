@@ -31,6 +31,7 @@ struct LocationSearchView: View {
             SectionLabel(text: "Confirm Location")
 
             if let place = selectedPlace, !isEditing {
+                let _ = NSLog("[Atlasi] LocationSearchView: showing SelectedPlaceDisplay for '%@'", place.name)
                 // Selected place display
                 SelectedPlaceDisplay(
                     place: place,
@@ -40,6 +41,7 @@ struct LocationSearchView: View {
                     }
                 )
             } else {
+                let _ = NSLog("[Atlasi] LocationSearchView: showing SearchField (isEditing=%d, selectedPlace=%@)", isEditing ? 1 : 0, selectedPlace?.name ?? "nil")
                 // Search field and results
                 VStack(spacing: 8) {
                     SearchField(
@@ -253,17 +255,21 @@ class LocationSearchViewModel: ObservableObject {
     #endif
 
     func search(query: String, countryCode: String?) {
+        NSLog("[Atlasi] search() called: query='%@' len=%d", query, query.count)
+
         // Cancel previous debounce
         debounceTask?.cancel()
         errorMessage = nil
 
         guard query.count >= 2 else {
+            NSLog("[Atlasi] search() skipped: query too short (<2 chars)")
             predictions = []
             isSearching = false
             return
         }
 
         isSearching = true
+        NSLog("[Atlasi] search() starting debounce...")
 
         // Debounce 300ms
         debounceTask = Task {
@@ -276,6 +282,7 @@ class LocationSearchViewModel: ObservableObject {
     }
 
     private func performSearch(query: String, countryCode: String?) async {
+        NSLog("[Atlasi] performSearch() starting for query='%@'", query)
         searchTask?.cancel()
 
         searchTask = Task {

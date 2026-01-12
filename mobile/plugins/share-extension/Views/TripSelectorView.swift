@@ -30,7 +30,15 @@ struct TripSelectorView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(text: "Save to Trip")
 
-            Button(action: { activeSheet = .selection }) {
+            Button(action: {
+                // Go directly to create if no trips exist for this country
+                let filtered = viewModel.filteredTrips(countryCode: countryCode)
+                if filtered.isEmpty && !viewModel.isLoading {
+                    activeSheet = .create
+                } else {
+                    activeSheet = .selection
+                }
+            }) {
                 HStack(spacing: 8) {
                     if let tripId = selectedTripId,
                        let trip = viewModel.trips.first(where: { $0.id == tripId }) {

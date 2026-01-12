@@ -166,6 +166,14 @@ function findExtensionTarget(xcodeProject, name) {
 }
 
 /**
+ * Get API base URL from environment or default to production.
+ * Priority: EXPO_PUBLIC_API_URL env var > production URL
+ */
+function getApiBaseUrl() {
+  return process.env.EXPO_PUBLIC_API_URL || 'https://atlasi.app';
+}
+
+/**
  * Add the Share Extension target to the Xcode project
  */
 function withShareExtensionTarget(config) {
@@ -234,6 +242,18 @@ function withShareExtensionTarget(config) {
     const staticFiles = ['Info.plist', 'ShareExtension.entitlements'];
     const allFiles = [...swiftFiles, ...staticFiles];
 
+    // Fail fast: validate required static files exist before copying
+    const missingStaticFiles = staticFiles.filter(
+      (file) => !fs.existsSync(path.join(pluginExtensionPath, file))
+    );
+    if (missingStaticFiles.length > 0) {
+      throw new Error(
+        `Share Extension: Required static files missing from ${pluginExtensionPath}: ` +
+          `${missingStaticFiles.join(', ')}. ` +
+          `Cannot create extension target at ${extensionPath}.`
+      );
+    }
+
     // Always copy files preserving directory structure (even if target exists)
     // This ensures plugin source changes are reflected in the iOS project
     let filesCopied = 0;
@@ -251,10 +271,26 @@ function withShareExtensionTarget(config) {
         fs.copyFileSync(srcPath, destPath);
         filesCopied++;
       } else {
+        // Warn for optional Swift files only (staticFiles already validated above)
         console.warn(`Share Extension: Missing source file: ${srcPath}`);
       }
     }
     console.log(`Copied ${filesCopied} files to ${extensionPath}`);
+
+    // Update Info.plist with the API base URL from environment
+    // This allows the Share Extension to connect to dev servers during development
+    const infoPlistPath = path.join(extensionPath, 'Info.plist');
+    if (fs.existsSync(infoPlistPath)) {
+      let plistContent = fs.readFileSync(infoPlistPath, 'utf8');
+      const apiBaseUrl = getApiBaseUrl();
+      // Replace the hardcoded production URL with the environment-configured URL
+      plistContent = plistContent.replace(
+        /<key>API_BASE_URL<\/key>\s*<string>[^<]*<\/string>/,
+        `<key>API_BASE_URL</key>\n\t<string>${apiBaseUrl}</string>`
+      );
+      fs.writeFileSync(infoPlistPath, plistContent);
+      console.log(`Share Extension: API_BASE_URL set to ${apiBaseUrl}`);
+    }
 
     // Copy font files to extension Resources directory
     // Track which fonts were actually copied for build phase accuracy
