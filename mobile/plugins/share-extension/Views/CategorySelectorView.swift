@@ -91,7 +91,7 @@ private struct CategoryButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? type.color : Color.white, lineWidth: isSelected ? 2 : 1)
+                    .stroke(isSelected ? type.color : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)

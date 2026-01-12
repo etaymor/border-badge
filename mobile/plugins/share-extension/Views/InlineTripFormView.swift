@@ -49,10 +49,14 @@ struct InlineTripFormView: View {
                     TextField("e.g., Summer in Italy", text: $tripName)
                         .font(Typography.body(16))
                         .foregroundColor(BrandColors.midnightNavy)
-                        .frame(minHeight: 44)
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .glassInput()
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.4))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                        )
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 20)
@@ -71,8 +75,17 @@ struct InlineTripFormView: View {
                                 Text(country.name)
                                     .font(Typography.semibold(16))
                                     .foregroundColor(BrandColors.midnightNavy)
+
+                                Spacer()
                             }
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(Color.white.opacity(0.4))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                            )
                         }
                     } else {
                         // Selectable country
@@ -99,10 +112,14 @@ struct InlineTripFormView: View {
                                     .font(.system(size: 20))
                                     .foregroundColor(BrandColors.stormGray)
                             }
-                            .frame(minHeight: 44)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .glassInput()
+                            .padding(.vertical, 12)
+                            .background(Color.white.opacity(0.4))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                            )
                         }
                         .buttonStyle(.plain)
                     }

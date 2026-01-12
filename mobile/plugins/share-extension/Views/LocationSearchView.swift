@@ -101,10 +101,14 @@ private struct SearchField: View {
                     }
                 }
             }
-            .frame(minHeight: 48)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .glassInput()
+            .background(Color.white.opacity(0.4))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
+            )
 
             // Error message below the field
             if let error = errorMessage {
@@ -219,10 +223,14 @@ private struct SelectedPlaceDisplay: View {
                     .foregroundColor(BrandColors.stormGray.opacity(0.6))
             }
         }
-        .frame(minHeight: 48)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .glassInput()
+        .background(Color.white.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+        )
     }
 }
 
