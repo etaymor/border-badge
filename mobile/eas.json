@@ -29,7 +29,6 @@
     },
     "production": {
       "channel": "production",
-      "autoIncrement": true,
       "ios": {
         "simulator": false
       },
@@ -41,9 +40,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "${APPLE_ID}",
-        "ascAppId": "${ASC_APP_ID}",
-        "appleTeamId": "${APPLE_TEAM_ID}"
+        "appleId": "emerson.taymor@gmail.com",
+        "ascAppId": "6757568311",
+        "appleTeamId": "2AB5M8J3G6"
       },
       "android": {
         "track": "internal",

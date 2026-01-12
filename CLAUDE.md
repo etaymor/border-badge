@@ -356,6 +356,7 @@ All launch simplification changes are marked with:
 5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
+8. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
 
 ## Pre-Commit Checklist (REQUIRED)
 
@@ -377,6 +378,13 @@ cd backend
 poetry run ruff check .        # Must pass with 0 errors
 poetry run ruff format --check . # Must pass
 poetry run pytest              # Must pass all tests
+```
+
+### iOS Share Extension (if modifying Swift code)
+
+```bash
+# Install SwiftLint if not already installed: brew install swiftlint
+swiftlint lint --strict mobile/plugins/share-extension/
 ```
 
 ### CSS (if modifying public page styles)

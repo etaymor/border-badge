@@ -112,3 +112,16 @@ jobs:
 
       - name: Run TypeScript check
         run: npx tsc --noEmit
+
+  ios-lint:
+    name: iOS Swift Lint
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint lint --strict --reporter github-actions-logging

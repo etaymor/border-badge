@@ -10,8 +10,8 @@
  * The iOS Share Extension passes the shared URL as a query parameter in the deep link:
  * atlasi://share?url=<encoded_url>
  *
- * The URL is also stored in App Group UserDefaults as a backup, though reading it
- * requires a native module that is not currently installed.
+ * The URL is also stored in App Group UserDefaults as a backup.
+ * The SharedGroupPreferences native module provides access to App Group data.
  */
 
 import { Platform, NativeModules, Linking } from 'react-native';
@@ -299,4 +299,81 @@ export async function completeAppGroupShare(url: string): Promise<void> {
   clearProcessingStatus(url);
   await markShareProcessed(url);
   await clearSharedURLFromAppGroup();
+}
+
+/**
+ * Sync the API base URL to App Group storage for the Share Extension to use.
+ * This should be called on app startup to ensure the extension has the correct URL.
+ *
+ * @param apiUrl - The API base URL (from EXPO_PUBLIC_API_URL)
+ */
+export async function syncApiUrlToAppGroup(apiUrl: string): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+
+  const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
+  if (!SharedGroupPreferences) return;
+
+  try {
+    await SharedGroupPreferences.setItem('API_BASE_URL', apiUrl);
+  } catch (error) {
+    console.error('Failed to sync API URL to App Group:', error);
+  }
+}
+
+// ============================================================================
+// OFFLINE QUEUE SYNC
+// ============================================================================
+
+// Import mergeFromExtension here to avoid circular dependencies
+// (shareQueue.ts exports types used here, but doesn't import from this file)
+import { mergeFromExtension, type SwiftQueuedShare } from './shareQueue';
+
+/**
+ * Sync offline queue from iOS Share Extension to React Native queue.
+ *
+ * Reads items queued by the Share Extension (when user was unauthenticated or offline),
+ * converts them to the TypeScript queue format, and merges them into AsyncStorage.
+ * After successful merge, clears the Swift queue.
+ *
+ * IMPORTANT: The Swift queue is only cleared after mergeFromExtension succeeds.
+ * If the merge fails (throws), the Swift queue is preserved to prevent data loss.
+ *
+ * This should be called on every app foreground to ensure shares queued by the
+ * extension are picked up by the main app's retry logic.
+ *
+ * @returns Number of items synced, or 0 if none/unavailable
+ */
+export async function syncOfflineQueueFromExtension(): Promise<number> {
+  if (Platform.OS !== 'ios') return 0;
+
+  const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
+  if (!SharedGroupPreferences) return 0;
+
+  try {
+    // Read queue from App Group via native module
+    const jsonString: string | null = await SharedGroupPreferences.getOfflineQueue();
+    if (!jsonString) return 0;
+
+    // Parse the JSON array of Swift shares
+    const swiftShares: SwiftQueuedShare[] = JSON.parse(jsonString);
+    if (!swiftShares.length) return 0;
+
+    // Merge into TypeScript queue (handles deduplication and expiry)
+    // This throws on failure to ensure we don't clear the Swift queue on error
+    const count = await mergeFromExtension(swiftShares);
+
+    // Only clear the Swift queue after successful merge
+    // We clear even if count is 0 (duplicates were updated but no new items added)
+    await SharedGroupPreferences.clearOfflineQueue();
+
+    if (count > 0) {
+      console.log(`[ShareExtensionBridge] Synced ${count} share(s) from extension queue`);
+    }
+
+    return count;
+  } catch (error) {
+    // Do NOT clear the Swift queue on failure - preserve data for next sync attempt
+    console.error('Failed to sync offline queue from extension:', error);
+    return 0;
+  }
 }

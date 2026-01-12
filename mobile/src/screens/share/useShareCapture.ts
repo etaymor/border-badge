@@ -12,9 +12,8 @@ import { useCreateTrip, useTrips, Trip } from '@hooks/useTrips';
 import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
-import { enqueueFailedShare, QueuedShare } from '@services/shareQueue';
+import { enqueueFailedShare } from '@services/shareQueue';
 import { completeAppGroupShare } from '@services/shareExtensionBridge';
-import { api } from '@services/api';
 
 import {
   detectProviderFromUrl,
@@ -53,7 +52,6 @@ export interface ShareCaptureHandlers {
   handleRetry: () => void;
   handleManualEntry: () => void;
   handleSaveForLater: () => Promise<void>;
-  checkShareConnectivity: (share: QueuedShare) => Promise<boolean>;
   setNotes: (notes: string) => void;
   setSelectedTripId: (id: string | null) => void;
 }
@@ -374,20 +372,6 @@ export function useShareCapture({
     ]);
   }, [url, source, error, onComplete]);
 
-  /**
-   * Check if a queued share can be processed by testing connectivity to the ingest API.
-   * This is only a connectivity check - actual queue processing and analytics are handled
-   * by the dedicated background queue processor in shareQueue.ts via flushQueue().
-   */
-  const checkShareConnectivity = useCallback(async (share: QueuedShare): Promise<boolean> => {
-    try {
-      const response = await api.post('/ingest/social', { url: share.url });
-      return response.status === 200;
-    } catch {
-      return false;
-    }
-  }, []);
-
   return {
     // State
     ingestResult,
@@ -411,7 +395,6 @@ export function useShareCapture({
     handleRetry,
     handleManualEntry,
     handleSaveForLater,
-    checkShareConnectivity,
     setNotes,
     setSelectedTripId,
   };

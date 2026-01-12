@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
-import { storeOnboardingComplete } from '@services/api';
+import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -69,6 +69,25 @@ export function useAppleSignIn() {
         throw new Error('No refresh token received - session cannot be refreshed');
       }
 
+      // Store tokens explicitly for Share Extension access
+      // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+      // Do this in mutationFn so failures reject the mutation and trigger onError
+      try {
+        await clearTokens();
+        await storeTokens(data.session.access_token, data.session.refresh_token);
+      } catch (tokenError) {
+        // Token storage failed - rollback to safe state
+        console.error('Failed to store tokens for Share Extension:', tokenError);
+        try {
+          await clearTokens(); // Ensure no partial tokens remain
+        } catch {
+          // Ignore cleanup errors
+        }
+        // Sign out from Supabase to avoid session without Share Extension access
+        await supabase.auth.signOut();
+        throw new Error('Failed to store authentication tokens. Please try again.');
+      }
+
       // Determine display name to use:
       // 1. Use the name from onboarding if provided (user explicitly entered it)
       // 2. Fall back to Apple's provided name (only available on first sign-in)
@@ -93,14 +112,6 @@ export function useAppleSignIn() {
       return data;
     },
     onSuccess: async (data) => {
-      // Session is set via supabase.auth.signInWithIdToken() in mutationFn, which triggers
-      // onAuthStateChange in App.tsx. That listener handles:
-      // - Updating Zustand session state
-      // - Storing tokens to SecureStore
-      // - Identifying user in analytics
-      //
-      // We only handle onboarding-specific logic here for consistency with Google auth
-      // and to avoid any potential race conditions with duplicate setSession() calls.
       if (data.session) {
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);

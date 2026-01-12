@@ -56,8 +56,23 @@ export function useSignUpWithPassword() {
     },
     onSuccess: async (data, variables) => {
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+        try {
+          await clearTokens();
+          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        } catch (tokenError) {
+          // Token storage failed - rollback to safe state
+          console.error('Failed to store tokens for Share Extension:', tokenError);
+          try {
+            await clearTokens(); // Ensure no partial tokens remain
+          } catch {
+            // Ignore cleanup errors
+          }
+          // Sign out from Supabase to avoid session without Share Extension access
+          await supabase.auth.signOut();
+          throw new Error('Failed to store authentication tokens. Please try again.');
+        }
 
         // Set isMigrating BEFORE setting session to prevent empty state flash
         // This ensures useUserCountries shows onboarding data immediately
@@ -109,8 +124,23 @@ export function useSignInWithPassword() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+        try {
+          await clearTokens();
+          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        } catch (tokenError) {
+          // Token storage failed - rollback to safe state
+          console.error('Failed to store tokens for Share Extension:', tokenError);
+          try {
+            await clearTokens(); // Ensure no partial tokens remain
+          } catch {
+            // Ignore cleanup errors
+          }
+          // Sign out from Supabase to avoid session without Share Extension access
+          await supabase.auth.signOut();
+          throw new Error('Failed to store authentication tokens. Please try again.');
+        }
 
         // Check if returning user
         const onboarded = await hasUserOnboarded(data.session.user.id);
@@ -150,7 +180,11 @@ export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Ignore "Auth session missing" error - user is effectively signed out
+      // This can happen if the session was already cleared or expired
+      if (error && !error.message.includes('Auth session missing')) {
+        throw error;
+      }
     },
     onSuccess: async () => {
       signOut();

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -147,6 +148,7 @@ export function AuthScreen({ navigation }: Props) {
     }
     setPasswordError('');
 
+    Keyboard.dismiss();
     const credentials = { email: emailResult.normalizedEmail!, password };
     signIn.mutate(credentials);
   };

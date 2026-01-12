@@ -16,6 +16,7 @@ import {
   markShareProcessed,
   wasRecentlyProcessed,
   completeAppGroupShare,
+  syncApiUrlToAppGroup,
   __resetProcessedCache,
 } from '@services/shareExtensionBridge';
 
@@ -34,6 +35,7 @@ jest.mock('react-native', () => ({
   NativeModules: {
     SharedGroupPreferences: {
       getItem: jest.fn().mockResolvedValue(null),
+      setItem: jest.fn().mockResolvedValue(undefined),
       clearAll: jest.fn().mockResolvedValue(undefined),
     },
   },
@@ -268,6 +270,28 @@ describe('shareExtensionBridge', () => {
 
       // Verify App Group was cleared via native module
       expect(NativeModules.SharedGroupPreferences.clearAll).toHaveBeenCalled();
+    });
+  });
+
+  describe('syncApiUrlToAppGroup', () => {
+    it('writes API URL to App Group storage', async () => {
+      const apiUrl = 'http://192.168.1.100:8000';
+
+      await syncApiUrlToAppGroup(apiUrl);
+
+      expect(NativeModules.SharedGroupPreferences.setItem).toHaveBeenCalledWith(
+        'API_BASE_URL',
+        apiUrl
+      );
+    });
+
+    it('handles storage errors gracefully', async () => {
+      NativeModules.SharedGroupPreferences.setItem.mockRejectedValueOnce(
+        new Error('Storage error')
+      );
+
+      // Should not throw
+      await expect(syncApiUrlToAppGroup('http://example.com')).resolves.not.toThrow();
     });
   });
 });
