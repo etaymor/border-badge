@@ -91,18 +91,8 @@ private struct CategoryButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.white, lineWidth: 2)
+                    .stroke(isSelected ? type.color : Color.white, lineWidth: isSelected ? 2 : 1)
             )
-            .overlay(alignment: .bottom) {
-                // Colored underline when selected
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(type.color)
-                        .frame(height: 3)
-                        .padding(.horizontal, 16)
-                        .offset(y: -4)
-                }
-            }
         }
         .buttonStyle(.plain)
     }

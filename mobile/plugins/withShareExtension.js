@@ -366,6 +366,63 @@ function withShareExtensionTarget(config) {
       };
 
       /**
+       * Find an existing PBXFileReference UUID by its path.
+       * We match both quoted and unquoted forms.
+       */
+      const findFileRefUuidByPath = (filePath) => {
+        const fileRefs = xcodeProject.pbxFileReferenceSection();
+        const quoted = `"${filePath}"`;
+        for (const key of Object.keys(fileRefs)) {
+          if (key.endsWith('_comment')) continue;
+          const ref = fileRefs[key];
+          const refPath = ref?.path;
+          if (!refPath) continue;
+          if (refPath === filePath || refPath === quoted) {
+            return key;
+          }
+        }
+        return null;
+      };
+
+      /**
+       * Force-add an existing file reference into a target build phase.
+       *
+       * Why: xcode@3.x addSourceFile/addResourceFile return false when a PBXFileReference already exists,
+       * which means we can accidentally clear build phases (during "sync") and never re-add the files.
+       * That results in an .appex bundle with no executable (no sources compiled).
+       */
+      const forceAddExistingFileToBuildPhase = (filePath, phase) => {
+        const fileRefUuid = findFileRefUuidByPath(filePath);
+        if (!fileRefUuid) {
+          console.warn(
+            `Share Extension: Could not find fileRef for ${filePath}; skipping force-add.`
+          );
+          return false;
+        }
+
+        const file = {
+          uuid: xcodeProject.generateUuid(),
+          fileRef: fileRefUuid,
+          basename: path.basename(filePath),
+          group: phase, // used for comments ("<basename> in Sources/Resources")
+          target: existingTarget.uuid,
+          path: filePath,
+        };
+
+        xcodeProject.addToPbxBuildFileSection(file);
+        if (phase === 'Sources') {
+          xcodeProject.addToPbxSourcesBuildPhase(file);
+        } else if (phase === 'Resources') {
+          xcodeProject.addToPbxResourcesBuildPhase(file);
+        } else {
+          console.warn(`Share Extension: Unknown phase ${phase} for force-add.`);
+          return false;
+        }
+
+        return true;
+      };
+
+      /**
        * cordova-node-xcode (xcode@3.x) does not expose pbxBuildPhaseObj().
        * We implement a tiny equivalent here to find a build phase object for a target UUID.
        *
@@ -410,9 +467,18 @@ function withShareExtensionTarget(config) {
             console.log(`Removed ${removedCount} plugin-managed source files from build phase`);
           }
         }
-        // Add all current Swift files (addSourceFile is idempotent for non-plugin files)
+        // Add all current Swift files.
+        // NOTE: addSourceFile returns false when the file reference already exists; in that case,
+        // force-add it back into the Sources build phase so the extension actually compiles.
         for (const filePath of swiftFilePaths) {
-          xcodeProject.addSourceFile(filePath, { target: existingTarget.uuid }, extensionGroupKey);
+          const added = xcodeProject.addSourceFile(
+            filePath,
+            { target: existingTarget.uuid },
+            extensionGroupKey
+          );
+          if (!added) {
+            forceAddExistingFileToBuildPhase(filePath, 'Sources');
+          }
         }
         console.log(`Updated Sources build phase with ${swiftFilePaths.length} Swift files`);
       } else {
@@ -444,13 +510,20 @@ function withShareExtensionTarget(config) {
             console.log(`Removed ${removedCount} plugin-managed resource files from build phase`);
           }
         }
-        // Add all current font files
+        // Add all current font files.
+        //
+        // IMPORTANT: We intentionally do NOT use xcodeProject.addResourceFile here.
+        // xcode@3.x's addResourceFile() calls correctForResourcesPath(), which assumes a PBXGroup
+        // named "Resources" exists. Many RN/Expo projects don't have that group, which crashes prebuild.
+        // Instead, we ensure the PBXFileReference exists (in the ShareExtension group) and then
+        // force-add it into the PBXResourcesBuildPhase.
         for (const filePath of fontFilePaths) {
-          xcodeProject.addResourceFile(
-            filePath,
-            { target: existingTarget.uuid },
-            extensionGroupKey
-          );
+          // Ensure a file reference exists in the ShareExtension PBXGroup
+          if (!findFileRefUuidByPath(filePath)) {
+            xcodeProject.addFile(filePath, extensionGroupKey);
+          }
+          // Ensure it is included in the Resources build phase
+          forceAddExistingFileToBuildPhase(filePath, 'Resources');
         }
         console.log(`Updated Resources build phase with ${fontFilePaths.length} font files`);
       } else {

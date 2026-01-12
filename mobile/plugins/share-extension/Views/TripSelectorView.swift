@@ -59,9 +59,9 @@ struct TripSelectorView: View {
                         .font(.system(size: 20))
                         .foregroundColor(BrandColors.stormGray)
                 }
-                .frame(minHeight: 52)
+                .frame(minHeight: 44)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 10)
                 .glassInput()
             }
             .buttonStyle(.plain)
@@ -142,6 +142,16 @@ struct TripSelectorView: View {
                 viewModel.load()
             }
         }
+        .onChange(of: viewModel.trips) { _ in
+            // Auto-select the first matching trip when trips load
+            if selectedTripId == nil {
+                let filtered = viewModel.filteredTrips(countryCode: countryCode)
+                if let firstTrip = filtered.first {
+                    selectedTripId = firstTrip.id
+                    onTripSelected(firstTrip.id)
+                }
+            }
+        }
     }
 }
 
@@ -164,17 +174,11 @@ private struct TripSelectionSheet: View {
             BrandColors.warmCream.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Modal handle
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.black.opacity(0.2))
-                    .frame(width: 36, height: 4)
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
-
                 // Title - Playfair Display Bold
                 Text("Select Trip")
                     .font(Typography.header(22))
                     .foregroundColor(BrandColors.midnightNavy)
+                    .padding(.top, 24)
                     .padding(.bottom, 20)
 
                 if viewModel.isLoading {

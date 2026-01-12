@@ -35,17 +35,11 @@ struct InlineTripFormView: View {
             BrandColors.warmCream.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Modal handle
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.black.opacity(0.2))
-                    .frame(width: 36, height: 4)
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
-
                 // Title - Playfair Display Bold
                 Text("Create New Trip")
                     .font(Typography.header(22))
                     .foregroundColor(BrandColors.midnightNavy)
+                    .padding(.top, 24)
                     .padding(.bottom, 20)
 
                 // Trip name field
@@ -55,9 +49,9 @@ struct InlineTripFormView: View {
                     TextField("e.g., Summer in Italy", text: $tripName)
                         .font(Typography.body(16))
                         .foregroundColor(BrandColors.midnightNavy)
-                        .frame(minHeight: 52)
+                        .frame(minHeight: 44)
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 10)
                         .glassInput()
                 }
                 .padding(.horizontal, 24)
@@ -105,9 +99,9 @@ struct InlineTripFormView: View {
                                     .font(.system(size: 20))
                                     .foregroundColor(BrandColors.stormGray)
                             }
-                            .frame(minHeight: 52)
+                            .frame(minHeight: 44)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 10)
                             .glassInput()
                         }
                         .buttonStyle(.plain)
