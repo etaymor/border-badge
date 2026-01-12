@@ -32,6 +32,8 @@
         Please enter a message between 10 and 5000 characters.
         {% elif error == 'invalid_name' %}
         Please enter a valid name (1-100 characters).
+        {% elif error == 'invalid_email' %}
+        Please enter a valid email address.
         {% else %}
         Something went wrong. Please check your input and try again.
         {% endif %}

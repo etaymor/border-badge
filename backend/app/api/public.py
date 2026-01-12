@@ -3,6 +3,7 @@
 import datetime
 import html
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Path, Request, status
@@ -511,6 +512,19 @@ CONTACT_CATEGORIES = [
 
 VALID_CATEGORY_VALUES = {cat["value"] for cat in CONTACT_CATEGORIES}
 
+# Valid error codes for contact form (whitelist for security)
+VALID_ERROR_CODES = {
+    "captcha",
+    "invalid_category",
+    "invalid_name",
+    "invalid_message",
+    "invalid_email",
+    "send_failed",
+}
+
+# Simple email regex for validation (RFC 5322 simplified)
+EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
 
 @router.get("/contact", response_class=HTMLResponse)
 @limiter.limit("60/minute")
@@ -521,6 +535,9 @@ async def contact_page(
 ) -> HTMLResponse:
     """Render the contact form page."""
     settings = get_settings()
+
+    # Sanitize error parameter - only allow whitelisted values
+    sanitized_error = error if error in VALID_ERROR_CODES else None
 
     response = templates.TemplateResponse(
         request=request,
@@ -533,7 +550,7 @@ async def contact_page(
             "turnstile_site_key": settings.turnstile_site_key,
             "categories": CONTACT_CATEGORIES,
             "success": success,
-            "error": error,
+            "error": sanitized_error,
             "current_year": get_current_year(),
         },
     )
@@ -563,6 +580,14 @@ async def submit_contact_form(
             status_code=303,
         )
 
+    # Validate email format (prevents header injection and validates format)
+    email = email.strip()
+    if not EMAIL_REGEX.match(email) or len(email) > 254:
+        return RedirectResponse(
+            url="/contact?error=invalid_email",
+            status_code=303,
+        )
+
     # Validate category
     if category not in VALID_CATEGORY_VALUES:
         return RedirectResponse(
@@ -588,7 +613,7 @@ async def submit_contact_form(
     # Send email
     success = await send_contact_email(
         name=name,
-        email=email.strip(),
+        email=email,
         category=category,
         message=message,
     )
