@@ -18,7 +18,6 @@ import { PlacesAutocomplete } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { TripSelector } from '@components/share/TripSelector';
-import { PendingSharesBanner } from '@components/share/PendingSharesBanner';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
@@ -59,7 +58,6 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     handleRetry,
     handleManualEntry,
     handleSaveForLater,
-    checkShareConnectivity,
     setNotes,
     setSelectedTripId,
   } = useShareCapture({
@@ -114,8 +112,6 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           scrollEnabled={scrollEnabled}
         >
           <Text style={styles.scrollHeaderTitle}>Save Place</Text>
-
-          <PendingSharesBanner retryFn={checkShareConnectivity} />
 
           {ingestResult && <ThumbnailCard ingestResult={ingestResult} />}
 

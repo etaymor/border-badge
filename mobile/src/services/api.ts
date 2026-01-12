@@ -10,19 +10,20 @@ const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
-// Keychain access group for sharing tokens with iOS Share Extension
-// Format: <TeamID>.<BundleIdentifier> - must match ShareExtension.entitlements
-// and KeychainHelper.swift accessGroup
-// Team ID from eas.json submit.production.ios.appleTeamId
-const KEYCHAIN_ACCESS_GROUP = '2AB5M8J3G6.com.atlasi.app';
-
-// SecureStore options for iOS to enable keychain sharing with Share Extension
-const getSecureStoreOptions = (): SecureStore.SecureStoreOptions => {
-  if (Platform.OS === 'ios') {
-    return { accessGroup: KEYCHAIN_ACCESS_GROUP };
-  }
-  return {};
-};
+/**
+ * SecureStore options
+ *
+ * IMPORTANT:
+ * We intentionally do NOT set iOS `accessGroup` here.
+ *
+ * The main app’s default keychain access group is already:
+ *   $(AppIdentifierPrefix)com.atlasi.app
+ *
+ * The Share Extension is granted access to that same group via entitlements and reads using
+ * KeychainAccessGroup from its Info.plist. Hardcoding a TeamID in JS is brittle (preview/internal
+ * builds can be signed with a different team), and leads to the extension seeing -25300.
+ */
+const getSecureStoreOptions = (): SecureStore.SecureStoreOptions => ({});
 
 // In-memory token cache to avoid SecureStore I/O on every request
 let cachedToken: string | null = null;
@@ -30,32 +31,24 @@ let cachedToken: string | null = null;
 let tokenFetchPromise: Promise<string | null> | null = null;
 
 /**
- * Fetch token with migration from legacy keychain storage.
+ * Fetch token with a defensive fallback.
  *
- * Existing users may have tokens stored without the accessGroup (before Share Extension).
- * This function tries the new accessGroup location first, then falls back to legacy,
- * and migrates tokens to the new location if found in legacy storage.
+ * Historically, we experimented with storing tokens in different SecureStore locations.
+ * We now always use the default keychain access group (no explicit accessGroup option),
+ * and fall back to a legacy read on iOS only if needed.
  */
 async function fetchTokenWithMigration(key: string): Promise<string | null> {
-  const options = getSecureStoreOptions();
-
-  // Try to get token from shared keychain (with accessGroup)
-  let token = await SecureStore.getItemAsync(key, options);
+  // Default location (recommended)
+  let token = await SecureStore.getItemAsync(key, getSecureStoreOptions());
   if (token) {
     return token;
   }
 
-  // If not found and on iOS, try legacy location (without accessGroup)
+  // Legacy fallback: explicitly try without options (older builds)
   if (Platform.OS === 'ios') {
     try {
       token = await SecureStore.getItemAsync(key);
       if (token) {
-        // Migrate to shared keychain for Share Extension access
-        await SecureStore.setItemAsync(key, token, options);
-        // NOTE: We intentionally do NOT delete from legacy location here.
-        // Supabase may have stored its session data there, and deleting it
-        // would cause "Auth session missing" errors on sign out.
-        // The legacy location will be overwritten on next sign in anyway.
         return token;
       }
     } catch {
@@ -180,9 +173,8 @@ export async function storeTokens(accessToken: string, refreshToken: string): Pr
   await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
   console.log('[API] Tokens stored successfully to shared keychain');
-  // Note: We do NOT delete legacy tokens here. iOS Keychain delete queries without
-  // accessGroup can match and delete items WITH accessGroup (same service/account).
-  // Legacy token migration is handled in fetchTokenWithMigration() on read.
+  // Note: We do NOT delete legacy tokens here; iOS keychain matching can be surprising,
+  // and deleting could remove items needed by Supabase session persistence.
 }
 
 // Helper to clear tokens on logout

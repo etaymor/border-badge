@@ -144,14 +144,6 @@ export interface QueuedShare {
 export type EnqueueShareInput = Omit<QueuedShare, 'id' | 'retryCount' | 'lastRetryAt'>;
 
 /**
- * Result of flushing the queue
- */
-export interface FlushResult {
-  succeeded: number;
-  failed: number;
-}
-
-/**
  * Calculate the next retry time based on retry count and last attempt
  */
 function getNextRetryTime(retryCount: number, lastRetryAt: number): number {
@@ -248,27 +240,6 @@ export async function enqueueFailedShare(share: EnqueueShareInput): Promise<void
   } finally {
     queueLock.release();
   }
-}
-
-/**
- * Get all pending shares in the queue
- *
- * @returns Array of queued shares (excludes expired ones)
- */
-export async function getPendingShares(): Promise<QueuedShare[]> {
-  const queue = await readQueue();
-  // Filter out expired shares
-  return queue.filter((share) => !isExpired(share));
-}
-
-/**
- * Get the count of pending shares
- *
- * @returns Number of shares in the queue
- */
-export async function getPendingShareCount(): Promise<number> {
-  const pending = await getPendingShares();
-  return pending.length;
 }
 
 /**
@@ -372,66 +343,6 @@ export async function clearExpiredShares(): Promise<void> {
   } finally {
     queueLock.release();
   }
-}
-
-/**
- * Clear all shares from the queue
- * Use with caution - removes all pending retries
- */
-export async function clearAllShares(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(SHARE_QUEUE_KEY);
-  } catch (error) {
-    console.error('Failed to clear all shares:', error);
-  }
-}
-
-/**
- * Flush the queue - attempt to process all ready retries
- *
- * This is a placeholder that should be called with a retry function.
- * The actual retry logic should be implemented in the component that
- * calls this, as it needs access to the ingest mutation.
- *
- * @param retryFn - Function to retry a single share, returns true if successful
- * @returns Count of succeeded and failed retries
- */
-export async function flushQueue(
-  retryFn?: (share: QueuedShare) => Promise<boolean>
-): Promise<FlushResult> {
-  // First, clear any expired shares
-  await clearExpiredShares();
-
-  // If no retry function provided, just return zeros
-  if (!retryFn) {
-    return { succeeded: 0, failed: 0 };
-  }
-
-  const result: FlushResult = { succeeded: 0, failed: 0 };
-  let share = await getNextRetryableShare();
-
-  while (share) {
-    try {
-      const success = await retryFn(share);
-
-      if (success) {
-        await dequeueShare(share.id);
-        result.succeeded++;
-      } else {
-        await markRetryAttempt(share.id, 'Retry failed');
-        result.failed++;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      await markRetryAttempt(share.id, errorMessage);
-      result.failed++;
-    }
-
-    // Get next share (if any)
-    share = await getNextRetryableShare();
-  }
-
-  return result;
 }
 
 /**

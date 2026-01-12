@@ -1,23 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
 
 import { env } from '@config/env';
 import { updateCachedToken } from './api';
-
-// Keychain access group for sharing tokens with iOS Share Extension
-// Must match the value in api.ts and KeychainHelper.swift
-// Format: <TeamID>.<BundleIdentifier>
-const KEYCHAIN_ACCESS_GROUP = '2AB5M8J3G6.com.atlasi.app';
 
 /**
  * Get SecureStore options for iOS to enable keychain sharing with Share Extension.
  * On Android, returns empty options (no keychain sharing needed).
  */
 const getSecureStoreOptions = (): SecureStore.SecureStoreOptions => {
-  if (Platform.OS === 'ios') {
-    return { accessGroup: KEYCHAIN_ACCESS_GROUP };
-  }
   return {};
 };
 

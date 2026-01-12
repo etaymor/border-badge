@@ -94,9 +94,9 @@ enum KeychainHelper {
         info.append("svc:\(service)")
         info.append("key:\(tokenKey)")
 
-        // 2. Try to query WITHOUT access group (see if token exists anywhere in extension's keychain)
+        // 2. Try expo-secure-store style query (Data for account + generic)
         let encodedKey = Data(tokenKey.utf8)
-        let noGroupQuery: [CFString: Any] = [
+        let dataQueryBase: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrGeneric: encodedKey,
@@ -104,18 +104,38 @@ enum KeychainHelper {
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne
         ]
+
         var noGroupResult: AnyObject?
-        let noGroupStatus = SecItemCopyMatching(noGroupQuery as CFDictionary, &noGroupResult)
+        let noGroupStatus = SecItemCopyMatching(dataQueryBase as CFDictionary, &noGroupResult)
         info.append("noGrp:\(noGroupStatus)")
 
-        // 3. Try WITH access group
-        var withGroupQuery = noGroupQuery
+        var withGroupQuery = dataQueryBase
         if let group = accessGroup {
             withGroupQuery[kSecAttrAccessGroup] = group
         }
         var withGroupResult: AnyObject?
         let withGroupStatus = SecItemCopyMatching(withGroupQuery as CFDictionary, &withGroupResult)
         info.append("wGrp:\(withGroupStatus)")
+
+        // 3. Fallback query (String account, no generic) — helps detect legacy items
+        let stringQueryBase: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: tokenKey,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+        var noGroupResultStr: AnyObject?
+        let noGroupStatusStr = SecItemCopyMatching(stringQueryBase as CFDictionary, &noGroupResultStr)
+        info.append("noGrpS:\(noGroupStatusStr)")
+
+        var withGroupQueryStr = stringQueryBase
+        if let group = accessGroup {
+            withGroupQueryStr[kSecAttrAccessGroup] = group
+        }
+        var withGroupResultStr: AnyObject?
+        let withGroupStatusStr = SecItemCopyMatching(withGroupQueryStr as CFDictionary, &withGroupResultStr)
+        info.append("wGrpS:\(withGroupStatusStr)")
 
         return info.joined(separator: "|")
     }
@@ -127,40 +147,69 @@ enum KeychainHelper {
     /// expo-secure-store uses Data(key.utf8) for both kSecAttrGeneric and kSecAttrAccount.
     /// See: node_modules/expo-secure-store/ios/SecureStoreModule.swift lines 178-185
     private static func read(key: String) -> String? {
-        // expo-secure-store encodes the key as Data, not String
+        // Try queries in order:
+        // 1) expo-secure-store format (Data account + generic) WITH accessGroup
+        // 2) expo-secure-store format WITHOUT accessGroup (rarely useful, but safe)
+        // 3) legacy format (String account, no generic) WITH accessGroup
+        // 4) legacy format WITHOUT accessGroup
+        //
+        // We do this because different historical implementations may have stored items differently.
+
+        func tryRead(query: [CFString: Any]) -> (status: OSStatus, value: String?) {
+            var result: AnyObject?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            guard status == errSecSuccess, let data = result as? Data else {
+                return (status, nil)
+            }
+            return (status, String(data: data, encoding: .utf8))
+        }
+
         let encodedKey = Data(key.utf8)
 
-        var query: [CFString: Any] = [
+        let dataQueryBase: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
-            kSecAttrGeneric: encodedKey,    // Must match expo-secure-store
-            kSecAttrAccount: encodedKey,    // Must be Data, not String
+            kSecAttrGeneric: encodedKey,
+            kSecAttrAccount: encodedKey,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne
         ]
 
-        // Add access group if configured
-        if let group = accessGroup {
-            query[kSecAttrAccessGroup] = group
+        let stringQueryBase: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: key,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+
+        let candidates: [[CFString: Any]] = [
+            {
+                var q = dataQueryBase
+                if let group = accessGroup { q[kSecAttrAccessGroup] = group }
+                return q
+            }(),
+            dataQueryBase,
+            {
+                var q = stringQueryBase
+                if let group = accessGroup { q[kSecAttrAccessGroup] = group }
+                return q
+            }(),
+            stringQueryBase
+        ]
+
+        var lastStatus: OSStatus = errSecItemNotFound
+        for query in candidates {
+            let (status, value) = tryRead(query: query)
+            lastStatus = status
+            if let value {
+                return value
+            }
         }
 
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
-            // Log all failures including errSecItemNotFound (-25300) for debugging
-            NSLog("[Atlasi KeychainHelper] Read failed: key=%@, status=%d (%@)",
-                  key,
-                  status,
-                  status == errSecItemNotFound ? "errSecItemNotFound" :
-                  status == errSecAuthFailed ? "errSecAuthFailed" :
-                  status == errSecMissingEntitlement ? "errSecMissingEntitlement" : "unknown")
-            return nil
-        }
-
-        return value
+        // Log failures (do not log token contents)
+        NSLog("[Atlasi KeychainHelper] Read failed: key=%@, status=%d", key, lastStatus)
+        return nil
     }
 
     /// Write a value to Keychain (for future use if needed)

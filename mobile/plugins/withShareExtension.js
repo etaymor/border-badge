@@ -299,7 +299,44 @@ function withShareExtensionTarget(config) {
       // This handles cases where files were added/removed in plugins/share-extension/
       const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
       const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
-      const extensionGroupKey = xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME });
+      let extensionGroupKey = xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME });
+
+      /**
+       * Ensure we have a PBXGroup for the extension.
+       *
+       * Why: xcode@3.x's addSourceFile() falls back to addPluginFile() when no group is provided,
+       * and addPluginFile() assumes a "Plugins" group exists (it doesn't in many RN/Expo projects),
+       * causing `pbxGroupByName('Plugins').path` to crash.
+       */
+      const ensureExtensionGroupKey = () => {
+        if (extensionGroupKey) return extensionGroupKey;
+
+        // Try to locate by PBXGroup name/path (findPBXGroupKey can miss quoted/unnamed groups)
+        const pbxGroups = xcodeProject.hash?.project?.objects?.PBXGroup;
+        if (pbxGroups) {
+          for (const key of Object.keys(pbxGroups)) {
+            if (key.endsWith('_comment')) continue;
+            const g = pbxGroups[key];
+            const name = (g?.name || '').replace(/^"(.*)"$/, '$1');
+            const pathValue = (g?.path || '').replace(/^"(.*)"$/, '$1');
+            if (name === EXTENSION_NAME || pathValue === EXTENSION_NAME) {
+              extensionGroupKey = key;
+              return extensionGroupKey;
+            }
+          }
+        }
+
+        // Create the group if still missing
+        const createdGroup = xcodeProject.addPbxGroup([], EXTENSION_NAME, EXTENSION_NAME);
+        const mainGroupKey = xcodeProject.findPBXGroupKey({ name: undefined, path: undefined });
+        if (mainGroupKey) {
+          xcodeProject.addToPbxGroup(createdGroup.uuid, mainGroupKey);
+        }
+        extensionGroupKey = createdGroup.uuid;
+        return extensionGroupKey;
+      };
+
+      extensionGroupKey = ensureExtensionGroupKey();
 
       // Helper to check if a file reference path is plugin-managed
       // Plugin-managed source files are under ShareExtension/ directory
@@ -328,11 +365,37 @@ function withShareExtensionTarget(config) {
         return fileRef.path.replace(/^"(.*)"$/, '$1');
       };
 
+      /**
+       * cordova-node-xcode (xcode@3.x) does not expose pbxBuildPhaseObj().
+       * We implement a tiny equivalent here to find a build phase object for a target UUID.
+       *
+       * @param {string} targetUuid - PBXNativeTarget UUID
+       * @param {string} phaseIsa - e.g. 'PBXSourcesBuildPhase' or 'PBXResourcesBuildPhase'
+       * @returns {{ uuid: string, buildPhase: object } | null}
+       */
+      const getBuildPhaseObj = (targetUuid, phaseIsa) => {
+        const nativeTargets = xcodeProject.pbxNativeTargetSection();
+        const target = nativeTargets[targetUuid];
+        if (!target || !Array.isArray(target.buildPhases)) return null;
+
+        const objects = xcodeProject.hash?.project?.objects;
+        const section = objects?.[phaseIsa];
+        if (!section) return null;
+
+        for (const phaseRef of target.buildPhases) {
+          const phaseUuid = phaseRef?.value;
+          if (!phaseUuid) continue;
+          const phase = section[phaseUuid];
+          if (phase) {
+            return { uuid: phaseUuid, buildPhase: phase };
+          }
+        }
+
+        return null;
+      };
+
       // Find and update the Sources build phase
-      const buildPhases = xcodeProject.pbxBuildPhaseObj(
-        existingTarget.uuid,
-        'PBXSourcesBuildPhase'
-      );
+      const buildPhases = getBuildPhaseObj(existingTarget.uuid, 'PBXSourcesBuildPhase');
       if (buildPhases) {
         const sourcesBuildPhase = buildPhases.buildPhase;
         if (sourcesBuildPhase && sourcesBuildPhase.files) {
@@ -366,10 +429,7 @@ function withShareExtensionTarget(config) {
       }
 
       // Find and update the Resources build phase for fonts
-      const resourcesBuildPhase = xcodeProject.pbxBuildPhaseObj(
-        existingTarget.uuid,
-        'PBXResourcesBuildPhase'
-      );
+      const resourcesBuildPhase = getBuildPhaseObj(existingTarget.uuid, 'PBXResourcesBuildPhase');
       if (resourcesBuildPhase) {
         const resBuildPhase = resourcesBuildPhase.buildPhase;
         if (resBuildPhase && resBuildPhase.files) {
