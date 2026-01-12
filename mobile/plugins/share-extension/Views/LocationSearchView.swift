@@ -293,13 +293,16 @@ class LocationSearchViewModel: ObservableObject {
             #endif
 
             do {
+                NSLog("[Atlasi] Places search: query=%@, countryCode=%@", query, countryCode ?? "nil")
                 let results = try await apiClient.searchPlaces(query: query, countryCode: countryCode)
                 guard !Task.isCancelled else { return }
+                NSLog("[Atlasi] Places search: %d results", results.count)
                 predictions = results
                 errorMessage = nil
             } catch let error as APIError {
                 guard !Task.isCancelled else { return }
                 predictions = []
+                NSLog("[Atlasi] Places search error: \(error.localizedDescription)")
                 switch error {
                 case .noToken:
                     errorMessage = "Sign in to search places"
@@ -309,14 +312,18 @@ class LocationSearchViewModel: ObservableObject {
                     errorMessage = "Network error"
                 case .timeout:
                     errorMessage = "Request timed out"
-                default:
-                    errorMessage = nil
+                case .serverError(let code, _):
+                    errorMessage = "Server error (\(code))"
+                case .decodingError:
+                    errorMessage = "Invalid response format"
+                case .invalidURL:
+                    errorMessage = "Invalid request"
                 }
-                NSLog("[Atlasi] Places search error: \(error.localizedDescription)")
             } catch {
                 guard !Task.isCancelled else { return }
                 predictions = []
-                NSLog("[Atlasi] Places search error: \(error.localizedDescription)")
+                errorMessage = "Search failed"
+                NSLog("[Atlasi] Places search unexpected error: \(error.localizedDescription)")
             }
             isSearching = false
         }
