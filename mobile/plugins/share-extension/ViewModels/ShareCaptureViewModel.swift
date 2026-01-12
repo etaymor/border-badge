@@ -199,6 +199,11 @@ class ShareCaptureViewModel: ObservableObject {
             notes: notes.isEmpty ? nil : notes
         )
 
+        // Track queued for later
+        AnalyticsQueue.track("share_extension_queued_offline", properties: [
+            "reason": reason.rawValue
+        ])
+
         state = .successQueued(reason: stateReason)
     }
 
@@ -229,6 +234,12 @@ class ShareCaptureViewModel: ObservableObject {
               let tripId = selectedTripId else {
             return
         }
+
+        // Track save initiated
+        AnalyticsQueue.track("share_extension_save_initiated", properties: [
+            "has_location": true,
+            "category": entryType.rawValue
+        ])
 
         state = .saving
 
@@ -291,6 +302,12 @@ class ShareCaptureViewModel: ObservableObject {
             // Clear the shared URL from App Group since we processed it
             AppGroupStorage.clearSharedURL()
 
+            // Track success
+            AnalyticsQueue.track("share_extension_success", properties: [
+                "category": entryType.rawValue,
+                "has_location": true
+            ])
+
             state = .success
 
         } catch let error as APIError {
@@ -351,8 +368,20 @@ class ShareCaptureViewModel: ObservableObject {
                 entryType: entryType,
                 notes: notes.isEmpty ? nil : notes
             )
+
+            // Track queued due to save error
+            AnalyticsQueue.track("share_extension_queued_offline", properties: [
+                "reason": queueReason.rawValue
+            ])
+
             state = .successQueued(reason: stateReason)
         } else {
+            // Track error
+            AnalyticsQueue.track("share_extension_error", properties: [
+                "error_type": String(describing: error),
+                "stage": "save"
+            ])
+
             state = .error(.serverError(error.errorDescription))
         }
     }

@@ -143,4 +143,76 @@ class SharedGroupPreferences: NSObject {
         userDefaults.removeObject(forKey: "OfflineShareQueue")
         resolve(nil)
     }
+
+    // MARK: - Analytics Queue
+
+    /// Get the analytics queue from App Group UserDefaults
+    /// Returns JSON string with analytics events, or nil if empty/unavailable
+    @objc
+    func getAnalyticsQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            resolve(nil)
+            return
+        }
+
+        guard let data = userDefaults.data(forKey: "AnalyticsQueue") else {
+            resolve(nil)
+            return
+        }
+
+        // Decode the Swift analytics events
+        let decoder = JSONDecoder()
+        guard let events = try? decoder.decode([AnalyticsEvent].self, from: data) else {
+            // Could not decode, queue may be corrupted or empty
+            resolve(nil)
+            return
+        }
+
+        // Filter out expired events
+        let validEvents = events.filter { $0.isValid }
+
+        // Convert to JS-compatible format
+        let jsEvents: [[String: Any]] = validEvents.map { event in
+            // Convert Swift Date to JS milliseconds since epoch
+            let timestampMs: Double = event.timestamp.timeIntervalSince1970 * 1000
+
+            var dict: [String: Any] = [
+                "id": event.id,
+                "event": event.event,
+                "timestamp": timestampMs
+            ]
+
+            // Convert properties if present
+            if let properties = event.properties {
+                var jsProps: [String: Any] = [:]
+                for (key, value) in properties {
+                    jsProps[key] = value.value
+                }
+                dict["properties"] = jsProps
+            }
+
+            return dict
+        }
+
+        // Serialize to JSON string for React Native
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: jsEvents),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            resolve(nil)
+            return
+        }
+
+        resolve(jsonString)
+    }
+
+    /// Clear the analytics queue from App Group UserDefaults
+    @objc
+    func clearAnalyticsQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            resolve(nil)
+            return
+        }
+
+        userDefaults.removeObject(forKey: "AnalyticsQueue")
+        resolve(nil)
+    }
 }

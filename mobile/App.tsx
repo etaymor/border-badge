@@ -54,6 +54,7 @@ import {
   syncApiUrlToAppGroup,
   syncOfflineQueueFromExtension,
 } from '@services/shareExtensionBridge';
+import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
 import { env } from '@config/env';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -269,6 +270,11 @@ export default function App() {
         // Items will be available for processing once user is authenticated
         syncOfflineQueueFromExtension().catch((error) => {
           console.error('Failed to sync offline queue from extension:', error);
+        });
+
+        // Sync analytics events queued by Share Extension
+        syncAnalyticsFromExtension().catch((error) => {
+          console.error('Failed to sync analytics from extension:', error);
         });
 
         // Track analytics and check for immediate shares (only if authenticated)

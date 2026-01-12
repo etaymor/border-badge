@@ -30,4 +30,10 @@ RCT_EXTERN_METHOD(getOfflineQueue:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(clearOfflineQueue:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(getAnalyticsQueue:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(clearAnalyticsQueue:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end
