@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)
     welcome_email_from: str = "hello@atlasi.app"
+    contact_email_to: str = "hello@atlasi.app"
+
+    # Contact form (Cloudflare Turnstile)
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = Field(default="", repr=False)
 
     # Feature flags
     enable_social_features: bool = False

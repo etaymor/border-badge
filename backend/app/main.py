@@ -109,15 +109,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Build CSP with nonce for styles
+        # Build CSP with nonce for styles and scripts
         # Note: Google Fonts CSS from fonts.googleapis.com is allowed as external stylesheet
-        # Any inline styles in templates must include nonce="{{ request.state.csp_nonce }}"
+        # Any inline styles/scripts in templates must include nonce="{{ request.state.csp_nonce }}"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' https://*.supabase.co https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com data:; "
             f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "script-src 'self'"
+            f"script-src 'self' 'nonce-{nonce}' https://www.googletagmanager.com https://challenges.cloudflare.com; "
+            "frame-src https://challenges.cloudflare.com; "
+            "connect-src 'self' https://www.google-analytics.com https://analytics.google.com"
         )
         return response
 
