@@ -8,6 +8,57 @@
 import Foundation
 import React
 
+// MARK: - Analytics Types (duplicated for main app target)
+// These types are also defined in Services/AnalyticsQueue.swift for the ShareExtension target.
+// They must be kept in sync. See scripts/validate-model-sync.js for validation.
+
+/// Analytics event from the Share Extension queue
+private struct AnalyticsEvent: Codable, Identifiable {
+    let id: String
+    let event: String
+    let properties: [String: AnyCodable]?
+    let timestamp: Date
+
+    var isValid: Bool {
+        let maxAge: TimeInterval = 7 * 24 * 60 * 60
+        return Date().timeIntervalSince(timestamp) < maxAge
+    }
+}
+
+/// Type-erased Codable wrapper for analytics properties
+private struct AnyCodable: Codable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else if container.decodeNil() {
+            value = NSNull()
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported type")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case let bool as Bool: try container.encode(bool)
+        case let int as Int: try container.encode(int)
+        case let double as Double: try container.encode(double)
+        case let string as String: try container.encode(string)
+        case is NSNull: try container.encodeNil()
+        default: try container.encode(String(describing: value))
+        }
+    }
+}
+
 @objc(SharedGroupPreferences)
 class SharedGroupPreferences: NSObject {
 
