@@ -56,6 +56,9 @@ class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = BrandColors.midnightNavyUI.withAlphaComponent(0.4)
+
+        // Track extension opened
+        AnalyticsQueue.track("share_extension_opened")
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -166,6 +169,9 @@ class ShareViewController: UIViewController {
                     // Show full SwiftUI capture form
                     self.showCaptureForm(url: urlString)
                 } else {
+                    // Track auth failure
+                    AnalyticsQueue.track("share_extension_auth_failed")
+
                     // Queue for later and show message
                     self.queueShareForLater(
                         url: urlString,
@@ -455,6 +461,8 @@ class ShareViewController: UIViewController {
     }
 
     @objc private func cancelTapped() {
+        // Track dismissal
+        AnalyticsQueue.track("share_extension_dismissed", properties: ["stage": "before_save"])
         completeRequest()
     }
 
