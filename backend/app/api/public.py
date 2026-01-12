@@ -566,7 +566,7 @@ async def submit_contact_form(
     email: str = Form(...),
     category: str = Form(...),
     message: str = Form(...),
-    cf_turnstile_response: str = Form(alias="cf-turnstile-response"),
+    cf_turnstile_response: str = Form(..., alias="cf-turnstile-response"),
 ) -> RedirectResponse:
     """Handle contact form submission."""
     # Get client IP for Turnstile verification
