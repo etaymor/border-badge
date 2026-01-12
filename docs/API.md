@@ -633,6 +633,77 @@ The welcome sequence consists of 4 emails sent at the following intervals after 
 
 ---
 
+### Places
+
+#### `POST /places/autocomplete`
+
+Search for places using Google Places Autocomplete. This endpoint is used by the iOS Share Extension for location search and keeps the Google Places API key server-side.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "query": "Senso-ji Temple",
+  "country_code": "JP"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Search query (2-200 characters) |
+| `country_code` | string | No | ISO 3166-1 alpha-2 country code to bias results (e.g., "JP", "US") |
+
+**Response:**
+```json
+[
+  {
+    "place_id": "ChIJ8T1GpMGOGGARDYGSgpooDWw",
+    "main_text": "Senso-ji",
+    "secondary_text": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+    "types": []
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `place_id` | string | Google Place ID for use with place details lookup |
+| `main_text` | string | Primary place name |
+| `secondary_text` | string | Address or location context |
+| `types` | array | Place type categories (populated from details lookup) |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 422 | `UnprocessableEntity` | Query too short or invalid country code |
+| 503 | `ServiceUnavailable` | Google Places API not configured or temporarily unavailable |
+
+#### `GET /places/{place_id}`
+
+Get place metadata by ID.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "entry_id": "uuid",
+  "google_place_id": "ChIJ...",
+  "place_name": "Senso-ji",
+  "lat": 35.7148,
+  "lng": 139.7967,
+  "address": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+  "extra_data": {}
+}
+```
+
+---
+
 ### Public Endpoints
 
 These endpoints do not require authentication.
@@ -712,6 +783,7 @@ Rate limits are applied per endpoint:
 |----------|-------|
 | `POST /welcome/emails` | 3/hour |
 | `GET /profile` | 30/minute |
+| `POST /places/autocomplete` | 30/minute |
 | `POST /media/files/upload-url` | 60/minute |
 | Other endpoints | 120/minute |
 
