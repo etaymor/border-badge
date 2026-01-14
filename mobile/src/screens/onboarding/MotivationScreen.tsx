@@ -320,9 +320,11 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flex: 1,
+    overflow: 'visible',
   },
   section: {
     marginBottom: 28,
+    overflow: 'visible',
   },
   sectionTitle: {
     marginBottom: 16,
@@ -331,6 +333,9 @@ const styles = StyleSheet.create({
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginLeft: -8,
+    paddingLeft: 8,
+    overflow: 'visible',
   },
   footer: {
     paddingVertical: 24,

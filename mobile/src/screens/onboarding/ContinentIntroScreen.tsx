@@ -10,9 +10,9 @@ import { useResponsive } from '@hooks/useResponsive';
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { ALL_REGIONS, REGIONS } from '@constants/regions';
+import { REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -33,7 +33,7 @@ const DEFAULT_BACKGROUND = colors.warmCream;
 
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
-  const { addVisitedContinent, visitedContinents } = useOnboardingStore();
+  const { addVisitedContinent } = useOnboardingStore();
   const { isSmallScreen, isLargeScreen } = useResponsive();
 
   const canGoBack = navigation.canGoBack();
@@ -47,7 +47,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const titleTranslate = useRef(new Animated.Value(-20)).current;
   const videoScale = useRef(new Animated.Value(0.95)).current;
   const buttonsTranslate = useRef(new Animated.Value(30)).current;
-  const dotsOpacity = useRef(new Animated.Value(0)).current;
 
   const player = useVideoPlayer(playerSource, (playerInstance) => {
     playerInstance.loop = true;
@@ -74,7 +73,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     titleTranslate.setValue(-20);
     videoScale.setValue(0.95);
     buttonsTranslate.setValue(30);
-    dotsOpacity.setValue(0);
 
     Animated.sequence([
       // Everything fades in together
@@ -104,14 +102,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
         tension: 60,
         useNativeDriver: true,
       }),
-      // Progress dots pop in
-      Animated.timing(dotsOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
     ]).start();
-  }, [region, contentOpacity, titleTranslate, videoScale, buttonsTranslate, dotsOpacity]);
+  }, [region, contentOpacity, titleTranslate, videoScale, buttonsTranslate]);
 
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -213,19 +205,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           </Animated.View>
         </Animated.View>
 
-        {/* Progress indicator at bottom */}
-        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
-          {ALL_REGIONS.map((r, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                visitedContinents.includes(r) && styles.progressDotCompleted,
-                index === regionIndex && styles.progressDotActive,
-              ]}
-            />
-          ))}
-        </Animated.View>
       </SafeAreaView>
     </View>
   );
@@ -343,24 +322,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    paddingBottom: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });

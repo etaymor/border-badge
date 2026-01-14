@@ -24,6 +24,7 @@ interface OnboardingState {
   visitedContinents: string[]; // Tracks which continents user said "Yes" to
   displayName: string | null; // User's display name for account creation
   trackingPreference: TrackingPreset; // Country tracking preference
+  countryGridTooltipShown: boolean; // Track if card tooltip tutorial has been shown
 
   // Actions - existing
   setMotivationTags: (tags: string[]) => void;
@@ -43,6 +44,7 @@ interface OnboardingState {
   removeVisitedContinent: (region: string) => void;
   setDisplayName: (name: string | null) => void;
   setTrackingPreference: (preference: TrackingPreset) => void;
+  setCountryGridTooltipShown: (shown: boolean) => void;
 }
 
 const initialState = {
@@ -56,6 +58,7 @@ const initialState = {
   visitedContinents: [] as string[],
   displayName: null as string | null,
   trackingPreference: 'full_atlas' as TrackingPreset,
+  countryGridTooltipShown: false,
 };
 
 /**
@@ -186,6 +189,8 @@ export const useOnboardingStore = create<OnboardingState>()(
 
       setTrackingPreference: (preference) => set({ trackingPreference: preference }),
 
+      setCountryGridTooltipShown: (shown) => set({ countryGridTooltipShown: shown }),
+
       reset: () => {
         set(initialState);
         // Clear SQLite user countries when resetting onboarding
@@ -212,3 +217,5 @@ export const selectBucketListCountries = (state: OnboardingState) => state.bucke
 export const selectVisitedContinents = (state: OnboardingState) => state.visitedContinents;
 export const selectDisplayName = (state: OnboardingState) => state.displayName;
 export const selectTrackingPreference = (state: OnboardingState) => state.trackingPreference;
+export const selectCountryGridTooltipShown = (state: OnboardingState) =>
+  state.countryGridTooltipShown;

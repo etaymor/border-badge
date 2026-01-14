@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -13,6 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import CountryCardTooltipOverlay, {
+  type CardMeasurements,
+} from '@components/onboarding/CountryCardTooltipOverlay';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Calculate row height based on card aspect ratio (3:4) and layout
 // Available width = SCREEN_WIDTH - padding(16*2) - gap(12) = 2 cards
@@ -24,14 +28,14 @@ const CARD_HEIGHT = CARD_WIDTH * (4 / 3);
 const ROW_HEIGHT = CARD_HEIGHT + 12; // 12px marginBottom
 
 import { CountryCard, GlassBackButton } from '@components/ui';
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
+import { REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
 import { useStaggeredEntrance } from '@hooks/useStaggeredEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useOnboardingStore, selectCountryGridTooltipShown } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
 
@@ -45,13 +49,15 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
   // Use region-specific hook for better performance (queries SQLite directly)
   const { data: regionCountries, isLoading } = useCountriesByRegion(region);
-  const {
-    selectedCountries,
-    toggleCountry,
-    bucketListCountries,
-    toggleBucketListCountry,
-    visitedContinents,
-  } = useOnboardingStore();
+  const { selectedCountries, toggleCountry, bucketListCountries, toggleBucketListCountry } =
+    useOnboardingStore();
+
+  // Tooltip state
+  const countryGridTooltipShown = useOnboardingStore(selectCountryGridTooltipShown);
+  const setCountryGridTooltipShown = useOnboardingStore((s) => s.setCountryGridTooltipShown);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [cardMeasurements, setCardMeasurements] = useState<CardMeasurements | null>(null);
+  const firstCardRef = useRef<View>(null);
 
   // Dismiss keyboard when screen receives focus (safety net from dream country selection)
   useEffect(() => {
@@ -67,11 +73,31 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const badgeScale = useRef(new Animated.Value(1)).current;
 
   // Staggered entrance animation for country cards (40ms delay for smooth wave)
-  const { getAnimatedStyle, startAnimation, resetAnimation } = useStaggeredEntrance({
+  const { getAnimatedStyle, startAnimation, resetAnimation, isComplete } = useStaggeredEntrance({
     itemCount: regionCountries.length,
     staggerDelay: 40,
     autoStart: false, // We'll start manually when region changes
   });
+
+  // Show tooltip after cards animate in (first time any grid is shown during onboarding)
+  useEffect(() => {
+    if (isComplete && !countryGridTooltipShown) {
+      const timer = setTimeout(() => {
+        firstCardRef.current?.measureInWindow((x, y, width, height) => {
+          if (width > 0 && height > 0) {
+            setCardMeasurements({ x, y, width, height });
+            setShowTooltip(true);
+          }
+        });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isComplete, countryGridTooltipShown, region]);
+
+  const handleTooltipComplete = useCallback(() => {
+    setShowTooltip(false);
+    setCountryGridTooltipShown(true);
+  }, [setCountryGridTooltipShown]);
 
   // Track screen view (fires when region changes)
   useEffect(() => {
@@ -110,6 +136,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const selectedInRegion = useMemo(() => {
     return regionCountries.filter((c) => selectedCountries.includes(c.code)).length;
   }, [regionCountries, selectedCountries]);
+
+  const bucketListInRegion = useMemo(() => {
+    return regionCountries.filter((c) => bucketListCountries.includes(c.code)).length;
+  }, [regionCountries, bucketListCountries]);
 
   useEffect(() => {
     if (selectedInRegion !== prevSelectedCount.current && selectedInRegion > 0) {
@@ -201,19 +231,35 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       // Calculate individual card indices for stagger animation
       const leftCardIndex = index * 2;
       const rightCardIndex = index * 2 + 1;
+      const isFirstCard = index === 0;
 
       return (
         <View style={styles.countryRow}>
           <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(leftCardIndex)]}>
-            <CountryCard
-              code={item.left.code}
-              name={item.left.name}
-              isVisited={selectedCountries.includes(item.left.code)}
-              isWishlisted={bucketListCountries.includes(item.left.code)}
-              onPress={() => handleToggleVisited(item.left.code)}
-              onAddVisited={() => handleToggleVisited(item.left.code)}
-              onToggleWishlist={() => handleToggleWishlist(item.left.code)}
-            />
+            {/* Wrap first card with ref for tooltip measurements */}
+            {isFirstCard ? (
+              <View ref={firstCardRef} collapsable={false}>
+                <CountryCard
+                  code={item.left.code}
+                  name={item.left.name}
+                  isVisited={selectedCountries.includes(item.left.code)}
+                  isWishlisted={bucketListCountries.includes(item.left.code)}
+                  onPress={() => handleToggleVisited(item.left.code)}
+                  onAddVisited={() => handleToggleVisited(item.left.code)}
+                  onToggleWishlist={() => handleToggleWishlist(item.left.code)}
+                />
+              </View>
+            ) : (
+              <CountryCard
+                code={item.left.code}
+                name={item.left.name}
+                isVisited={selectedCountries.includes(item.left.code)}
+                isWishlisted={bucketListCountries.includes(item.left.code)}
+                onPress={() => handleToggleVisited(item.left.code)}
+                onAddVisited={() => handleToggleVisited(item.left.code)}
+                onToggleWishlist={() => handleToggleWishlist(item.left.code)}
+              />
+            )}
           </Animated.View>
           {item.right ? (
             <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(rightCardIndex)]}>
@@ -268,7 +314,8 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           </View>
         </View>
         <Text style={styles.progressText}>
-          {selectedInRegion}/{regionCountries.length} countries selected
+          {selectedInRegion}/{regionCountries.length} countries visited
+          {bucketListInRegion > 0 && `, ${bucketListInRegion} bucket list`}
         </Text>
       </Animated.View>
 
@@ -298,26 +345,14 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           <Text style={styles.continueButtonText}>Save & Continue</Text>
           <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
         </TouchableOpacity>
-
-        {/* Progress indicator - 6 dots for all regions including Antarctica */}
-        <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((r, index) => {
-            const isCurrentRegion = r === region;
-            const isCompleted = visitedContinents.includes(r);
-
-            return (
-              <View
-                key={index}
-                style={[
-                  styles.progressDot,
-                  isCurrentRegion && styles.progressDotActive,
-                  isCompleted && styles.progressDotCompleted,
-                ]}
-              />
-            );
-          })}
-        </View>
       </Animated.View>
+
+      {/* Tooltip overlay for first-time users */}
+      <CountryCardTooltipOverlay
+        visible={showTooltip}
+        cardMeasurements={cardMeasurements}
+        onComplete={handleTooltipComplete}
+      />
     </SafeAreaView>
   );
 }
@@ -425,24 +460,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });
