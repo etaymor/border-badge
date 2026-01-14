@@ -55,7 +55,12 @@ jest.mock('@services/guestMigration', () => ({
 // Mock API service functions
 jest.mock('@services/api', () => ({
   ...jest.requireActual('@services/api'),
+  api: {
+    post: jest.fn().mockResolvedValue({ data: { status: 'scheduled' } }),
+  },
   storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
+  clearTokens: jest.fn().mockResolvedValue(undefined),
+  storeTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock expo-apple-authentication
