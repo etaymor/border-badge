@@ -271,7 +271,7 @@ export function MotivationScreen({ navigation }: Props) {
         <Animated.View style={[styles.footer, { opacity: buttonOpacity }]}>
           <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
             <Text variant="label" style={styles.nextButtonText}>
-              Next
+              Continue
             </Text>
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
           </TouchableOpacity>

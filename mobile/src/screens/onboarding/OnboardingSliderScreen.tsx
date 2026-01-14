@@ -228,7 +228,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
           testID="start-journey-button"
         >
           <Text variant="label" style={styles.ctaButtonText}>
-            {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Next'}
+            {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Continue'}
           </Text>
           {activeIndex < SLIDES.length - 1 && (
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />

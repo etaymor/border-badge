@@ -85,10 +85,10 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
           onPress={handleNext}
           testID="start-journey-button"
           accessibilityRole="button"
-          accessibilityLabel="Next, continue to onboarding"
+          accessibilityLabel="Continue to onboarding"
         >
           <Text variant="label" style={styles.nextButtonText}>
-            Next
+            Continue
           </Text>
           <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
         </TouchableOpacity>

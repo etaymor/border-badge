@@ -25,21 +25,24 @@ import { useCountryByCode } from '@hooks/useCountries';
 import { EntryWithPlace, useEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
+import { useUserCountries } from '@hooks/useUserCountries';
 import type { TripsStackScreenProps } from '@navigation/types';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
-function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
+function EmptyState({ onAddEntry, isVisited }: { onAddEntry: () => void; isVisited: boolean }) {
   return (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📷</Text>
-      <Text style={styles.emptyTitle}>Unwritten Memories</Text>
+      <Text style={styles.emptyIcon}>{isVisited ? '📷' : '🗺️'}</Text>
+      <Text style={styles.emptyTitle}>{isVisited ? 'Unwritten Memories' : 'Planning Mode'}</Text>
       <Text style={styles.emptySubtitle}>
-        This chapter is waiting to be written. Document your first memory.
+        {isVisited
+          ? 'This chapter is waiting to be written. Document your first memory.'
+          : 'Add the places you want to visit and experiences you want to have.'}
       </Text>
       <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
         <Ionicons name="add" size={20} color={colors.midnightNavy} />
-        <Text style={styles.emptyButtonText}>Add Entry</Text>
+        <Text style={styles.emptyButtonText}>{isVisited ? 'Add Entry' : 'Add Place'}</Text>
       </Pressable>
     </View>
   );
@@ -57,8 +60,15 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: lists } = useTripLists(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
+  const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
+
+  // Check if user has visited this country
+  const isVisited =
+    userCountries?.some(
+      (uc) => uc.country_code === trip?.country_code && uc.status === 'visited'
+    ) ?? false;
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
 
@@ -251,7 +261,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.entriesListContent}
           ListHeaderComponent={entries && entries.length > 0 ? renderHeader : null}
-          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
+          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} isVisited={isVisited} />}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={Platform.OS === 'android'}
           maxToRenderPerBatch={10}

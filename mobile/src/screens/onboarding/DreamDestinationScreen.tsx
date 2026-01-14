@@ -29,7 +29,8 @@ export function DreamDestinationScreen({ navigation }: Props) {
 
   const config: CountrySelectionConfig = {
     backgroundColor: colors.lakeBlue,
-    title: 'Pick your dream destination',
+    title: 'Where do you want to go?',
+    subtitle: "What's one country on your bucket list?",
     dropdownBorderColor: colors.lakeBlue,
     celebrationType: 'dream',
     showBackButton: true,

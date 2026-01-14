@@ -35,6 +35,7 @@ export function HomeCountryScreen({ navigation }: Props) {
   const config: CountrySelectionConfig = {
     backgroundColor: colors.dustyCoral,
     title: "Where's home?",
+    subtitle: 'What country do you live in?',
     dropdownBorderColor: colors.dustyCoral,
     celebrationType: 'home',
     heroElement: 'locationPin',
