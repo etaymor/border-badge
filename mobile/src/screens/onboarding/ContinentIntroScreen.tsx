@@ -204,7 +204,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
-
       </SafeAreaView>
     </View>
   );

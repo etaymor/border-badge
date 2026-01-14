@@ -89,7 +89,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
             setShowTooltip(true);
           }
         });
-      }, 300);
+      }, 100);
       return () => clearTimeout(timer);
     }
   }, [isComplete, countryGridTooltipShown, region]);

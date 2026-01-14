@@ -86,19 +86,17 @@ export default function CountryCardTooltipOverlay({
         Animated.parallel([
           Animated.timing(overlayOpacity, {
             toValue: 1,
-            duration: 150,
+            duration: 80,
             useNativeDriver: true,
           }),
           Animated.timing(tooltipOpacity, {
             toValue: 1,
-            duration: 150,
-            delay: 50,
+            duration: 80,
             useNativeDriver: true,
           }),
           Animated.timing(tooltipTranslateY, {
             toValue: 0,
-            duration: 150,
-            delay: 50,
+            duration: 80,
             useNativeDriver: true,
           }),
         ]).start();
