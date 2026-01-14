@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
-import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -111,7 +111,7 @@ export function useAppleSignIn() {
 
       return data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, params) => {
       if (data.session) {
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
@@ -125,7 +125,18 @@ export function useAppleSignIn() {
           setIsMigrating(true);
           setSession(data.session);
 
-          // Migrate in background
+          // Schedule welcome emails for new user
+          // Use display_name from user_metadata (set by mutationFn) for consistency
+          // This ensures we use the resolved name (onboarding OR Apple credential)
+          try {
+            await api.post('/welcome/emails', {
+              display_name: data.session.user.user_metadata?.display_name ?? params?.displayName,
+            });
+          } catch (error) {
+            console.warn('Failed to schedule welcome emails:', error);
+          }
+
+          // Migrate in background - reset isMigrating when done to enable queries
           migrateGuestData(data.session)
             .catch(() => console.warn('Migration failed for Apple user'))
             .finally(() => setIsMigrating(false));

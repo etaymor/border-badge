@@ -33,17 +33,18 @@ describe('AuthScreen', () => {
     expect(screen.getByPlaceholderText('Email address')).toBeTruthy();
   });
 
-  it('displays password input after entering valid email', () => {
+  it('displays password input (always rendered for autofill)', () => {
     render(<AuthScreen navigation={mockNavigation} route={mockRoute} />);
 
-    // Password field is hidden until email is valid
-    expect(screen.queryByPlaceholderText('Password')).toBeNull();
+    // Password field is always rendered for iOS autofill support
+    // (visually hidden with maxHeight: 0 until email is valid)
+    expect(screen.getByPlaceholderText('Password')).toBeTruthy();
 
     // Enter a valid email
     const emailInput = screen.getByPlaceholderText('Email address');
     fireEvent.changeText(emailInput, 'test@example.com');
 
-    // Now password field should be visible
+    // Password field still present
     expect(screen.getByPlaceholderText('Password')).toBeTruthy();
   });
 

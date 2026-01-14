@@ -3,7 +3,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -120,7 +120,7 @@ export function useGoogleSignIn() {
 
       return sessionData;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, params) => {
       if (data.session) {
         // Store tokens explicitly for Share Extension access
         // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
@@ -152,7 +152,17 @@ export function useGoogleSignIn() {
           setIsMigrating(true);
           setSession(data.session);
 
-          // Migrate in background
+          // Schedule welcome emails for new user
+          // Use display_name from user_metadata (set by mutationFn) for consistency
+          try {
+            await api.post('/welcome/emails', {
+              display_name: data.session.user.user_metadata?.display_name ?? params?.displayName,
+            });
+          } catch (error) {
+            console.warn('Failed to schedule welcome emails:', error);
+          }
+
+          // Migrate in background - reset isMigrating when done to enable queries
           migrateGuestData(data.session)
             .catch(() => console.warn('Migration failed for Google user'))
             .finally(() => setIsMigrating(false));
