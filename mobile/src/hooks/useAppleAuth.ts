@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
-import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -124,6 +124,15 @@ export function useAppleSignIn() {
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
           setSession(data.session);
+
+          // Schedule welcome emails for new user
+          try {
+            await api.post('/welcome/emails', {
+              display_name: params?.displayName,
+            });
+          } catch (error) {
+            console.warn('Failed to schedule welcome emails:', error);
+          }
 
           // Migrate in background
           migrateGuestData(data.session)
