@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
@@ -7,8 +14,6 @@ import { Text, COUNTRY_CARD_LAYOUT } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export interface CardMeasurements {
   x: number;
@@ -39,8 +44,16 @@ export default function CountryCardTooltipOverlay({
   onComplete,
   cardMeasurements,
 }: CountryCardTooltipOverlayProps) {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [currentStep, setCurrentStep] = useState(0);
   const reduceMotion = useReducedMotion();
+
+  // Reset to step 0 when overlay becomes visible
+  useEffect(() => {
+    if (visible) {
+      setCurrentStep(0);
+    }
+  }, [visible]);
 
   // Animation values
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -77,13 +90,15 @@ export default function CountryCardTooltipOverlay({
 
   // Animate in when visible
   useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+
     if (visible && cardMeasurements) {
       if (reduceMotion) {
         overlayOpacity.setValue(1);
         tooltipOpacity.setValue(1);
         tooltipTranslateY.setValue(0);
       } else {
-        Animated.parallel([
+        animation = Animated.parallel([
           Animated.timing(overlayOpacity, {
             toValue: 1,
             duration: 80,
@@ -99,20 +114,27 @@ export default function CountryCardTooltipOverlay({
             duration: 80,
             useNativeDriver: true,
           }),
-        ]).start();
+        ]);
+        animation.start();
       }
     }
+
+    return () => {
+      animation?.stop();
+    };
   }, [visible, cardMeasurements, overlayOpacity, tooltipOpacity, tooltipTranslateY, reduceMotion]);
 
   // Animate tooltip when step changes
   useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+
     if (currentStep > 0) {
       if (reduceMotion) {
         tooltipOpacity.setValue(1);
         tooltipTranslateY.setValue(0);
       } else {
         // Quick fade out then in
-        Animated.sequence([
+        animation = Animated.sequence([
           Animated.parallel([
             Animated.timing(tooltipOpacity, {
               toValue: 0,
@@ -137,9 +159,14 @@ export default function CountryCardTooltipOverlay({
               useNativeDriver: true,
             }),
           ]),
-        ]).start();
+        ]);
+        animation.start();
       }
     }
+
+    return () => {
+      animation?.stop();
+    };
   }, [currentStep, tooltipOpacity, tooltipTranslateY, reduceMotion]);
 
   const handleNext = useCallback(() => {
@@ -165,17 +192,17 @@ export default function CountryCardTooltipOverlay({
 
   // Calculate tooltip position (below spotlight for both steps)
   const getTooltipPosition = useCallback(() => {
-    if (!spotlight || !cardMeasurements) return { top: SCREEN_HEIGHT / 2 };
+    if (!spotlight || !cardMeasurements) return { top: screenHeight / 2 };
 
     // Position below the card with boundary checks
     const desiredTop = cardMeasurements.y + cardMeasurements.height + 24;
     const minTop = 60; // Minimum distance from top of screen
-    const maxTop = SCREEN_HEIGHT - 150; // Leave room for tooltip content + button
+    const maxTop = screenHeight - 150; // Leave room for tooltip content + button
 
     return {
       top: Math.max(minTop, Math.min(desiredTop, maxTop)),
     };
-  }, [spotlight, cardMeasurements]);
+  }, [spotlight, cardMeasurements, screenHeight]);
 
   if (!visible || !cardMeasurements || !spotlight) {
     return null;
@@ -189,10 +216,10 @@ export default function CountryCardTooltipOverlay({
       <View style={styles.container}>
         {/* SVG overlay with spotlight cutout */}
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
-          <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT}>
+          <Svg width={screenWidth} height={screenHeight}>
             <Defs>
               <Mask id="spotlight-mask">
-                <Rect x="0" y="0" width={SCREEN_WIDTH} height={SCREEN_HEIGHT} fill="white" />
+                <Rect x="0" y="0" width={screenWidth} height={screenHeight} fill="white" />
                 <Rect
                   x={spotlight.x}
                   y={spotlight.y}
@@ -207,8 +234,8 @@ export default function CountryCardTooltipOverlay({
             <Rect
               x="0"
               y="0"
-              width={SCREEN_WIDTH}
-              height={SCREEN_HEIGHT}
+              width={screenWidth}
+              height={screenHeight}
               fill="rgba(23, 42, 58, 0.85)"
               mask="url(#spotlight-mask)"
             />
