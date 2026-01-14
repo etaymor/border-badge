@@ -2,7 +2,7 @@ export { AnimatedProgressBar } from './AnimatedProgressBar';
 export { Button } from './Button';
 export { Chip } from './Chip';
 export { ConfirmDialog } from './ConfirmDialog';
-export { CountryCard } from './CountryCard';
+export { CountryCard, COUNTRY_CARD_LAYOUT } from './CountryCard';
 export { CountryGridItem } from './CountryGridItem';
 export { CountryListItem } from './CountryListItem';
 export { EmptyState } from './EmptyState';

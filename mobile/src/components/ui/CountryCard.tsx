@@ -22,6 +22,14 @@ import { getFlagEmoji } from '@utils/flags';
 import { getCountryImage } from '../../assets/countryImages';
 import quillIcon from '../../../assets/quill-icon.png';
 
+// Layout constants exported for tooltip overlay alignment
+export const COUNTRY_CARD_LAYOUT = {
+  BORDER_RADIUS: 24,
+  BOTTOM_ROW_OFFSET: 12,
+  ACTION_BUTTON_SIZE: 40,
+  ACTION_BUTTON_GAP: 8,
+} as const;
+
 export interface CountryCardProps {
   /** ISO 3166-1 alpha-2 country code (e.g., "US", "FR") */
   code: string;
@@ -263,7 +271,7 @@ export const CountryCard = React.memo(function CountryCard({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    borderRadius: 24, // Smoother corners for liquid feel
+    borderRadius: COUNTRY_CARD_LAYOUT.BORDER_RADIUS,
     overflow: 'hidden',
     backgroundColor: colors.backgroundSecondary,
     aspectRatio: 3 / 4,
@@ -302,9 +310,9 @@ const styles = StyleSheet.create({
   // Bottom Row - Flag and Actions
   bottomRow: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
+    bottom: COUNTRY_CARD_LAYOUT.BOTTOM_ROW_OFFSET,
+    left: COUNTRY_CARD_LAYOUT.BOTTOM_ROW_OFFSET,
+    right: COUNTRY_CARD_LAYOUT.BOTTOM_ROW_OFFSET,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
@@ -342,12 +350,12 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     flexDirection: 'column',
-    gap: 8,
+    gap: COUNTRY_CARD_LAYOUT.ACTION_BUTTON_GAP,
   },
   actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: COUNTRY_CARD_LAYOUT.ACTION_BUTTON_SIZE,
+    height: COUNTRY_CARD_LAYOUT.ACTION_BUTTON_SIZE,
+    borderRadius: COUNTRY_CARD_LAYOUT.ACTION_BUTTON_SIZE / 2,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',

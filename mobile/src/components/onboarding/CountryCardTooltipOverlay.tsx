@@ -3,7 +3,7 @@ import { Animated, Dimensions, Modal, StyleSheet, TouchableOpacity, View } from 
 import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
-import { Text } from '@components/ui';
+import { Text, COUNTRY_CARD_LAYOUT } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -34,10 +34,6 @@ const TOOLTIP_CONTENT = [
   },
 ];
 
-// Card has 24px border radius, heart button has 20px
-const CARD_BORDER_RADIUS = 24;
-const HEART_BORDER_RADIUS = 20;
-
 export default function CountryCardTooltipOverlay({
   visible,
   onComplete,
@@ -62,21 +58,17 @@ export default function CountryCardTooltipOverlay({
         y: cardMeasurements.y,
         width: cardMeasurements.width,
         height: cardMeasurements.height,
-        borderRadius: CARD_BORDER_RADIUS,
+        borderRadius: COUNTRY_CARD_LAYOUT.BORDER_RADIUS,
       };
     } else {
       // Step 2: Highlight heart button (bottom-right of card)
-      // Heart button: 40x40, positioned 12px from bottom-right corner
-      // actionsContainer is at bottom: 12, right: 12
-      // Heart button is in a column with visited button above it (gap: 8)
-      const heartSize = 40;
-      const actionsOffset = 12; // from bottomRow style
+      const { ACTION_BUTTON_SIZE, BOTTOM_ROW_OFFSET } = COUNTRY_CARD_LAYOUT;
       return {
-        x: cardMeasurements.x + cardMeasurements.width - actionsOffset - heartSize,
-        y: cardMeasurements.y + cardMeasurements.height - actionsOffset - heartSize,
-        width: heartSize,
-        height: heartSize,
-        borderRadius: HEART_BORDER_RADIUS,
+        x: cardMeasurements.x + cardMeasurements.width - BOTTOM_ROW_OFFSET - ACTION_BUTTON_SIZE,
+        y: cardMeasurements.y + cardMeasurements.height - BOTTOM_ROW_OFFSET - ACTION_BUTTON_SIZE,
+        width: ACTION_BUTTON_SIZE,
+        height: ACTION_BUTTON_SIZE,
+        borderRadius: ACTION_BUTTON_SIZE / 2,
       };
     }
   }, [cardMeasurements, currentStep]);
@@ -94,20 +86,19 @@ export default function CountryCardTooltipOverlay({
         Animated.parallel([
           Animated.timing(overlayOpacity, {
             toValue: 1,
-            duration: 300,
+            duration: 150,
             useNativeDriver: true,
           }),
           Animated.timing(tooltipOpacity, {
             toValue: 1,
-            duration: 300,
-            delay: 150,
+            duration: 150,
+            delay: 50,
             useNativeDriver: true,
           }),
-          Animated.spring(tooltipTranslateY, {
+          Animated.timing(tooltipTranslateY, {
             toValue: 0,
-            friction: 8,
-            tension: 40,
-            delay: 150,
+            duration: 150,
+            delay: 50,
             useNativeDriver: true,
           }),
         ]).start();
@@ -127,25 +118,24 @@ export default function CountryCardTooltipOverlay({
           Animated.parallel([
             Animated.timing(tooltipOpacity, {
               toValue: 0,
-              duration: 150,
+              duration: 80,
               useNativeDriver: true,
             }),
             Animated.timing(tooltipTranslateY, {
               toValue: -10,
-              duration: 150,
+              duration: 80,
               useNativeDriver: true,
             }),
           ]),
           Animated.parallel([
             Animated.timing(tooltipOpacity, {
               toValue: 1,
-              duration: 200,
+              duration: 100,
               useNativeDriver: true,
             }),
-            Animated.spring(tooltipTranslateY, {
+            Animated.timing(tooltipTranslateY, {
               toValue: 0,
-              friction: 8,
-              tension: 40,
+              duration: 100,
               useNativeDriver: true,
             }),
           ]),
@@ -175,22 +165,19 @@ export default function CountryCardTooltipOverlay({
     }
   }, [currentStep, onComplete, overlayOpacity, reduceMotion]);
 
-  // Calculate tooltip position (below spotlight for card, above for heart)
+  // Calculate tooltip position (below spotlight for both steps)
   const getTooltipPosition = useCallback(() => {
-    if (!spotlight) return { top: SCREEN_HEIGHT / 2 };
+    if (!spotlight || !cardMeasurements) return { top: SCREEN_HEIGHT / 2 };
 
-    if (currentStep === 0) {
-      // Position below the card, centered on screen
-      return {
-        top: spotlight.y + spotlight.height + 24,
-      };
-    } else {
-      // Position above the heart button, centered on screen
-      return {
-        top: spotlight.y - 120,
-      };
-    }
-  }, [spotlight, currentStep]);
+    // Position below the card with boundary checks
+    const desiredTop = cardMeasurements.y + cardMeasurements.height + 24;
+    const minTop = 60; // Minimum distance from top of screen
+    const maxTop = SCREEN_HEIGHT - 150; // Leave room for tooltip content + button
+
+    return {
+      top: Math.max(minTop, Math.min(desiredTop, maxTop)),
+    };
+  }, [spotlight, cardMeasurements]);
 
   if (!visible || !cardMeasurements || !spotlight) {
     return null;
@@ -272,21 +259,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   tooltipText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 22,
-    lineHeight: 30,
+    fontFamily: fonts.oswald.medium,
+    fontSize: 24,
+    lineHeight: 32,
     color: colors.white,
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   nextButton: {
     marginTop: 20,
     paddingHorizontal: 32,
     paddingVertical: 12,
     backgroundColor: colors.sunsetGold,
-    borderRadius: 24,
+    borderRadius: 8,
   },
   nextButtonText: {
     fontFamily: fonts.openSans.semiBold,
