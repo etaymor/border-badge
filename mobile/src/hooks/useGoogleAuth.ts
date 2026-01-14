@@ -120,7 +120,7 @@ export function useGoogleSignIn() {
 
       return sessionData;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, params) => {
       if (data.session) {
         // Store tokens explicitly for Share Extension access
         // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
@@ -153,9 +153,10 @@ export function useGoogleSignIn() {
           setSession(data.session);
 
           // Schedule welcome emails for new user
+          // Use display_name from user_metadata (set by mutationFn) for consistency
           try {
             await api.post('/welcome/emails', {
-              display_name: params?.displayName,
+              display_name: data.session.user.user_metadata?.display_name ?? params?.displayName,
             });
           } catch (error) {
             console.warn('Failed to schedule welcome emails:', error);

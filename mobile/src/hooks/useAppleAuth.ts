@@ -111,7 +111,7 @@ export function useAppleSignIn() {
 
       return data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, params) => {
       if (data.session) {
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
@@ -126,9 +126,11 @@ export function useAppleSignIn() {
           setSession(data.session);
 
           // Schedule welcome emails for new user
+          // Use display_name from user_metadata (set by mutationFn) for consistency
+          // This ensures we use the resolved name (onboarding OR Apple credential)
           try {
             await api.post('/welcome/emails', {
-              display_name: params?.displayName,
+              display_name: data.session.user.user_metadata?.display_name ?? params?.displayName,
             });
           } catch (error) {
             console.warn('Failed to schedule welcome emails:', error);
