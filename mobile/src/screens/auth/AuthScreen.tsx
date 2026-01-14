@@ -296,68 +296,66 @@ export function AuthScreen({ navigation }: Props) {
                 </Text>
               )}
 
-              {/* Password input - only shown when email is valid */}
-              {isEmailValid && (
-                <Animated.View
-                  style={{
-                    opacity: passwordAnim,
-                    transform: [
-                      {
-                        translateY: passwordAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-8, 0],
-                        }),
-                      },
-                    ],
-                  }}
-                >
-                  <View style={styles.inputGlassWrapper}>
-                    <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
-                      <View
-                        style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+              {/* Password input - always rendered for autofill, visually hidden when email invalid */}
+              <Animated.View
+                style={{
+                  opacity: passwordAnim,
+                  maxHeight: isEmailValid ? 200 : 0,
+                  overflow: 'hidden',
+                  transform: [
+                    {
+                      translateY: passwordAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-8, 0],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                <View style={styles.inputGlassWrapper}>
+                  <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                    <View style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}>
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={20}
+                        color={colors.stormGray}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={styles.glassInput}
+                        value={password}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          if (passwordError) setPasswordError('');
+                        }}
+                        placeholder="Password"
+                        placeholderTextColor={colors.stormGray}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        autoComplete="password"
+                        textContentType="password"
+                        testID="auth-password-input"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.clearButton}
                       >
                         <Ionicons
-                          name="lock-closed-outline"
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                           size={20}
                           color={colors.stormGray}
-                          style={styles.inputIcon}
                         />
-                        <TextInput
-                          style={styles.glassInput}
-                          value={password}
-                          onChangeText={(value) => {
-                            setPassword(value);
-                            if (passwordError) setPasswordError('');
-                          }}
-                          placeholder="Password"
-                          placeholderTextColor={colors.stormGray}
-                          secureTextEntry={!showPassword}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          autoComplete="password"
-                          textContentType="password"
-                          testID="auth-password-input"
-                        />
-                        <TouchableOpacity
-                          onPress={() => setShowPassword(!showPassword)}
-                          style={styles.clearButton}
-                        >
-                          <Ionicons
-                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                            size={20}
-                            color={colors.stormGray}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </BlurView>
-                  </View>
-                  {passwordError && (
-                    <Text variant="caption" style={styles.errorText}>
-                      {passwordError}
-                    </Text>
-                  )}
-                </Animated.View>
-              )}
+                      </TouchableOpacity>
+                    </View>
+                  </BlurView>
+                </View>
+                {passwordError && (
+                  <Text variant="caption" style={styles.errorText}>
+                    {passwordError}
+                  </Text>
+                )}
+              </Animated.View>
             </Animated.View>
 
             {/* Sign In button */}
