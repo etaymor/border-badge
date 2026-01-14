@@ -99,6 +99,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const handleNavigateNext = () => {
     if (!hasNavigatedRef.current) {
       hasNavigatedRef.current = true;
+      Keyboard.dismiss();
       setShowSelection(false);
       onNavigateNext();
     }
@@ -141,6 +142,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   };
 
   const handleNext = () => {
+    Keyboard.dismiss();
     handleNavigateNext();
   };
 
