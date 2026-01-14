@@ -162,13 +162,10 @@ export function useGoogleSignIn() {
             console.warn('Failed to schedule welcome emails:', error);
           }
 
-          // Migrate in background (fire-and-forget)
-          migrateGuestData(data.session).catch(() =>
-            console.warn('Migration failed for Google user')
-          );
-
-          // Reset migrating state immediately - migration continues in background
-          setIsMigrating(false);
+          // Migrate in background - reset isMigrating when done to enable queries
+          migrateGuestData(data.session)
+            .catch(() => console.warn('Migration failed for Google user'))
+            .finally(() => setIsMigrating(false));
         }
       }
     },
