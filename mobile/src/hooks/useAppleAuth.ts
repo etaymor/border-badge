@@ -136,10 +136,13 @@ export function useAppleSignIn() {
             console.warn('Failed to schedule welcome emails:', error);
           }
 
-          // Migrate in background
-          migrateGuestData(data.session)
-            .catch(() => console.warn('Migration failed for Apple user'))
-            .finally(() => setIsMigrating(false));
+          // Migrate in background (fire-and-forget)
+          migrateGuestData(data.session).catch(() =>
+            console.warn('Migration failed for Apple user')
+          );
+
+          // Reset migrating state immediately - migration continues in background
+          setIsMigrating(false);
         }
       }
     },
