@@ -349,6 +349,59 @@ jest.mock(
   { virtual: true }
 );
 
+// Mock expo-video (used by ShareExtensionTutorialSheet and onboarding screens)
+jest.mock(
+  'expo-video',
+  () => ({
+    useVideoPlayer: jest.fn((source, callback) => {
+      const player = {
+        loop: false,
+        muted: false,
+        currentTime: 0,
+        play: jest.fn(),
+        pause: jest.fn(),
+      };
+      if (callback) callback(player);
+      return player;
+    }),
+    VideoView: 'VideoView',
+  }),
+  { virtual: true }
+);
+
+// Mock expo-blur (used by ShareExtensionCallout and ShareExtensionTutorialSheet)
+jest.mock(
+  'expo-blur',
+  () => {
+    const mockReact = require('react');
+    return {
+      BlurView: ({ children, style }) => mockReact.createElement('View', { style }, children),
+    };
+  },
+  { virtual: true }
+);
+
+// Mock expo-haptics
+jest.mock(
+  'expo-haptics',
+  () => ({
+    impactAsync: jest.fn().mockResolvedValue(undefined),
+    ImpactFeedbackStyle: {
+      Light: 'light',
+      Medium: 'medium',
+      Heavy: 'heavy',
+    },
+    notificationAsync: jest.fn().mockResolvedValue(undefined),
+    NotificationFeedbackType: {
+      Success: 'success',
+      Warning: 'warning',
+      Error: 'error',
+    },
+    selectionAsync: jest.fn().mockResolvedValue(undefined),
+  }),
+  { virtual: true }
+);
+
 // Mock countriesDb service
 jest.mock('@services/countriesDb', () => ({
   getAllCountries: jest.fn().mockResolvedValue([]),

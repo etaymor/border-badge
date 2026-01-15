@@ -54,6 +54,9 @@ enum AppGroupStorage {
     /// Key for sharing extension state with main app
     static let extensionStateKey = "ShareExtensionState"
 
+    /// Key for tracking if user has ever used the share extension (read by main app for tutorial)
+    static let hasUsedShareExtensionKey = "hasUsedShareExtension"
+
     // MARK: - UserDefaults Access
 
     /// Get the shared UserDefaults for the App Group
@@ -188,5 +191,18 @@ enum AppGroupStorage {
     /// Clear the entire offline queue
     static func clearOfflineQueue() {
         remove(offlineQueueKey)
+    }
+
+    // MARK: - Share Extension Usage Tracking
+
+    /// Mark that the user has successfully used the share extension
+    /// Called after a successful save to inform the main app (for tutorial dismissal)
+    static func markShareExtensionUsed() {
+        userDefaults?.set(true, forKey: hasUsedShareExtensionKey)
+    }
+
+    /// Check if the user has ever used the share extension
+    static func hasUsedShareExtension() -> Bool {
+        return userDefaults?.bool(forKey: hasUsedShareExtensionKey) ?? false
     }
 }

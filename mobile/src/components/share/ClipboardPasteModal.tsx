@@ -19,6 +19,7 @@ interface ClipboardPasteModalProps {
   onDetect: (detected: DetectedClipboardUrl) => void;
   onInvalidContent?: () => void;
   onEnableAutoDetect?: () => void;
+  onShowTutorial?: () => void;
 }
 
 export function ClipboardPasteModal({
@@ -27,6 +28,7 @@ export function ClipboardPasteModal({
   onDetect,
   onInvalidContent,
   onEnableAutoDetect,
+  onShowTutorial,
 }: ClipboardPasteModalProps) {
   const handleDetect = (detected: DetectedClipboardUrl) => {
     onDetect(detected);
@@ -41,6 +43,11 @@ export function ClipboardPasteModal({
   const handleEnableAutoDetect = () => {
     onClose();
     onEnableAutoDetect?.();
+  };
+
+  const handleShowTutorial = () => {
+    onClose();
+    onShowTutorial?.();
   };
 
   return (
@@ -68,6 +75,17 @@ export function ClipboardPasteModal({
                 Want to skip this step?{' '}
                 <Text style={styles.autoDetectLinkText}>Enable auto-detect</Text>
               </Text>
+            </Pressable>
+          )}
+
+          {onShowTutorial && (
+            <Pressable
+              style={styles.tutorialLink}
+              onPress={handleShowTutorial}
+              accessibilityRole="button"
+              accessibilityLabel="Learn how to use share extension"
+            >
+              <Text style={styles.tutorialLinkText}>Learn how to share directly</Text>
             </Pressable>
           )}
         </View>
@@ -115,6 +133,17 @@ const styles = StyleSheet.create({
   },
   autoDetectLinkText: {
     color: colors.mossGreen,
+    textDecorationLine: 'underline',
+  },
+  tutorialLink: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  tutorialLinkText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.mossGreen,
+    textAlign: 'center',
     textDecorationLine: 'underline',
   },
 });

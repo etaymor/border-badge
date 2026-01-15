@@ -33,6 +33,7 @@ export interface CountrySelectionConfig {
   // Appearance
   backgroundColor: string;
   title: string;
+  subtitle?: string;
   dropdownBorderColor: string;
 
   // Celebration overlay
@@ -63,6 +64,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const {
     backgroundColor,
     title,
+    subtitle,
     dropdownBorderColor,
     celebrationType,
     heroElement,
@@ -221,6 +223,11 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
           <Text variant="title" style={styles.title}>
             {title}
           </Text>
+          {subtitle && (
+            <Text variant="body" style={styles.subtitle}>
+              {subtitle}
+            </Text>
+          )}
         </Animated.View>
 
         {/* Search Input - Liquid Glass Style */}
@@ -351,7 +358,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             disabled={!currentSelection}
           >
             <Text variant="label" style={styles.nextButtonText}>
-              Next
+              Continue
             </Text>
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
           </TouchableOpacity>
@@ -414,6 +421,11 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.midnightNavy,
+  },
+  subtitle: {
+    color: colors.midnightNavy,
+    opacity: 0.7,
+    marginTop: 8,
   },
   searchContainer: {
     position: 'relative',

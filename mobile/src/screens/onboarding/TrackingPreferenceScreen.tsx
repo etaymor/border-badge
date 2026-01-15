@@ -255,14 +255,14 @@ function TrackingPreferenceScreen({ navigation }: Props) {
           ]}
         >
           <Text variant="title" style={styles.title}>
-            How do you want to track your travels?
+            Choose your country list
           </Text>
         </Animated.View>
 
         {/* Subtitle */}
         <Animated.View style={{ opacity: subtitleOpacity }}>
           <Text variant="body" style={styles.subtitle}>
-            Choose what counts as a country in your passport. You can always change this later.
+            Pick how many destinations you want to track. You can always change this later.
           </Text>
         </Animated.View>
 
@@ -288,7 +288,7 @@ function TrackingPreferenceScreen({ navigation }: Props) {
         <Animated.View style={[styles.footer, { opacity: buttonOpacity }]}>
           <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
             <Text variant="label" style={styles.nextButtonText}>
-              Next
+              Continue
             </Text>
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
           </TouchableOpacity>

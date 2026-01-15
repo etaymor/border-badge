@@ -16,7 +16,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const backpackIllustration = require('../../../assets/illustations/backpack-illustration-compressed.png');
+const journalIllustration = require('../../../assets/illustations/journal-illustration-compressed.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 import { EntryGridCard } from '@components/entries';
+import { ShareExtensionCallout } from '@components/share/ShareExtensionCallout';
+import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
@@ -25,21 +32,29 @@ import { useCountryByCode } from '@hooks/useCountries';
 import { EntryWithPlace, useEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
+import { useUserCountries } from '@hooks/useUserCountries';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { useSettingsStore } from '@stores/settingsStore';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
-function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
+function EmptyState({ onAddEntry, isVisited }: { onAddEntry: () => void; isVisited: boolean }) {
   return (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📷</Text>
-      <Text style={styles.emptyTitle}>Unwritten Memories</Text>
+      <Image
+        source={isVisited ? backpackIllustration : journalIllustration}
+        style={styles.emptyIllustration}
+        resizeMode="contain"
+      />
+      <Text style={styles.emptyTitle}>{isVisited ? 'Unwritten Memories' : 'Planning Mode'}</Text>
       <Text style={styles.emptySubtitle}>
-        This chapter is waiting to be written. Document your first memory.
+        {isVisited
+          ? 'This chapter is waiting to be written. Document your first memory.'
+          : 'Add the places you want to visit and experiences you want to have.'}
       </Text>
       <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
         <Ionicons name="add" size={20} color={colors.midnightNavy} />
-        <Text style={styles.emptyButtonText}>Add Entry</Text>
+        <Text style={styles.emptyButtonText}>{isVisited ? 'Add Entry' : 'Add Place'}</Text>
       </Pressable>
     </View>
   );
@@ -52,13 +67,22 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
   const [coverImageError, setCoverImageError] = useState(false);
+  const [showTutorialSheet, setShowTutorialSheet] = useState(false);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: lists } = useTripLists(tripId);
   const { data: country } = useCountryByCode(trip?.country_id ?? '');
+  const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
+  const dismissShareExtensionTutorial = useSettingsStore((s) => s.dismissShareExtensionTutorial);
+
+  // Check if user has visited this country
+  const isVisited =
+    userCountries?.some(
+      (uc) => uc.country_code === trip?.country_code && uc.status === 'visited'
+    ) ?? false;
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
 
@@ -136,6 +160,20 @@ export function TripDetailScreen({ route, navigation }: Props) {
       </View>
     ),
     []
+  );
+
+  const handleOpenTutorial = useCallback(() => {
+    setShowTutorialSheet(true);
+  }, []);
+
+  const handleCloseTutorial = useCallback(() => {
+    setShowTutorialSheet(false);
+    dismissShareExtensionTutorial();
+  }, [dismissShareExtensionTutorial]);
+
+  const renderFooter = useCallback(
+    () => <ShareExtensionCallout onLearnMore={handleOpenTutorial} />,
+    [handleOpenTutorial]
   );
 
   if (tripLoading) {
@@ -251,7 +289,8 @@ export function TripDetailScreen({ route, navigation }: Props) {
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.entriesListContent}
           ListHeaderComponent={entries && entries.length > 0 ? renderHeader : null}
-          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} isVisited={isVisited} />}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={Platform.OS === 'android'}
           maxToRenderPerBatch={10}
@@ -297,6 +336,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
         duration={5000}
         testID="trip-deleted-snackbar"
       />
+
+      {/* Share Extension Tutorial Sheet */}
+      <ShareExtensionTutorialSheet visible={showTutorialSheet} onClose={handleCloseTutorial} />
     </View>
   );
 }
@@ -517,8 +559,9 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 32,
   },
-  emptyIcon: {
-    fontSize: 48,
+  emptyIllustration: {
+    width: 120,
+    height: 120,
     marginBottom: 16,
   },
   emptyTitle: {

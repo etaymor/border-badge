@@ -328,6 +328,9 @@ export async function syncApiUrlToAppGroup(apiUrl: string): Promise<void> {
 // (shareQueue.ts exports types used here, but doesn't import from this file)
 import { mergeFromExtension, type SwiftQueuedShare } from './shareQueue';
 
+// Import settingsStore for syncing share extension usage flag
+import { useSettingsStore } from '@stores/settingsStore';
+
 /**
  * Sync offline queue from iOS Share Extension to React Native queue.
  *
@@ -375,5 +378,41 @@ export async function syncOfflineQueueFromExtension(): Promise<number> {
     // Do NOT clear the Swift queue on failure - preserve data for next sync attempt
     console.error('Failed to sync offline queue from extension:', error);
     return 0;
+  }
+}
+
+// ============================================================================
+// SHARE EXTENSION USAGE TRACKING
+// ============================================================================
+
+/**
+ * Check if user has used the share extension (via App Groups flag) and sync to settingsStore.
+ *
+ * The Share Extension writes a flag to App Groups UserDefaults when user successfully saves
+ * content. This function reads that flag and syncs it to the React Native settingsStore
+ * so the tutorial callout knows when to hide.
+ *
+ * This should be called on app startup/foreground.
+ *
+ * @returns True if user has used share extension, false otherwise
+ */
+export async function syncShareExtensionUsageFromAppGroup(): Promise<boolean> {
+  if (Platform.OS !== 'ios') return false;
+
+  const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
+  if (!SharedGroupPreferences) return false;
+
+  try {
+    const hasUsed: boolean = await SharedGroupPreferences.getHasUsedShareExtension();
+
+    if (hasUsed) {
+      // Sync to settingsStore so tutorial callout hides
+      useSettingsStore.getState().setHasUsedShareExtension(true);
+    }
+
+    return hasUsed;
+  } catch (error) {
+    console.error('Failed to check share extension usage from App Group:', error);
+    return false;
   }
 }
