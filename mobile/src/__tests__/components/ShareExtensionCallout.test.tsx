@@ -119,7 +119,7 @@ describe('ShareExtensionCallout', () => {
     it('displays learn more button with correct accessibility label', () => {
       render(<ShareExtensionCallout onLearnMore={mockOnLearnMore} />);
 
-      expect(screen.getByLabelText('Learn how to save from TikTok and Instagram')).toBeTruthy();
+      expect(screen.getByLabelText('How to save from TikTok and Instagram')).toBeTruthy();
     });
   });
 
@@ -127,7 +127,7 @@ describe('ShareExtensionCallout', () => {
     it('calls onLearnMore when help button is pressed', () => {
       render(<ShareExtensionCallout onLearnMore={mockOnLearnMore} />);
 
-      fireEvent.press(screen.getByLabelText('Learn how to save from TikTok and Instagram'));
+      fireEvent.press(screen.getByLabelText('How to save from TikTok and Instagram'));
 
       expect(mockOnLearnMore).toHaveBeenCalledTimes(1);
     });
@@ -135,7 +135,7 @@ describe('ShareExtensionCallout', () => {
     it('triggers haptic feedback when help button is pressed', () => {
       render(<ShareExtensionCallout onLearnMore={mockOnLearnMore} />);
 
-      fireEvent.press(screen.getByLabelText('Learn how to save from TikTok and Instagram'));
+      fireEvent.press(screen.getByLabelText('How to save from TikTok and Instagram'));
 
       expect(Haptics.impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Light);
     });
