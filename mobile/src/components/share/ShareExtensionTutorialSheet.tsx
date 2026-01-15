@@ -11,13 +11,14 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
-  Dimensions,
+  AppState,
   Modal,
   PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,9 +31,8 @@ import { fonts } from '@constants/typography';
 const extensionVideo = require('../../../assets/extension.mp4');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.72;
 const DISMISS_THRESHOLD = 100;
+const SHEET_HEIGHT_RATIO = 0.72;
 
 interface ShareExtensionTutorialSheetProps {
   visible: boolean;
@@ -44,7 +44,10 @@ export function ShareExtensionTutorialSheet({
   onClose,
 }: ShareExtensionTutorialSheetProps) {
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const { height: screenHeight } = useWindowDimensions();
+  const sheetHeight = screenHeight * SHEET_HEIGHT_RATIO;
+
+  const translateY = useRef(new Animated.Value(sheetHeight)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   // Video player setup
@@ -53,8 +56,27 @@ export function ShareExtensionTutorialSheet({
     playerInstance.muted = true;
   });
 
+  // Cleanup video player on unmount
+  useEffect(() => {
+    return () => {
+      player.pause();
+    };
+  }, [player]);
+
+  // Pause video when app goes to background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && visible) {
+        player.pause();
+      }
+    });
+    return () => subscription.remove();
+  }, [player, visible]);
+
   // Animation handlers
   const openSheet = useCallback(() => {
+    // Reset translateY to sheetHeight before animating in case it changed
+    translateY.setValue(sheetHeight);
     Animated.parallel([
       Animated.spring(translateY, {
         toValue: 0,
@@ -74,7 +96,7 @@ export function ShareExtensionTutorialSheet({
       player.currentTime = 0;
       player.play();
     });
-  }, [translateY, backdropOpacity, player]);
+  }, [translateY, backdropOpacity, player, sheetHeight]);
 
   // Use ref to hold the latest onClose callback for panResponder
   const onCloseRef = useRef(onClose);
@@ -87,7 +109,7 @@ export function ShareExtensionTutorialSheet({
     // to ensure consistent behavior regardless of how the sheet closes
     Animated.parallel([
       Animated.timing(translateY, {
-        toValue: SHEET_HEIGHT,
+        toValue: sheetHeight,
         duration: 200,
         useNativeDriver: true,
       }),
@@ -97,7 +119,7 @@ export function ShareExtensionTutorialSheet({
         useNativeDriver: true,
       }),
     ]).start(() => onCloseRef.current());
-  }, [translateY, backdropOpacity]);
+  }, [translateY, backdropOpacity, sheetHeight]);
 
   // Pan gesture for drag-to-dismiss
   const panResponder = useMemo(
@@ -165,6 +187,7 @@ export function ShareExtensionTutorialSheet({
         style={[
           styles.sheetContainer,
           {
+            height: sheetHeight,
             transform: [{ translateY }],
           },
         ]}
@@ -223,7 +246,7 @@ export function ShareExtensionTutorialSheet({
               </Text>
 
               {/* Spacer for button */}
-              <View style={{ height: 80 }} />
+              <View style={styles.buttonSpacer} />
             </ScrollView>
 
             {/* Got It Button - Fixed at bottom */}
@@ -255,7 +278,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: SHEET_HEIGHT,
+    // height is set dynamically via style prop to support screen rotation
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
@@ -343,6 +366,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     lineHeight: 20,
+  },
+  buttonSpacer: {
+    height: 80,
   },
   buttonContainer: {
     paddingHorizontal: 24,

@@ -229,19 +229,21 @@ export default function CountryCardTooltipOverlay({
         {/* SVG overlay with spotlight cutout */}
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
           <Svg width={screenWidth} height={screenHeight}>
-            <Defs>
-              <Mask id="spotlight-mask">
-                <Rect x="0" y="0" width={screenWidth} height={screenHeight} fill="white" />
-                <Rect
-                  x={spotlight.x}
-                  y={spotlight.y}
-                  width={spotlight.width}
-                  height={spotlight.height}
-                  rx={spotlight.borderRadius}
-                  fill="black"
-                />
-              </Mask>
-            </Defs>
+            {spotlight && (
+              <Defs>
+                <Mask id="spotlight-mask">
+                  <Rect x="0" y="0" width={screenWidth} height={screenHeight} fill="white" />
+                  <Rect
+                    x={spotlight.x}
+                    y={spotlight.y}
+                    width={spotlight.width}
+                    height={spotlight.height}
+                    rx={spotlight.borderRadius}
+                    fill="black"
+                  />
+                </Mask>
+              </Defs>
+            )}
             {/* Dark overlay with cutout (or full overlay for step 3) */}
             <Rect
               x="0"
