@@ -358,7 +358,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             disabled={!currentSelection}
           >
             <Text variant="label" style={styles.nextButtonText}>
-              Next
+              Continue
             </Text>
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
           </TouchableOpacity>

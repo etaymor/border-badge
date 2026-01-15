@@ -37,6 +37,10 @@ const TOOLTIP_CONTENT = [
     text: 'Tap the heart to add to your bucket list',
     target: 'heart' as const,
   },
+  {
+    text: "Don't worry, you can always add more countries later",
+    target: 'none' as const,
+  },
 ];
 
 export default function CountryCardTooltipOverlay({
@@ -73,7 +77,7 @@ export default function CountryCardTooltipOverlay({
         height: cardMeasurements.height,
         borderRadius: COUNTRY_CARD_LAYOUT.BORDER_RADIUS,
       };
-    } else {
+    } else if (currentStep === 1) {
       // Step 2: Highlight heart button (bottom-right of card)
       const { ACTION_BUTTON_SIZE, BOTTOM_ROW_OFFSET } = COUNTRY_CARD_LAYOUT;
       return {
@@ -83,6 +87,9 @@ export default function CountryCardTooltipOverlay({
         height: ACTION_BUTTON_SIZE,
         borderRadius: ACTION_BUTTON_SIZE / 2,
       };
+    } else {
+      // Step 3: No spotlight (full overlay)
+      return null;
     }
   }, [cardMeasurements, currentStep]);
 
@@ -190,9 +197,14 @@ export default function CountryCardTooltipOverlay({
     }
   }, [currentStep, onComplete, overlayOpacity, reduceMotion]);
 
-  // Calculate tooltip position (below spotlight for both steps)
+  // Calculate tooltip position (below spotlight for steps 1-2, centered for step 3)
   const getTooltipPosition = useCallback(() => {
-    if (!spotlight || !cardMeasurements) return { top: screenHeight / 2 };
+    if (!cardMeasurements) return { top: screenHeight / 2 - 50 };
+
+    if (currentStep === 2) {
+      // Step 3: Center vertically on screen
+      return { top: screenHeight / 2 - 50 };
+    }
 
     // Position below the card with boundary checks
     const desiredTop = cardMeasurements.y + cardMeasurements.height + 24;
@@ -202,9 +214,9 @@ export default function CountryCardTooltipOverlay({
     return {
       top: Math.max(minTop, Math.min(desiredTop, maxTop)),
     };
-  }, [spotlight, cardMeasurements, screenHeight]);
+  }, [cardMeasurements, screenHeight, currentStep]);
 
-  if (!visible || !cardMeasurements || !spotlight) {
+  if (!visible || !cardMeasurements) {
     return null;
   }
 
@@ -230,14 +242,14 @@ export default function CountryCardTooltipOverlay({
                 />
               </Mask>
             </Defs>
-            {/* Dark overlay with cutout */}
+            {/* Dark overlay with cutout (or full overlay for step 3) */}
             <Rect
               x="0"
               y="0"
               width={screenWidth}
               height={screenHeight}
               fill="rgba(23, 42, 58, 0.85)"
-              mask="url(#spotlight-mask)"
+              mask={spotlight ? 'url(#spotlight-mask)' : undefined}
             />
           </Svg>
         </Animated.View>
@@ -284,16 +296,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   tooltipText: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 24,
-    lineHeight: 32,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 26,
+    lineHeight: 34,
     color: colors.white,
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   nextButton: {
     marginTop: 20,

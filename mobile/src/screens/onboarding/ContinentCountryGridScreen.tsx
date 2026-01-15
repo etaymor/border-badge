@@ -8,6 +8,7 @@ import {
   Keyboard,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -59,12 +60,25 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const [cardMeasurements, setCardMeasurements] = useState<CardMeasurements | null>(null);
   const firstCardRef = useRef<View>(null);
 
-  // Dismiss keyboard when screen receives focus (safety net from dream country selection)
+  // Search state
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+
+  // Dismiss keyboard and close search when navigating away
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
       Keyboard.dismiss();
     });
-    return unsubscribe;
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      Keyboard.dismiss();
+      setSearchVisible(false);
+      setSearchQuery('');
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
   }, [navigation]);
 
   // Animation values
@@ -106,6 +120,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   // Staggered entrance animations
   useEffect(() => {
+    // Reset search when region changes
+    setSearchVisible(false);
+    setSearchQuery('');
+
     headerOpacity.setValue(0);
     footerOpacity.setValue(0);
     resetAnimation(); // Reset staggered cards
@@ -141,6 +159,13 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     return regionCountries.filter((c) => bucketListCountries.includes(c.code)).length;
   }, [regionCountries, bucketListCountries]);
 
+  // Filter countries based on search query
+  const filteredCountries = useMemo(() => {
+    if (!searchQuery.trim()) return regionCountries;
+    const query = searchQuery.toLowerCase().trim();
+    return regionCountries.filter((c) => c.name.toLowerCase().includes(query));
+  }, [regionCountries, searchQuery]);
+
   useEffect(() => {
     if (selectedInRegion !== prevSelectedCount.current && selectedInRegion > 0) {
       Animated.sequence([
@@ -160,17 +185,17 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     prevSelectedCount.current = selectedInRegion;
   }, [selectedInRegion, badgeScale]);
 
-  // Pair countries for 2-column layout
+  // Pair countries for 2-column layout (use filtered countries)
   const countryPairs: CountryPair[] = useMemo(() => {
     const pairs: CountryPair[] = [];
-    for (let i = 0; i < regionCountries.length; i += 2) {
+    for (let i = 0; i < filteredCountries.length; i += 2) {
       pairs.push({
-        left: regionCountries[i],
-        right: regionCountries[i + 1],
+        left: filteredCountries[i],
+        right: filteredCountries[i + 1],
       });
     }
     return pairs;
-  }, [regionCountries]);
+  }, [filteredCountries]);
 
   const handleSaveAndContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -202,6 +227,8 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleVisited = useCallback(
     (code: string) => {
+      // Dismiss keyboard asynchronously to avoid interfering with touch handler
+      setTimeout(() => Keyboard.dismiss(), 0);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleCountry(code);
     },
@@ -210,11 +237,33 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleWishlist = useCallback(
     (code: string) => {
+      // Dismiss keyboard asynchronously to avoid interfering with touch handler
+      setTimeout(() => Keyboard.dismiss(), 0);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleBucketListCountry(code);
     },
     [toggleBucketListCountry]
   );
+
+  const handleSearchToggle = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (searchVisible) {
+      Keyboard.dismiss();
+      setSearchQuery('');
+      setSearchVisible(false);
+    } else {
+      setSearchVisible(true);
+      // Focus the input after state update
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 100);
+    }
+  }, [searchVisible]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    searchInputRef.current?.focus();
+  }, []);
 
   // FlatList optimization for instant scroll calculations
   const getItemLayout = useCallback(
@@ -304,7 +353,20 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <View style={styles.headerRow}>
           <GlassBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.regionTitle}>{region}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.regionTitle}>{region}</Text>
+            {!searchVisible && (
+              <TouchableOpacity
+                onPress={handleSearchToggle}
+                style={styles.searchIconButton}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Search countries"
+              >
+                <Ionicons name="search" size={22} color={colors.midnightNavy} />
+              </TouchableOpacity>
+            )}
+          </View>
           <View style={styles.badgePlaceholder}>
             {selectedInRegion > 0 && (
               <Animated.View style={[styles.floatingBadge, { transform: [{ scale: badgeScale }] }]}>
@@ -317,6 +379,48 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           {selectedInRegion}/{regionCountries.length} countries visited
           {bucketListInRegion > 0 && `, ${bucketListInRegion} bucket list`}
         </Text>
+
+        {/* Search input */}
+        {searchVisible && (
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputWrapper}>
+              <Ionicons
+                name="search"
+                size={18}
+                color={colors.stormGray}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                ref={searchInputRef}
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder={`Search ${region}...`}
+                placeholderTextColor={colors.stormGray}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              <TouchableOpacity
+                onPress={searchQuery.length > 0 ? handleClearSearch : handleSearchToggle}
+                style={styles.clearButton}
+                accessibilityRole="button"
+                accessibilityLabel={searchQuery.length > 0 ? 'Clear search' : 'Close search'}
+              >
+                <Ionicons
+                  name={searchQuery.length > 0 ? 'close-circle' : 'close'}
+                  size={18}
+                  color={colors.stormGray}
+                />
+              </TouchableOpacity>
+            </View>
+            {searchQuery.length > 0 && (
+              <Text style={styles.searchResultsText}>
+                {filteredCountries.length} of {regionCountries.length} countries
+              </Text>
+            )}
+          </View>
+        )}
       </Animated.View>
 
       {/* Country grid */}
@@ -384,6 +488,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchIconButton: {
+    padding: 4,
+  },
   badgePlaceholder: {
     width: 44,
     height: 44,
@@ -401,6 +513,37 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
     marginTop: 4,
+  },
+  searchContainer: {
+    marginTop: 12,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.midnightNavyLight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    minHeight: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: fonts.openSans.regular,
+    color: colors.midnightNavy,
+    paddingVertical: 10,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchResultsText: {
+    fontSize: 12,
+    fontFamily: fonts.openSans.regular,
+    color: colors.stormGray,
+    textAlign: 'center',
+    marginTop: 8,
   },
   floatingBadge: {
     backgroundColor: colors.mossGreen,
