@@ -85,7 +85,7 @@ export function ClipboardPasteModal({
               accessibilityRole="button"
               accessibilityLabel="Learn how to use share extension"
             >
-              <Text style={styles.tutorialLinkText}>How does this work?</Text>
+              <Text style={styles.tutorialLinkText}>Learn how to share directly</Text>
             </Pressable>
           )}
         </View>
