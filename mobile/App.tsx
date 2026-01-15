@@ -53,6 +53,7 @@ import {
   markAsProcessing,
   syncApiUrlToAppGroup,
   syncOfflineQueueFromExtension,
+  syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
 import { env } from '@config/env';
@@ -154,6 +155,10 @@ export default function App() {
     // since the Share Extension has a fallback to production URL if not set
     syncApiUrlToAppGroup(env.apiUrl).catch((error) => {
       console.error('Failed to sync API URL to App Group:', error);
+    });
+    // Check if user has used share extension (for tutorial dismissal)
+    syncShareExtensionUsageFromAppGroup().catch((error) => {
+      console.error('Failed to sync share extension usage:', error);
     });
   }, []);
 
@@ -275,6 +280,11 @@ export default function App() {
         // Sync analytics events queued by Share Extension
         syncAnalyticsFromExtension().catch((error) => {
           console.error('Failed to sync analytics from extension:', error);
+        });
+
+        // Check if user has used share extension (for tutorial dismissal)
+        syncShareExtensionUsageFromAppGroup().catch((error) => {
+          console.error('Failed to sync share extension usage:', error);
         });
 
         // Track analytics and check for immediate shares (only if authenticated)

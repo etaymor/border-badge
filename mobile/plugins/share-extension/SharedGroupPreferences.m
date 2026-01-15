@@ -36,4 +36,7 @@ RCT_EXTERN_METHOD(getAnalyticsQueue:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(clearAnalyticsQueue:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(getHasUsedShareExtension:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end

@@ -13,6 +13,7 @@ import {
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
 import { ClipboardPasteModal, OnboardingShareOverlay, ShareCardOverlay } from '@components/share';
+import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
@@ -73,9 +74,11 @@ export function PassportScreen({ navigation }: Props) {
   // Paste modal state
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
   const [enableModalVisible, setEnableModalVisible] = useState(false);
+  const [tutorialSheetVisible, setTutorialSheetVisible] = useState(false);
 
   // Settings store actions
   const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
+  const dismissShareExtensionTutorial = useSettingsStore((s) => s.dismissShareExtensionTutorial);
 
   // Handlers
   const handleCountryPress = useCallback(
@@ -199,6 +202,15 @@ export function PassportScreen({ navigation }: Props) {
   const handleEnableModalClose = useCallback(() => {
     setEnableModalVisible(false);
   }, []);
+
+  const handleShowTutorial = useCallback(() => {
+    setTutorialSheetVisible(true);
+  }, []);
+
+  const handleCloseTutorial = useCallback(() => {
+    setTutorialSheetVisible(false);
+    dismissShareExtensionTutorial();
+  }, [dismissShareExtensionTutorial]);
 
   const handleEnableClipboardDetection = useCallback(() => {
     setClipboardDetectionEnabled(true);
@@ -383,6 +395,7 @@ export function PassportScreen({ navigation }: Props) {
         onDetect={handlePasteDetect}
         onInvalidContent={handlePasteInvalid}
         onEnableAutoDetect={handleEnableAutoDetect}
+        onShowTutorial={handleShowTutorial}
       />
 
       <ClipboardEnableModal
@@ -390,6 +403,8 @@ export function PassportScreen({ navigation }: Props) {
         onClose={handleEnableModalClose}
         onEnable={handleEnableClipboardDetection}
       />
+
+      <ShareExtensionTutorialSheet visible={tutorialSheetVisible} onClose={handleCloseTutorial} />
     </SafeAreaView>
   );
 }

@@ -266,4 +266,19 @@ class SharedGroupPreferences: NSObject {
         userDefaults.removeObject(forKey: "AnalyticsQueue")
         resolve(nil)
     }
+
+    // MARK: - Share Extension Usage Tracking
+
+    /// Check if user has ever used the share extension successfully
+    /// Returns true if they have, false otherwise
+    @objc
+    func getHasUsedShareExtension(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            resolve(false)
+            return
+        }
+
+        let hasUsed = userDefaults.bool(forKey: "hasUsedShareExtension")
+        resolve(hasUsed)
+    }
 }

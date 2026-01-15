@@ -302,6 +302,9 @@ class ShareCaptureViewModel: ObservableObject {
             // Clear the shared URL from App Group since we processed it
             AppGroupStorage.clearSharedURL()
 
+            // Mark that user has used share extension (for tutorial dismissal in main app)
+            AppGroupStorage.markShareExtensionUsed()
+
             // Track success
             AnalyticsQueue.track("share_extension_success", properties: [
                 "category": entryType.rawValue,
