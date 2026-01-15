@@ -56,7 +56,7 @@ export function ShareExtensionTutorialSheet({
     playerInstance.muted = true;
   });
 
-  // Cleanup video player on unmount
+  // Pause video on unmount for clean UX. useVideoPlayer handles release() automatically.
   useEffect(() => {
     return () => {
       player.pause();

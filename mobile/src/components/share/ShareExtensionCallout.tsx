@@ -71,7 +71,7 @@ export function ShareExtensionCallout({ onLearnMore }: ShareExtensionCalloutProp
         style={styles.questionButton}
         onPress={handleLearnMore}
         accessibilityRole="button"
-        accessibilityLabel="Learn how to save from TikTok and Instagram"
+        accessibilityLabel="How to save from TikTok and Instagram"
       >
         <BlurView intensity={40} tint="light" style={styles.blurContent}>
           <Ionicons name="help" size={20} color={colors.midnightNavy} />
