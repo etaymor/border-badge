@@ -53,7 +53,7 @@ function CountryActionBarComponent({
         activeOpacity={0.8}
       >
         <Ionicons
-          name={isDream ? 'heart' : 'heart-outline'}
+          name={isDream ? 'airplane' : 'airplane-outline'}
           size={24}
           color={isDream ? colors.white : colors.adobeBrick}
         />

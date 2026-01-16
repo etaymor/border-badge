@@ -34,8 +34,8 @@ const TOOLTIP_CONTENT = [
     target: 'card' as const,
   },
   {
-    text: 'Tap the heart to add to your bucket list',
-    target: 'heart' as const,
+    text: 'Tap the airplane to add to your bucket list',
+    target: 'airplane' as const,
   },
   {
     text: "Don't worry, you can always add more countries later",

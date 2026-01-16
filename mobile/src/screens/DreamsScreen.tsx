@@ -31,7 +31,7 @@ import {
 } from '../types/filters';
 
 // Animation timing constants
-const HEART_PULSE_DELAY_MS = 150;
+const AIRPLANE_PULSE_DELAY_MS = 150;
 const CARD_EXIT_DURATION_MS = 250;
 const CARD_EXIT_TRANSLATE_Y = -20;
 const CARD_EXIT_SCALE = 0.95;
@@ -261,7 +261,7 @@ export function DreamsScreen({ navigation }: Props) {
           return next;
         });
 
-        // Short delay to let the heart pulse animation start first
+        // Short delay to let the airplane pulse animation start first
         const timeoutId = setTimeout(() => {
           pendingTimeoutsRef.current.delete(timeoutId);
           Animated.parallel([
@@ -308,7 +308,7 @@ export function DreamsScreen({ navigation }: Props) {
               return next;
             });
           });
-        }, HEART_PULSE_DELAY_MS);
+        }, AIRPLANE_PULSE_DELAY_MS);
         pendingTimeoutsRef.current.add(timeoutId);
 
         // Show snackbar immediately
@@ -430,7 +430,7 @@ export function DreamsScreen({ navigation }: Props) {
         <Text style={styles.emptySubtitle}>
           {searchQuery
             ? 'Try a different search term'
-            : 'Tap the heart on any country to add it to your dreams'}
+            : 'Tap the airplane on any country to add it to your dreams'}
         </Text>
       </View>
     ),
