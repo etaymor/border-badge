@@ -302,7 +302,7 @@ describe('DreamsScreen', () => {
       // Mutation should not be called immediately (animation pending)
       expect(mockMutate).not.toHaveBeenCalled();
 
-      // Advance through heart pulse delay (150ms) + card exit animation (250ms)
+      // Advance through airplane pulse delay (150ms) + card exit animation (250ms)
       act(() => {
         jest.advanceTimersByTime(150 + 250);
       });
