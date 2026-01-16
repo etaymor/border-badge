@@ -82,6 +82,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const [selectedCountryData, setSelectedCountryData] = useState<Country | null>(null);
   const [showSelection, setShowSelection] = useState(false);
   const hasNavigatedRef = useRef(false);
+  const searchInputRef = useRef<TextInput>(null);
 
   const { data: countries, isLoading, error, refetch } = useCountries();
   const currentSelection = getCurrentSelection();
@@ -121,6 +122,9 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   }, [countries, searchQuery]);
 
   const handleSelectCountry = (country: Country) => {
+    // Blur input first to prevent keyboard restoration when Modal closes
+    searchInputRef.current?.blur();
+
     onCountrySelect(country);
     setSearchQuery('');
     setShowDropdown(false);
@@ -250,6 +254,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
                   style={styles.searchIcon}
                 />
                 <TextInput
+                  ref={searchInputRef}
                   style={styles.searchInput}
                   value={searchQuery}
                   onChangeText={(text) => {
