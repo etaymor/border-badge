@@ -34,6 +34,19 @@ LOCATION_EMOJIS_SECONDARY = [
 # All location emojis in priority order
 LOCATION_EMOJIS = LOCATION_EMOJIS_PRIMARY + LOCATION_EMOJIS_SECONDARY
 
+# Pre-compile regex pattern for location emoji extraction (performance optimization)
+# Built once at module load instead of on every function call
+_ESCAPED_EMOJIS = [re.escape(emoji) for emoji in LOCATION_EMOJIS]
+_EMOJI_PATTERN = "(?:" + "|".join(_ESCAPED_EMOJIS) + ")"
+# Pattern to capture text after emoji until end of line, another emoji, or hashtag
+# Emoji ranges excluded: U+1F300-U+1FAFF, U+1F1E0-U+1F1FF, U+2600-U+27BF, U+FE0F
+_LOCATION_EMOJI_REGEX = re.compile(
+    _EMOJI_PATTERN
+    + r"\uFE0F?"  # Optional variation selector after emoji
+    + r"\s*"  # Optional whitespace after emoji
+    + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF\uFE0F]{3,60})"
+)
+
 
 def extract_emoji_locations(text: str) -> list[str]:
     """Extract location text following location-indicating emojis.
@@ -62,33 +75,8 @@ def extract_emoji_locations(text: str) -> list[str]:
     def _extract() -> list[str]:
         locations: list[str] = []
 
-        # Build regex pattern for all location emojis using alternation
-        # (not character class) to properly match multi-codepoint sequences
-        # like 🗺️ which includes variation selector FE0F
-        escaped_emojis = [re.escape(emoji) for emoji in LOCATION_EMOJIS]
-        emoji_pattern = "(?:" + "|".join(escaped_emojis) + ")"
-
-        # Pattern to capture text after emoji until:
-        # - End of line
-        # - Another emoji (any emoji, not just location ones)
-        # - A hashtag
-        # - Multiple newlines
-        # Captures the location text which typically follows the emoji
-        #
-        # Emoji ranges to exclude:
-        # - U+1F300-U+1FAFF: Miscellaneous Symbols, Emoticons, Dingbats, etc.
-        # - U+1F1E0-U+1F1FF: Regional Indicator Symbols (flag emojis like 🇮🇹)
-        # - U+2600-U+26FF: Miscellaneous Symbols (☀️, ⚡, etc.)
-        # - U+2700-U+27BF: Dingbats
-        # - U+FE0F: Variation selector (strip from captured text)
-        pattern = (
-            emoji_pattern
-            + r"\uFE0F?"  # Optional variation selector after emoji
-            + r"\s*"  # Optional whitespace after emoji
-            + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF\uFE0F]{3,60})"
-        )
-
-        matches = re.findall(pattern, text)
+        # Use pre-compiled regex pattern for better performance
+        matches = _LOCATION_EMOJI_REGEX.findall(text)
 
         for match in matches:
             # Clean up the match
