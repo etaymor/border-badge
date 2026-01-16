@@ -430,7 +430,7 @@ export function DreamsScreen({ navigation }: Props) {
         <Text style={styles.emptySubtitle}>
           {searchQuery
             ? 'Try a different search term'
-            : 'Tap the heart on any country to add it to your dreams'}
+            : 'Tap the airplane on any country to add it to your dreams'}
         </Text>
       </View>
     ),

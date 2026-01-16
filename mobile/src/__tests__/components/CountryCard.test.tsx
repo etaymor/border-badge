@@ -38,7 +38,7 @@ describe('CountryCard', () => {
     expect(defaultProps.onAddVisited).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onToggleWishlist when heart button is tapped', () => {
+  it('calls onToggleWishlist when airplane button is tapped', () => {
     render(<CountryCard {...defaultProps} />);
 
     fireEvent.press(screen.getByTestId('country-card-wishlist-JP'));

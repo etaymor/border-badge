@@ -254,7 +254,7 @@ export const CountryCard = React.memo(function CountryCard({
                   style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
                 >
                   <Ionicons
-                    name={isWishlisted ? 'heart' : 'heart-outline'}
+                    name={isWishlisted ? 'airplane' : 'airplane-outline'}
                     size={20}
                     color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
                   />
