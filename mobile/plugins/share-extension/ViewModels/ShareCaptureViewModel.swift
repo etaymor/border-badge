@@ -119,8 +119,9 @@ class ShareCaptureViewModel: ObservableObject {
 
     private let apiClient = APIClient()
     private var originalURL: String = ""
-    private var caption: String?
+    @Published private(set) var caption: String?
     private var currentTask: Task<Void, Never>?
+    private var hasStartedProcessing: Bool = false
 
     // MARK: - Lifecycle
 
@@ -154,6 +155,10 @@ class ShareCaptureViewModel: ObservableObject {
 
     /// Process a shared URL
     func processURL(_ url: String, caption: String? = nil) {
+        // Prevent re-processing if already started (onAppear can fire multiple times)
+        guard !hasStartedProcessing else { return }
+        hasStartedProcessing = true
+
         self.originalURL = url
         self.caption = caption
         let providerName = detectProviderName(url)
