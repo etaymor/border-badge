@@ -52,7 +52,6 @@ export function usePassportData() {
     loadingTrips ||
     loadingProfile ||
     userCountries === undefined ||
-    (countries !== undefined && countries.length === 0) || // SQLite countries not yet loaded
     (isMigrating && (!userCountries || userCountries.length === 0)); // hold skeleton during migration when data not ready
 
   // Track passport view only when visited count changes
