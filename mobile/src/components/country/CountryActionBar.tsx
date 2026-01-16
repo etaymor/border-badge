@@ -52,11 +52,13 @@ function CountryActionBarComponent({
         onPress={onToggleDream}
         activeOpacity={0.8}
       >
-        <Ionicons
-          name={isDream ? 'airplane' : 'airplane-outline'}
-          size={24}
-          color={isDream ? colors.white : colors.adobeBrick}
-        />
+        <View style={styles.airplaneIconRotated}>
+          <Ionicons
+            name={isDream ? 'airplane' : 'airplane-outline'}
+            size={24}
+            color={isDream ? colors.white : colors.adobeBrick}
+          />
+        </View>
         <Text
           style={[
             styles.actionButtonText,
@@ -107,6 +109,9 @@ const styles = StyleSheet.create({
   dreamButtonActive: {
     backgroundColor: colors.adobeBrick,
     borderColor: colors.adobeBrick,
+  },
+  airplaneIconRotated: {
+    transform: [{ rotate: '-35deg' }],
   },
   actionButtonText: {
     fontFamily: fonts.openSans.semiBold,

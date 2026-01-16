@@ -87,11 +87,12 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const badgeScale = useRef(new Animated.Value(1)).current;
 
   // Staggered entrance animation for country cards (40ms delay for smooth wave)
-  const { getAnimatedStyle, startAnimation, resetAnimation, isFirstComplete } = useStaggeredEntrance({
-    itemCount: regionCountries.length,
-    staggerDelay: 40,
-    autoStart: false, // We'll start manually when region changes
-  });
+  const { getAnimatedStyle, startAnimation, resetAnimation, isFirstComplete } =
+    useStaggeredEntrance({
+      itemCount: regionCountries.length,
+      staggerDelay: 40,
+      autoStart: false, // We'll start manually when region changes
+    });
 
   // Show tooltip after first card animates in (first time any grid is shown during onboarding)
   useEffect(() => {
@@ -225,8 +226,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleVisited = useCallback(
     (code: string) => {
-      // Dismiss keyboard asynchronously to avoid interfering with touch handler
-      setTimeout(() => Keyboard.dismiss(), 0);
+      Keyboard.dismiss();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleCountry(code);
     },
@@ -235,8 +235,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleWishlist = useCallback(
     (code: string) => {
-      // Dismiss keyboard asynchronously to avoid interfering with touch handler
-      setTimeout(() => Keyboard.dismiss(), 0);
+      Keyboard.dismiss();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleBucketListCountry(code);
     },
