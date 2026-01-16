@@ -12,6 +12,89 @@ from app.services.place_extractor.text_utils import (
     clean_text_for_search,
 )
 
+# Location-indicating emojis used on social media to mark places
+# Primary: 📍 (round pushpin) - most common on Instagram/TikTok
+# Secondary: Other location-related emojis as fallbacks
+LOCATION_EMOJIS_PRIMARY = [
+    "\U0001f4cd",  # 📍 Round Pushpin - most common for locations
+]
+
+LOCATION_EMOJIS_SECONDARY = [
+    "\U0001f4cc",  # 📌 Pushpin
+    "\U0001f5fa",  # 🗺️ World Map (with variation selector)
+    "\U0001f30d",  # 🌍 Earth Globe Europe-Africa
+    "\U0001f30e",  # 🌎 Earth Globe Americas
+    "\U0001f30f",  # 🌏 Earth Globe Asia-Australia
+]
+
+# All location emojis in priority order
+LOCATION_EMOJIS = LOCATION_EMOJIS_PRIMARY + LOCATION_EMOJIS_SECONDARY
+
+
+def extract_emoji_locations(text: str) -> list[str]:
+    """Extract location text following location-indicating emojis.
+
+    On Instagram and TikTok, users commonly use 📍 to mark specific locations,
+    e.g., "📍 Cafe Central, Vienna" or "📍Bangkok, Thailand".
+
+    This function extracts the text immediately following location emojis,
+    which is typically the place name.
+
+    Args:
+        text: Caption or title text to search
+
+    Returns:
+        List of location strings found after emojis, ordered by emoji priority
+    """
+    if not text:
+        return []
+
+    locations: list[str] = []
+
+    # Build regex pattern for all location emojis
+    emoji_pattern = "[" + "".join(LOCATION_EMOJIS) + "]"
+
+    # Pattern to capture text after emoji until:
+    # - End of line
+    # - Another emoji (any emoji, not just location ones)
+    # - A hashtag
+    # - Multiple newlines
+    # Captures the location text which typically follows the emoji
+    #
+    # Emoji ranges to exclude:
+    # - U+1F300-U+1FAFF: Miscellaneous Symbols, Emoticons, Dingbats, etc.
+    # - U+1F1E0-U+1F1FF: Regional Indicator Symbols (flag emojis like 🇮🇹)
+    # - U+2600-U+26FF: Miscellaneous Symbols (☀️, ⚡, etc.)
+    # - U+2700-U+27BF: Dingbats
+    pattern = (
+        emoji_pattern
+        + r"\s*"  # Optional whitespace after emoji
+        + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF]{3,60})"
+    )
+
+    matches = re.findall(pattern, text)
+
+    for match in matches:
+        # Clean up the match
+        cleaned = match.strip()
+
+        # Remove trailing punctuation except apostrophes (for names like "Tirana's")
+        cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+
+        # Skip if too short after cleaning
+        if len(cleaned) < 3:
+            continue
+
+        # Skip if it's just common words/noise
+        lower_cleaned = cleaned.lower()
+        if lower_cleaned in {"here", "location", "place", "spot", "check", "this"}:
+            continue
+
+        locations.append(cleaned)
+
+    return locations
+
+
 # Common location indicator words to help identify place names in text
 LOCATION_INDICATORS = {
     "at",
@@ -55,6 +138,13 @@ def extract_place_candidates(
     - User caption
     - Author name (sometimes contains location)
 
+    Extraction priority:
+    1. Emoji-marked locations (📍) - highest confidence, users explicitly mark places
+    2. Quoted/parenthetical text
+    3. Location indicator patterns ("at X", "in Y")
+    4. Proper noun phrases
+    5. Hashtags and mentions
+
     Input is truncated to prevent ReDoS attacks.
 
     Args:
@@ -78,6 +168,17 @@ def extract_place_candidates(
     # Clean Instagram-specific noise from title (e.g., "@user on Instagram: ")
     if title:
         title = clean_instagram_title(title)
+
+    # PRIORITY 1: Extract locations marked with 📍 or other location emojis
+    # This is the most reliable signal as users explicitly mark places this way
+    # Check caption first (user's own text), then title
+    if caption:
+        emoji_locations = extract_emoji_locations(caption)
+        candidates.extend(emoji_locations)
+
+    if title:
+        emoji_locations = extract_emoji_locations(title)
+        candidates.extend(emoji_locations)
 
     # Process title - often contains the best place info
     if title:

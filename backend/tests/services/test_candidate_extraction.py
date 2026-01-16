@@ -1,7 +1,102 @@
 """Tests for place candidate extraction module."""
 
-from app.services.place_extractor.candidate_extraction import extract_place_candidates
+from app.services.place_extractor.candidate_extraction import (
+    extract_emoji_locations,
+    extract_place_candidates,
+)
 from app.services.place_extractor.text_utils import clean_instagram_title
+
+
+class TestExtractEmojiLocations:
+    """Tests for emoji-based location extraction."""
+
+    def test_extracts_pin_emoji_location(self):
+        """Extracts location after 📍 pin emoji."""
+        text = "📍 Cafe Central, Vienna"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Cafe Central, Vienna" in locations[0] or "Cafe Central" in locations[0]
+
+    def test_extracts_pin_emoji_no_space(self):
+        """Extracts location after 📍 without space."""
+        text = "📍Bangkok, Thailand"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Bangkok" in locations[0]
+
+    def test_extracts_multiple_pin_locations(self):
+        """Extracts multiple locations from multiple pins."""
+        text = "📍 Eiffel Tower\n📍 Louvre Museum"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 2
+        assert any("Eiffel Tower" in loc for loc in locations)
+        assert any("Louvre Museum" in loc for loc in locations)
+
+    def test_extracts_pushpin_emoji_location(self):
+        """Extracts location after 📌 pushpin emoji."""
+        text = "📌 Grand Bazaar Istanbul"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Grand Bazaar Istanbul" in locations[0]
+
+    def test_extracts_globe_emoji_location(self):
+        """Extracts location after 🌍 globe emoji."""
+        text = "🌍 Serengeti National Park"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Serengeti National Park" in locations[0]
+
+    def test_stops_at_hashtag(self):
+        """Stops extraction at hashtag."""
+        text = "📍 Tokyo Tower #japan #travel"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "japan" not in locations[0].lower()
+        assert "Tokyo Tower" in locations[0]
+
+    def test_stops_at_emoji(self):
+        """Stops extraction at next emoji."""
+        text = "📍 Colosseum 🇮🇹 Best place ever"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Best place" not in locations[0]
+
+    def test_skips_noise_words(self):
+        """Skips common noise words after emoji."""
+        text = "📍 here"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 0
+
+    def test_skips_short_text(self):
+        """Skips text shorter than 3 characters."""
+        text = "📍 NY"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 0
+
+    def test_removes_trailing_punctuation(self):
+        """Removes trailing punctuation from location."""
+        text = "📍 Central Park!!!"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert locations[0] == "Central Park"
+
+    def test_preserves_apostrophes(self):
+        """Preserves apostrophes in place names."""
+        text = "📍 Tirana's Rock"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Tirana's Rock" in locations[0]
+
+    def test_empty_input(self):
+        """Handles empty input."""
+        assert extract_emoji_locations("") == []
+        assert extract_emoji_locations(None) == []
+
+    def test_no_emoji(self):
+        """Returns empty list when no location emojis present."""
+        text = "Visit Central Park in New York"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 0
 
 
 class TestCleanInstagramTitle:
@@ -116,3 +211,38 @@ class TestExtractPlaceCandidates:
 
         candidates = extract_place_candidates("", "", "")
         assert candidates == []
+
+    def test_emoji_location_prioritized_in_caption(self):
+        """Emoji-marked locations from caption appear first."""
+        caption = "📍 Cafe Central is amazing! #Vienna"
+        title = "Best cafes in Vienna"
+        candidates = extract_place_candidates(title, caption, None)
+        # Emoji location should be first
+        assert len(candidates) > 0
+        assert "Cafe Central" in candidates[0]
+
+    def test_emoji_location_prioritized_in_title(self):
+        """Emoji-marked locations from title are extracted."""
+        title = "📍 Tokyo Tower - must visit!"
+        candidates = extract_place_candidates(title, None, None)
+        assert len(candidates) > 0
+        assert "Tokyo Tower" in candidates[0]
+
+    def test_emoji_location_from_both_sources(self):
+        """Extracts emoji locations from both caption and title."""
+        caption = "📍 Eiffel Tower"
+        title = "📍 Louvre Museum"
+        candidates = extract_place_candidates(title, caption, None)
+        # Caption emoji locations come first, then title
+        assert any("Eiffel Tower" in c for c in candidates)
+        assert any("Louvre Museum" in c for c in candidates)
+
+    def test_real_instagram_caption_with_pin(self):
+        """Handles real-world Instagram caption with pin emoji."""
+        caption = """Finally made it! 📍 Santorini, Greece 🇬🇷
+
+        Best sunset views ever! #travel #greece #santorini"""
+        candidates = extract_place_candidates(None, caption, None)
+        assert len(candidates) > 0
+        # Pin emoji location should be prioritized
+        assert any("Santorini" in c for c in candidates)
