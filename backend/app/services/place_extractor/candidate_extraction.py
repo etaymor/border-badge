@@ -4,13 +4,17 @@ This module handles extracting potential place name candidates from
 social media titles, captions, and author information.
 """
 
+import logging
 import re
 
 from app.services.place_extractor.text_utils import (
     MAX_TEXT_LENGTH,
     clean_instagram_title,
     clean_text_for_search,
+    run_with_timeout,
 )
+
+logger = logging.getLogger(__name__)
 
 # Location-indicating emojis used on social media to mark places
 # Primary: 📍 (round pushpin) - most common on Instagram/TikTok
@@ -40,59 +44,77 @@ def extract_emoji_locations(text: str) -> list[str]:
     This function extracts the text immediately following location emojis,
     which is typically the place name.
 
+    Uses timeout protection to prevent ReDoS attacks on untrusted input.
+
     Args:
         text: Caption or title text to search
 
     Returns:
-        List of location strings found after emojis, ordered by emoji priority
+        List of location strings found after emojis, in order of appearance
     """
     if not text:
         return []
 
-    locations: list[str] = []
+    # Truncate to prevent ReDoS attacks
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
 
-    # Build regex pattern for all location emojis
-    emoji_pattern = "[" + "".join(LOCATION_EMOJIS) + "]"
+    def _extract() -> list[str]:
+        locations: list[str] = []
 
-    # Pattern to capture text after emoji until:
-    # - End of line
-    # - Another emoji (any emoji, not just location ones)
-    # - A hashtag
-    # - Multiple newlines
-    # Captures the location text which typically follows the emoji
-    #
-    # Emoji ranges to exclude:
-    # - U+1F300-U+1FAFF: Miscellaneous Symbols, Emoticons, Dingbats, etc.
-    # - U+1F1E0-U+1F1FF: Regional Indicator Symbols (flag emojis like 🇮🇹)
-    # - U+2600-U+26FF: Miscellaneous Symbols (☀️, ⚡, etc.)
-    # - U+2700-U+27BF: Dingbats
-    pattern = (
-        emoji_pattern
-        + r"\s*"  # Optional whitespace after emoji
-        + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF]{3,60})"
-    )
+        # Build regex pattern for all location emojis using alternation
+        # (not character class) to properly match multi-codepoint sequences
+        # like 🗺️ which includes variation selector FE0F
+        escaped_emojis = [re.escape(emoji) for emoji in LOCATION_EMOJIS]
+        emoji_pattern = "(?:" + "|".join(escaped_emojis) + ")"
 
-    matches = re.findall(pattern, text)
+        # Pattern to capture text after emoji until:
+        # - End of line
+        # - Another emoji (any emoji, not just location ones)
+        # - A hashtag
+        # - Multiple newlines
+        # Captures the location text which typically follows the emoji
+        #
+        # Emoji ranges to exclude:
+        # - U+1F300-U+1FAFF: Miscellaneous Symbols, Emoticons, Dingbats, etc.
+        # - U+1F1E0-U+1F1FF: Regional Indicator Symbols (flag emojis like 🇮🇹)
+        # - U+2600-U+26FF: Miscellaneous Symbols (☀️, ⚡, etc.)
+        # - U+2700-U+27BF: Dingbats
+        # - U+FE0F: Variation selector (strip from captured text)
+        pattern = (
+            emoji_pattern
+            + r"\uFE0F?"  # Optional variation selector after emoji
+            + r"\s*"  # Optional whitespace after emoji
+            + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF\uFE0F]{3,60})"
+        )
 
-    for match in matches:
-        # Clean up the match
-        cleaned = match.strip()
+        matches = re.findall(pattern, text)
 
-        # Remove trailing punctuation except apostrophes (for names like "Tirana's")
-        cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+        for match in matches:
+            # Clean up the match
+            cleaned = match.strip()
 
-        # Skip if too short after cleaning
-        if len(cleaned) < 3:
-            continue
+            # Remove trailing punctuation except apostrophes (for names like "Tirana's")
+            cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
 
-        # Skip if it's just common words/noise
-        lower_cleaned = cleaned.lower()
-        if lower_cleaned in {"here", "location", "place", "spot", "check", "this"}:
-            continue
+            # Skip if too short after cleaning
+            if len(cleaned) < 3:
+                continue
 
-        locations.append(cleaned)
+            # Skip if it's just common words/noise
+            lower_cleaned = cleaned.lower()
+            if lower_cleaned in {"here", "location", "place", "spot", "check", "this"}:
+                continue
 
-    return locations
+            locations.append(cleaned)
+
+        return locations
+
+    try:
+        return run_with_timeout(_extract)
+    except TimeoutError:
+        logger.warning("emoji_extraction_timeout: returning empty list")
+        return []
 
 
 # Common location indicator words to help identify place names in text

@@ -98,6 +98,32 @@ class TestExtractEmojiLocations:
         locations = extract_emoji_locations(text)
         assert len(locations) == 0
 
+    def test_extracts_world_map_emoji_with_variation_selector(self):
+        """Extracts location after 🗺️ world map emoji with variation selector FE0F."""
+        # 🗺️ is U+1F5FA + U+FE0F (variation selector)
+        text = "🗺️ Grand Canyon National Park"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Grand Canyon National Park" in locations[0]
+
+    def test_extracts_emoji_without_variation_selector(self):
+        """Extracts location after emoji without variation selector."""
+        # Just U+1F5FA without FE0F
+        text = "\U0001f5fa Yellowstone Park"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Yellowstone Park" in locations[0]
+
+    def test_variation_selector_not_in_location_text(self):
+        """Ensures variation selector FE0F doesn't leak into captured location."""
+        # Multiple emojis with variation selectors
+        text = "🗺️ Paris\n📍 London"
+        locations = extract_emoji_locations(text)
+        assert len(locations) == 2
+        # Verify no FE0F in captured text
+        for loc in locations:
+            assert "\ufe0f" not in loc
+
 
 class TestCleanInstagramTitle:
     """Tests for Instagram title cleaning."""
