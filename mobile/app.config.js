@@ -20,7 +20,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.atlasi.app',
-      buildNumber: '3',
+      buildNumber: '4',
       usesAppleSignIn: true,
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
@@ -52,6 +52,9 @@ export default {
     ],
     updates: {
       url: 'https://u.expo.dev/4b406924-7c4e-4723-87a1-c40ad227d873',
+      requestHeaders: {
+        'expo-channel-name': 'production',
+      },
     },
     runtimeVersion: {
       policy: 'appVersion',
