@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Animated,
   FlatList,
@@ -93,11 +94,13 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     celebrationHoldDuration: 600, // Faster transition to next step
   });
 
-  // Reset navigation ref and input state on mount
-  useEffect(() => {
-    hasNavigatedRef.current = false;
-    setInputDisabled(false);
-  }, []);
+  // Reset navigation ref and input state on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      hasNavigatedRef.current = false;
+      setInputDisabled(false);
+    }, [])
+  );
 
   // Safe navigation wrapper
   const handleNavigateNext = () => {
