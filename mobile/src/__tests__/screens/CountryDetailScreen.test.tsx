@@ -462,7 +462,7 @@ describe('CountryDetailScreen', () => {
       });
     });
 
-    it('calls removeUserCountry when Unmark as Visited option is selected', () => {
+    it('shows confirmation dialog when Unmark as Visited option is selected', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       const removeUserCountryMutate = jest.fn();
       mockHooksWithData({
@@ -471,6 +471,10 @@ describe('CountryDetailScreen', () => {
         userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
         removeUserCountryMutate,
       });
+
+      // Mock Alert.alert to capture the confirmation dialog
+      const { Alert } = require('react-native');
+      const mockAlert = jest.spyOn(Alert, 'alert');
 
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
@@ -481,10 +485,56 @@ describe('CountryDetailScreen', () => {
       const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
       callback(1);
 
+      // Verify confirmation dialog was shown
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Unmark as Visited?',
+        'This will remove this country from your visited list.',
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+          expect.objectContaining({ text: 'Unmark', style: 'destructive' }),
+        ])
+      );
+
+      // Simulate confirming the dialog (pressing "Unmark")
+      const confirmCallback = mockAlert.mock.calls[0][2][1].onPress;
+      confirmCallback();
+
       expect(removeUserCountryMutate).toHaveBeenCalledWith('JP');
     });
 
-    it('does nothing when Cancel option is selected', () => {
+    it('does not remove country when confirmation dialog is cancelled', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      const removeUserCountryMutate = jest.fn();
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+        removeUserCountryMutate,
+      });
+
+      // Mock Alert.alert to capture the confirmation dialog
+      const { Alert } = require('react-native');
+      const mockAlert = jest.spyOn(Alert, 'alert');
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      // Simulate selecting "Unmark as Visited" (index 1)
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      callback(1);
+
+      // Simulate cancelling the confirmation dialog
+      const cancelCallback = mockAlert.mock.calls[0][2][0].onPress;
+      if (cancelCallback) {
+        cancelCallback();
+      }
+
+      expect(removeUserCountryMutate).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when Cancel option is selected in action sheet', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       const removeUserCountryMutate = jest.fn();
       mockHooksWithData({
