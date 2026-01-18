@@ -3,8 +3,8 @@
  * Displays the video thumbnail, provider badge, title and author.
  */
 
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -13,13 +13,58 @@ import { fonts } from '@constants/typography';
 import type { SocialIngestResponse } from '@hooks/useSocialIngest';
 import { PROVIDER_COLORS } from './shareCaptureUtils';
 
+/** Number of lines to show when title is collapsed */
+const COLLAPSED_LINE_COUNT = 2;
+
 interface ThumbnailCardProps {
   ingestResult: SocialIngestResponse;
-  caption?: string;
 }
 
-export function ThumbnailCard({ ingestResult, caption }: ThumbnailCardProps) {
-  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
+  const [isTitleExpanded, setIsTitleExpanded] = useState(false);
+  const [isTitleTruncated, setIsTitleTruncated] = useState(false);
+
+  // Heights measured from hidden and visible Text components
+  const [fullTextHeight, setFullTextHeight] = useState<number | null>(null);
+  const [constrainedTextHeight, setConstrainedTextHeight] = useState<number | null>(null);
+
+  // Reset expand/truncate state when title changes (e.g., navigating between videos)
+  useEffect(() => {
+    setIsTitleExpanded(false);
+    setIsTitleTruncated(false);
+    setFullTextHeight(null);
+    setConstrainedTextHeight(null);
+  }, [ingestResult.title]);
+
+  // Compare measured heights to determine if text is truncated
+  // Using height comparison is more reliable cross-platform than line counting
+  useEffect(() => {
+    if (fullTextHeight !== null && constrainedTextHeight !== null) {
+      // Add small tolerance (1px) to handle rounding differences
+      const truncated = fullTextHeight > constrainedTextHeight + 1;
+      if (truncated !== isTitleTruncated) {
+        setIsTitleTruncated(truncated);
+      }
+    }
+  }, [fullTextHeight, constrainedTextHeight, isTitleTruncated]);
+
+  // Measure the full (unconstrained) text height from hidden component
+  const handleFullTextLayout = useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    setFullTextHeight(height);
+  }, []);
+
+  // Measure the constrained text height when collapsed
+  const handleConstrainedTextLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      // Only measure constrained height when collapsed
+      if (!isTitleExpanded) {
+        const height = event.nativeEvent.layout.height;
+        setConstrainedTextHeight(height);
+      }
+    },
+    [isTitleExpanded]
+  );
 
   return (
     <View style={styles.thumbnailCard}>
@@ -58,33 +103,49 @@ export function ThumbnailCard({ ingestResult, caption }: ThumbnailCardProps) {
       </View>
       <View style={styles.thumbnailInfo}>
         {ingestResult.title && (
-          <Text style={styles.videoTitle} numberOfLines={2}>
-            {ingestResult.title}
-          </Text>
+          <View>
+            {/* Hidden text to measure full unconstrained height */}
+            <Text
+              style={[styles.videoTitle, styles.hiddenMeasureText]}
+              onLayout={handleFullTextLayout}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {ingestResult.title}
+            </Text>
+            {/* Visible text with optional line constraint */}
+            <Text
+              style={styles.videoTitle}
+              numberOfLines={isTitleExpanded ? undefined : COLLAPSED_LINE_COUNT}
+              onLayout={handleConstrainedTextLayout}
+            >
+              {ingestResult.title}
+            </Text>
+            {(isTitleTruncated || isTitleExpanded) && (
+              <Pressable
+                onPress={() => setIsTitleExpanded(!isTitleExpanded)}
+                style={styles.titleToggle}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={isTitleExpanded ? 'Show less of title' : 'Show more of title'}
+                accessibilityHint={
+                  isTitleExpanded
+                    ? 'Collapses the title to two lines'
+                    : 'Expands the title to show full text'
+                }
+              >
+                <Text style={styles.toggleText}>{isTitleExpanded ? 'Show less' : 'Show more'}</Text>
+                <Ionicons
+                  name={isTitleExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={12}
+                  color={colors.sunsetGold}
+                />
+              </Pressable>
+            )}
+          </View>
         )}
         {ingestResult.author_handle && (
           <Text style={styles.authorHandle}>@{ingestResult.author_handle}</Text>
-        )}
-        {caption && caption.trim().length > 0 && (
-          <View style={styles.captionContainer}>
-            <Text style={styles.captionText} numberOfLines={isCaptionExpanded ? undefined : 2}>
-              {caption}
-            </Text>
-            <Pressable
-              onPress={() => setIsCaptionExpanded(!isCaptionExpanded)}
-              style={styles.captionToggle}
-              hitSlop={8}
-            >
-              <Text style={styles.captionToggleText}>
-                {isCaptionExpanded ? 'Show less' : 'Show more'}
-              </Text>
-              <Ionicons
-                name={isCaptionExpanded ? 'chevron-up' : 'chevron-down'}
-                size={12}
-                color={colors.sunsetGold}
-              />
-            </Pressable>
-          </View>
         )}
       </View>
     </View>
@@ -160,6 +221,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.midnightNavy,
     lineHeight: 22,
+  },
+  titleToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
     marginBottom: 4,
   },
   authorHandle: {
@@ -167,28 +234,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.stormGray,
   },
-  captionContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.midnightNavyBorder,
-  },
-  captionText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.stormGray,
-    lineHeight: 18,
-  },
-  captionToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 8,
-  },
-  captionToggleText: {
+  toggleText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 12,
     color: colors.sunsetGold,
+  },
+  hiddenMeasureText: {
+    position: 'absolute',
+    opacity: 0,
+    // Ensure same width constraints as visible text for accurate measurement
+    left: 0,
+    right: 0,
   },
   manualEntryBanner: {
     flexDirection: 'row',

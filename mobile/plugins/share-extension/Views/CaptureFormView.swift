@@ -22,11 +22,6 @@ struct CaptureFormView: View {
                     onClose: onCancel
                 )
 
-                // Caption accordion (if caption exists)
-                if let caption = viewModel.caption, !caption.isEmpty {
-                    CaptionAccordion(caption: caption)
-                }
-
                 // Location search
                 LocationSearchView(
                     selectedPlace: $viewModel.selectedPlace,
@@ -82,7 +77,19 @@ private struct HeaderCard: View {
     let isManualEntry: Bool
     let onClose: () -> Void
 
+    @State private var isExpanded: Bool = false
+    @State private var isTruncated: Bool = false
+
     var body: some View {
+        content
+            .onChange(of: title) { _ in
+                // Reset expand/truncate state when title changes
+                isExpanded = false
+                isTruncated = false
+            }
+    }
+
+    private var content: some View {
         HStack {
             Spacer()
 
@@ -96,11 +103,40 @@ private struct HeaderCard: View {
                         .font(Typography.body(14))
                         .foregroundColor(BrandColors.stormGray)
                 } else if let title = title {
-                    Text(title)
-                        .font(Typography.body(14))
-                        .foregroundColor(BrandColors.stormGray)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 4) {
+                        Text(title)
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.stormGray)
+                            .lineLimit(isExpanded ? nil : 2)
+                            .multilineTextAlignment(.center)
+                            .background(
+                                // Hidden view to measure if text is truncated
+                                TruncationDetector(
+                                    text: title,
+                                    lineLimit: 2,
+                                    isTruncated: $isTruncated
+                                )
+                            )
+
+                        if isTruncated || isExpanded {
+                            Button(
+                                action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isExpanded.toggle()
+                                    }
+                                },
+                                label: {
+                                    HStack(spacing: 4) {
+                                        Text(isExpanded ? "Show less" : "Show more")
+                                            .font(Typography.body(12))
+                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundColor(BrandColors.sunsetGold)
+                                }
+                            )
+                        }
+                    }
                 } else {
                     Text("From \(providerName)")
                         .font(Typography.body(14))
@@ -123,45 +159,6 @@ private struct HeaderCard: View {
                             .fill(BrandColors.stormGray.opacity(0.15))
                     )
             }
-        }
-    }
-}
-
-// MARK: - Caption Accordion
-
-private struct CaptionAccordion: View {
-    let caption: String
-    @State private var isExpanded: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "Caption")
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(caption)
-                    .font(Typography.body(14))
-                    .foregroundColor(BrandColors.stormGray)
-                    .lineLimit(isExpanded ? nil : 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Text(isExpanded ? "Show less" : "Show more")
-                            .font(Typography.body(12))
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundColor(BrandColors.sunsetGold)
-                    .padding(.top, 8)
-                }
-            }
-            .padding(16)
-            .background(Color.white.opacity(0.4))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
-            )
         }
     }
 }
@@ -193,6 +190,77 @@ private struct NotesField: View {
                     .glassInput()
             }
         }
+    }
+}
+
+// MARK: - Truncation Detector
+
+/// A hidden view that measures whether text would be truncated at a given line limit
+private struct TruncationDetector: View {
+    let text: String
+    let lineLimit: Int
+    @Binding var isTruncated: Bool
+
+    @State private var fullHeight: CGFloat = 0
+    @State private var truncatedHeight: CGFloat = 0
+
+    var body: some View {
+        // Measure full height (unlimited lines)
+        Text(text)
+            .font(Typography.body(14))
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .hidden()
+            .accessibilityHidden(true)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(key: FullHeightKey.self, value: geometry.size.height)
+                }
+            )
+            .background(
+                // Measure truncated height (limited lines)
+                Text(text)
+                    .font(Typography.body(14))
+                    .lineLimit(lineLimit)
+                    .hidden()
+                    .accessibilityHidden(true)
+                    .background(
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: TruncatedHeightKey.self, value: geometry.size.height)
+                        }
+                    )
+            )
+            .onPreferenceChange(FullHeightKey.self) { height in
+                fullHeight = height
+                updateTruncation()
+            }
+            .onPreferenceChange(TruncatedHeightKey.self) { height in
+                truncatedHeight = height
+                updateTruncation()
+            }
+    }
+
+    private func updateTruncation() {
+        let newValue = fullHeight > truncatedHeight
+        // Guard against redundant state updates
+        if newValue != isTruncated {
+            isTruncated = newValue
+        }
+    }
+}
+
+// Preference keys for height measurement
+private struct FullHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct TruncatedHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
