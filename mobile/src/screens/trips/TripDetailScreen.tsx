@@ -72,7 +72,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: lists } = useTripLists(tripId);
-  const { data: country } = useCountryByCode(trip?.country_id ?? '');
+  const { data: country } = useCountryByCode(trip?.country_code ?? '');
   const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
@@ -544,7 +544,6 @@ const styles = StyleSheet.create({
   entriesListContent: {
     padding: 16,
     paddingBottom: 130, // Space for FAB + Tab Bar
-    flexGrow: 1,
     gap: 16,
   },
   gridRow: {
