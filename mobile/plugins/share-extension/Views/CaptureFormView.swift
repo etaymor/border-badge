@@ -78,6 +78,7 @@ private struct HeaderCard: View {
     let onClose: () -> Void
 
     @State private var isExpanded: Bool = false
+    @State private var isTruncated: Bool = false
 
     var body: some View {
         HStack {
@@ -99,19 +100,32 @@ private struct HeaderCard: View {
                             .foregroundColor(BrandColors.stormGray)
                             .lineLimit(isExpanded ? nil : 2)
                             .multilineTextAlignment(.center)
+                            .background(
+                                // Hidden view to measure if text is truncated
+                                TruncationDetector(
+                                    text: title,
+                                    lineLimit: 2,
+                                    isTruncated: $isTruncated
+                                )
+                            )
 
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isExpanded.toggle()
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Text(isExpanded ? "Show less" : "Show more")
-                                    .font(Typography.body(12))
-                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 10, weight: .medium))
-                            }
-                            .foregroundColor(BrandColors.sunsetGold)
+                        if isTruncated || isExpanded {
+                            Button(
+                                action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isExpanded.toggle()
+                                    }
+                                },
+                                label: {
+                                    HStack(spacing: 4) {
+                                        Text(isExpanded ? "Show less" : "Show more")
+                                            .font(Typography.body(12))
+                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundColor(BrandColors.sunsetGold)
+                                }
+                            )
                         }
                     }
                 } else {
@@ -167,6 +181,42 @@ private struct NotesField: View {
                     .glassInput()
             }
         }
+    }
+}
+
+// MARK: - Truncation Detector
+
+/// A hidden view that measures whether text would be truncated at a given line limit
+private struct TruncationDetector: View {
+    let text: String
+    let lineLimit: Int
+    @Binding var isTruncated: Bool
+
+    var body: some View {
+        // Measure full height (unlimited lines)
+        Text(text)
+            .font(Typography.body(14))
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .hidden()
+            .background(
+                GeometryReader { fullGeometry in
+                    // Measure truncated height (limited lines)
+                    Text(text)
+                        .font(Typography.body(14))
+                        .lineLimit(lineLimit)
+                        .background(
+                            GeometryReader { truncatedGeometry in
+                                Color.clear.onAppear {
+                                    let fullHeight = fullGeometry.size.height
+                                    let truncatedHeight = truncatedGeometry.size.height
+                                    isTruncated = fullHeight > truncatedHeight
+                                }
+                            }
+                        )
+                        .hidden()
+                }
+            )
     }
 }
 

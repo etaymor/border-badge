@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent, type TextLayoutEventData } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -19,6 +19,14 @@ interface ThumbnailCardProps {
 
 export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
   const [isTitleExpanded, setIsTitleExpanded] = useState(false);
+  const [isTitleTruncated, setIsTitleTruncated] = useState(false);
+
+  const handleTextLayout = (event: NativeSyntheticEvent<TextLayoutEventData>) => {
+    // Only check truncation when collapsed (2 lines max)
+    if (!isTitleExpanded) {
+      setIsTitleTruncated(event.nativeEvent.lines.length > 2);
+    }
+  };
 
   return (
     <View style={styles.thumbnailCard}>
@@ -58,21 +66,27 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
       <View style={styles.thumbnailInfo}>
         {ingestResult.title && (
           <View>
-            <Text style={styles.videoTitle} numberOfLines={isTitleExpanded ? undefined : 2}>
+            <Text
+              style={styles.videoTitle}
+              numberOfLines={isTitleExpanded ? undefined : 2}
+              onTextLayout={handleTextLayout}
+            >
               {ingestResult.title}
             </Text>
-            <Pressable
-              onPress={() => setIsTitleExpanded(!isTitleExpanded)}
-              style={styles.titleToggle}
-              hitSlop={8}
-            >
-              <Text style={styles.toggleText}>{isTitleExpanded ? 'Show less' : 'Show more'}</Text>
-              <Ionicons
-                name={isTitleExpanded ? 'chevron-up' : 'chevron-down'}
-                size={12}
-                color={colors.sunsetGold}
-              />
-            </Pressable>
+            {(isTitleTruncated || isTitleExpanded) && (
+              <Pressable
+                onPress={() => setIsTitleExpanded(!isTitleExpanded)}
+                style={styles.titleToggle}
+                hitSlop={8}
+              >
+                <Text style={styles.toggleText}>{isTitleExpanded ? 'Show less' : 'Show more'}</Text>
+                <Ionicons
+                  name={isTitleExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={12}
+                  color={colors.sunsetGold}
+                />
+              </Pressable>
+            )}
           </View>
         )}
         {ingestResult.author_handle && (
