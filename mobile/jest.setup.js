@@ -241,6 +241,15 @@ jest.mock('react-native/Libraries/Alert/Alert', () => ({
   alert: jest.fn(),
 }));
 
+// Mock ActionSheetIOS - define the mock functions on global first so they can be accessed in tests
+global.__mockActionSheetIOS = {
+  showActionSheetWithOptions: jest.fn(),
+};
+jest.mock('react-native/Libraries/ActionSheetIOS/ActionSheetIOS', () => ({
+  __esModule: true,
+  default: global.__mockActionSheetIOS,
+}));
+
 // Mock Share
 jest.mock('react-native/Libraries/Share/Share', () => ({
   share: jest.fn().mockResolvedValue({ action: 'sharedAction' }),
