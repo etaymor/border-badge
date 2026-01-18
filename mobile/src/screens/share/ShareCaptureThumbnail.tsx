@@ -3,16 +3,8 @@
  * Displays the video thumbnail, provider badge, title and author.
  */
 
-import { useEffect, useState } from 'react';
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type NativeSyntheticEvent,
-  type TextLayoutEventData,
-} from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -20,6 +12,9 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { SocialIngestResponse } from '@hooks/useSocialIngest';
 import { PROVIDER_COLORS } from './shareCaptureUtils';
+
+/** Number of lines to show when title is collapsed */
+const COLLAPSED_LINE_COUNT = 2;
 
 interface ThumbnailCardProps {
   ingestResult: SocialIngestResponse;
@@ -29,22 +24,47 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
   const [isTitleExpanded, setIsTitleExpanded] = useState(false);
   const [isTitleTruncated, setIsTitleTruncated] = useState(false);
 
+  // Heights measured from hidden and visible Text components
+  const [fullTextHeight, setFullTextHeight] = useState<number | null>(null);
+  const [constrainedTextHeight, setConstrainedTextHeight] = useState<number | null>(null);
+
   // Reset expand/truncate state when title changes (e.g., navigating between videos)
   useEffect(() => {
     setIsTitleExpanded(false);
     setIsTitleTruncated(false);
+    setFullTextHeight(null);
+    setConstrainedTextHeight(null);
   }, [ingestResult.title]);
 
-  const handleTextLayout = (event: NativeSyntheticEvent<TextLayoutEventData>) => {
-    // Only check truncation when collapsed (2 lines max)
-    if (!isTitleExpanded) {
-      const truncated = event.nativeEvent.lines.length > 2;
-      // Guard against redundant state updates
+  // Compare measured heights to determine if text is truncated
+  // Using height comparison is more reliable cross-platform than line counting
+  useEffect(() => {
+    if (fullTextHeight !== null && constrainedTextHeight !== null) {
+      // Add small tolerance (1px) to handle rounding differences
+      const truncated = fullTextHeight > constrainedTextHeight + 1;
       if (truncated !== isTitleTruncated) {
         setIsTitleTruncated(truncated);
       }
     }
-  };
+  }, [fullTextHeight, constrainedTextHeight, isTitleTruncated]);
+
+  // Measure the full (unconstrained) text height from hidden component
+  const handleFullTextLayout = useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    setFullTextHeight(height);
+  }, []);
+
+  // Measure the constrained text height when collapsed
+  const handleConstrainedTextLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      // Only measure constrained height when collapsed
+      if (!isTitleExpanded) {
+        const height = event.nativeEvent.layout.height;
+        setConstrainedTextHeight(height);
+      }
+    },
+    [isTitleExpanded]
+  );
 
   return (
     <View style={styles.thumbnailCard}>
@@ -84,10 +104,20 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
       <View style={styles.thumbnailInfo}>
         {ingestResult.title && (
           <View>
+            {/* Hidden text to measure full unconstrained height */}
+            <Text
+              style={[styles.videoTitle, styles.hiddenMeasureText]}
+              onLayout={handleFullTextLayout}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {ingestResult.title}
+            </Text>
+            {/* Visible text with optional line constraint */}
             <Text
               style={styles.videoTitle}
-              numberOfLines={isTitleExpanded ? undefined : 2}
-              onTextLayout={handleTextLayout}
+              numberOfLines={isTitleExpanded ? undefined : COLLAPSED_LINE_COUNT}
+              onLayout={handleConstrainedTextLayout}
             >
               {ingestResult.title}
             </Text>
@@ -208,6 +238,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 12,
     color: colors.sunsetGold,
+  },
+  hiddenMeasureText: {
+    position: 'absolute',
+    opacity: 0,
+    // Ensure same width constraints as visible text for accurate measurement
+    left: 0,
+    right: 0,
   },
   manualEntryBanner: {
     flexDirection: 'row',
