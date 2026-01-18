@@ -3,8 +3,16 @@
  * Displays the video thumbnail, provider badge, title and author.
  */
 
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent, type TextLayoutEventData } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type NativeSyntheticEvent,
+  type TextLayoutEventData,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -21,10 +29,20 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
   const [isTitleExpanded, setIsTitleExpanded] = useState(false);
   const [isTitleTruncated, setIsTitleTruncated] = useState(false);
 
+  // Reset expand/truncate state when title changes (e.g., navigating between videos)
+  useEffect(() => {
+    setIsTitleExpanded(false);
+    setIsTitleTruncated(false);
+  }, [ingestResult.title]);
+
   const handleTextLayout = (event: NativeSyntheticEvent<TextLayoutEventData>) => {
     // Only check truncation when collapsed (2 lines max)
     if (!isTitleExpanded) {
-      setIsTitleTruncated(event.nativeEvent.lines.length > 2);
+      const truncated = event.nativeEvent.lines.length > 2;
+      // Guard against redundant state updates
+      if (truncated !== isTitleTruncated) {
+        setIsTitleTruncated(truncated);
+      }
     }
   };
 
@@ -78,6 +96,13 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
                 onPress={() => setIsTitleExpanded(!isTitleExpanded)}
                 style={styles.titleToggle}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={isTitleExpanded ? 'Show less of title' : 'Show more of title'}
+                accessibilityHint={
+                  isTitleExpanded
+                    ? 'Collapses the title to two lines'
+                    : 'Expands the title to show full text'
+                }
               >
                 <Text style={styles.toggleText}>{isTitleExpanded ? 'Show less' : 'Show more'}</Text>
                 <Ionicons
