@@ -58,10 +58,7 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
       <View style={styles.thumbnailInfo}>
         {ingestResult.title && (
           <View>
-            <Text
-              style={styles.videoTitle}
-              numberOfLines={isTitleExpanded ? undefined : 2}
-            >
+            <Text style={styles.videoTitle} numberOfLines={isTitleExpanded ? undefined : 2}>
               {ingestResult.title}
             </Text>
             <Pressable
@@ -69,9 +66,7 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
               style={styles.titleToggle}
               hitSlop={8}
             >
-              <Text style={styles.toggleText}>
-                {isTitleExpanded ? 'Show less' : 'Show more'}
-              </Text>
+              <Text style={styles.toggleText}>{isTitleExpanded ? 'Show less' : 'Show more'}</Text>
               <Ionicons
                 name={isTitleExpanded ? 'chevron-up' : 'chevron-down'}
                 size={12}
