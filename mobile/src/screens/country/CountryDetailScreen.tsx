@@ -1,5 +1,15 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, StatusBar, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  ActionSheetIOS,
+  Alert,
+  Animated,
+  Dimensions,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -197,6 +207,40 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     setShowShareOverlay(false);
   }, []);
 
+  const handleRemoveVisited = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    removeUserCountry.mutate(code);
+  }, [code, removeUserCountry]);
+
+  const showOptionsMenu = useCallback(() => {
+    const options = ['Share', 'Unmark as Visited', 'Cancel'];
+    const destructiveButtonIndex = 1;
+    const cancelButtonIndex = 2;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          destructiveButtonIndex,
+          cancelButtonIndex,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleOpenShare();
+          } else if (buttonIndex === 1) {
+            handleRemoveVisited();
+          }
+        }
+      );
+    } else {
+      Alert.alert('Options', undefined, [
+        { text: 'Share', onPress: handleOpenShare },
+        { text: 'Unmark as Visited', style: 'destructive', onPress: handleRemoveVisited },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [handleOpenShare, handleRemoveVisited]);
+
   // Animations
   const imageScale = scrollY.interpolate({
     inputRange: [-HERO_HEIGHT, 0],
@@ -330,17 +374,17 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       <View style={[styles.fixedHeader, { paddingTop: insets.top }]}>
         <GlassBackButton onPress={() => navigation.goBack()} />
 
-        {/* Right: Share Button */}
+        {/* Right: Options Menu Button */}
         {isVisited && (
           <TouchableOpacity
-            onPress={handleOpenShare}
+            onPress={showOptionsMenu}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.8}
-            style={styles.headerShareButton}
-            accessibilityLabel="Share country card"
+            style={styles.headerMenuButton}
+            accessibilityLabel="More options"
           >
-            <BlurView intensity={30} tint="light" style={styles.headerShareGlass}>
-              <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+            <BlurView intensity={30} tint="light" style={styles.headerMenuGlass}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.midnightNavy} />
             </BlurView>
           </TouchableOpacity>
         )}
@@ -372,11 +416,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 60,
   },
-  headerShareButton: {
+  headerMenuButton: {
     borderRadius: 22,
     overflow: 'hidden',
   },
-  headerShareGlass: {
+  headerMenuGlass: {
     width: 44,
     height: 44,
     borderRadius: 22,
