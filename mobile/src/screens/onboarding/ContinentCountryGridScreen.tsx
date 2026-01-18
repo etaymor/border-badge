@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -45,6 +45,168 @@ interface CountryPair {
   left: { code: string; name: string };
   right?: { code: string; name: string };
 }
+
+// Props for the memoized row component
+interface CountryCardRowProps {
+  item: CountryPair;
+  index: number;
+  selectedCountriesSet: Set<string>;
+  bucketListCountriesSet: Set<string>;
+  onToggleVisited: (code: string) => void;
+  onToggleWishlist: (code: string) => void;
+  getAnimatedStyle: (index: number) => Animated.WithAnimatedObject<object>;
+  firstCardRef?: React.RefObject<View | null>;
+}
+
+// Custom comparator for React.memo - only re-render when this row's membership actually changes
+function areCountryCardRowPropsEqual(
+  prevProps: CountryCardRowProps,
+  nextProps: CountryCardRowProps
+): boolean {
+  // Check stable callback/ref equality first (cheap comparisons)
+  if (
+    prevProps.onToggleVisited !== nextProps.onToggleVisited ||
+    prevProps.onToggleWishlist !== nextProps.onToggleWishlist ||
+    prevProps.getAnimatedStyle !== nextProps.getAnimatedStyle ||
+    prevProps.firstCardRef !== nextProps.firstCardRef ||
+    prevProps.index !== nextProps.index
+  ) {
+    return false;
+  }
+
+  // Check if left country code changed
+  const prevLeftCode = prevProps.item.left.code;
+  const nextLeftCode = nextProps.item.left.code;
+  if (prevLeftCode !== nextLeftCode) {
+    return false;
+  }
+
+  // Check if right country code changed (or existence changed)
+  const prevRightCode = prevProps.item.right?.code;
+  const nextRightCode = nextProps.item.right?.code;
+  if (prevRightCode !== nextRightCode) {
+    return false;
+  }
+
+  // Check if left country membership status changed
+  const prevLeftVisited = prevProps.selectedCountriesSet.has(prevLeftCode);
+  const nextLeftVisited = nextProps.selectedCountriesSet.has(nextLeftCode);
+  if (prevLeftVisited !== nextLeftVisited) {
+    return false;
+  }
+
+  const prevLeftWishlisted = prevProps.bucketListCountriesSet.has(prevLeftCode);
+  const nextLeftWishlisted = nextProps.bucketListCountriesSet.has(nextLeftCode);
+  if (prevLeftWishlisted !== nextLeftWishlisted) {
+    return false;
+  }
+
+  // Check if right country membership status changed (if right exists)
+  if (prevRightCode && nextRightCode) {
+    const prevRightVisited = prevProps.selectedCountriesSet.has(prevRightCode);
+    const nextRightVisited = nextProps.selectedCountriesSet.has(nextRightCode);
+    if (prevRightVisited !== nextRightVisited) {
+      return false;
+    }
+
+    const prevRightWishlisted = prevProps.bucketListCountriesSet.has(prevRightCode);
+    const nextRightWishlisted = nextProps.bucketListCountriesSet.has(nextRightCode);
+    if (prevRightWishlisted !== nextRightWishlisted) {
+      return false;
+    }
+  }
+
+  // All relevant props are equal - skip re-render
+  return true;
+}
+
+// Memoized row component with custom comparator to prevent re-renders when other rows change
+const CountryCardRow = React.memo(function CountryCardRow({
+  item,
+  index,
+  selectedCountriesSet,
+  bucketListCountriesSet,
+  onToggleVisited,
+  onToggleWishlist,
+  getAnimatedStyle,
+  firstCardRef,
+}: CountryCardRowProps) {
+  const leftCardIndex = index * 2;
+  const rightCardIndex = index * 2 + 1;
+  const isFirstCard = index === 0;
+
+  // Memoize callbacks for each card to maintain stable references
+  const leftVisitedHandler = useCallback(
+    () => onToggleVisited(item.left.code),
+    [onToggleVisited, item.left.code]
+  );
+  const leftWishlistHandler = useCallback(
+    () => onToggleWishlist(item.left.code),
+    [onToggleWishlist, item.left.code]
+  );
+  // Note: We intentionally depend on item.right?.code (primitive) instead of item.right (object)
+  // to prevent callback recreation when the object reference changes but the code remains the same.
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const rightVisitedHandler = useCallback(
+    () => item.right && onToggleVisited(item.right.code),
+    [onToggleVisited, item.right?.code]
+  );
+  const rightWishlistHandler = useCallback(
+    () => item.right && onToggleWishlist(item.right.code),
+    [onToggleWishlist, item.right?.code]
+  );
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const leftIsVisited = selectedCountriesSet.has(item.left.code);
+  const leftIsWishlisted = bucketListCountriesSet.has(item.left.code);
+  const rightIsVisited = item.right ? selectedCountriesSet.has(item.right.code) : false;
+  const rightIsWishlisted = item.right ? bucketListCountriesSet.has(item.right.code) : false;
+
+  return (
+    <View style={styles.countryRow}>
+      <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(leftCardIndex)]}>
+        {isFirstCard ? (
+          <View ref={firstCardRef} collapsable={false}>
+            <CountryCard
+              code={item.left.code}
+              name={item.left.name}
+              isVisited={leftIsVisited}
+              isWishlisted={leftIsWishlisted}
+              onPress={leftVisitedHandler}
+              onAddVisited={leftVisitedHandler}
+              onToggleWishlist={leftWishlistHandler}
+            />
+          </View>
+        ) : (
+          <CountryCard
+            code={item.left.code}
+            name={item.left.name}
+            isVisited={leftIsVisited}
+            isWishlisted={leftIsWishlisted}
+            onPress={leftVisitedHandler}
+            onAddVisited={leftVisitedHandler}
+            onToggleWishlist={leftWishlistHandler}
+          />
+        )}
+      </Animated.View>
+      {item.right ? (
+        <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(rightCardIndex)]}>
+          <CountryCard
+            code={item.right.code}
+            name={item.right.name}
+            isVisited={rightIsVisited}
+            isWishlisted={rightIsWishlisted}
+            onPress={rightVisitedHandler}
+            onAddVisited={rightVisitedHandler}
+            onToggleWishlist={rightWishlistHandler}
+          />
+        </Animated.View>
+      ) : (
+        <View style={styles.countryCardWrapper} />
+      )}
+    </View>
+  );
+}, areCountryCardRowPropsEqual);
 
 export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
@@ -157,6 +319,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const bucketListInRegion = useMemo(() => {
     return regionCountries.filter((c) => bucketListCountries.includes(c.code)).length;
   }, [regionCountries, bucketListCountries]);
+
+  // Convert arrays to Sets for O(1) lookup performance during scroll
+  const selectedCountriesSet = useMemo(() => new Set(selectedCountries), [selectedCountries]);
+  const bucketListCountriesSet = useMemo(() => new Set(bucketListCountries), [bucketListCountries]);
 
   // Filter countries based on search query
   const filteredCountries = useMemo(() => {
@@ -272,62 +438,24 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     []
   );
 
+  // Render function that delegates to memoized CountryCardRow component
+  // This function itself is stable - the memoization happens inside CountryCardRow
   const renderCountryRow = useCallback(
-    ({ item, index }: { item: CountryPair; index: number }) => {
-      // Calculate individual card indices for stagger animation
-      const leftCardIndex = index * 2;
-      const rightCardIndex = index * 2 + 1;
-      const isFirstCard = index === 0;
-
-      return (
-        <View style={styles.countryRow}>
-          <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(leftCardIndex)]}>
-            {/* Wrap first card with ref for tooltip measurements */}
-            {isFirstCard ? (
-              <View ref={firstCardRef} collapsable={false}>
-                <CountryCard
-                  code={item.left.code}
-                  name={item.left.name}
-                  isVisited={selectedCountries.includes(item.left.code)}
-                  isWishlisted={bucketListCountries.includes(item.left.code)}
-                  onPress={() => handleToggleVisited(item.left.code)}
-                  onAddVisited={() => handleToggleVisited(item.left.code)}
-                  onToggleWishlist={() => handleToggleWishlist(item.left.code)}
-                />
-              </View>
-            ) : (
-              <CountryCard
-                code={item.left.code}
-                name={item.left.name}
-                isVisited={selectedCountries.includes(item.left.code)}
-                isWishlisted={bucketListCountries.includes(item.left.code)}
-                onPress={() => handleToggleVisited(item.left.code)}
-                onAddVisited={() => handleToggleVisited(item.left.code)}
-                onToggleWishlist={() => handleToggleWishlist(item.left.code)}
-              />
-            )}
-          </Animated.View>
-          {item.right ? (
-            <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(rightCardIndex)]}>
-              <CountryCard
-                code={item.right.code}
-                name={item.right.name}
-                isVisited={selectedCountries.includes(item.right.code)}
-                isWishlisted={bucketListCountries.includes(item.right.code)}
-                onPress={() => handleToggleVisited(item.right!.code)}
-                onAddVisited={() => handleToggleVisited(item.right!.code)}
-                onToggleWishlist={() => handleToggleWishlist(item.right!.code)}
-              />
-            </Animated.View>
-          ) : (
-            <View style={styles.countryCardWrapper} />
-          )}
-        </View>
-      );
-    },
+    ({ item, index }: { item: CountryPair; index: number }) => (
+      <CountryCardRow
+        item={item}
+        index={index}
+        selectedCountriesSet={selectedCountriesSet}
+        bucketListCountriesSet={bucketListCountriesSet}
+        onToggleVisited={handleToggleVisited}
+        onToggleWishlist={handleToggleWishlist}
+        getAnimatedStyle={getAnimatedStyle}
+        firstCardRef={index === 0 ? firstCardRef : undefined}
+      />
+    ),
     [
-      selectedCountries,
-      bucketListCountries,
+      selectedCountriesSet,
+      bucketListCountriesSet,
       handleToggleVisited,
       handleToggleWishlist,
       getAnimatedStyle,
@@ -430,8 +558,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           contentContainerStyle={styles.gridContent}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={true}
-          maxToRenderPerBatch={12}
-          windowSize={10}
+          maxToRenderPerBatch={8}
+          initialNumToRender={6}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
           testID="country-grid"
         />
       </View>
