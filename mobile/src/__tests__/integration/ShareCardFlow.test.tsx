@@ -28,6 +28,15 @@ import * as useCountriesModule from '@hooks/useCountries';
 import * as useTripsModule from '@hooks/useTrips';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
 
+// Access the mock ActionSheetIOS from global (set in jest.setup.js)
+declare global {
+  // eslint-disable-next-line no-var
+  var __mockActionSheetIOS: {
+    showActionSheetWithOptions: jest.Mock;
+  };
+}
+const mockShowActionSheetWithOptions = global.__mockActionSheetIOS.showActionSheetWithOptions;
+
 // Mock dependencies
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn().mockResolvedValue(undefined),
@@ -592,12 +601,12 @@ describe('ShareCardFlow Integration', () => {
       mockHooksForShareTest();
     });
 
-    it('shows share button for visited country', () => {
+    it('shows options menu button for visited country', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      const shareButton = screen.getByLabelText('Share country card');
-      expect(shareButton).toBeTruthy();
+      const optionsButton = screen.getByLabelText('More options');
+      expect(optionsButton).toBeTruthy();
     });
 
     it('shows country number badge for visited country', () => {
@@ -608,14 +617,20 @@ describe('ShareCardFlow Integration', () => {
       expect(screen.getByText('Count')).toBeTruthy();
     });
 
-    it('opens share overlay when share button pressed', async () => {
+    it('opens share overlay when Share option selected from menu', async () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      const shareButton = screen.getByLabelText('Share country card');
+      const optionsButton = screen.getByLabelText('More options');
 
       await act(async () => {
-        fireEvent.press(shareButton);
+        fireEvent.press(optionsButton);
+      });
+
+      // Simulate selecting "Share" (index 0) from action sheet
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      await act(async () => {
+        callback(0);
       });
 
       // Advance timers for animation
@@ -629,7 +644,7 @@ describe('ShareCardFlow Integration', () => {
       });
     });
 
-    it('does not show share button for non-visited country', () => {
+    it('does not show options menu button for non-visited country', () => {
       // Mock as non-visited
       jest.spyOn(useUserCountriesModule, 'useUserCountries').mockReturnValue({
         data: [],
@@ -639,7 +654,7 @@ describe('ShareCardFlow Integration', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.queryByLabelText('Share country card')).toBeNull();
+      expect(screen.queryByLabelText('More options')).toBeNull();
     });
   });
 });
