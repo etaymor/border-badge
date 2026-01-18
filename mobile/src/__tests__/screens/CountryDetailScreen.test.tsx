@@ -16,14 +16,19 @@ import * as useCountriesModule from '@hooks/useCountries';
 import * as useTripsModule from '@hooks/useTrips';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
 
-// Access the mock ActionSheetIOS from global (set in jest.setup.js)
+// Access the mock ActionSheetIOS and Alert from global (set in jest.setup.js)
 declare global {
   // eslint-disable-next-line no-var
   var __mockActionSheetIOS: {
     showActionSheetWithOptions: jest.Mock;
   };
+  // eslint-disable-next-line no-var
+  var __mockAlert: {
+    alert: jest.Mock;
+  };
 }
 const mockShowActionSheetWithOptions = global.__mockActionSheetIOS.showActionSheetWithOptions;
+const mockAlert = global.__mockAlert.alert;
 
 // Create mock navigation
 const mockNavigate = jest.fn();
@@ -472,10 +477,6 @@ describe('CountryDetailScreen', () => {
         removeUserCountryMutate,
       });
 
-      // Mock Alert.alert to capture the confirmation dialog
-      const { Alert } = require('react-native');
-      const mockAlert = jest.spyOn(Alert, 'alert');
-
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
@@ -511,10 +512,6 @@ describe('CountryDetailScreen', () => {
         userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
         removeUserCountryMutate,
       });
-
-      // Mock Alert.alert to capture the confirmation dialog
-      const { Alert } = require('react-native');
-      const mockAlert = jest.spyOn(Alert, 'alert');
 
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);

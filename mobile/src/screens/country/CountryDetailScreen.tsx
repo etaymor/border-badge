@@ -208,21 +208,17 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   }, []);
 
   const handleRemoveVisited = useCallback(() => {
-    Alert.alert(
-      'Unmark as Visited?',
-      'This will remove this country from your visited list.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unmark',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            removeUserCountry.mutate(code);
-          },
+    Alert.alert('Unmark as Visited?', 'This will remove this country from your visited list.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unmark',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          removeUserCountry.mutate(code);
         },
-      ]
-    );
+      },
+    ]);
   }, [code, removeUserCountry]);
 
   const showOptionsMenu = useCallback(() => {

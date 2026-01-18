@@ -236,9 +236,13 @@ jest.mock('@services/api', () => ({
   setSignOutCallback: jest.fn(),
 }));
 
-// Mock Alert
-jest.mock('react-native/Libraries/Alert/Alert', () => ({
+// Mock Alert - define the mock functions on global first so they can be accessed in tests
+global.__mockAlert = {
   alert: jest.fn(),
+};
+jest.mock('react-native/Libraries/Alert/Alert', () => ({
+  __esModule: true,
+  default: global.__mockAlert,
 }));
 
 // Mock ActionSheetIOS - define the mock functions on global first so they can be accessed in tests
