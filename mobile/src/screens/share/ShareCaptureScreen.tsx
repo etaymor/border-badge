@@ -113,7 +113,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
         >
           <Text style={styles.scrollHeaderTitle}>Save Place</Text>
 
-          {ingestResult && <ThumbnailCard ingestResult={ingestResult} caption={caption} />}
+          {ingestResult && <ThumbnailCard ingestResult={ingestResult} />}
 
           <ManualEntryBanner visible={isManualEntryMode && !ingestResult?.detected_place} />
 

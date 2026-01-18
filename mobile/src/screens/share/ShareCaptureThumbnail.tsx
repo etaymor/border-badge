@@ -15,11 +15,10 @@ import { PROVIDER_COLORS } from './shareCaptureUtils';
 
 interface ThumbnailCardProps {
   ingestResult: SocialIngestResponse;
-  caption?: string;
 }
 
-export function ThumbnailCard({ ingestResult, caption }: ThumbnailCardProps) {
-  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
+  const [isTitleExpanded, setIsTitleExpanded] = useState(false);
 
   return (
     <View style={styles.thumbnailCard}>
@@ -58,33 +57,31 @@ export function ThumbnailCard({ ingestResult, caption }: ThumbnailCardProps) {
       </View>
       <View style={styles.thumbnailInfo}>
         {ingestResult.title && (
-          <Text style={styles.videoTitle} numberOfLines={2}>
-            {ingestResult.title}
-          </Text>
-        )}
-        {ingestResult.author_handle && (
-          <Text style={styles.authorHandle}>@{ingestResult.author_handle}</Text>
-        )}
-        {caption && caption.trim().length > 0 && (
-          <View style={styles.captionContainer}>
-            <Text style={styles.captionText} numberOfLines={isCaptionExpanded ? undefined : 2}>
-              {caption}
+          <View>
+            <Text
+              style={styles.videoTitle}
+              numberOfLines={isTitleExpanded ? undefined : 2}
+            >
+              {ingestResult.title}
             </Text>
             <Pressable
-              onPress={() => setIsCaptionExpanded(!isCaptionExpanded)}
-              style={styles.captionToggle}
+              onPress={() => setIsTitleExpanded(!isTitleExpanded)}
+              style={styles.titleToggle}
               hitSlop={8}
             >
-              <Text style={styles.captionToggleText}>
-                {isCaptionExpanded ? 'Show less' : 'Show more'}
+              <Text style={styles.toggleText}>
+                {isTitleExpanded ? 'Show less' : 'Show more'}
               </Text>
               <Ionicons
-                name={isCaptionExpanded ? 'chevron-up' : 'chevron-down'}
+                name={isTitleExpanded ? 'chevron-up' : 'chevron-down'}
                 size={12}
                 color={colors.sunsetGold}
               />
             </Pressable>
           </View>
+        )}
+        {ingestResult.author_handle && (
+          <Text style={styles.authorHandle}>@{ingestResult.author_handle}</Text>
         )}
       </View>
     </View>
@@ -160,6 +157,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.midnightNavy,
     lineHeight: 22,
+  },
+  titleToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
     marginBottom: 4,
   },
   authorHandle: {
@@ -167,25 +170,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.stormGray,
   },
-  captionContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.midnightNavyBorder,
-  },
-  captionText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.stormGray,
-    lineHeight: 18,
-  },
-  captionToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 8,
-  },
-  captionToggleText: {
+  toggleText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 12,
     color: colors.sunsetGold,

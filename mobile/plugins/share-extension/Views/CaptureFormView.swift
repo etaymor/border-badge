@@ -22,11 +22,6 @@ struct CaptureFormView: View {
                     onClose: onCancel
                 )
 
-                // Caption accordion (if caption exists)
-                if let caption = viewModel.caption, !caption.isEmpty {
-                    CaptionAccordion(caption: caption)
-                }
-
                 // Location search
                 LocationSearchView(
                     selectedPlace: $viewModel.selectedPlace,
@@ -82,6 +77,8 @@ private struct HeaderCard: View {
     let isManualEntry: Bool
     let onClose: () -> Void
 
+    @State private var isExpanded: Bool = false
+
     var body: some View {
         HStack {
             Spacer()
@@ -96,11 +93,27 @@ private struct HeaderCard: View {
                         .font(Typography.body(14))
                         .foregroundColor(BrandColors.stormGray)
                 } else if let title = title {
-                    Text(title)
-                        .font(Typography.body(14))
-                        .foregroundColor(BrandColors.stormGray)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 4) {
+                        Text(title)
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.stormGray)
+                            .lineLimit(isExpanded ? nil : 2)
+                            .multilineTextAlignment(.center)
+
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isExpanded.toggle()
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Text(isExpanded ? "Show less" : "Show more")
+                                    .font(Typography.body(12))
+                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundColor(BrandColors.sunsetGold)
+                        }
+                    }
                 } else {
                     Text("From \(providerName)")
                         .font(Typography.body(14))
@@ -123,45 +136,6 @@ private struct HeaderCard: View {
                             .fill(BrandColors.stormGray.opacity(0.15))
                     )
             }
-        }
-    }
-}
-
-// MARK: - Caption Accordion
-
-private struct CaptionAccordion: View {
-    let caption: String
-    @State private var isExpanded: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "Caption")
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(caption)
-                    .font(Typography.body(14))
-                    .foregroundColor(BrandColors.stormGray)
-                    .lineLimit(isExpanded ? nil : 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Text(isExpanded ? "Show less" : "Show more")
-                            .font(Typography.body(12))
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundColor(BrandColors.sunsetGold)
-                    .padding(.top, 8)
-                }
-            }
-            .padding(16)
-            .background(Color.white.opacity(0.4))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
-            )
         }
     }
 }
