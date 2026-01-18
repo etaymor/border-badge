@@ -81,6 +81,15 @@ private struct HeaderCard: View {
     @State private var isTruncated: Bool = false
 
     var body: some View {
+        content
+            .onChange(of: title) { _ in
+                // Reset expand/truncate state when title changes
+                isExpanded = false
+                isTruncated = false
+            }
+    }
+
+    private var content: some View {
         HStack {
             Spacer()
 
@@ -192,6 +201,9 @@ private struct TruncationDetector: View {
     let lineLimit: Int
     @Binding var isTruncated: Bool
 
+    @State private var fullHeight: CGFloat = 0
+    @State private var truncatedHeight: CGFloat = 0
+
     var body: some View {
         // Measure full height (unlimited lines)
         Text(text)
@@ -200,23 +212,53 @@ private struct TruncationDetector: View {
             .fixedSize(horizontal: false, vertical: true)
             .hidden()
             .background(
-                GeometryReader { fullGeometry in
-                    // Measure truncated height (limited lines)
-                    Text(text)
-                        .font(Typography.body(14))
-                        .lineLimit(lineLimit)
-                        .background(
-                            GeometryReader { truncatedGeometry in
-                                Color.clear.onAppear {
-                                    let fullHeight = fullGeometry.size.height
-                                    let truncatedHeight = truncatedGeometry.size.height
-                                    isTruncated = fullHeight > truncatedHeight
-                                }
-                            }
-                        )
-                        .hidden()
+                GeometryReader { geometry in
+                    Color.clear.preference(key: FullHeightKey.self, value: geometry.size.height)
                 }
             )
+            .background(
+                // Measure truncated height (limited lines)
+                Text(text)
+                    .font(Typography.body(14))
+                    .lineLimit(lineLimit)
+                    .hidden()
+                    .background(
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: TruncatedHeightKey.self, value: geometry.size.height)
+                        }
+                    )
+            )
+            .onPreferenceChange(FullHeightKey.self) { height in
+                fullHeight = height
+                updateTruncation()
+            }
+            .onPreferenceChange(TruncatedHeightKey.self) { height in
+                truncatedHeight = height
+                updateTruncation()
+            }
+    }
+
+    private func updateTruncation() {
+        let newValue = fullHeight > truncatedHeight
+        // Guard against redundant state updates
+        if newValue != isTruncated {
+            isTruncated = newValue
+        }
+    }
+}
+
+// Preference keys for height measurement
+private struct FullHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct TruncatedHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
