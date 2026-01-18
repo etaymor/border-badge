@@ -87,9 +87,16 @@ private struct SearchField: View {
                     .font(.system(size: 18))
                     .foregroundColor(BrandColors.stormGray)
 
-                TextField(placeholder, text: $text)
-                    .font(Typography.body(16))
-                    .foregroundColor(BrandColors.midnightNavy)
+                ZStack(alignment: .leading) {
+                    if text.isEmpty {
+                        Text(placeholder)
+                            .font(Typography.body(16))
+                            .foregroundColor(BrandColors.stormGray)
+                    }
+                    TextField("", text: $text)
+                        .font(Typography.body(16))
+                        .foregroundColor(BrandColors.midnightNavy)
+                }
 
                 if isLoading {
                     ProgressView()

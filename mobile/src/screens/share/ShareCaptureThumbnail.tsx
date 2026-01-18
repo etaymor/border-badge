@@ -3,7 +3,8 @@
  * Displays the video thumbnail, provider badge, title and author.
  */
 
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -14,9 +15,12 @@ import { PROVIDER_COLORS } from './shareCaptureUtils';
 
 interface ThumbnailCardProps {
   ingestResult: SocialIngestResponse;
+  caption?: string;
 }
 
-export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
+export function ThumbnailCard({ ingestResult, caption }: ThumbnailCardProps) {
+  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+
   return (
     <View style={styles.thumbnailCard}>
       {ingestResult.thumbnail_url ? (
@@ -60,6 +64,27 @@ export function ThumbnailCard({ ingestResult }: ThumbnailCardProps) {
         )}
         {ingestResult.author_handle && (
           <Text style={styles.authorHandle}>@{ingestResult.author_handle}</Text>
+        )}
+        {caption && caption.trim().length > 0 && (
+          <View style={styles.captionContainer}>
+            <Text style={styles.captionText} numberOfLines={isCaptionExpanded ? undefined : 2}>
+              {caption}
+            </Text>
+            <Pressable
+              onPress={() => setIsCaptionExpanded(!isCaptionExpanded)}
+              style={styles.captionToggle}
+              hitSlop={8}
+            >
+              <Text style={styles.captionToggleText}>
+                {isCaptionExpanded ? 'Show less' : 'Show more'}
+              </Text>
+              <Ionicons
+                name={isCaptionExpanded ? 'chevron-up' : 'chevron-down'}
+                size={12}
+                color={colors.sunsetGold}
+              />
+            </Pressable>
+          </View>
         )}
       </View>
     </View>
@@ -141,6 +166,29 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 13,
     color: colors.stormGray,
+  },
+  captionContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.midnightNavyBorder,
+  },
+  captionText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    lineHeight: 18,
+  },
+  captionToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  captionToggleText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 12,
+    color: colors.sunsetGold,
   },
   manualEntryBanner: {
     flexDirection: 'row',

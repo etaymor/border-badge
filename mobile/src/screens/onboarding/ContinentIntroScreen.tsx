@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
@@ -65,6 +65,14 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   useEffect(() => {
     Analytics.viewOnboardingContinent(region);
   }, [region]);
+
+  // Dismiss keyboard when screen receives focus (safety net from previous screen)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Staggered entrance animations
   useEffect(() => {

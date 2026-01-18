@@ -91,6 +91,28 @@ cd supabase
 # See supabase/migrations/ for schema
 ```
 
+### EAS Updates (Over-the-Air)
+
+Push JavaScript/asset changes to TestFlight users without a new build:
+
+```bash
+cd mobile
+eas update --branch production --message "Description of changes"
+```
+
+Users receive updates on next app restart (no active update prompts implemented).
+
+**When you can use EAS Update:**
+- JavaScript/TypeScript code changes
+- Asset changes (images, fonts)
+- Style changes
+
+**When you need a new build (`eas build`):**
+- Bump `version` in `app.config.js` (runtime version is tied to `appVersion`)
+- Add/remove native packages
+- Modify `plugins` array
+- Change native config (`ios.buildNumber`, etc.)
+
 ## Environment Setup
 
 ### Mobile (`mobile/.env.local`)

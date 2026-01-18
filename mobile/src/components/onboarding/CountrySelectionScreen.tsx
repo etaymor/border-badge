@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Animated,
   FlatList,
   Image,
-  InteractionManager,
   Keyboard,
   Modal,
   StyleSheet,
@@ -81,7 +81,9 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedCountryData, setSelectedCountryData] = useState<Country | null>(null);
   const [showSelection, setShowSelection] = useState(false);
+  const [inputDisabled, setInputDisabled] = useState(false);
   const hasNavigatedRef = useRef(false);
+  const searchInputRef = useRef<TextInput>(null);
 
   const { data: countries, isLoading, error, refetch } = useCountries();
   const currentSelection = getCurrentSelection();
@@ -92,16 +94,18 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     celebrationHoldDuration: 600, // Faster transition to next step
   });
 
-  // Reset navigation ref on mount
-  useEffect(() => {
-    hasNavigatedRef.current = false;
-  }, []);
+  // Reset navigation ref and input state on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      hasNavigatedRef.current = false;
+      setInputDisabled(false);
+    }, [])
+  );
 
   // Safe navigation wrapper
   const handleNavigateNext = () => {
     if (!hasNavigatedRef.current) {
       hasNavigatedRef.current = true;
-      Keyboard.dismiss();
       setShowSelection(false);
       onNavigateNext();
     }
@@ -121,25 +125,29 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   }, [countries, searchQuery]);
 
   const handleSelectCountry = (country: Country) => {
-    onCountrySelect(country);
+    // 1. Dismiss keyboard and disable input FIRST to prevent iOS focus restoration
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+    setInputDisabled(true);
+
+    // 2. Clear search state
     setSearchQuery('');
     setShowDropdown(false);
-    Keyboard.dismiss();
 
-    // Trigger haptic feedback
+    // 3. Update store
+    onCountrySelect(country);
+
+    // 4. Trigger haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // Show the selection overlay
+    // 5. Show celebration overlay
     setSelectedCountryData(country);
     setShowSelection(true);
-    hasNavigatedRef.current = false; // Reset for this selection attempt
+    hasNavigatedRef.current = false;
 
-    // Play celebration animation then navigate
+    // 6. Play celebration then navigate directly (no InteractionManager)
     playCelebration(() => {
-      Keyboard.dismiss();
-      InteractionManager.runAfterInteractions(() => {
-        handleNavigateNext();
-      });
+      handleNavigateNext();
     });
   };
 
@@ -250,8 +258,10 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
                   style={styles.searchIcon}
                 />
                 <TextInput
+                  ref={searchInputRef}
                   style={styles.searchInput}
                   value={searchQuery}
+                  editable={!inputDisabled}
                   onChangeText={(text) => {
                     setSearchQuery(text);
                     setShowDropdown(text.length > 0);

@@ -253,11 +253,13 @@ export const CountryCard = React.memo(function CountryCard({
                   tint="light"
                   style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
                 >
-                  <Ionicons
-                    name={isWishlisted ? 'airplane' : 'airplane-outline'}
-                    size={20}
-                    color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
-                  />
+                  <View style={styles.airplaneIconRotated}>
+                    <Ionicons
+                      name={isWishlisted ? 'airplane' : 'airplane-outline'}
+                      size={20}
+                      color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
+                    />
+                  </View>
                 </BlurView>
               </TouchableOpacity>
             </Animated.View>
@@ -370,6 +372,9 @@ const styles = StyleSheet.create({
   actionButtonWishlisted: {
     backgroundColor: colors.wishlistGold, // Override for active state
     borderColor: colors.wishlistGold,
+  },
+  airplaneIconRotated: {
+    transform: [{ rotate: '-35deg' }],
   },
   textContainer: {
     gap: 0,

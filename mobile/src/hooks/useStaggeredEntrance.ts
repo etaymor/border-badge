@@ -51,6 +51,8 @@ export interface UseStaggeredEntranceResult {
   resetAnimation: () => void;
   /** Whether animation has completed */
   isComplete: boolean;
+  /** Whether the first item has completed animating */
+  isFirstComplete: boolean;
 }
 
 /**
@@ -89,6 +91,7 @@ export function useStaggeredEntrance(
 
   // Track completion state
   const [isComplete, setIsComplete] = useState(false);
+  const [isFirstComplete, setIsFirstComplete] = useState(false);
   const runIdRef = useRef(0);
   const timeoutIdsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
@@ -157,10 +160,12 @@ export function useStaggeredEntrance(
     runIdRef.current += 1;
     const currentRunId = runIdRef.current;
     setIsComplete(false);
+    setIsFirstComplete(false);
 
     // Skip animation if reduce motion is enabled - just set all values to 1
     if (reduceMotion) {
       animationValues.forEach((animValue) => animValue.setValue(1));
+      setIsFirstComplete(true);
       setIsComplete(true);
       return;
     }
@@ -170,6 +175,7 @@ export function useStaggeredEntrance(
     const totalItems = animationValues.length;
 
     if (totalItems === 0) {
+      setIsFirstComplete(true);
       setIsComplete(true);
       return;
     }
@@ -185,6 +191,9 @@ export function useStaggeredEntrance(
           useNativeDriver: true,
         }).start(() => {
           if (runIdRef.current !== currentRunId) return;
+          if (index === 0) {
+            setIsFirstComplete(true);
+          }
           completedCount++;
           if (completedCount === totalItems) {
             setIsComplete(true);
@@ -219,6 +228,7 @@ export function useStaggeredEntrance(
       animValue.setValue(reduceMotion ? 1 : 0);
     });
 
+    setIsFirstComplete(false);
     setIsComplete(false);
   }, [animationValues, reduceMotion]);
 
@@ -255,6 +265,7 @@ export function useStaggeredEntrance(
     startAnimation,
     resetAnimation,
     isComplete,
+    isFirstComplete,
   };
 }
 

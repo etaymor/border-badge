@@ -87,26 +87,25 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const badgeScale = useRef(new Animated.Value(1)).current;
 
   // Staggered entrance animation for country cards (40ms delay for smooth wave)
-  const { getAnimatedStyle, startAnimation, resetAnimation, isComplete } = useStaggeredEntrance({
-    itemCount: regionCountries.length,
-    staggerDelay: 40,
-    autoStart: false, // We'll start manually when region changes
-  });
+  const { getAnimatedStyle, startAnimation, resetAnimation, isFirstComplete } =
+    useStaggeredEntrance({
+      itemCount: regionCountries.length,
+      staggerDelay: 40,
+      autoStart: false, // We'll start manually when region changes
+    });
 
-  // Show tooltip after cards animate in (first time any grid is shown during onboarding)
+  // Show tooltip after first card animates in (first time any grid is shown during onboarding)
   useEffect(() => {
-    if (isComplete && !countryGridTooltipShown) {
-      const timer = setTimeout(() => {
-        firstCardRef.current?.measureInWindow((x, y, width, height) => {
-          if (width > 0 && height > 0) {
-            setCardMeasurements({ x, y, width, height });
-            setShowTooltip(true);
-          }
-        });
-      }, 100);
-      return () => clearTimeout(timer);
+    if (isFirstComplete && !countryGridTooltipShown) {
+      // Measure immediately - no delay needed since first card is already visible
+      firstCardRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          setCardMeasurements({ x, y, width, height });
+          setShowTooltip(true);
+        }
+      });
     }
-  }, [isComplete, countryGridTooltipShown, region]);
+  }, [isFirstComplete, countryGridTooltipShown, region]);
 
   const handleTooltipComplete = useCallback(() => {
     setShowTooltip(false);
@@ -227,8 +226,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleVisited = useCallback(
     (code: string) => {
-      // Dismiss keyboard asynchronously to avoid interfering with touch handler
-      setTimeout(() => Keyboard.dismiss(), 0);
+      Keyboard.dismiss();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleCountry(code);
     },
@@ -237,8 +235,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   const handleToggleWishlist = useCallback(
     (code: string) => {
-      // Dismiss keyboard asynchronously to avoid interfering with touch handler
-      setTimeout(() => Keyboard.dismiss(), 0);
+      Keyboard.dismiss();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       toggleBucketListCountry(code);
     },

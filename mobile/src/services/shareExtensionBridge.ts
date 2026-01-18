@@ -400,7 +400,7 @@ export async function syncShareExtensionUsageFromAppGroup(): Promise<boolean> {
   if (Platform.OS !== 'ios') return false;
 
   const SharedGroupPreferences = NativeModules.SharedGroupPreferences;
-  if (!SharedGroupPreferences) return false;
+  if (!SharedGroupPreferences?.getHasUsedShareExtension) return false;
 
   try {
     const hasUsed: boolean = await SharedGroupPreferences.getHasUsedShareExtension();
