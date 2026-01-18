@@ -11,6 +11,7 @@ from app.api import (
     lists,
     media,
     outbound,
+    photos,
     places,
     profile,
     public,
@@ -37,3 +38,4 @@ router.include_router(
 router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
 router.include_router(welcome.router, tags=["welcome"])
+router.include_router(photos.router, tags=["photos"])

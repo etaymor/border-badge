@@ -95,6 +95,10 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     });
   }, [countryId, displayName, navigation]);
 
+  const handleImportPhotos = useCallback(() => {
+    navigation.navigate('PhotoImport', { countryCode: code });
+  }, [code, navigation]);
+
   const handleTripPress = useCallback(
     (trip: Trip) => {
       navigation.navigate('Trips', {
@@ -265,6 +269,15 @@ export function CountryDetailScreen({ navigation, route }: Props) {
               onPress={handleAddTrip}
               variant="primary"
             />
+            {isVisited && (
+              <View style={styles.secondaryCtaWrapper}>
+                <Button
+                  title="Import from Photos"
+                  onPress={handleImportPhotos}
+                  variant="secondary"
+                />
+              </View>
+            )}
           </View>
 
           <TripsSectionHeader tripCount={trips?.length ?? 0} />
@@ -287,6 +300,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       hasTrips,
       trips?.length,
       handleAddTrip,
+      handleImportPhotos,
       loadingTrips,
       flagEmoji,
       displayName,
@@ -408,6 +422,9 @@ const styles = StyleSheet.create({
   },
   ctaSection: {
     marginBottom: 16,
+  },
+  secondaryCtaWrapper: {
+    marginTop: 12,
   },
   tripCardWrapper: {
     marginBottom: 16,

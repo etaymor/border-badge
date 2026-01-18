@@ -60,6 +60,7 @@ export type PassportStackParamList = {
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
+  PhotoImport: { countryCode?: string };
 };
 
 // Trips stack (nested in tab)

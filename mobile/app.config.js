@@ -49,6 +49,15 @@ export default {
       'expo-apple-authentication',
       'expo-secure-store',
       './plugins/withShareExtension',
+      [
+        'expo-media-library',
+        {
+          photosPermission:
+            'Allow Atlasi to access your photos to suggest trip entries based on where they were taken.',
+          savePhotosPermission: 'Allow Atlasi to save photos.',
+          isAccessMediaLocationEnabled: true,
+        },
+      ],
     ],
     updates: {
       url: 'https://u.expo.dev/4b406924-7c4e-4723-87a1-c40ad227d873',
