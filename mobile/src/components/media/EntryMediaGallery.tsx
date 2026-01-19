@@ -96,6 +96,10 @@ export function EntryMediaGallery({
     if (!initialPhotoUris?.length || hasInitializedPhotos.current || !isPendingMode) {
       return;
     }
+    // Wait for media data to be loaded before calculating available slots
+    if (isLoading) {
+      return;
+    }
     hasInitializedPhotos.current = true;
 
     const uploadInitialPhotos = async () => {
@@ -221,7 +225,7 @@ export function EntryMediaGallery({
     };
 
     uploadInitialPhotos();
-  }, [initialPhotoUris, isPendingMode, tripId, uploadMedia]);
+  }, [initialPhotoUris, isPendingMode, tripId, uploadMedia, isLoading, mediaFiles, localMedia]);
 
   // Track pending media IDs for parent component
   useEffect(() => {

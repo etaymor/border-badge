@@ -38,10 +38,25 @@ export type ImportPhase = 'idle' | 'scanning' | 'candidates' | 'suggestions';
 
 /**
  * Type guard for AbortError.
- * Used for consistent error type checking alongside instanceof checks.
+ * Uses name-based check for React Native compatibility (no DOMException).
  */
-function isAbortError(error: unknown): error is DOMException {
-  return error instanceof DOMException && error.name === 'AbortError';
+function isAbortError(error: unknown): error is Error {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'name' in error &&
+    (error as Error).name === 'AbortError'
+  );
+}
+
+/**
+ * Create an AbortError compatible with React Native.
+ * Standard Error with name set to 'AbortError' for isAbortError detection.
+ */
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
 }
 
 /**
@@ -132,10 +147,16 @@ export function usePhotoImportWorkflow({
     Analytics.photoImportScanStarted();
 
     try {
-      const photos = await extractPhotosWithLocation(
-        (progress) => setScanProgress(progress),
-        controller.signal
-      );
+      const photos = await extractPhotosWithLocation((progress) => {
+        // Guard against updates after abort
+        if (controller.signal.aborted) return;
+        setScanProgress(progress);
+      }, controller.signal);
+
+      // Check for abort after photo extraction
+      if (controller.signal.aborted) {
+        throw createAbortError('Scan aborted');
+      }
 
       if (photos.length === 0) {
         Alert.alert(
@@ -157,6 +178,8 @@ export function usePhotoImportWorkflow({
       await geocodeClusterCentroids(
         clusters,
         (done, total) => {
+          // Guard against updates after abort
+          if (controller.signal.aborted) return;
           currentDone = done;
           currentTotal = total;
           setScanProgress({
@@ -167,6 +190,8 @@ export function usePhotoImportWorkflow({
           });
         },
         (retryInfo: GeocodeRetryInfo | null) => {
+          // Guard against updates after abort
+          if (controller.signal.aborted) return;
           // Update progress with retry info (or clear it)
           setScanProgress((prev) =>
             prev
@@ -188,7 +213,7 @@ export function usePhotoImportWorkflow({
 
       // Check for abort after geocoding before continuing
       if (controller.signal.aborted) {
-        throw new DOMException('Scan aborted', 'AbortError');
+        throw createAbortError('Scan aborted');
       }
 
       const optimizedData = segmentTripsOptimized(clusters, homeCountry);

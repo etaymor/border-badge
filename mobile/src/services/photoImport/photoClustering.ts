@@ -104,6 +104,40 @@ class GeocodeCacheManager {
 const geocodeCache = new GeocodeCacheManager();
 
 /**
+ * Create an AbortError compatible with React Native.
+ * Standard Error with name set to 'AbortError' for detection.
+ */
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+/**
+ * Promise-based delay that can be aborted via AbortSignal.
+ * Rejects with AbortError if signal is aborted during the delay.
+ */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError('Delay aborted'));
+      return;
+    }
+
+    const timeoutId = setTimeout(resolve, ms);
+
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timeoutId);
+        reject(createAbortError('Delay aborted'));
+      },
+      { once: true }
+    );
+  });
+}
+
+/**
  * Generate cache key for geocode lookup.
  */
 function getCacheKey(lat: number, lng: number): string {
@@ -203,7 +237,7 @@ export async function geocodeClusterCentroids(
   for (const [cacheKey, clusterGroup] of uniqueCentroids) {
     // Check for abort before each geocode operation
     if (signal?.aborted) {
-      throw new DOMException('Geocoding aborted', 'AbortError');
+      throw createAbortError('Geocoding aborted');
     }
 
     // Check cache first
@@ -257,12 +291,12 @@ export async function geocodeClusterCentroids(
             delaySeconds: Math.round(backoffDelay / 1000),
           });
 
-          await new Promise((r) => setTimeout(r, backoffDelay));
+          await abortableDelay(backoffDelay, signal);
         }
       }
 
       // Respect rate limits (1 req/sec for Apple geocoding)
-      await new Promise((r) => setTimeout(r, CLUSTERING_CONFIG.GEOCODE_RATE_LIMIT_MS));
+      await abortableDelay(CLUSTERING_CONFIG.GEOCODE_RATE_LIMIT_MS, signal);
     }
 
     // Apply country code to all clusters in this group
