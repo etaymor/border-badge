@@ -99,9 +99,30 @@ export function EntryMediaGallery({
     hasInitializedPhotos.current = true;
 
     const uploadInitialPhotos = async () => {
+      // Calculate current occupied slots and remaining capacity
+      const existingMediaCount = mediaFiles?.length ?? 0;
+      const localMediaCount = localMedia.filter((m) => !m.error).length;
+      const currentOccupied = existingMediaCount + localMediaCount;
+      const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
+
+      if (slotsAvailable === 0) {
+        logger.info(
+          `Skipping initial photo upload: entry already at max capacity (${MAX_PHOTOS_PER_ENTRY} photos)`
+        );
+        return;
+      }
+
+      // Only process up to the remaining available slots
+      const urisToProcess = initialPhotoUris.slice(0, slotsAvailable);
+      if (urisToProcess.length < initialPhotoUris.length) {
+        logger.info(
+          `Limiting initial photo upload: processing ${urisToProcess.length} of ${initialPhotoUris.length} photos (${slotsAvailable} slots available)`
+        );
+      }
+
       const filesToUpload: LocalFile[] = [];
 
-      for (const uri of initialPhotoUris) {
+      for (const uri of urisToProcess) {
         try {
           const expoFile = new ExpoFile(uri);
           if (!expoFile.exists) {

@@ -309,7 +309,11 @@ export function segmentTripsByTimeGap(
         const lastPhoto = currentTrip[currentTrip.length - 1];
         const gap = photo.creationTime.getTime() - lastPhoto.creationTime.getTime();
 
-        if (gap > CLUSTERING_CONFIG.TIME_GAP_THRESHOLD_MS) {
+        // Negative gap indicates corrupted/invalid timestamps (photos should be sorted)
+        // Treat as same trip to avoid splitting on bad data
+        if (gap < 0) {
+          currentTrip.push(photo);
+        } else if (gap > CLUSTERING_CONFIG.TIME_GAP_THRESHOLD_MS) {
           // Save current trip, start new one
           trips.push(createTripCandidate(countryCode, currentTrip));
           currentTrip = [photo];

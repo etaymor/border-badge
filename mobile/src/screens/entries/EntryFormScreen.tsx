@@ -40,8 +40,13 @@ import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 type Props = TripsStackScreenProps<'EntryForm'>;
 
 export function EntryFormScreen({ route, navigation }: Props) {
-  const { tripId, entryId, entryType: initialEntryType, prefillPlace, prefillPhotos } =
-    route.params;
+  const {
+    tripId,
+    entryId,
+    entryType: initialEntryType,
+    prefillPlace,
+    prefillPhotos,
+  } = route.params;
   const isEditing = !!entryId;
   const insets = useSafeAreaInsets();
 
@@ -169,7 +174,16 @@ export function EntryFormScreen({ route, navigation }: Props) {
         formSlideAnim.setValue(initialEntryType ? 0 : 30);
       }
     }
-  }, [tripId, entryId, isEditing, existingEntry, initialEntryType, prefillPlace, formFadeAnim, formSlideAnim]);
+  }, [
+    tripId,
+    entryId,
+    isEditing,
+    existingEntry,
+    initialEntryType,
+    prefillPlace,
+    formFadeAnim,
+    formSlideAnim,
+  ]);
 
   // URL validation with length limit
   const MAX_URL_LENGTH = 2048;

@@ -37,6 +37,14 @@ import type { EntryType } from '@navigation/types';
 export type ImportPhase = 'idle' | 'scanning' | 'candidates' | 'suggestions';
 
 /**
+ * Type guard for AbortError.
+ * Used for consistent error type checking alongside instanceof checks.
+ */
+function isAbortError(error: unknown): error is DOMException {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+/**
  * Truncate coordinate to 4 decimal places (~11m precision) for PII protection.
  */
 const truncateCoordinate = (value: number): number => Math.round(value * 10000) / 10000;
@@ -136,6 +144,7 @@ export function usePhotoImportWorkflow({
           [{ text: 'OK' }]
         );
         setPhase('idle');
+        abortControllerRef.current = null; // Clean up completed controller
         return;
       }
 
@@ -191,6 +200,7 @@ export function usePhotoImportWorkflow({
           [{ text: 'OK' }]
         );
         setPhase('idle');
+        abortControllerRef.current = null; // Clean up completed controller
         return;
       }
 
@@ -205,8 +215,10 @@ export function usePhotoImportWorkflow({
       setClusterDisplays(optimizedData.clusterDisplays);
       setTripCandidates(candidates);
       setPhase('candidates');
+      abortControllerRef.current = null; // Clean up completed controller
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
+      abortControllerRef.current = null; // Clean up on error
+      if (isAbortError(error)) {
         setPhase('idle');
       } else if (error instanceof HomeCountryNotSetError) {
         Alert.alert('Set Home Country', 'Please set your home country in settings first.');

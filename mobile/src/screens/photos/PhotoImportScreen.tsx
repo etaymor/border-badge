@@ -127,8 +127,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           </Text>
           {scanProgress?.retry && (
             <Text style={styles.retryText}>
-              Retrying in {scanProgress.retry.delaySeconds}s (attempt{' '}
-              {scanProgress.retry.attempt}/{scanProgress.retry.maxAttempts})
+              Retrying in {scanProgress.retry.delaySeconds}s (attempt {scanProgress.retry.attempt}/
+              {scanProgress.retry.maxAttempts})
             </Text>
           )}
           <View style={styles.progressBar}>

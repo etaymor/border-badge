@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
@@ -9,8 +9,10 @@ import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
+import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
-import type { TripsStackScreenProps } from '@navigation/types';
+import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
+import type { NavigationProp } from '@react-navigation/native';
 import { getFlagEmoji } from '@utils/flags';
 
 type Props = TripsStackScreenProps<'TripForm'>;
@@ -48,6 +50,19 @@ export function TripFormScreen({ navigation, route }: Props) {
   // Mutations
   const createTrip = useCreateTrip();
   const updateTrip = useUpdateTrip();
+
+  // Photo permissions for photo assist card
+  const { status: photoPermissionStatus } = usePhotoPermissionStatus();
+
+  // Navigate to photo import (need to go to parent PassportStack)
+  const handleImportPhotos = useCallback(() => {
+    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
+    if (parentNav) {
+      parentNav.navigate('PhotoImport', {
+        countryCode: selectedCountryCode ?? undefined,
+      });
+    }
+  }, [navigation, selectedCountryCode]);
 
   // Filter countries based on search
   const filteredCountries = useMemo(() => {
@@ -239,6 +254,24 @@ export function TripFormScreen({ navigation, route }: Props) {
               )}
               {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
             </View>
+          )}
+
+          {/* Photo Assist Card - only show for new trips */}
+          {!isEditing && (
+            <Pressable style={styles.photoAssistCard} onPress={handleImportPhotos}>
+              <View style={styles.photoAssistIconContainer}>
+                <Ionicons name="images-outline" size={24} color={colors.sunsetGold} />
+              </View>
+              <View style={styles.photoAssistContent}>
+                <Text style={styles.photoAssistTitle}>Start from Photos</Text>
+                <Text style={styles.photoAssistDescription}>
+                  {photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited'
+                    ? 'Scan your camera roll to find places you visited'
+                    : 'Get trip ideas from your photo library'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.sunsetGold} />
+            </Pressable>
           )}
 
           {/* Show country context when editing or pre-selected */}
@@ -478,5 +511,39 @@ const styles = StyleSheet.create({
   footer: {
     padding: 24,
     paddingTop: 16,
+  },
+  photoAssistCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 194, 78, 0.08)',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 194, 78, 0.2)',
+    borderStyle: 'dashed',
+  },
+  photoAssistIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  photoAssistContent: {
+    flex: 1,
+  },
+  photoAssistTitle: {
+    fontSize: 16,
+    fontFamily: fonts.playfair.bold,
+    color: colors.midnightNavy,
+    marginBottom: 2,
+  },
+  photoAssistDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontFamily: fonts.openSans.regular,
   },
 });

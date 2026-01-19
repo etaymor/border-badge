@@ -6,8 +6,10 @@ Uses tiered radius search (30m → 75m → 150m) for optimal precision.
 
 import asyncio
 import hashlib
+import html
 import logging
 import math
+import re
 import time
 from typing import Any
 
@@ -26,6 +28,44 @@ logger = logging.getLogger(__name__)
 # Concurrency limit for parallel Places API calls
 MAX_CONCURRENT_PLACES_REQUESTS = 5
 
+# Maximum length for place names/addresses (defense against absurdly long strings)
+MAX_PLACE_NAME_LENGTH = 200
+MAX_ADDRESS_LENGTH = 500
+
+
+def sanitize_place_text(text: str, max_length: int) -> str:
+    """
+    Sanitize text from external API for safe display.
+
+    Defense-in-depth measure: while Google's API is trusted and React Native
+    doesn't render HTML in text components (no XSS vector), this provides
+    protection against:
+    1. Future web clients that might render this data
+    2. Compromised upstream data
+    3. Unexpectedly long strings that could cause UI issues
+
+    Args:
+        text: Raw text from external API
+        max_length: Maximum allowed length
+
+    Returns:
+        Sanitized text safe for display
+    """
+    if not text:
+        return ""
+
+    # HTML-escape to prevent XSS if ever rendered in HTML context
+    sanitized = html.escape(text, quote=True)
+
+    # Remove control characters (except common whitespace)
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", sanitized)
+
+    # Truncate to max length
+    if len(sanitized) > max_length:
+        sanitized = sanitized[: max_length - 3] + "..."
+
+    return sanitized.strip()
+
 
 class PlacesCache:
     """
@@ -38,6 +78,9 @@ class PlacesCache:
 
     Thread-safe via asyncio.Lock to prevent TOCTOU race conditions when
     multiple coroutines access the cache concurrently.
+
+    Implements single-flight pattern via _in_flight tracking to prevent cache
+    stampedes when concurrent requests arrive for the same location.
     """
 
     def __init__(self, ttl_hours: int = 24, max_size: int = 1000) -> None:
@@ -52,6 +95,8 @@ class PlacesCache:
         self._ttl = ttl_hours * 3600  # Convert to seconds
         self._max_size = max_size
         self._lock = asyncio.Lock()
+        # Single-flight pattern: track in-flight requests to prevent stampedes
+        self._in_flight: dict[str, asyncio.Future[list[dict]]] = {}
 
     def get_cache_key(self, lat: float, lng: float, radius: int) -> str:
         """
@@ -113,13 +158,89 @@ class PlacesCache:
             self._cache[key] = (data, time.time())
 
     def clear(self) -> None:
-        """Clear all cached entries."""
+        """Clear all cached entries and in-flight requests."""
         self._cache.clear()
+        self._in_flight.clear()
 
     @property
     def size(self) -> int:
         """Return the number of cached entries."""
         return len(self._cache)
+
+    async def get_or_fetch(self, key: str, fetch_fn: Any) -> list[dict]:
+        """
+        Get cached result or fetch using provided function (single-flight pattern).
+
+        Prevents cache stampedes by ensuring only one concurrent request per key.
+        If a request is already in-flight for the same key, subsequent callers
+        wait for that result instead of making duplicate API calls.
+
+        Args:
+            key: Cache key
+            fetch_fn: Async callable that fetches data if not cached
+
+        Returns:
+            Cached or freshly fetched places list
+        """
+        # Determine what to do under lock, then act outside lock
+        existing_future: asyncio.Future[list[dict]] | None = None
+        our_future: asyncio.Future[list[dict]] | None = None
+
+        async with self._lock:
+            # Check cache first
+            if key in self._cache:
+                data, timestamp = self._cache[key]
+                if time.time() - timestamp < self._ttl:
+                    # Move to end (most recently used)
+                    self._cache[key] = self._cache.pop(key)
+                    return data
+                # Expired - remove from cache
+                del self._cache[key]
+
+            # Check if request already in-flight
+            if key in self._in_flight:
+                existing_future = self._in_flight[key]
+            else:
+                # We're the first - create future and claim ownership
+                loop = asyncio.get_event_loop()
+                our_future = loop.create_future()
+                self._in_flight[key] = our_future
+
+        # If another request is in-flight, wait for it (outside lock)
+        if existing_future is not None:
+            return await existing_future
+
+        # We own this request - fetch the data
+        assert our_future is not None  # Type narrowing for mypy/pyright
+        try:
+            result = await fetch_fn()
+            # Cache and resolve future
+            async with self._lock:
+                # Store in cache with LRU eviction
+                if key in self._cache:
+                    del self._cache[key]
+                while len(self._cache) >= self._max_size:
+                    oldest_key = next(iter(self._cache))
+                    del self._cache[oldest_key]
+                self._cache[key] = (result, time.time())
+
+                # Resolve future for waiting callers
+                if not our_future.done():
+                    our_future.set_result(result)
+                # Clean up in-flight tracking
+                self._in_flight.pop(key, None)
+
+            return result
+        except Exception:
+            # On error, clean up and propagate exception to waiters
+            async with self._lock:
+                self._in_flight.pop(key, None)
+                if not our_future.done():
+                    # Cancel the future - this prevents "Future exception was never
+                    # retrieved" warnings when there are no waiters. Waiters will
+                    # get CancelledError which is filtered as exception upstream.
+                    our_future.cancel()
+            raise
 
 
 # Module-level cache instance (shared across requests)
@@ -362,14 +483,10 @@ class PlaceMatcher:
             logger.warning("Google Places API key not configured")
             return []
 
-        # Check cache first
         cache_key = places_cache.get_cache_key(latitude, longitude, int(radius))
-        cached_result = await places_cache.get(cache_key)
-        if cached_result is not None:
-            logger.debug(f"Places cache hit for radius={radius}m")
-            return cached_result
 
-        try:
+        async def fetch_from_api() -> list[dict]:
+            """Fetch places from Google Places API."""
             response = await self._client.post(
                 NEARBY_SEARCH_URL,
                 json={
@@ -409,14 +526,14 @@ class PlaceMatcher:
                 return []
 
             places = response.json().get("places", [])
-
-            # Cache the result (including empty results to avoid repeated lookups)
-            await places_cache.set(cache_key, places)
             logger.debug(
-                f"Places cache miss for radius={radius}m, cached {len(places)} places"
+                f"Places API returned {len(places)} places for radius={radius}m"
             )
-
             return places
+
+        try:
+            # Use single-flight pattern to prevent cache stampedes
+            return await places_cache.get_or_fetch(cache_key, fetch_from_api)
 
         except httpx.TimeoutException:
             # Never log coordinates (PII) - use hash for debugging
@@ -504,15 +621,16 @@ class PlaceMatcher:
             primary_type = place.get("primaryType", "point_of_interest")
             category = TYPE_TO_CATEGORY.get(primary_type, "place")
 
-            # Defensive access for displayName
+            # Defensive access for displayName with sanitization
             display_name = place.get("displayName", {})
-            name = display_name.get("text", "") or "Unknown Place"
+            raw_name = display_name.get("text", "") or "Unknown Place"
+            raw_address = place.get("formattedAddress", "")
 
             ranked.append(
                 {
                     "place_id": place["id"],
-                    "name": name,
-                    "address": place.get("formattedAddress", ""),
+                    "name": sanitize_place_text(raw_name, MAX_PLACE_NAME_LENGTH),
+                    "address": sanitize_place_text(raw_address, MAX_ADDRESS_LENGTH),
                     "location": {
                         "latitude": place_lat,
                         "longitude": place_lng,
@@ -535,8 +653,15 @@ class PlaceMatcher:
             lat2, lon2: Second coordinate
 
         Returns:
-            Distance in meters
+            Distance in meters, or infinity if coordinates are invalid
         """
+        # Validate coordinate bounds (defense in depth - Pydantic validates inputs
+        # but this prevents nonsense results from edge cases or data corruption)
+        if not (-90 <= lat1 <= 90 and -90 <= lat2 <= 90):
+            return float("inf")
+        if not (-180 <= lon1 <= 180 and -180 <= lon2 <= 180):
+            return float("inf")
+
         R = 6371000  # Earth radius in meters
         phi1 = math.radians(lat1)
         phi2 = math.radians(lat2)

@@ -8,8 +8,8 @@ for PII protection. Client-side truncation is also applied but the backend
 validates this constraint as defense-in-depth.
 """
 
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 

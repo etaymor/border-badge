@@ -33,7 +33,8 @@ import { EntryWithPlace, useEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
-import type { TripsStackScreenProps } from '@navigation/types';
+import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
+import type { NavigationProp } from '@react-navigation/native';
 import { useSettingsStore } from '@stores/settingsStore';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
@@ -116,6 +117,15 @@ export function TripDetailScreen({ route, navigation }: Props) {
       navigation.navigate('TripLists', { tripId, tripName: trip?.name });
     }
   }, [tripId, trip?.name, navigation, lists]);
+
+  const handleImportPhotos = useCallback(() => {
+    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
+    if (parentNav) {
+      parentNav.navigate('PhotoImport', {
+        countryCode: trip?.country_code,
+      });
+    }
+  }, [navigation, trip?.country_code]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
@@ -240,6 +250,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
             <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
+              <Pressable style={styles.glassButtonWrapper} onPress={handleImportPhotos} hitSlop={8}>
+                <BlurView intensity={20} tint="dark" style={styles.glassButton}>
+                  <Ionicons name="images-outline" size={20} color="#fff" />
+                </BlurView>
+              </Pressable>
               <Pressable style={styles.glassButtonWrapper} onPress={handleEditTrip} hitSlop={8}>
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
                   <Ionicons name="pencil" size={20} color="#fff" />
@@ -260,6 +275,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={styles.noCoverHeaderRow}>
             <GlassBackButton onPress={() => navigation.goBack()} />
             <View style={styles.headerRightIcons}>
+              <Pressable onPress={handleImportPhotos} hitSlop={8} style={styles.actionButton}>
+                <Ionicons name="images-outline" size={22} color={colors.midnightNavy} />
+              </Pressable>
               <Pressable onPress={handleEditTrip} hitSlop={8} style={styles.actionButton}>
                 <Ionicons name="pencil" size={22} color={colors.midnightNavy} />
               </Pressable>
