@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import * as geohash from 'ngeohash';
 
 import type {
+  ClusteringConfig,
   LocationCluster,
   LocationClusterDisplay,
   PhotoWithLocation,
@@ -16,8 +17,8 @@ import type {
   TripCandidateDisplay,
 } from './types';
 
-// Configuration
-const CLUSTERING_CONFIG = {
+// Default configuration
+const DEFAULT_CLUSTERING_CONFIG = {
   TIME_GAP_THRESHOLD_MS: 7 * 24 * 60 * 60 * 1000, // 7 days between trips
   GEOHASH_PRECISION: 7, // ~153m cells for location clustering
   GEOCODE_CACHE_PRECISION: 3, // ~78km for geocode deduplication
@@ -25,6 +26,44 @@ const CLUSTERING_CONFIG = {
   MAX_CACHE_SIZE: 1000, // LRU cache max entries
   MAX_PREVIEW_URIS: 5, // Limit preview URIs stored per candidate/cluster
 } as const;
+
+// Current active configuration (can be overridden)
+let CLUSTERING_CONFIG = { ...DEFAULT_CLUSTERING_CONFIG };
+
+/**
+ * Update clustering configuration.
+ * Useful for adjusting precision in dense urban areas.
+ *
+ * @param config - Partial config to merge with defaults
+ */
+export function setClusteringConfig(config: Partial<ClusteringConfig>): void {
+  CLUSTERING_CONFIG = {
+    ...DEFAULT_CLUSTERING_CONFIG,
+    ...(config.geohashPrecision !== undefined && {
+      GEOHASH_PRECISION: config.geohashPrecision,
+    }),
+    ...(config.timeGapThresholdMs !== undefined && {
+      TIME_GAP_THRESHOLD_MS: config.timeGapThresholdMs,
+    }),
+    ...(config.maxPreviewUris !== undefined && {
+      MAX_PREVIEW_URIS: config.maxPreviewUris,
+    }),
+  };
+}
+
+/**
+ * Reset clustering configuration to defaults.
+ */
+export function resetClusteringConfig(): void {
+  CLUSTERING_CONFIG = { ...DEFAULT_CLUSTERING_CONFIG };
+}
+
+/**
+ * Get current clustering configuration (for testing/debugging).
+ */
+export function getClusteringConfig(): typeof DEFAULT_CLUSTERING_CONFIG {
+  return { ...CLUSTERING_CONFIG };
+}
 
 /**
  * LRU cache manager for geocode results to prevent memory leaks.
@@ -281,9 +320,7 @@ export function clearGeocodeCache(): void {
  * @param photos - Array of photos with location data
  * @returns Map of photo ID to full photo object
  */
-export function createPhotoLookupMap(
-  photos: PhotoWithLocation[]
-): Map<string, PhotoWithLocation> {
+export function createPhotoLookupMap(photos: PhotoWithLocation[]): Map<string, PhotoWithLocation> {
   const map = new Map<string, PhotoWithLocation>();
   for (const photo of photos) {
     map.set(photo.id, photo);

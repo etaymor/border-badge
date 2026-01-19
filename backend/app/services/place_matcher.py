@@ -29,21 +29,25 @@ MAX_CONCURRENT_PLACES_REQUESTS = 5
 
 class PlacesCache:
     """
-    In-memory cache for Google Places API responses.
+    In-memory LRU cache for Google Places API responses.
 
     Uses truncated coordinates (3 decimal places, ~111m precision) as cache keys
     to group nearby queries and reduce redundant API calls.
+
+    Includes max_size limit with LRU eviction to prevent unbounded memory growth.
     """
 
-    def __init__(self, ttl_hours: int = 24) -> None:
+    def __init__(self, ttl_hours: int = 24, max_size: int = 1000) -> None:
         """
         Initialize the cache.
 
         Args:
             ttl_hours: Time-to-live for cached entries in hours (default 24)
+            max_size: Maximum number of entries before LRU eviction (default 1000)
         """
         self._cache: dict[str, tuple[list[dict], float]] = {}
         self._ttl = ttl_hours * 3600  # Convert to seconds
+        self._max_size = max_size
 
     def get_cache_key(self, lat: float, lng: float, radius: int) -> str:
         """
@@ -65,6 +69,8 @@ class PlacesCache:
         """
         Retrieve cached data if it exists and hasn't expired.
 
+        Moves the entry to end (most recently used) on access.
+
         Args:
             key: Cache key
 
@@ -74,6 +80,8 @@ class PlacesCache:
         if key in self._cache:
             data, timestamp = self._cache[key]
             if time.time() - timestamp < self._ttl:
+                # Move to end (most recently used)
+                self._cache[key] = self._cache.pop(key)
                 return data
             # Expired - remove from cache
             del self._cache[key]
@@ -81,12 +89,21 @@ class PlacesCache:
 
     def set(self, key: str, data: list[dict]) -> None:
         """
-        Store data in the cache.
+        Store data in the cache with LRU eviction.
 
         Args:
             key: Cache key
             data: Places list to cache
         """
+        # If key exists, remove it first to update position
+        if key in self._cache:
+            del self._cache[key]
+
+        # Evict oldest entries if at capacity
+        while len(self._cache) >= self._max_size:
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+
         self._cache[key] = (data, time.time())
 
     def clear(self) -> None:
@@ -109,7 +126,7 @@ NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_RADII_METERS = [30, 75, 150]  # Tiered: 30m for restaurants/hotels, then widen
 MAX_PLACES_PER_SEARCH = 10
 MAX_SUGGESTIONS_PER_CLUSTER = 3  # Top 3 by distance
-PLACES_API_TIMEOUT_SECONDS = 5.0
+# Note: Timeout is configurable via PLACES_API_TIMEOUT_SECONDS env var (see config.py)
 
 # Place type to entry category mapping
 TYPE_TO_CATEGORY: dict[str, str] = {
@@ -184,7 +201,13 @@ class PlaceMatcherError(Exception):
 
 
 class RateLimitError(PlaceMatcherError):
-    """Google Places API rate limit exceeded."""
+    """Google Places API rate limit exceeded (temporary, can retry)."""
+
+    pass
+
+
+class QuotaExhaustedError(PlaceMatcherError):
+    """Google Places API quota exhausted (daily limit reached)."""
 
     pass
 
@@ -218,6 +241,10 @@ class PlaceMatcher:
         Uses parallel execution with bounded concurrency to respect rate limits
         while improving performance for multiple clusters.
 
+        Each cluster has a per-cluster timeout to prevent long-running requests
+        from blocking when the semaphore queue is deep (e.g., 50 clusters with
+        semaphore=5 means 45 waiting tasks).
+
         Args:
             clusters: List of cluster dicts with centroid and photos
 
@@ -226,6 +253,7 @@ class PlaceMatcher:
         """
         # Bounded concurrency to respect Google Places API rate limits
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
+        cluster_timeout = self._settings.places_cluster_timeout_seconds
 
         async def search_with_semaphore(
             cluster: dict[str, Any],
@@ -249,17 +277,29 @@ class PlaceMatcher:
                     }
                 return None
 
-        # Execute all searches in parallel with bounded concurrency
+        async def search_with_timeout(cluster: dict[str, Any]) -> dict[str, Any] | None:
+            """Wrap cluster search with per-cluster timeout."""
+            try:
+                return await asyncio.wait_for(
+                    search_with_semaphore(cluster),
+                    timeout=cluster_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    f"Cluster search timed out after {cluster_timeout}s",
+                    extra={"cluster_id": cluster.get("id")},
+                )
+                return None
+
+        # Execute all searches in parallel with bounded concurrency and per-cluster timeout
         results = await asyncio.gather(
-            *[search_with_semaphore(c) for c in clusters],
+            *[search_with_timeout(c) for c in clusters],
             return_exceptions=True,
         )
 
         # Filter out None results (no places found) and exceptions (partial failures)
         return [
-            r
-            for r in results
-            if r is not None and not isinstance(r, BaseException)
+            r for r in results if r is not None and not isinstance(r, BaseException)
         ]
 
     async def _search_nearby_tiered(
@@ -340,8 +380,15 @@ class PlaceMatcher:
             )
 
             if response.status_code == 429:
-                logger.warning("Google Places API rate limited")
-                raise RateLimitError("Rate limit exceeded")
+                # Parse response to differentiate rate limit vs quota exhaustion
+                # Google returns error details in the response body
+                error_reason = self._parse_error_reason(response)
+                if error_reason == "QUOTA_EXCEEDED":
+                    logger.error("Google Places API quota exhausted (daily limit)")
+                    raise QuotaExhaustedError("Daily quota exceeded")
+                else:
+                    logger.warning("Google Places API rate limited (temporary)")
+                    raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
                 logger.error(
@@ -372,6 +419,47 @@ class PlaceMatcher:
         except httpx.RequestError as e:
             logger.error(f"Google Places API request failed: {e}")
             return []
+
+    @staticmethod
+    def _parse_error_reason(response: httpx.Response) -> str | None:
+        """
+        Parse Google API error response to extract the error reason.
+
+        Google Places API returns errors in this format:
+        {
+          "error": {
+            "code": 429,
+            "message": "...",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [{"reason": "RATE_LIMIT_EXCEEDED" or "QUOTA_EXCEEDED", ...}]
+          }
+        }
+
+        Returns:
+            Error reason string (e.g., "RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED") or None
+        """
+        try:
+            error_body = response.json()
+            error_info = error_body.get("error", {})
+
+            # Check status first (most reliable)
+            status = error_info.get("status", "")
+            if status == "RESOURCE_EXHAUSTED":
+                # Check details for specific reason
+                details = error_info.get("details", [])
+                for detail in details:
+                    reason = detail.get("reason")
+                    if reason in ("RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED"):
+                        return reason
+
+                # Fallback: check message for hints
+                message = error_info.get("message", "").lower()
+                if "quota" in message or "daily" in message:
+                    return "QUOTA_EXCEEDED"
+
+            return None
+        except Exception:
+            return None
 
     def _rank_by_distance(
         self,

@@ -8,6 +8,7 @@ import logging
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
+from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.main import limiter
 from app.schemas.photos import (
@@ -16,8 +17,8 @@ from app.schemas.photos import (
     PlaceSuggestionResponse,
 )
 from app.services.place_matcher import (
-    PLACES_API_TIMEOUT_SECONDS,
     PlaceMatcher,
+    QuotaExhaustedError,
     RateLimitError,
 )
 
@@ -46,7 +47,8 @@ async def suggest_places(
     )
 
     # Caller owns client lifecycle
-    async with httpx.AsyncClient(timeout=PLACES_API_TIMEOUT_SECONDS) as client:
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=settings.places_api_timeout_seconds) as client:
         matcher = PlaceMatcher(http_client=client)
         try:
             suggestion_dicts = await matcher.find_places_for_clusters(
@@ -57,7 +59,15 @@ async def suggest_places(
                 ClusterSuggestion.model_validate(s) for s in suggestion_dicts
             ]
             return PlaceSuggestionResponse(suggestions=suggestions)
+        except QuotaExhaustedError as e:
+            # Daily quota exhausted - tell user to try again tomorrow
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Place suggestion service quota exceeded. Please try again tomorrow.",
+                headers={"Retry-After": "3600"},  # Hint to wait longer
+            ) from e
         except RateLimitError as e:
+            # Temporary rate limit - can retry soon
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests to places service. Please wait a moment and try again.",

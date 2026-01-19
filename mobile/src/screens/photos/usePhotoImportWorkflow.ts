@@ -10,7 +10,7 @@ import { Alert } from 'react-native';
 
 import type { SelectedPlace } from '@components/places';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
-import { useSuggestPlaces } from '@hooks/usePhotoImport';
+import { useSuggestPlaces, RateLimitError, QuotaExhaustedError } from '@hooks/usePhotoImport';
 import {
   extractPhotosWithLocation,
   clusterByLocation,
@@ -65,7 +65,7 @@ interface UsePhotoImportWorkflowOptions {
       placeId: string;
       name: string;
       address: string;
-      category: string;
+      category: EntryType;
     };
     prefillPhotos: string[];
   }) => void;
@@ -216,10 +216,23 @@ export function usePhotoImportWorkflow({
         });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
-        Alert.alert(
-          'Failed to Get Suggestions',
-          'Unable to find place suggestions. Please try again.'
-        );
+
+        if (error instanceof QuotaExhaustedError) {
+          Alert.alert(
+            'Service Temporarily Unavailable',
+            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+          );
+        } else if (error instanceof RateLimitError) {
+          Alert.alert(
+            'Too Many Requests',
+            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
+          );
+        } else {
+          Alert.alert(
+            'Failed to Get Suggestions',
+            'Unable to find place suggestions. Please try again.'
+          );
+        }
       }
     },
     [suggestPlacesMutation, clusterLookup]

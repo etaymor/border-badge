@@ -163,7 +163,7 @@ describe('usePhotoImport', () => {
       });
 
       expect(caughtError).not.toBeNull();
-      expect(caughtError?.message).toBe('Rate limit exceeded');
+      expect(caughtError!.message).toBe('Rate limit exceeded');
     });
   });
 });
