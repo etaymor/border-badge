@@ -10,7 +10,11 @@ import { Alert } from 'react-native';
 
 import type { SelectedPlace } from '@components/places';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
-import { useSuggestPlaces, RateLimitError, QuotaExhaustedError } from '@hooks/usePhotoImport';
+import {
+  useSuggestPlacesChunked,
+  RateLimitError,
+  QuotaExhaustedError,
+} from '@hooks/usePhotoImport';
 import {
   extractPhotosWithLocation,
   clusterByLocation,
@@ -44,7 +48,7 @@ export interface PhotoImportWorkflowResult {
   selectedCandidate: TripCandidateDisplay | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
   manualSearchCluster: LocationCluster | null;
-  suggestPlacesMutation: ReturnType<typeof useSuggestPlaces>;
+  suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
 
   // Actions
   startScan: () => Promise<void>;
@@ -94,7 +98,7 @@ export function usePhotoImportWorkflow({
   // Manual search state
   const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
 
-  const suggestPlacesMutation = useSuggestPlaces();
+  const suggestPlacesMutation = useSuggestPlacesChunked();
 
   const startScan = useCallback(async () => {
     if (!homeCountry) {

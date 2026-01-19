@@ -1,5 +1,6 @@
 """Tests for the place_matcher service."""
 
+from app.schemas.entries import EntryType
 from app.services.place_matcher import TYPE_TO_CATEGORY, PlaceMatcher
 
 
@@ -63,3 +64,16 @@ class TestTypeToCategoryMapping:
     def test_default_is_none_for_unknown(self) -> None:
         """Test that unknown types return None."""
         assert TYPE_TO_CATEGORY.get("unknown_type") is None
+
+    def test_all_categories_are_valid_entry_types(self) -> None:
+        """Test that all TYPE_TO_CATEGORY values are valid EntryType enum values.
+
+        This prevents runtime errors if someone adds a mapping to a category
+        that doesn't exist in EntryType.
+        """
+        valid_values = {e.value for e in EntryType}
+        for google_type, category in TYPE_TO_CATEGORY.items():
+            assert category in valid_values, (
+                f"TYPE_TO_CATEGORY['{google_type}'] = '{category}' "
+                f"is not a valid EntryType. Valid values: {valid_values}"
+            )

@@ -35,6 +35,9 @@ class PlacesCache:
     to group nearby queries and reduce redundant API calls.
 
     Includes max_size limit with LRU eviction to prevent unbounded memory growth.
+
+    Thread-safe via asyncio.Lock to prevent TOCTOU race conditions when
+    multiple coroutines access the cache concurrently.
     """
 
     def __init__(self, ttl_hours: int = 24, max_size: int = 1000) -> None:
@@ -48,6 +51,7 @@ class PlacesCache:
         self._cache: dict[str, tuple[list[dict], float]] = {}
         self._ttl = ttl_hours * 3600  # Convert to seconds
         self._max_size = max_size
+        self._lock = asyncio.Lock()
 
     def get_cache_key(self, lat: float, lng: float, radius: int) -> str:
         """
@@ -65,7 +69,7 @@ class PlacesCache:
         """
         return f"{round(lat, 3)}_{round(lng, 3)}_{radius}"
 
-    def get(self, key: str) -> list[dict] | None:
+    async def get(self, key: str) -> list[dict] | None:
         """
         Retrieve cached data if it exists and hasn't expired.
 
@@ -77,17 +81,18 @@ class PlacesCache:
         Returns:
             Cached places list or None if not found/expired
         """
-        if key in self._cache:
-            data, timestamp = self._cache[key]
-            if time.time() - timestamp < self._ttl:
-                # Move to end (most recently used)
-                self._cache[key] = self._cache.pop(key)
-                return data
-            # Expired - remove from cache
-            del self._cache[key]
-        return None
+        async with self._lock:
+            if key in self._cache:
+                data, timestamp = self._cache[key]
+                if time.time() - timestamp < self._ttl:
+                    # Move to end (most recently used)
+                    self._cache[key] = self._cache.pop(key)
+                    return data
+                # Expired - remove from cache
+                del self._cache[key]
+            return None
 
-    def set(self, key: str, data: list[dict]) -> None:
+    async def set(self, key: str, data: list[dict]) -> None:
         """
         Store data in the cache with LRU eviction.
 
@@ -95,16 +100,17 @@ class PlacesCache:
             key: Cache key
             data: Places list to cache
         """
-        # If key exists, remove it first to update position
-        if key in self._cache:
-            del self._cache[key]
+        async with self._lock:
+            # If key exists, remove it first to update position
+            if key in self._cache:
+                del self._cache[key]
 
-        # Evict oldest entries if at capacity
-        while len(self._cache) >= self._max_size:
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
+            # Evict oldest entries if at capacity
+            while len(self._cache) >= self._max_size:
+                oldest_key = next(iter(self._cache))
+                del self._cache[oldest_key]
 
-        self._cache[key] = (data, time.time())
+            self._cache[key] = (data, time.time())
 
     def clear(self) -> None:
         """Clear all cached entries."""
@@ -353,7 +359,7 @@ class PlaceMatcher:
 
         # Check cache first
         cache_key = places_cache.get_cache_key(latitude, longitude, int(radius))
-        cached_result = places_cache.get(cache_key)
+        cached_result = await places_cache.get(cache_key)
         if cached_result is not None:
             logger.debug(f"Places cache hit for radius={radius}m")
             return cached_result
@@ -400,7 +406,7 @@ class PlaceMatcher:
             places = response.json().get("places", [])
 
             # Cache the result (including empty results to avoid repeated lookups)
-            places_cache.set(cache_key, places)
+            await places_cache.set(cache_key, places)
             logger.debug(
                 f"Places cache miss for radius={radius}m, cached {len(places)} places"
             )

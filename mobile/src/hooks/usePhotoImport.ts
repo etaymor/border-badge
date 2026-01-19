@@ -2,11 +2,26 @@
  * React Query hooks for photo import place suggestions.
  */
 
+import { useCallback, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 
 import { api } from '@services/api';
-import type { PlaceSuggestionRequest, PlaceSuggestionResponse } from '@services/photoImport';
+import type {
+  PlaceSuggestionRequest,
+  PlaceSuggestionResponse,
+  ClusterSuggestion,
+} from '@services/photoImport';
+
+/** Progress state for chunked place suggestion requests */
+export interface PlaceSuggestionProgress {
+  clustersTotal: number;
+  clustersCompleted: number;
+  percentage: number;
+}
+
+/** Chunk size for batched place suggestion requests */
+const CHUNK_SIZE = 10;
 
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {
@@ -59,4 +74,118 @@ export function useSuggestPlaces() {
       }
     },
   });
+}
+
+/**
+ * Split an array into chunks of specified size.
+ */
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * Hook for chunked place suggestions with progress tracking.
+ *
+ * Sends clusters in batches to show incremental progress and results.
+ * Returns partial results as each batch completes for immediate display.
+ */
+export function useSuggestPlacesChunked() {
+  const [progress, setProgress] = useState<PlaceSuggestionProgress | null>(null);
+  const [partialResults, setPartialResults] = useState<ClusterSuggestion[]>([]);
+  const abortRef = useRef(false);
+
+  const reset = useCallback(() => {
+    setProgress(null);
+    setPartialResults([]);
+    abortRef.current = false;
+  }, []);
+
+  const mutation = useMutation({
+    mutationFn: async (data: PlaceSuggestionRequest): Promise<PlaceSuggestionResponse> => {
+      const clusters = data.clusters;
+      const totalClusters = clusters.length;
+      const chunks = chunkArray(clusters, CHUNK_SIZE);
+      const allSuggestions: ClusterSuggestion[] = [];
+
+      // Reset state for new request
+      abortRef.current = false;
+      setPartialResults([]);
+      setProgress({
+        clustersTotal: totalClusters,
+        clustersCompleted: 0,
+        percentage: 0,
+      });
+
+      for (let i = 0; i < chunks.length; i++) {
+        // Check for abort between chunks
+        if (abortRef.current) {
+          break;
+        }
+
+        const chunk = chunks[i];
+        const clustersProcessed = i * CHUNK_SIZE;
+
+        setProgress({
+          clustersTotal: totalClusters,
+          clustersCompleted: clustersProcessed,
+          percentage: Math.round((clustersProcessed / totalClusters) * 100),
+        });
+
+        try {
+          const response = await api.post('/photos/suggest-places', { clusters: chunk });
+          const suggestions = response.data.suggestions as ClusterSuggestion[];
+          allSuggestions.push(...suggestions);
+          // Update partial results for immediate display
+          setPartialResults([...allSuggestions]);
+        } catch (error) {
+          // Re-throw fatal errors (quota exhausted, rate limited)
+          if (error instanceof AxiosError) {
+            if (error.response?.status === 503) {
+              throw new QuotaExhaustedError();
+            }
+            if (error.response?.status === 429) {
+              const retryAfter = error.response.headers['retry-after'];
+              const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+              throw new RateLimitError(isNaN(retrySeconds) ? 60 : retrySeconds);
+            }
+          }
+          // Log non-fatal errors and continue with remaining chunks
+          if (__DEV__) {
+            console.warn(`[PhotoImport] Chunk ${i + 1} failed, continuing...`, error);
+          }
+        }
+      }
+
+      // Mark complete
+      setProgress({
+        clustersTotal: totalClusters,
+        clustersCompleted: totalClusters,
+        percentage: 100,
+      });
+
+      return { suggestions: allSuggestions };
+    },
+    onError: () => {
+      // Reset progress on error
+      setProgress(null);
+    },
+  });
+
+  // Wrap reset to also abort in-flight requests
+  const fullReset = useCallback(() => {
+    abortRef.current = true;
+    mutation.reset();
+    reset();
+  }, [mutation, reset]);
+
+  return {
+    ...mutation,
+    progress,
+    partialResults,
+    reset: fullReset,
+  };
 }

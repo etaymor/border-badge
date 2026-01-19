@@ -164,24 +164,51 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <Text style={styles.sectionSubtitle}>
             {formatDateRange(selectedCandidate.dateRange.start, selectedCandidate.dateRange.end)}
           </Text>
-          {suggestPlacesMutation.isPending ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.sunsetGold} />
-              <Text style={styles.loadingText}>Finding nearby places...</Text>
+
+          {/* Progress indicator during loading */}
+          {suggestPlacesMutation.isPending && suggestPlacesMutation.progress && (
+            <View style={styles.progressHeader}>
+              <View style={styles.progressLabelRow}>
+                <ActivityIndicator size="small" color={colors.sunsetGold} />
+                <Text style={styles.progressLabel}>
+                  Processing {suggestPlacesMutation.progress.clustersCompleted} of{' '}
+                  {suggestPlacesMutation.progress.clustersTotal} locations
+                </Text>
+              </View>
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${suggestPlacesMutation.progress.percentage}%` },
+                  ]}
+                />
+              </View>
             </View>
-          ) : (
-            <FlashList
-              data={suggestPlacesMutation.data?.suggestions ?? []}
-              renderItem={renderSuggestionItem}
-              contentContainerStyle={styles.listContent}
-              keyExtractor={(item) => item.cluster_id}
-              ListEmptyComponent={
+          )}
+
+          {/* Show partial results while loading, or final results when complete */}
+          <FlashList
+            data={
+              suggestPlacesMutation.isPending
+                ? suggestPlacesMutation.partialResults
+                : (suggestPlacesMutation.data?.suggestions ?? [])
+            }
+            renderItem={renderSuggestionItem}
+            contentContainerStyle={styles.listContent}
+            keyExtractor={(item) => item.cluster_id}
+            ListEmptyComponent={
+              suggestPlacesMutation.isPending ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={colors.sunsetGold} />
+                  <Text style={styles.loadingText}>Finding nearby places...</Text>
+                </View>
+              ) : (
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>No place suggestions found for these photos.</Text>
                 </View>
-              }
-            />
-          )}
+              )
+            }
+          />
         </View>
       )}
 

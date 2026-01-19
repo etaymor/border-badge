@@ -273,6 +273,22 @@ export const styles = StyleSheet.create({
   },
   confirmButton: {},
 
+  // Progress header for suggestions loading
+  progressHeader: {
+    marginBottom: 16,
+  },
+  progressLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  progressLabel: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginLeft: 8,
+  },
+
   // Loading & Empty states
   loadingContainer: {
     flex: 1,
