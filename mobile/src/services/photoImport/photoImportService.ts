@@ -67,7 +67,7 @@ export async function extractPhotosWithLocation(
   }
 
   // Handle iOS 14+ limited access - user can still proceed with selected photos
-  if (limited) {
+  if (limited && __DEV__) {
     console.log('[PhotoImport] Limited photo access - processing selected photos only');
   }
 
@@ -146,6 +146,8 @@ export async function extractPhotosWithLocation(
 
   onProgress({ phase: 'complete', current: totalAssets, total: totalAssets, percentage: 100 });
 
-  console.log(`[PhotoImport] Found ${photos.length} photos with location out of ${totalAssets}`);
+  if (__DEV__) {
+    console.log(`[PhotoImport] Found ${photos.length} photos with location out of ${totalAssets}`);
+  }
   return photos;
 }

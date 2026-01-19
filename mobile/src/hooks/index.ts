@@ -95,3 +95,5 @@ export type {
 } from './useStaggeredEntrance';
 
 export { useReducedMotion } from './useReducedMotion';
+
+export { useSuggestPlaces } from './usePhotoImport';

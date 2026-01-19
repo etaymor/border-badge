@@ -5,45 +5,41 @@ endpoint which matches photo GPS clusters to nearby places.
 """
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.entries import EntryType
 
 # Input validation constants
 MAX_CLUSTERS_PER_REQUEST = 50
 MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
 
-# Entry category type
-EntryCategory = Literal["food", "stay", "experience", "place"]
 
+class CoordinatePrecisionMixin:
+    """Mixin providing coordinate precision truncation for PII protection."""
 
-class Coordinate(BaseModel):
-    """GPS coordinate with precision limiting for privacy."""
-
-    latitude: float = Field(..., ge=-90.0, le=90.0)
-    longitude: float = Field(..., ge=-180.0, le=180.0)
-
-    @field_validator("latitude", "longitude")
+    @field_validator("latitude", "longitude", mode="before")
     @classmethod
     def truncate_precision(cls, v: float) -> float:
         """Limit precision to 4 decimal places (~11m) for PII protection."""
         return round(v, 4)
 
 
-class PhotoMetadata(BaseModel):
+class Coordinate(BaseModel, CoordinatePrecisionMixin):
+    """GPS coordinate with precision limiting for privacy."""
+
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+
+
+class PhotoMetadata(BaseModel, CoordinatePrecisionMixin):
     """Minimal photo data for place matching."""
 
     asset_id: str = Field(..., min_length=1, max_length=256)
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
     timestamp: datetime | None = None
-
-    @field_validator("latitude", "longitude")
-    @classmethod
-    def truncate_precision(cls, v: float) -> float:
-        """Limit precision to 4 decimal places (~11m) for PII protection."""
-        return round(v, 4)
 
 
 class PhotoCluster(BaseModel):
@@ -84,7 +80,7 @@ class PlaceSuggestion(BaseModel):
     name: str
     address: str
     location: Coordinate
-    category: EntryCategory
+    category: EntryType
     distance_m: float  # Users see "15m away" and decide Yes/No
     types: list[str] = []
 

@@ -2,6 +2,8 @@
  * Type definitions for photo import service.
  */
 
+import type { EntryType } from '@/types/shared';
+
 // Photo with GPS location data
 export interface PhotoWithLocation {
   id: string;
@@ -38,7 +40,7 @@ export interface LocationCluster {
   countryCode?: string;
 }
 
-// Trip candidate derived from clustering
+// Trip candidate derived from clustering (full data - used internally during processing)
 export interface TripCandidate {
   id: string;
   countryCode: string;
@@ -50,6 +52,39 @@ export interface TripCandidate {
   locationClusters: LocationCluster[];
 }
 
+// Memory-optimized trip candidate for display (stores IDs instead of full objects)
+// Reduces memory by ~75% for large photo libraries
+export interface TripCandidateDisplay {
+  id: string;
+  countryCode: string;
+  dateRange: {
+    start: Date;
+    end: Date;
+  };
+  photoIds: string[]; // Reference by ID instead of full object
+  photoCount: number; // Total count (since we limit stored IDs)
+  previewUris: string[]; // First 5 URIs for thumbnail display
+  locationClusterIds: string[]; // Reference clusters by geohash ID
+}
+
+// Memory-optimized location cluster for display
+export interface LocationClusterDisplay {
+  id: string;
+  geohash: string;
+  centroid: {
+    latitude: number;
+    longitude: number;
+  };
+  photoIds: string[]; // Reference by ID instead of full object
+  photoCount: number;
+  previewUris: string[]; // First 5 URIs for thumbnails
+  timeRange: {
+    start: Date;
+    end: Date;
+  };
+  countryCode?: string;
+}
+
 // Place suggestion from backend
 export interface PlaceSuggestion {
   place_id: string;
@@ -59,7 +94,7 @@ export interface PlaceSuggestion {
     latitude: number;
     longitude: number;
   };
-  category: 'food' | 'stay' | 'experience' | 'place';
+  category: EntryType;
   distance_m: number;
   types: string[];
 }

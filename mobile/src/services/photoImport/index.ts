@@ -6,3 +6,6 @@ export * from './types';
 export * from './errors';
 export * from './photoImportService';
 export * from './photoClustering';
+
+// Re-export OptimizedTripData type from photoClustering
+export type { OptimizedTripData } from './photoClustering';

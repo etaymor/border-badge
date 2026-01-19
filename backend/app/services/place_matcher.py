@@ -4,9 +4,11 @@ Matches photo GPS clusters to nearby places using Google Places Nearby Search AP
 Uses tiered radius search (30m → 75m → 150m) for optimal precision.
 """
 
+import asyncio
 import hashlib
 import logging
 import math
+import time
 from typing import Any
 
 import httpx
@@ -20,6 +22,85 @@ from tenacity import (
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Concurrency limit for parallel Places API calls
+MAX_CONCURRENT_PLACES_REQUESTS = 5
+
+
+class PlacesCache:
+    """
+    In-memory cache for Google Places API responses.
+
+    Uses truncated coordinates (3 decimal places, ~111m precision) as cache keys
+    to group nearby queries and reduce redundant API calls.
+    """
+
+    def __init__(self, ttl_hours: int = 24) -> None:
+        """
+        Initialize the cache.
+
+        Args:
+            ttl_hours: Time-to-live for cached entries in hours (default 24)
+        """
+        self._cache: dict[str, tuple[list[dict], float]] = {}
+        self._ttl = ttl_hours * 3600  # Convert to seconds
+
+    def get_cache_key(self, lat: float, lng: float, radius: int) -> str:
+        """
+        Generate a cache key from coordinates and radius.
+
+        Truncates to 3 decimal places (~111m precision) to group nearby queries.
+
+        Args:
+            lat: Latitude
+            lng: Longitude
+            radius: Search radius in meters
+
+        Returns:
+            Cache key string
+        """
+        return f"{round(lat, 3)}_{round(lng, 3)}_{radius}"
+
+    def get(self, key: str) -> list[dict] | None:
+        """
+        Retrieve cached data if it exists and hasn't expired.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            Cached places list or None if not found/expired
+        """
+        if key in self._cache:
+            data, timestamp = self._cache[key]
+            if time.time() - timestamp < self._ttl:
+                return data
+            # Expired - remove from cache
+            del self._cache[key]
+        return None
+
+    def set(self, key: str, data: list[dict]) -> None:
+        """
+        Store data in the cache.
+
+        Args:
+            key: Cache key
+            data: Places list to cache
+        """
+        self._cache[key] = (data, time.time())
+
+    def clear(self) -> None:
+        """Clear all cached entries."""
+        self._cache.clear()
+
+    @property
+    def size(self) -> int:
+        """Return the number of cached entries."""
+        return len(self._cache)
+
+
+# Module-level cache instance (shared across requests)
+places_cache = PlacesCache()
 
 # Google Places API endpoint (New API v1)
 NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
@@ -134,35 +215,52 @@ class PlaceMatcher:
         """
         Find place suggestions for photo clusters.
 
+        Uses parallel execution with bounded concurrency to respect rate limits
+        while improving performance for multiple clusters.
+
         Args:
             clusters: List of cluster dicts with centroid and photos
 
         Returns:
             List of cluster suggestions with places ranked by distance
         """
-        suggestions = []
+        # Bounded concurrency to respect Google Places API rate limits
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
 
-        for cluster in clusters:
-            places, _ = await self._search_nearby_tiered(
-                latitude=cluster["centroid"]["latitude"],
-                longitude=cluster["centroid"]["longitude"],
-            )
+        async def search_with_semaphore(
+            cluster: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            async with semaphore:
+                places, _ = await self._search_nearby_tiered(
+                    latitude=cluster["centroid"]["latitude"],
+                    longitude=cluster["centroid"]["longitude"],
+                )
 
-            ranked_places = self._rank_by_distance(
-                places=places,
-                cluster=cluster,
-            )
+                ranked_places = self._rank_by_distance(
+                    places=places,
+                    cluster=cluster,
+                )
 
-            if ranked_places:
-                suggestions.append(
-                    {
+                if ranked_places:
+                    return {
                         "cluster_id": cluster["id"],
                         "photo_ids": [p["asset_id"] for p in cluster.get("photos", [])],
                         "places": ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER],
                     }
-                )
+                return None
 
-        return suggestions
+        # Execute all searches in parallel with bounded concurrency
+        results = await asyncio.gather(
+            *[search_with_semaphore(c) for c in clusters],
+            return_exceptions=True,
+        )
+
+        # Filter out None results (no places found) and exceptions (partial failures)
+        return [
+            r
+            for r in results
+            if r is not None and not isinstance(r, BaseException)
+        ]
 
     async def _search_nearby_tiered(
         self,
@@ -197,7 +295,9 @@ class PlaceMatcher:
         radius: float,
     ) -> list[dict]:
         """
-        Execute a single Places API search with retry logic.
+        Execute a single Places API search with retry logic and caching.
+
+        Uses in-memory cache with truncated coordinates to avoid redundant API calls.
 
         Args:
             latitude: Center latitude
@@ -210,6 +310,13 @@ class PlaceMatcher:
         if not self._settings.google_places_api_key:
             logger.warning("Google Places API key not configured")
             return []
+
+        # Check cache first
+        cache_key = places_cache.get_cache_key(latitude, longitude, int(radius))
+        cached_result = places_cache.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"Places cache hit for radius={radius}m")
+            return cached_result
 
         try:
             response = await self._client.post(
@@ -243,7 +350,15 @@ class PlaceMatcher:
                 )
                 return []
 
-            return response.json().get("places", [])
+            places = response.json().get("places", [])
+
+            # Cache the result (including empty results to avoid repeated lookups)
+            places_cache.set(cache_key, places)
+            logger.debug(
+                f"Places cache miss for radius={radius}m, cached {len(places)} places"
+            )
+
+            return places
 
         except httpx.TimeoutException:
             # Never log coordinates (PII) - use hash for debugging

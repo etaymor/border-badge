@@ -260,4 +260,24 @@ export const Analytics = {
 
   clipboardPasteButtonUsed: (props: { provider: string }) =>
     track('clipboard_paste_button_used', { provider: props.provider }),
+
+  // Photo Import Events
+  photoImportScanStarted: () => track('photo_import_scan_started'),
+
+  photoImportScanCompleted: (props: { photoCount: number; tripCandidateCount: number }) =>
+    track('photo_import_scan_completed', {
+      photo_count: props.photoCount,
+      trip_candidate_count: props.tripCandidateCount,
+    }),
+
+  photoImportCandidateSelected: (props: { countryCode: string; clusterCount: number }) =>
+    track('photo_import_candidate_selected', {
+      country_code: props.countryCode,
+      cluster_count: props.clusterCount,
+    }),
+
+  photoImportPlaceConfirmed: (props: { category: string }) =>
+    track('photo_import_place_confirmed', { category: props.category }),
+
+  photoImportPlaceRejected: () => track('photo_import_place_rejected'),
 };

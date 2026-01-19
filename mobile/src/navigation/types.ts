@@ -63,11 +63,25 @@ export type PassportStackParamList = {
   PhotoImport: { countryCode?: string };
 };
 
+// Prefill place data for TripForm (from photo import)
+export type PrefillPlace = {
+  placeId: string;
+  name: string;
+  address: string;
+  category: EntryType;
+};
+
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
   TripDetail: { tripId: string };
-  TripForm: { tripId?: string; countryId?: string; countryName?: string }; // undefined tripId = create, string = edit
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  }; // undefined tripId = create, string = edit
   EntryList: { tripId: string; tripName?: string };
   EntryDetail: { entryId: string };
   EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };

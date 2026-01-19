@@ -15,7 +15,11 @@ from app.schemas.photos import (
     PlaceSuggestionRequest,
     PlaceSuggestionResponse,
 )
-from app.services.place_matcher import PLACES_API_TIMEOUT_SECONDS, PlaceMatcher
+from app.services.place_matcher import (
+    PLACES_API_TIMEOUT_SECONDS,
+    PlaceMatcher,
+    RateLimitError,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -53,6 +57,12 @@ async def suggest_places(
                 ClusterSuggestion.model_validate(s) for s in suggestion_dicts
             ]
             return PlaceSuggestionResponse(suggestions=suggestions)
+        except RateLimitError as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests to places service. Please wait a moment and try again.",
+                headers={"Retry-After": "60"},
+            ) from e
         except Exception as e:
             logger.error(f"Place matching failed: {e}", exc_info=True)
             raise HTTPException(
