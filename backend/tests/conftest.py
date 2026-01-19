@@ -1,8 +1,10 @@
 """Pytest configuration and fixtures."""
 
+import time
 from typing import Any
 from unittest.mock import AsyncMock
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -161,3 +163,80 @@ def mock_auth_dependency(user: AuthUser):
         return user
 
     return override_get_current_user
+
+
+# ============================================================================
+# JWT Test Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def jwt_test_config() -> dict[str, str]:
+    """Configuration for generating test JWTs."""
+    return {
+        "secret": "test-jwt-secret-for-unit-tests",
+        "issuer": "https://test.supabase.co/auth/v1",
+        "audience": "authenticated",
+        "user_id": TEST_USER_ID,
+        "email": "test@example.com",
+    }
+
+
+def generate_test_jwt(
+    config: dict[str, str],
+    exp_offset_seconds: int = 3600,
+    **overrides: Any,
+) -> str:
+    """Generate a test JWT token with configurable claims.
+
+    Args:
+        config: JWT configuration dict with secret, issuer, audience, user_id, email
+        exp_offset_seconds: Seconds from now until expiration (negative for expired)
+        **overrides: Additional claims to override or add. Set a value to None
+            to remove that claim from the payload entirely.
+
+    Returns:
+        Encoded JWT token string
+    """
+    payload: dict[str, Any] = {
+        "sub": config["user_id"],
+        "email": config["email"],
+        "aud": config["audience"],
+        "iss": config["issuer"],
+        "exp": int(time.time()) + exp_offset_seconds,
+        "iat": int(time.time()),
+    }
+    payload.update(overrides)
+
+    # Remove any claims set to None (allows omitting claims like 'sub')
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    return jwt.encode(payload, config["secret"], algorithm="HS256")
+
+
+# ============================================================================
+# Time Mocking Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def mock_time():
+    """Fixture to control time.time() for deterministic cache tests.
+
+    Returns a dict with:
+        - get(): Returns current mocked time
+        - advance(seconds): Advance time by specified seconds
+        - set(value): Set time to specific value
+    """
+    current_time = [1000000.0]  # Mutable container
+
+    def get_time() -> float:
+        return current_time[0]
+
+    def advance(seconds: float) -> None:
+        current_time[0] += seconds
+
+    def set_time(value: float) -> None:
+        current_time[0] = value
+
+    return {"get": get_time, "advance": advance, "set": set_time}
