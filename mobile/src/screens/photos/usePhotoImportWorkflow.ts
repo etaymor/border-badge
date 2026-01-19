@@ -182,8 +182,14 @@ export function usePhotoImportWorkflow({
                   retry: retryInfo ?? undefined,
                 }
           );
-        }
+        },
+        controller.signal
       );
+
+      // Check for abort after geocoding before continuing
+      if (controller.signal.aborted) {
+        throw new DOMException('Scan aborted', 'AbortError');
+      }
 
       const optimizedData = segmentTripsOptimized(clusters, homeCountry);
       let candidates = optimizedData.candidates;

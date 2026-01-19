@@ -175,7 +175,8 @@ export interface GeocodeRetryInfo {
 export async function geocodeClusterCentroids(
   clusters: LocationCluster[],
   onProgress?: (completed: number, total: number) => void,
-  onRetry?: (info: GeocodeRetryInfo | null) => void
+  onRetry?: (info: GeocodeRetryInfo | null) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   // Request location permissions for reverse geocoding
   const { status } = await Location.requestForegroundPermissionsAsync();
@@ -200,6 +201,11 @@ export async function geocodeClusterCentroids(
   const total = uniqueCentroids.size;
 
   for (const [cacheKey, clusterGroup] of uniqueCentroids) {
+    // Check for abort before each geocode operation
+    if (signal?.aborted) {
+      throw new DOMException('Geocoding aborted', 'AbortError');
+    }
+
     // Check cache first
     let countryCode = geocodeCache.get(cacheKey);
 

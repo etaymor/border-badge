@@ -22,8 +22,7 @@ export function usePhotoPermissionStatus(): UsePhotoPermissionStatusResult {
   useEffect(() => {
     async function checkPermission() {
       try {
-        const { status: permStatus, accessPrivileges } =
-          await MediaLibrary.getPermissionsAsync();
+        const { status: permStatus, accessPrivileges } = await MediaLibrary.getPermissionsAsync();
 
         if (permStatus === 'granted') {
           setStatus(accessPrivileges === 'limited' ? 'limited' : 'granted');

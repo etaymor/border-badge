@@ -28,6 +28,10 @@ export default {
       },
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        NSPhotoLibraryUsageDescription:
+          'We need access to your photos to help create trip entries from your travel photos.',
+        NSLocationWhenInUseUsageDescription:
+          'We need your location to identify where your photos were taken.',
       },
     },
     android: {
