@@ -18,6 +18,8 @@ export interface PlaceSuggestionProgress {
   clustersTotal: number;
   clustersCompleted: number;
   percentage: number;
+  /** Number of chunks that failed (non-fatal errors) */
+  failedChunks: number;
 }
 
 /** Chunk size for batched place suggestion requests */
@@ -110,6 +112,7 @@ export function useSuggestPlacesChunked() {
       const totalClusters = clusters.length;
       const chunks = chunkArray(clusters, CHUNK_SIZE);
       const allSuggestions: ClusterSuggestion[] = [];
+      let failedChunkCount = 0;
 
       // Reset state for new request
       abortRef.current = false;
@@ -118,6 +121,7 @@ export function useSuggestPlacesChunked() {
         clustersTotal: totalClusters,
         clustersCompleted: 0,
         percentage: 0,
+        failedChunks: 0,
       });
 
       for (let i = 0; i < chunks.length; i++) {
@@ -133,6 +137,7 @@ export function useSuggestPlacesChunked() {
           clustersTotal: totalClusters,
           clustersCompleted: clustersProcessed,
           percentage: Math.round((clustersProcessed / totalClusters) * 100),
+          failedChunks: failedChunkCount,
         });
 
         try {
@@ -153,18 +158,20 @@ export function useSuggestPlacesChunked() {
               throw new RateLimitError(isNaN(retrySeconds) ? 60 : retrySeconds);
             }
           }
-          // Log non-fatal errors and continue with remaining chunks
+          // Track non-fatal errors and continue with remaining chunks
+          failedChunkCount++;
           if (__DEV__) {
             console.warn(`[PhotoImport] Chunk ${i + 1} failed, continuing...`, error);
           }
         }
       }
 
-      // Mark complete
+      // Mark complete with final failure count
       setProgress({
         clustersTotal: totalClusters,
         clustersCompleted: totalClusters,
         percentage: 100,
+        failedChunks: failedChunkCount,
       });
 
       return { suggestions: allSuggestions };

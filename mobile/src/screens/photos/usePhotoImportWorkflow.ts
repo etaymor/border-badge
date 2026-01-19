@@ -175,10 +175,14 @@ export function usePhotoImportWorkflow({
         setPhase('idle');
       } else if (error instanceof HomeCountryNotSetError) {
         Alert.alert('Set Home Country', 'Please set your home country in settings first.');
+        Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
         setPhase('idle');
       } else {
         if (__DEV__) console.error('[PhotoImport] Scan error:', error);
         Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
+        Analytics.photoImportScanFailed({
+          error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
+        });
         setPhase('idle');
       }
     }
@@ -188,6 +192,7 @@ export function usePhotoImportWorkflow({
     abortController?.abort();
     setAbortController(null);
     setPhase('idle');
+    Analytics.photoImportScanCancelled();
   }, [abortController]);
 
   const selectCandidate = useCallback(
@@ -204,7 +209,7 @@ export function usePhotoImportWorkflow({
         .filter((c): c is LocationCluster => c !== undefined);
 
       try {
-        await suggestPlacesMutation.mutateAsync({
+        const result = await suggestPlacesMutation.mutateAsync({
           clusters: clustersForApi.map((c) => ({
             id: c.id,
             centroid: { latitude: c.centroid.latitude, longitude: c.centroid.longitude },
@@ -218,20 +223,30 @@ export function usePhotoImportWorkflow({
             end_time: c.timeRange.end.toISOString(),
           })),
         });
+
+        // Track completion with failure count from progress
+        const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
+        Analytics.photoImportSuggestionsCompleted({
+          suggestionCount: result.suggestions.length,
+          failedChunks,
+        });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
 
         if (error instanceof QuotaExhaustedError) {
+          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
           Alert.alert(
             'Service Temporarily Unavailable',
             'The place suggestion service has reached its daily limit. Please try again tomorrow.'
           );
         } else if (error instanceof RateLimitError) {
+          Analytics.photoImportApiError({ errorType: 'rate_limited' });
           Alert.alert(
             'Too Many Requests',
             `Please wait ${error.retryAfterSeconds} seconds before trying again.`
           );
         } else {
+          Analytics.photoImportApiError({ errorType: 'unknown' });
           Alert.alert(
             'Failed to Get Suggestions',
             'Unable to find place suggestions. Please try again.'
@@ -266,7 +281,10 @@ export function usePhotoImportWorkflow({
     (suggestion: ClusterSuggestion) => {
       Analytics.photoImportPlaceRejected();
       const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
-      if (cluster) setManualSearchCluster(cluster);
+      if (cluster) {
+        setManualSearchCluster(cluster);
+        Analytics.photoImportManualSearchOpened();
+      }
     },
     [clusterLookup]
   );

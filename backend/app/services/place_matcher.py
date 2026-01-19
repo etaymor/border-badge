@@ -123,6 +123,11 @@ class PlacesCache:
 
 
 # Module-level cache instance (shared across requests)
+#
+# Memory impact: With max_size=1000 and typical responses of ~2KB per entry,
+# worst-case memory usage is ~2MB. The 24h TTL prevents stale data while the
+# LRU eviction ensures bounded growth. For high-traffic production deployments,
+# consider reducing TTL or max_size, or moving to Redis for shared caching.
 places_cache = PlacesCache()
 
 # Google Places API endpoint (New API v1)

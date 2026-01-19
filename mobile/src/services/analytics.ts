@@ -280,4 +280,23 @@ export const Analytics = {
     track('photo_import_place_confirmed', { category: props.category }),
 
   photoImportPlaceRejected: () => track('photo_import_place_rejected'),
+
+  photoImportScanCancelled: () => track('photo_import_scan_cancelled'),
+
+  photoImportScanFailed: (props: { error: string }) =>
+    track('photo_import_scan_failed', { error: props.error }),
+
+  photoImportManualSearchOpened: () => track('photo_import_manual_search_opened'),
+
+  photoImportSuggestionsCompleted: (props: {
+    suggestionCount: number;
+    failedChunks: number;
+  }) =>
+    track('photo_import_suggestions_completed', {
+      suggestion_count: props.suggestionCount,
+      failed_chunks: props.failedChunks,
+    }),
+
+  photoImportApiError: (props: { errorType: 'quota_exhausted' | 'rate_limited' | 'unknown' }) =>
+    track('photo_import_api_error', { error_type: props.errorType }),
 };

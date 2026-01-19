@@ -6,7 +6,7 @@ endpoint which matches photo GPS clusters to nearby places.
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.entries import EntryType
 
@@ -52,6 +52,13 @@ class PhotoCluster(BaseModel):
     )
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "PhotoCluster":
+        """Ensure start_time is not after end_time."""
+        if self.start_time and self.end_time and self.start_time > self.end_time:
+            raise ValueError("start_time must be before or equal to end_time")
+        return self
 
 
 class PlaceSuggestionRequest(BaseModel):
