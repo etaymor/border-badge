@@ -150,12 +150,12 @@ class PlacesCache:
             if key in self._cache:
                 del self._cache[key]
 
-            # Evict oldest entries if at capacity
-            while len(self._cache) >= self._max_size:
-                oldest_key = next(iter(self._cache))
-                del self._cache[oldest_key]
-
-            self._cache[key] = (data, time.time())
+            # Evict oldest entries if at capacity (guard against max_size=0)
+            if self._max_size > 0:
+                while len(self._cache) >= self._max_size:
+                    oldest_key = next(iter(self._cache))
+                    del self._cache[oldest_key]
+                self._cache[key] = (data, time.time())
 
     def clear(self) -> None:
         """Clear all cached entries and in-flight requests."""
@@ -216,13 +216,14 @@ class PlacesCache:
             result = await fetch_fn()
             # Cache and resolve future
             async with self._lock:
-                # Store in cache with LRU eviction
-                if key in self._cache:
-                    del self._cache[key]
-                while len(self._cache) >= self._max_size:
-                    oldest_key = next(iter(self._cache))
-                    del self._cache[oldest_key]
-                self._cache[key] = (result, time.time())
+                # Store in cache with LRU eviction (guard against max_size=0)
+                if self._max_size > 0:
+                    if key in self._cache:
+                        del self._cache[key]
+                    while len(self._cache) >= self._max_size:
+                        oldest_key = next(iter(self._cache))
+                        del self._cache[oldest_key]
+                    self._cache[key] = (result, time.time())
 
                 # Resolve future for waiting callers
                 if not our_future.done():
@@ -231,15 +232,14 @@ class PlacesCache:
                 self._in_flight.pop(key, None)
 
             return result
-        except Exception:
+        except Exception as error:
             # On error, clean up and propagate exception to waiters
             async with self._lock:
                 self._in_flight.pop(key, None)
                 if not our_future.done():
-                    # Cancel the future - this prevents "Future exception was never
-                    # retrieved" warnings when there are no waiters. Waiters will
-                    # get CancelledError which is filtered as exception upstream.
-                    our_future.cancel()
+                    # Propagate the exception to waiting callers so they receive
+                    # the actual error instead of CancelledError
+                    our_future.set_exception(error)
             raise
 
 
@@ -340,6 +340,12 @@ class RateLimitError(PlaceMatcherError):
 
 class QuotaExhaustedError(PlaceMatcherError):
     """Google Places API quota exhausted (daily limit reached)."""
+
+    pass
+
+
+class ConfigurationError(PlaceMatcherError):
+    """Service not properly configured (e.g., missing API key)."""
 
     pass
 
@@ -480,8 +486,8 @@ class PlaceMatcher:
             List of place results
         """
         if not self._settings.google_places_api_key:
-            logger.warning("Google Places API key not configured")
-            return []
+            logger.error("Google Places API key not configured")
+            raise ConfigurationError("Google Places API key not configured")
 
         cache_key = places_cache.get_cache_key(latitude, longitude, int(radius))
 

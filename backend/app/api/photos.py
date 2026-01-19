@@ -17,6 +17,7 @@ from app.schemas.photos import (
     PlaceSuggestionResponse,
 )
 from app.services.place_matcher import (
+    ConfigurationError,
     PlaceMatcher,
     QuotaExhaustedError,
     RateLimitError,
@@ -72,6 +73,13 @@ async def suggest_places(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests to places service. Please wait a moment and try again.",
                 headers={"Retry-After": "60"},
+            ) from e
+        except ConfigurationError as e:
+            # Service not properly configured (missing API key)
+            logger.error(f"Place matcher configuration error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Place suggestion service is not configured. Please contact support.",
             ) from e
         except Exception as e:
             logger.error(f"Place matching failed: {e}", exc_info=True)
