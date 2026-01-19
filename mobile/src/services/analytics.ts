@@ -288,10 +288,7 @@ export const Analytics = {
 
   photoImportManualSearchOpened: () => track('photo_import_manual_search_opened'),
 
-  photoImportSuggestionsCompleted: (props: {
-    suggestionCount: number;
-    failedChunks: number;
-  }) =>
+  photoImportSuggestionsCompleted: (props: { suggestionCount: number; failedChunks: number }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
       failed_chunks: props.failedChunks,

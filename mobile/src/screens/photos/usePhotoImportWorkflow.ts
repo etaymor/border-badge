@@ -5,7 +5,7 @@
  * to keep the screen focused on rendering.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import type { SelectedPlace } from '@components/places';
@@ -86,7 +86,14 @@ export function usePhotoImportWorkflow({
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup AbortController on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Lookup maps for full data when needed
   const [_photoLookup, setPhotoLookup] = useState<Map<string, PhotoWithLocation>>(new Map());
@@ -111,7 +118,7 @@ export function usePhotoImportWorkflow({
     }
 
     const controller = new AbortController();
-    setAbortController(controller);
+    abortControllerRef.current = controller;
     setPhase('scanning');
     Analytics.photoImportScanStarted();
 
@@ -189,11 +196,11 @@ export function usePhotoImportWorkflow({
   }, [homeCountry, filterCountryCode]);
 
   const cancelScan = useCallback(() => {
-    abortController?.abort();
-    setAbortController(null);
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setPhase('idle');
     Analytics.photoImportScanCancelled();
-  }, [abortController]);
+  }, []);
 
   const selectCandidate = useCallback(
     async (candidate: TripCandidateDisplay) => {

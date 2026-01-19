@@ -195,17 +195,43 @@ export async function geocodeClusterCentroids(
     let countryCode = geocodeCache.get(cacheKey);
 
     if (countryCode === undefined) {
-      // Rate-limited geocode call
-      try {
-        const [address] = await Location.reverseGeocodeAsync(clusterGroup[0].centroid);
-        countryCode = address?.isoCountryCode ?? null;
-        geocodeCache.set(cacheKey, countryCode);
-      } catch (error) {
-        if (__DEV__) {
-          console.warn('[PhotoClustering] Geocode failed:', error);
+      // Rate-limited geocode call with exponential backoff on errors
+      let retries = 0;
+      const maxRetries = 3;
+
+      while (retries <= maxRetries) {
+        try {
+          const [address] = await Location.reverseGeocodeAsync(clusterGroup[0].centroid);
+          countryCode = address?.isoCountryCode ?? null;
+          geocodeCache.set(cacheKey, countryCode);
+          break; // Success - exit retry loop
+        } catch (error) {
+          retries++;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const isRateLimitError =
+            errorMessage.toLowerCase().includes('rate') ||
+            errorMessage.toLowerCase().includes('limit') ||
+            errorMessage.toLowerCase().includes('too many');
+
+          if (__DEV__) {
+            console.warn(
+              `[PhotoClustering] Geocode failed (attempt ${retries}/${maxRetries + 1}):`,
+              error
+            );
+          }
+
+          if (retries > maxRetries) {
+            // Exhausted retries - cache as null and continue
+            countryCode = null;
+            geocodeCache.set(cacheKey, null);
+            break;
+          }
+
+          // Exponential backoff: 2s, 4s, 8s (longer for rate limits: 5s, 10s, 20s)
+          const baseDelay = isRateLimitError ? 5000 : 2000;
+          const backoffDelay = baseDelay * Math.pow(2, retries - 1);
+          await new Promise((r) => setTimeout(r, backoffDelay));
         }
-        countryCode = null;
-        geocodeCache.set(cacheKey, null);
       }
 
       // Respect rate limits (1 req/sec for Apple geocoding)

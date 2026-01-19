@@ -2,6 +2,10 @@
 
 These schemas handle the request/response types for the /photos/suggest-places
 endpoint which matches photo GPS clusters to nearby places.
+
+Note: Coordinate precision truncation for PII protection is handled client-side
+(mobile/src/screens/photos/usePhotoImportWorkflow.ts) before data reaches the API.
+The backend trusts that coordinates are already truncated to 4 decimal places (~11m).
 """
 
 from datetime import datetime
@@ -16,24 +20,14 @@ MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
 
 
-class CoordinatePrecisionMixin:
-    """Mixin providing coordinate precision truncation for PII protection."""
-
-    @field_validator("latitude", "longitude", mode="before")
-    @classmethod
-    def truncate_precision(cls, v: float) -> float:
-        """Limit precision to 4 decimal places (~11m) for PII protection."""
-        return round(v, 4)
-
-
-class Coordinate(BaseModel, CoordinatePrecisionMixin):
-    """GPS coordinate with precision limiting for privacy."""
+class Coordinate(BaseModel):
+    """GPS coordinate for place matching."""
 
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
 
 
-class PhotoMetadata(BaseModel, CoordinatePrecisionMixin):
+class PhotoMetadata(BaseModel):
     """Minimal photo data for place matching."""
 
     asset_id: str = Field(..., min_length=1, max_length=256)

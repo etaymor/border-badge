@@ -147,7 +147,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             renderItem={renderCandidateItem}
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) => item.id}
-            estimatedItemSize={200}
           />
         </View>
       )}
@@ -197,7 +196,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             renderItem={renderSuggestionItem}
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) => item.cluster_id}
-            estimatedItemSize={180}
             ListEmptyComponent={
               suggestPlacesMutation.isPending ? (
                 <View style={styles.loadingContainer}>
