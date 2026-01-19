@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { File as ExpoFile } from 'expo-file-system';
 
 import {
   useEntryMedia,
@@ -36,6 +37,7 @@ interface EntryMediaGalleryProps {
   onImagePress?: (media: MediaFile, index: number) => void;
   onPendingMediaChange?: (mediaIds: string[]) => void; // Track IDs for later reassignment
   onMediaCountChange?: (count: number) => void; // Notify parent of current photo count
+  initialPhotoUris?: string[]; // Photo URIs from photo import to auto-upload
 }
 
 interface LocalMediaItem {
@@ -54,6 +56,7 @@ export function EntryMediaGallery({
   onImagePress,
   onPendingMediaChange,
   onMediaCountChange,
+  initialPhotoUris,
 }: EntryMediaGalleryProps) {
   // Use entry media when editing, pending trip media when creating
   const isPendingMode = !entryId && !!tripId;
@@ -73,6 +76,7 @@ export function EntryMediaGallery({
 
   const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const hasInitializedPhotos = useRef(false);
 
   // Track last progress update time per file to throttle re-renders
   const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
@@ -86,6 +90,117 @@ export function EntryMediaGallery({
       progressMap.clear();
     };
   }, []);
+
+  // Auto-upload initial photos from photo import flow
+  useEffect(() => {
+    if (!initialPhotoUris?.length || hasInitializedPhotos.current || !isPendingMode) {
+      return;
+    }
+    hasInitializedPhotos.current = true;
+
+    const uploadInitialPhotos = async () => {
+      const filesToUpload: LocalFile[] = [];
+
+      for (const uri of initialPhotoUris) {
+        try {
+          const expoFile = new ExpoFile(uri);
+          if (!expoFile.exists) {
+            logger.warn('Initial photo file does not exist:', uri);
+            continue;
+          }
+
+          // Extract filename from URI
+          const uriParts = uri.split('/');
+          const filename = uriParts[uriParts.length - 1] || `photo_${Date.now()}.jpg`;
+
+          // Determine MIME type from extension
+          const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
+          const mimeTypes: Record<string, string> = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            heic: 'image/heic',
+            heif: 'image/heif',
+          };
+          const mimeType = mimeTypes[extension] || 'image/jpeg';
+
+          filesToUpload.push({
+            uri,
+            name: filename,
+            type: mimeType,
+            size: expoFile.size ?? 0,
+          });
+        } catch (error) {
+          logger.error('Failed to process initial photo:', error);
+        }
+      }
+
+      if (filesToUpload.length === 0) {
+        return;
+      }
+
+      // Add files to local state as uploading
+      const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
+        localUri: file.uri,
+        file,
+        uploading: true,
+        progress: 0,
+      }));
+
+      setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+
+      // Upload each file
+      for (const file of filesToUpload) {
+        try {
+          const result = await uploadMedia.mutateAsync({
+            tripId,
+            file,
+            onProgress: (progress) => {
+              const now = Date.now();
+              const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
+              const shouldUpdate =
+                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100;
+
+              if (shouldUpdate) {
+                lastProgressUpdateRef.current.set(file.uri, now);
+                setLocalMedia((prev) =>
+                  prev.map((item) =>
+                    item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
+                  )
+                );
+              }
+            },
+          });
+
+          // Clean up progress tracking for this file
+          lastProgressUpdateRef.current.delete(file.uri);
+
+          // Update local state with media ID
+          setLocalMedia((prev) =>
+            prev.map((item) =>
+              item.localUri === file.uri
+                ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                : item
+            )
+          );
+        } catch {
+          // Clean up progress tracking for this file
+          lastProgressUpdateRef.current.delete(file.uri);
+
+          // Mark as failed
+          setLocalMedia((prev) =>
+            prev.map((item) =>
+              item.localUri === file.uri
+                ? { ...item, uploading: false, error: 'Upload failed' }
+                : item
+            )
+          );
+        }
+      }
+    };
+
+    uploadInitialPhotos();
+  }, [initialPhotoUris, isPendingMode, tripId, uploadMedia]);
 
   // Track pending media IDs for parent component
   useEffect(() => {

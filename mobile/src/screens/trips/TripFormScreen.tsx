@@ -19,6 +19,8 @@ export function TripFormScreen({ navigation, route }: Props) {
   const tripId = route.params?.tripId;
   const initialCountryId = route.params?.countryId;
   const initialCountryName = route.params?.countryName;
+  const prefillPlace = route.params?.prefillPlace;
+  const prefillPhotos = route.params?.prefillPhotos;
   const isEditing = !!tripId;
   const insets = useSafeAreaInsets();
 
@@ -127,7 +129,12 @@ export function TripFormScreen({ navigation, route }: Props) {
           cover_image_url: coverImageUrl.trim() || undefined,
         });
         // Navigate to trip details, replacing the form screen
-        navigation.replace('TripDetail', { tripId: newTrip.id });
+        // Pass prefill data if coming from photo import flow
+        navigation.replace('TripDetail', {
+          tripId: newTrip.id,
+          prefillPlace,
+          prefillPhotos,
+        });
       }
     } catch {
       // Error is handled by the mutation's onError

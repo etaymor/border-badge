@@ -155,6 +155,13 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
   });
 }
 
+/** Retry progress info passed to callback */
+export interface GeocodeRetryInfo {
+  attempt: number;
+  maxAttempts: number;
+  delaySeconds: number;
+}
+
 /**
  * Geocode cluster centroids to get country codes.
  *
@@ -163,10 +170,12 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
  *
  * @param clusters - Location clusters to geocode
  * @param onProgress - Optional progress callback
+ * @param onRetry - Optional callback when retrying after an error
  */
 export async function geocodeClusterCentroids(
   clusters: LocationCluster[],
-  onProgress?: (completed: number, total: number) => void
+  onProgress?: (completed: number, total: number) => void,
+  onRetry?: (info: GeocodeRetryInfo | null) => void
 ): Promise<void> {
   // Request location permissions for reverse geocoding
   const { status } = await Location.requestForegroundPermissionsAsync();
@@ -204,6 +213,8 @@ export async function geocodeClusterCentroids(
           const [address] = await Location.reverseGeocodeAsync(clusterGroup[0].centroid);
           countryCode = address?.isoCountryCode ?? null;
           geocodeCache.set(cacheKey, countryCode);
+          // Clear retry state on success
+          onRetry?.(null);
           break; // Success - exit retry loop
         } catch (error) {
           retries++;
@@ -224,12 +235,22 @@ export async function geocodeClusterCentroids(
             // Exhausted retries - cache as null and continue
             countryCode = null;
             geocodeCache.set(cacheKey, null);
+            // Clear retry state when giving up
+            onRetry?.(null);
             break;
           }
 
           // Exponential backoff: 2s, 4s, 8s (longer for rate limits: 5s, 10s, 20s)
           const baseDelay = isRateLimitError ? 5000 : 2000;
           const backoffDelay = baseDelay * Math.pow(2, retries - 1);
+
+          // Notify UI about retry with countdown
+          onRetry?.({
+            attempt: retries,
+            maxAttempts: maxRetries,
+            delaySeconds: Math.round(backoffDelay / 1000),
+          });
+
           await new Promise((r) => setTimeout(r, backoffDelay));
         }
       }

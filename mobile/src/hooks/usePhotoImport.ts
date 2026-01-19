@@ -166,13 +166,15 @@ export function useSuggestPlacesChunked() {
         }
       }
 
-      // Mark complete with final failure count
-      setProgress({
-        clustersTotal: totalClusters,
-        clustersCompleted: totalClusters,
-        percentage: 100,
-        failedChunks: failedChunkCount,
-      });
+      // Mark complete with final failure count (skip if aborted)
+      if (!abortRef.current) {
+        setProgress({
+          clustersTotal: totalClusters,
+          clustersCompleted: totalClusters,
+          percentage: 100,
+          failedChunks: failedChunkCount,
+        });
+      }
 
       return { suggestions: allSuggestions };
     },

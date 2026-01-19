@@ -3,11 +3,12 @@
 These schemas handle the request/response types for the /photos/suggest-places
 endpoint which matches photo GPS clusters to nearby places.
 
-Note: Coordinate precision truncation for PII protection is handled client-side
-(mobile/src/screens/photos/usePhotoImportWorkflow.ts) before data reaches the API.
-The backend trusts that coordinates are already truncated to 4 decimal places (~11m).
+Coordinate precision is enforced server-side to max 4 decimal places (~11m)
+for PII protection. Client-side truncation is also applied but the backend
+validates this constraint as defense-in-depth.
 """
 
+from decimal import Decimal
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -15,9 +16,27 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.entries import EntryType
 
 # Input validation constants
-MAX_CLUSTERS_PER_REQUEST = 50
+MAX_CLUSTERS_PER_REQUEST = 100
 MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
+
+
+def _validate_coordinate_precision(value: float, field_name: str) -> float:
+    """Validate coordinate has at most 4 decimal places for PII protection."""
+    d = Decimal(str(value))
+    # Get the number of decimal places (scale)
+    # For a Decimal, the exponent is negative for fractional parts
+    exponent = d.as_tuple().exponent
+    # exponent can be 'n', 'N', 'F' for special values (NaN, Inf), but those
+    # won't pass the ge/le field constraints anyway
+    if isinstance(exponent, int):
+        scale = -exponent if exponent < 0 else 0
+        if scale > 4:
+            raise ValueError(
+                f"{field_name} must have at most 4 decimal places for PII protection, "
+                f"got {scale} decimal places"
+            )
+    return value
 
 
 class Coordinate(BaseModel):
@@ -25,6 +44,16 @@ class Coordinate(BaseModel):
 
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
+
+    @field_validator("latitude")
+    @classmethod
+    def validate_latitude_precision(cls, v: float) -> float:
+        return _validate_coordinate_precision(v, "latitude")
+
+    @field_validator("longitude")
+    @classmethod
+    def validate_longitude_precision(cls, v: float) -> float:
+        return _validate_coordinate_precision(v, "longitude")
 
 
 class PhotoMetadata(BaseModel):
@@ -34,6 +63,16 @@ class PhotoMetadata(BaseModel):
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
     timestamp: datetime | None = None
+
+    @field_validator("latitude")
+    @classmethod
+    def validate_latitude_precision(cls, v: float) -> float:
+        return _validate_coordinate_precision(v, "latitude")
+
+    @field_validator("longitude")
+    @classmethod
+    def validate_longitude_precision(cls, v: float) -> float:
+        return _validate_coordinate_precision(v, "longitude")
 
 
 class PhotoCluster(BaseModel):
@@ -83,7 +122,7 @@ class PlaceSuggestion(BaseModel):
     location: Coordinate
     category: EntryType
     distance_m: float  # Users see "15m away" and decide Yes/No
-    types: list[str] = []
+    types: list[str] = Field(default_factory=list)
 
 
 class ClusterSuggestion(BaseModel):

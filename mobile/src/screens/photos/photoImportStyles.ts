@@ -74,6 +74,12 @@ export const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: 16,
   },
+  retryText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.adobeBrick,
+    marginBottom: 16,
+  },
   progressBar: {
     width: '100%',
     height: 4,

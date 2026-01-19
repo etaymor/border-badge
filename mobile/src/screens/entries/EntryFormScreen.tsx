@@ -40,7 +40,8 @@ import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 type Props = TripsStackScreenProps<'EntryForm'>;
 
 export function EntryFormScreen({ route, navigation }: Props) {
-  const { tripId, entryId, entryType: initialEntryType } = route.params;
+  const { tripId, entryId, entryType: initialEntryType, prefillPlace, prefillPhotos } =
+    route.params;
   const isEditing = !!entryId;
   const insets = useSafeAreaInsets();
 
@@ -137,18 +138,38 @@ export function EntryFormScreen({ route, navigation }: Props) {
     } else if (!isEditing) {
       // Reset form when creating new entry
       setTitle('');
-      setEntryType(initialEntryType ?? null);
-      setHasSelectedType(!!initialEntryType);
       setLink('');
       setNotes('');
-      setSelectedPlace(null);
       setPendingMediaIds([]);
       setErrors({});
-      // Reset animations
-      formFadeAnim.setValue(initialEntryType ? 1 : 0);
-      formSlideAnim.setValue(initialEntryType ? 0 : 30);
+
+      // Handle prefill data from photo import
+      if (prefillPlace) {
+        setEntryType(prefillPlace.category);
+        setHasSelectedType(true);
+        setSelectedPlace({
+          google_place_id: prefillPlace.placeId,
+          name: prefillPlace.name,
+          address: prefillPlace.address,
+          latitude: null,
+          longitude: null,
+          google_photo_url: null,
+          website_url: null,
+          country_code: null,
+        });
+        // Set animations to final state for prefill
+        formFadeAnim.setValue(1);
+        formSlideAnim.setValue(0);
+      } else {
+        setEntryType(initialEntryType ?? null);
+        setHasSelectedType(!!initialEntryType);
+        setSelectedPlace(null);
+        // Reset animations
+        formFadeAnim.setValue(initialEntryType ? 1 : 0);
+        formSlideAnim.setValue(initialEntryType ? 0 : 30);
+      }
     }
-  }, [tripId, entryId, isEditing, existingEntry, initialEntryType, formFadeAnim, formSlideAnim]);
+  }, [tripId, entryId, isEditing, existingEntry, initialEntryType, prefillPlace, formFadeAnim, formSlideAnim]);
 
   // URL validation with length limit
   const MAX_URL_LENGTH = 2048;
@@ -463,6 +484,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     editable={true}
                     onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
                     onMediaCountChange={setPhotoCount}
+                    initialPhotoUris={!isEditing ? prefillPhotos : undefined}
                   />
                 </View>
               </View>

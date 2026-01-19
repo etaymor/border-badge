@@ -22,6 +22,15 @@ export interface ScanProgress {
   current: number;
   total: number;
   percentage: number;
+  /** Retry information during geocoding (only present when retrying) */
+  retry?: {
+    /** Current retry attempt (1-based) */
+    attempt: number;
+    /** Maximum retry attempts */
+    maxAttempts: number;
+    /** Seconds until next retry */
+    delaySeconds: number;
+  };
 }
 
 // Location cluster from geohash grouping

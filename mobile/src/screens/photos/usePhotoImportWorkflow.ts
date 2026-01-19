@@ -22,6 +22,7 @@ import {
   segmentTripsOptimized,
   getFullCluster,
   HomeCountryNotSetError,
+  type GeocodeRetryInfo,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -139,14 +140,41 @@ export function usePhotoImportWorkflow({
       }
 
       const clusters = clusterByLocation(photos);
-      await geocodeClusterCentroids(clusters, (done, total) => {
-        setScanProgress({
-          phase: 'geocoding',
-          current: done,
-          total,
-          percentage: Math.round((done / total) * 100),
-        });
-      });
+
+      // Track current progress for retry updates
+      let currentDone = 0;
+      let currentTotal = 0;
+
+      await geocodeClusterCentroids(
+        clusters,
+        (done, total) => {
+          currentDone = done;
+          currentTotal = total;
+          setScanProgress({
+            phase: 'geocoding',
+            current: done,
+            total,
+            percentage: Math.round((done / total) * 100),
+          });
+        },
+        (retryInfo: GeocodeRetryInfo | null) => {
+          // Update progress with retry info (or clear it)
+          setScanProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  retry: retryInfo ?? undefined,
+                }
+              : {
+                  phase: 'geocoding',
+                  current: currentDone,
+                  total: currentTotal,
+                  percentage: currentTotal > 0 ? Math.round((currentDone / currentTotal) * 100) : 0,
+                  retry: retryInfo ?? undefined,
+                }
+          );
+        }
+      );
 
       const optimizedData = segmentTripsOptimized(clusters, homeCountry);
       let candidates = optimizedData.candidates;
@@ -219,7 +247,10 @@ export function usePhotoImportWorkflow({
         const result = await suggestPlacesMutation.mutateAsync({
           clusters: clustersForApi.map((c) => ({
             id: c.id,
-            centroid: { latitude: c.centroid.latitude, longitude: c.centroid.longitude },
+            centroid: {
+              latitude: truncateCoordinate(c.centroid.latitude),
+              longitude: truncateCoordinate(c.centroid.longitude),
+            },
             photos: c.photos.map((p) => ({
               asset_id: p.id,
               latitude: truncateCoordinate(p.location.latitude),

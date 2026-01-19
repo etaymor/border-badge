@@ -125,6 +125,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <Text style={styles.scanningProgress}>
             {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
           </Text>
+          {scanProgress?.retry && (
+            <Text style={styles.retryText}>
+              Retrying in {scanProgress.retry.delaySeconds}s (attempt{' '}
+              {scanProgress.retry.attempt}/{scanProgress.retry.maxAttempts})
+            </Text>
+          )}
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
           </View>

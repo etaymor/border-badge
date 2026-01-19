@@ -74,7 +74,11 @@ export type PrefillPlace = {
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
-  TripDetail: { tripId: string };
+  TripDetail: {
+    tripId: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
   TripForm: {
     tripId?: string;
     countryId?: string;
@@ -84,7 +88,13 @@ export type TripsStackParamList = {
   }; // undefined tripId = create, string = edit
   EntryList: { tripId: string; tripName?: string };
   EntryDetail: { entryId: string };
-  EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };
+  EntryForm: {
+    tripId: string;
+    entryId?: string;
+    entryType?: EntryType;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };

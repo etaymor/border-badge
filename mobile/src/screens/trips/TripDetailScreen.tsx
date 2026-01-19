@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -61,8 +61,9 @@ function EmptyState({ onAddEntry, isVisited }: { onAddEntry: () => void; isVisit
 }
 
 export function TripDetailScreen({ route, navigation }: Props) {
-  const { tripId } = route.params;
+  const { tripId, prefillPlace, prefillPhotos } = route.params;
   const insets = useSafeAreaInsets();
+  const hasNavigatedToPrefill = useRef(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
@@ -83,6 +84,19 @@ export function TripDetailScreen({ route, navigation }: Props) {
     userCountries?.some(
       (uc) => uc.country_code === trip?.country_code && uc.status === 'visited'
     ) ?? false;
+
+  // Auto-navigate to EntryForm when coming from photo import with prefill data
+  useEffect(() => {
+    if (prefillPlace && prefillPhotos?.length && !hasNavigatedToPrefill.current) {
+      hasNavigatedToPrefill.current = true;
+      navigation.navigate('EntryForm', {
+        tripId,
+        entryType: prefillPlace.category,
+        prefillPlace,
+        prefillPhotos,
+      });
+    }
+  }, [prefillPlace, prefillPhotos, tripId, navigation]);
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
 
