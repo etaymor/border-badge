@@ -48,7 +48,7 @@ export function setClusteringConfig(config: Partial<ClusteringConfig>): void {
     ...(config.maxPreviewUris !== undefined && {
       MAX_PREVIEW_URIS: config.maxPreviewUris,
     }),
-  };
+  } as typeof DEFAULT_CLUSTERING_CONFIG;
 }
 
 /**
