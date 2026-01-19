@@ -211,6 +211,7 @@ private struct TruncationDetector: View {
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
             .hidden()
+            .accessibilityHidden(true)
             .background(
                 GeometryReader { geometry in
                     Color.clear.preference(key: FullHeightKey.self, value: geometry.size.height)
@@ -222,6 +223,7 @@ private struct TruncationDetector: View {
                     .font(Typography.body(14))
                     .lineLimit(lineLimit)
                     .hidden()
+                    .accessibilityHidden(true)
                     .background(
                         GeometryReader { geometry in
                             Color.clear.preference(key: TruncatedHeightKey.self, value: geometry.size.height)
