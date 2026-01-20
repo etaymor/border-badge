@@ -22,15 +22,8 @@ export interface ScanProgress {
   current: number;
   total: number;
   percentage: number;
-  /** Retry information during geocoding (only present when retrying) */
-  retry?: {
-    /** Current retry attempt (1-based) */
-    attempt: number;
-    /** Maximum retry attempts */
-    maxAttempts: number;
-    /** Seconds until next retry */
-    delaySeconds: number;
-  };
+  /** Number of photos found with GPS data (only populated during scanning phase) */
+  gpsPhotoCount?: number;
 }
 
 // Location cluster from geohash grouping
@@ -158,4 +151,16 @@ export interface ClusteringConfig {
   timeGapThresholdMs: number;
   /** Max preview URIs stored per candidate/cluster (default: 5) */
   maxPreviewUris: number;
+}
+
+// Cached photo metadata stored in SQLite
+export interface CachedPhoto {
+  id: string; // Asset ID from MediaLibrary
+  uri: string;
+  filename: string;
+  creationTime: number; // Unix timestamp (ms)
+  latitude: number;
+  longitude: number;
+  geohash: string; // Precomputed geohash (precision 7)
+  countryCode: string | null; // Precomputed ISO 3166-1 alpha-2
 }

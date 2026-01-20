@@ -2,13 +2,14 @@
  * Photo clustering service - groups photos by location and time.
  *
  * Uses geohash for spatial clustering and time gaps for trip segmentation.
- * Optimized to geocode only cluster centroids (not individual photos).
+ * Uses offline country-coder library for coordinate-to-country lookups.
  */
 
-import * as Location from 'expo-location';
+import { iso1A2Code } from '@rapideditor/country-coder';
 import * as geohash from 'ngeohash';
 
 import type {
+  CachedPhoto,
   ClusteringConfig,
   LocationCluster,
   LocationClusterDisplay,
@@ -21,9 +22,6 @@ import type {
 const DEFAULT_CLUSTERING_CONFIG = {
   TIME_GAP_THRESHOLD_MS: 7 * 24 * 60 * 60 * 1000, // 7 days between trips
   GEOHASH_PRECISION: 7, // ~153m cells for location clustering
-  GEOCODE_CACHE_PRECISION: 3, // ~78km for geocode deduplication
-  GEOCODE_RATE_LIMIT_MS: 1000, // 1 request per second (Apple rate limit)
-  MAX_CACHE_SIZE: 1000, // LRU cache max entries
   MAX_PREVIEW_URIS: 5, // Limit preview URIs stored per candidate/cluster
 } as const;
 
@@ -63,86 +61,6 @@ export function resetClusteringConfig(): void {
  */
 export function getClusteringConfig(): typeof DEFAULT_CLUSTERING_CONFIG {
   return { ...CLUSTERING_CONFIG };
-}
-
-/**
- * LRU cache manager for geocode results to prevent memory leaks.
- */
-class GeocodeCacheManager {
-  private cache = new Map<string, string | null>();
-  private readonly maxSize: number;
-
-  constructor(maxSize = CLUSTERING_CONFIG.MAX_CACHE_SIZE) {
-    this.maxSize = maxSize;
-  }
-
-  get(key: string): string | null | undefined {
-    const value = this.cache.get(key);
-    if (value !== undefined) {
-      // Move to end (most recently used)
-      this.cache.delete(key);
-      this.cache.set(key, value);
-    }
-    return value;
-  }
-
-  set(key: string, value: string | null): void {
-    if (this.cache.size >= this.maxSize) {
-      // Remove oldest entry (first inserted)
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
-    }
-    this.cache.set(key, value);
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-}
-
-// Module-level cache instance
-const geocodeCache = new GeocodeCacheManager();
-
-/**
- * Create an AbortError compatible with React Native.
- * Standard Error with name set to 'AbortError' for detection.
- */
-function createAbortError(message: string): Error {
-  const error = new Error(message);
-  error.name = 'AbortError';
-  return error;
-}
-
-/**
- * Promise-based delay that can be aborted via AbortSignal.
- * Rejects with AbortError if signal is aborted during the delay.
- */
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(createAbortError('Delay aborted'));
-      return;
-    }
-
-    const timeoutId = setTimeout(resolve, ms);
-
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timeoutId);
-        reject(createAbortError('Delay aborted'));
-      },
-      { once: true }
-    );
-  });
-}
-
-/**
- * Generate cache key for geocode lookup.
- */
-function getCacheKey(lat: number, lng: number): string {
-  // Round to ~78km precision for cache deduplication
-  return geohash.encode(lat, lng, CLUSTERING_CONFIG.GEOCODE_CACHE_PRECISION);
 }
 
 /**
@@ -189,120 +107,26 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
   });
 }
 
-/** Retry progress info passed to callback */
-export interface GeocodeRetryInfo {
-  attempt: number;
-  maxAttempts: number;
-  delaySeconds: number;
-}
-
 /**
- * Geocode cluster centroids to get country codes.
+ * Geocode cluster centroids to get country codes using offline lookup.
  *
- * CRITICAL OPTIMIZATION: Geocode only cluster centroids, not individual photos.
- * Reduces API calls from 10,000 to ~200-500.
+ * Uses @rapideditor/country-coder for instant local coordinate-to-country conversion.
+ * No API calls, no permissions required.
  *
  * @param clusters - Location clusters to geocode
  * @param onProgress - Optional progress callback
- * @param onRetry - Optional callback when retrying after an error
  */
-export async function geocodeClusterCentroids(
+export function geocodeClusterCentroids(
   clusters: LocationCluster[],
-  onProgress?: (completed: number, total: number) => void,
-  onRetry?: (info: GeocodeRetryInfo | null) => void,
-  signal?: AbortSignal
-): Promise<void> {
-  // Request location permissions for reverse geocoding
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== 'granted') {
-    if (__DEV__) {
-      console.warn('[PhotoClustering] Location permission denied - skipping geocoding');
-    }
-    return;
-  }
-
-  // Deduplicate by geocode cache key
-  const uniqueCentroids = new Map<string, LocationCluster[]>();
+  onProgress?: (completed: number, total: number) => void
+): void {
+  let completed = 0;
+  const total = clusters.length;
 
   for (const cluster of clusters) {
-    const key = getCacheKey(cluster.centroid.latitude, cluster.centroid.longitude);
-    const existing = uniqueCentroids.get(key) ?? [];
-    existing.push(cluster);
-    uniqueCentroids.set(key, existing);
-  }
-
-  let completed = 0;
-  const total = uniqueCentroids.size;
-
-  for (const [cacheKey, clusterGroup] of uniqueCentroids) {
-    // Check for abort before each geocode operation
-    if (signal?.aborted) {
-      throw createAbortError('Geocoding aborted');
-    }
-
-    // Check cache first
-    let countryCode = geocodeCache.get(cacheKey);
-
-    if (countryCode === undefined) {
-      // Rate-limited geocode call with exponential backoff on errors
-      let retries = 0;
-      const maxRetries = 3;
-
-      while (retries <= maxRetries) {
-        try {
-          const [address] = await Location.reverseGeocodeAsync(clusterGroup[0].centroid);
-          countryCode = address?.isoCountryCode ?? null;
-          geocodeCache.set(cacheKey, countryCode);
-          // Clear retry state on success
-          onRetry?.(null);
-          break; // Success - exit retry loop
-        } catch (error) {
-          retries++;
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          const isRateLimitError =
-            errorMessage.toLowerCase().includes('rate') ||
-            errorMessage.toLowerCase().includes('limit') ||
-            errorMessage.toLowerCase().includes('too many');
-
-          if (__DEV__) {
-            console.warn(
-              `[PhotoClustering] Geocode failed (attempt ${retries}/${maxRetries + 1}):`,
-              error
-            );
-          }
-
-          if (retries > maxRetries) {
-            // Exhausted retries - cache as null and continue
-            countryCode = null;
-            geocodeCache.set(cacheKey, null);
-            // Clear retry state when giving up
-            onRetry?.(null);
-            break;
-          }
-
-          // Exponential backoff: 2s, 4s, 8s (longer for rate limits: 5s, 10s, 20s)
-          const baseDelay = isRateLimitError ? 5000 : 2000;
-          const backoffDelay = baseDelay * Math.pow(2, retries - 1);
-
-          // Notify UI about retry with countdown
-          onRetry?.({
-            attempt: retries,
-            maxAttempts: maxRetries,
-            delaySeconds: Math.round(backoffDelay / 1000),
-          });
-
-          await abortableDelay(backoffDelay, signal);
-        }
-      }
-
-      // Respect rate limits (1 req/sec for Apple geocoding)
-      await abortableDelay(CLUSTERING_CONFIG.GEOCODE_RATE_LIMIT_MS, signal);
-    }
-
-    // Apply country code to all clusters in this group
-    for (const cluster of clusterGroup) {
-      cluster.countryCode = countryCode ?? undefined;
-    }
+    // country-coder takes [longitude, latitude] order
+    const countryCode = iso1A2Code([cluster.centroid.longitude, cluster.centroid.latitude]);
+    cluster.countryCode = countryCode ?? undefined;
 
     completed++;
     onProgress?.(completed, total);
@@ -322,6 +146,34 @@ export function segmentTripsByTimeGap(
 ): TripCandidate[] {
   // Filter out home country and clusters without country code
   const travelClusters = clusters.filter((c) => c.countryCode && c.countryCode !== homeCountryCode);
+
+  if (__DEV__) {
+    // Debug: count photos by country before filtering
+    const photosByCountry = new Map<string, number>();
+    for (const cluster of clusters) {
+      const code = cluster.countryCode ?? 'unknown';
+      photosByCountry.set(code, (photosByCountry.get(code) ?? 0) + cluster.photos.length);
+    }
+    console.log(
+      '[PhotoImport] Photos by country (before home filter):',
+      Object.fromEntries(photosByCountry)
+    );
+    console.log('[PhotoImport] Home country:', homeCountryCode);
+
+    // Debug: count after filtering
+    const travelPhotosByCountry = new Map<string, number>();
+    for (const cluster of travelClusters) {
+      const code = cluster.countryCode!;
+      travelPhotosByCountry.set(
+        code,
+        (travelPhotosByCountry.get(code) ?? 0) + cluster.photos.length
+      );
+    }
+    console.log(
+      '[PhotoImport] Photos by country (after home filter):',
+      Object.fromEntries(travelPhotosByCountry)
+    );
+  }
 
   // Group by country
   const byCountry = new Map<string, LocationCluster[]>();
@@ -368,6 +220,17 @@ export function segmentTripsByTimeGap(
     }
   }
 
+  if (__DEV__) {
+    // Debug: show final trip candidates with photo counts
+    const tripSummary = trips.map((t) => ({
+      country: t.countryCode,
+      photos: t.photos.length,
+      clusters: t.locationClusters.length,
+      dates: `${t.dateRange.start.toISOString().split('T')[0]} to ${t.dateRange.end.toISOString().split('T')[0]}`,
+    }));
+    console.log('[PhotoImport] Trip candidates:', tripSummary);
+  }
+
   // Sort trips by date (most recent first)
   return trips.sort((a, b) => b.dateRange.end.getTime() - a.dateRange.end.getTime());
 }
@@ -389,13 +252,6 @@ function createTripCandidate(countryCode: string, photos: PhotoWithLocation[]): 
     photos,
     locationClusters,
   };
-}
-
-/**
- * Clear the geocode cache. Useful for testing or memory management.
- */
-export function clearGeocodeCache(): void {
-  geocodeCache.clear();
 }
 
 // ============================================================================
@@ -558,4 +414,115 @@ export function getFullCluster(
   clusterLookup: Map<string, LocationCluster>
 ): LocationCluster | undefined {
   return clusterLookup.get(clusterId);
+}
+
+// ============================================================================
+// CACHED PHOTO CLUSTERING
+// These functions work with pre-computed cached photo data from SQLite.
+// ============================================================================
+
+/**
+ * Convert a CachedPhoto to PhotoWithLocation for use with existing clustering functions.
+ */
+function cachedPhotoToPhotoWithLocation(cached: CachedPhoto): PhotoWithLocation {
+  return {
+    id: cached.id,
+    uri: cached.uri,
+    filename: cached.filename,
+    creationTime: new Date(cached.creationTime),
+    location: {
+      latitude: cached.latitude,
+      longitude: cached.longitude,
+    },
+  };
+}
+
+/**
+ * Convert PhotoWithLocation to CachedPhoto for storage.
+ * Computes geohash and country code for caching.
+ */
+export function photoToCachedPhoto(photo: PhotoWithLocation): CachedPhoto {
+  const hash = geohash.encode(
+    photo.location.latitude,
+    photo.location.longitude,
+    CLUSTERING_CONFIG.GEOHASH_PRECISION
+  );
+  const countryCode = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+
+  return {
+    id: photo.id,
+    uri: photo.uri,
+    filename: photo.filename,
+    creationTime: photo.creationTime.getTime(),
+    latitude: photo.location.latitude,
+    longitude: photo.location.longitude,
+    geohash: hash,
+    countryCode: countryCode ?? null,
+  };
+}
+
+/**
+ * Build location clusters from cached photos.
+ *
+ * Unlike clusterByLocation(), this uses the precomputed geohash and country code
+ * from the cache, avoiding recomputation.
+ *
+ * @param cachedPhotos - Photos loaded from cache
+ * @returns Location clusters with country codes already set
+ */
+export function clusterFromCachedPhotos(cachedPhotos: CachedPhoto[]): LocationCluster[] {
+  // Group by precomputed geohash
+  const groups = new Map<string, CachedPhoto[]>();
+
+  for (const photo of cachedPhotos) {
+    const existing = groups.get(photo.geohash) ?? [];
+    existing.push(photo);
+    groups.set(photo.geohash, existing);
+  }
+
+  // Convert to clusters with centroids
+  return Array.from(groups.entries()).map(([hash, clusterPhotos]) => {
+    const avgLat = clusterPhotos.reduce((sum, p) => sum + p.latitude, 0) / clusterPhotos.length;
+    const avgLng = clusterPhotos.reduce((sum, p) => sum + p.longitude, 0) / clusterPhotos.length;
+    const sorted = [...clusterPhotos].sort((a, b) => a.creationTime - b.creationTime);
+
+    // Convert cached photos to PhotoWithLocation for the cluster
+    const photos = clusterPhotos.map(cachedPhotoToPhotoWithLocation);
+
+    // Use the country code from the first photo (all photos in cluster should have same country)
+    const countryCode = clusterPhotos[0].countryCode ?? undefined;
+
+    return {
+      id: hash,
+      geohash: hash,
+      centroid: { latitude: avgLat, longitude: avgLng },
+      photos,
+      timeRange: {
+        start: new Date(sorted[0].creationTime),
+        end: new Date(sorted[sorted.length - 1].creationTime),
+      },
+      countryCode,
+    };
+  });
+}
+
+/**
+ * Segment trips from cached photos and return memory-optimized structures.
+ *
+ * This is the main entry point for processing cached photo data.
+ * It skips the geocoding step since country codes are already cached.
+ *
+ * @param cachedPhotos - Photos loaded from cache
+ * @param homeCountryCode - User's home country to filter out
+ * @returns Optimized trip data with display structures and lookups
+ */
+export function segmentTripsFromCache(
+  cachedPhotos: CachedPhoto[],
+  homeCountryCode: string | null
+): OptimizedTripData {
+  // Build clusters from cached data (no geocoding needed)
+  const clusters = clusterFromCachedPhotos(cachedPhotos);
+
+  // Use existing segmentation logic
+  return segmentTripsOptimized(clusters, homeCountryCode);
 }

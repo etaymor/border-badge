@@ -143,6 +143,16 @@ export function useSuggestPlacesChunked() {
         try {
           const response = await api.post('/photos/suggest-places', { clusters: chunk });
           const suggestions = response.data.suggestions as ClusterSuggestion[];
+          if (__DEV__) {
+            console.log(
+              `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions`,
+              suggestions.map((s) => ({
+                clusterId: s.cluster_id,
+                placeCount: s.places?.length ?? 0,
+                topPlace: s.places?.[0]?.name ?? 'none',
+              }))
+            );
+          }
           allSuggestions.push(...suggestions);
           // Update partial results for immediate display
           setPartialResults([...allSuggestions]);

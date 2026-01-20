@@ -53,11 +53,13 @@ export async function presentLimitedPhotoPicker(): Promise<void> {
  *
  * @param onProgress - Callback for progress updates
  * @param signal - Optional AbortSignal for cancellation
+ * @param since - Optional date to only extract photos created after this time (for incremental imports)
  * @returns Array of photos with location data
  */
 export async function extractPhotosWithLocation(
   onProgress: (progress: ScanProgress) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  since?: Date
 ): Promise<PhotoWithLocation[]> {
   // 1. Request permissions with location access
   const { granted, limited } = await requestPhotoPermissions();
@@ -72,10 +74,15 @@ export async function extractPhotosWithLocation(
   }
 
   // 2. Count total for progress reporting
-  const countResult = await MediaLibrary.getAssetsAsync({
+  // When doing incremental import, only count photos after the 'since' date
+  const countOptions: MediaLibrary.AssetsOptions = {
     first: 1,
     mediaType: MediaLibrary.MediaType.photo,
-  });
+  };
+  if (since) {
+    countOptions.createdAfter = since;
+  }
+  const countResult = await MediaLibrary.getAssetsAsync(countOptions);
   const totalAssets = countResult.totalCount;
 
   onProgress({ phase: 'counting', current: 0, total: totalAssets, percentage: 0 });
@@ -92,12 +99,16 @@ export async function extractPhotosWithLocation(
       throw new ScanCancelledError();
     }
 
-    const result = await MediaLibrary.getAssetsAsync({
+    const fetchOptions: MediaLibrary.AssetsOptions = {
       mediaType: MediaLibrary.MediaType.photo,
       first: SCAN_CONFIG.BATCH_SIZE,
       after: cursor,
       sortBy: [MediaLibrary.SortBy.creationTime],
-    });
+    };
+    if (since) {
+      fetchOptions.createdAfter = since;
+    }
+    const result = await MediaLibrary.getAssetsAsync(fetchOptions);
 
     // Process batch in parallel (bounded by batch size)
     const batchPromises = result.assets.map(async (asset) => {
@@ -135,6 +146,7 @@ export async function extractPhotosWithLocation(
       current: processedCount,
       total: totalAssets,
       percentage: Math.round((processedCount / totalAssets) * 100),
+      gpsPhotoCount: photos.length,
     });
 
     // Yield to UI thread between batches
@@ -147,7 +159,10 @@ export async function extractPhotosWithLocation(
   onProgress({ phase: 'complete', current: totalAssets, total: totalAssets, percentage: 100 });
 
   if (__DEV__) {
-    console.log(`[PhotoImport] Found ${photos.length} photos with location out of ${totalAssets}`);
+    const scanType = since ? 'incremental' : 'full';
+    console.log(
+      `[PhotoImport] ${scanType} scan: Found ${photos.length} photos with location out of ${totalAssets}`
+    );
   }
   return photos;
 }

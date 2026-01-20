@@ -48,10 +48,28 @@ export const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 16,
+  },
+  lastScanText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 24,
   },
   scanButton: {
     minWidth: 200,
+  },
+  refreshLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    padding: 8,
+  },
+  refreshLinkText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.sunsetGold,
+    marginLeft: 6,
   },
 
   // Scanning state
@@ -72,12 +90,6 @@ export const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 16,
     color: colors.textSecondary,
-    marginBottom: 16,
-  },
-  retryText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.adobeBrick,
     marginBottom: 16,
   },
   progressBar: {
@@ -278,6 +290,50 @@ export const styles = StyleSheet.create({
     borderRightColor: colors.border,
   },
   confirmButton: {},
+
+  // PhotoClusterCard (no suggestions)
+  clusterInfo: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  clusterNoSuggestions: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  clusterPhotoCount: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 12,
+    color: colors.sunsetGold,
+  },
+  clusterMorePhotos: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: colors.midnightNavy + '80',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clusterMorePhotosText: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 14,
+    color: colors.white,
+  },
+  clusterAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  clusterAddButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.sunsetGold,
+    marginLeft: 8,
+  },
 
   // Progress header for suggestions loading
   progressHeader: {

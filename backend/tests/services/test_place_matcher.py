@@ -103,7 +103,9 @@ class TestPlacesCacheTTL:
         self, mock_time, monkeypatch
     ) -> None:
         """Test that expired cache entries return None."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         # Create cache with 1-hour TTL
         cache = PlacesCache(ttl_hours=1, max_size=100)
@@ -125,7 +127,9 @@ class TestPlacesCacheTTL:
     @pytest.mark.asyncio
     async def test_cache_returns_value_within_ttl(self, mock_time, monkeypatch) -> None:
         """Test that cache entries within TTL are returned."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=1, max_size=100)
 
@@ -144,7 +148,9 @@ class TestPlacesCacheTTL:
         self, mock_time, monkeypatch
     ) -> None:
         """Test that expired entries are removed from cache on access."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=1, max_size=100)
 
@@ -174,7 +180,9 @@ class TestPlacesCacheLRU:
     @pytest.mark.asyncio
     async def test_lru_eviction_at_capacity(self, mock_time, monkeypatch) -> None:
         """Test that oldest entry is evicted when cache reaches max_size."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=24, max_size=3)
 
@@ -199,7 +207,9 @@ class TestPlacesCacheLRU:
     @pytest.mark.asyncio
     async def test_lru_access_moves_to_end(self, mock_time, monkeypatch) -> None:
         """Test that accessing an entry moves it to most-recently-used."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=24, max_size=3)
 
@@ -227,7 +237,9 @@ class TestPlacesCacheLRU:
         self, mock_time, monkeypatch
     ) -> None:
         """Test that setting an existing key moves it to end."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=24, max_size=3)
 
@@ -285,7 +297,9 @@ class TestPlacesCacheConcurrency:
     @pytest.mark.asyncio
     async def test_concurrent_access_is_safe(self, mock_time, monkeypatch) -> None:
         """Test that concurrent get/set operations don't corrupt cache."""
-        monkeypatch.setattr("app.services.place_matcher.time.time", mock_time["get"])
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
 
         cache = PlacesCache(ttl_hours=24, max_size=100)
 
@@ -320,15 +334,15 @@ class TestPlacesCacheCacheKeyGeneration:
     """Tests for cache key generation."""
 
     def test_get_cache_key_truncates_coordinates(self) -> None:
-        """Test that coordinates are truncated to 3 decimal places."""
+        """Test that coordinates are truncated to 4 decimal places (~11m precision)."""
         cache = PlacesCache()
 
-        key1 = cache.get_cache_key(35.67891234, 139.65032456, 30)
-        key2 = cache.get_cache_key(35.679, 139.650, 30)
+        key1 = cache.get_cache_key(35.678912345, 139.650324567, 30)
+        key2 = cache.get_cache_key(35.6789, 139.6503, 30)
 
-        # Both should produce same key due to truncation
+        # Both should produce same key due to truncation to 4 decimal places
         assert key1 == key2
-        assert key1 == "35.679_139.65_30"
+        assert key1 == "35.6789_139.6503_30"
 
     def test_get_cache_key_includes_radius(self) -> None:
         """Test that different radii produce different keys."""
@@ -347,8 +361,177 @@ class TestPlacesCacheCacheKeyGeneration:
 
         key = cache.get_cache_key(-33.8688, 151.2093, 30)
 
-        assert "-33.869" in key
-        assert "151.209" in key
+        assert "-33.8688" in key
+        assert "151.2093" in key
+
+
+# ============================================================================
+# PlacesCache Single-Flight Pattern Tests
+# ============================================================================
+
+
+class TestPlacesCacheSingleFlight:
+    """Tests for single-flight pattern in get_or_fetch()."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_make_single_api_call(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Multiple concurrent requests for same key should only call fetch once."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+        call_count = [0]
+
+        async def slow_fetch() -> list[dict]:
+            call_count[0] += 1
+            await asyncio.sleep(0.1)  # Simulate API latency
+            return [{"place": "data"}]
+
+        # Launch 10 concurrent requests for the same key
+        tasks = [cache.get_or_fetch("same_key", slow_fetch) for _ in range(10)]
+        results = await asyncio.gather(*tasks)
+
+        # All results should be identical
+        assert all(r == [{"place": "data"}] for r in results)
+        # Only one API call should have been made
+        assert call_count[0] == 1
+
+    @pytest.mark.asyncio
+    async def test_error_propagates_to_all_waiting_callers(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """When fetch fails, all waiting callers receive the same exception."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def failing_fetch() -> list[dict]:
+            await asyncio.sleep(0.1)
+            raise ValueError("API error")
+
+        # Launch 5 concurrent requests for the same key
+        tasks = [cache.get_or_fetch("error_key", failing_fetch) for _ in range(5)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All callers should receive the same exception type
+        assert all(isinstance(r, ValueError) for r in results)
+        assert all(str(r) == "API error" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_in_flight_cleanup_on_success(self, mock_time, monkeypatch) -> None:
+        """In-flight tracking is cleaned up after successful fetch."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def fetch() -> list[dict]:
+            return [{"place": "data"}]
+
+        # Verify in-flight is empty before
+        assert len(cache._in_flight) == 0
+
+        await cache.get_or_fetch("key1", fetch)
+
+        # In-flight should be cleaned up after success
+        assert len(cache._in_flight) == 0
+        # But cache should have the entry
+        assert cache.size == 1
+
+    @pytest.mark.asyncio
+    async def test_in_flight_cleanup_on_failure(self, mock_time, monkeypatch) -> None:
+        """In-flight tracking is cleaned up after failed fetch."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def failing_fetch() -> list[dict]:
+            raise ValueError("API error")
+
+        # Verify in-flight is empty before
+        assert len(cache._in_flight) == 0
+
+        with pytest.raises(ValueError):
+            await cache.get_or_fetch("key1", failing_fetch)
+
+        # In-flight should be cleaned up after failure
+        assert len(cache._in_flight) == 0
+        # Cache should remain empty
+        assert cache.size == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_expiry_during_concurrent_reads(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """When cache expires during concurrent reads, only one refetch occurs."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=1, max_size=100)
+        call_count = [0]
+
+        async def fetch() -> list[dict]:
+            call_count[0] += 1
+            await asyncio.sleep(0.05)
+            return [{"place": f"data-{call_count[0]}"}]
+
+        # Pre-populate cache
+        await cache.set("key1", [{"place": "old-data"}])
+        assert call_count[0] == 0  # fetch wasn't called
+
+        # Advance time past TTL
+        mock_time["advance"](3601)
+
+        # Launch concurrent requests - cache is expired, should trigger refetch
+        tasks = [cache.get_or_fetch("key1", fetch) for _ in range(5)]
+        results = await asyncio.gather(*tasks)
+
+        # Only one refetch should have occurred
+        assert call_count[0] == 1
+        # All results should be from the refetch
+        assert all(r == [{"place": "data-1"}] for r in results)
+
+    @pytest.mark.asyncio
+    async def test_different_keys_fetch_independently(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Different keys should fetch independently, not share in-flight."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+        call_count = {"key1": 0, "key2": 0}
+
+        async def fetch_for_key(key: str) -> list[dict]:
+            call_count[key] += 1
+            await asyncio.sleep(0.05)
+            return [{"place": f"data-{key}"}]
+
+        # Launch concurrent requests for two different keys
+        tasks = [
+            cache.get_or_fetch("key1", lambda: fetch_for_key("key1")),
+            cache.get_or_fetch("key1", lambda: fetch_for_key("key1")),
+            cache.get_or_fetch("key2", lambda: fetch_for_key("key2")),
+            cache.get_or_fetch("key2", lambda: fetch_for_key("key2")),
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # Each key should be fetched exactly once
+        assert call_count["key1"] == 1
+        assert call_count["key2"] == 1
+        # Results should match their keys
+        assert results[0] == results[1] == [{"place": "data-key1"}]
+        assert results[2] == results[3] == [{"place": "data-key2"}]
 
 
 # ============================================================================
@@ -394,7 +577,9 @@ class TestFindPlacesForClustersPartialFailures:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
-        monkeypatch.setattr("app.services.place_matcher.get_settings", lambda: settings)
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
         return settings
 
     @pytest.fixture

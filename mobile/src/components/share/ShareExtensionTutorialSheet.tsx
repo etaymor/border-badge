@@ -59,7 +59,11 @@ export function ShareExtensionTutorialSheet({
   // Pause video on unmount for clean UX. useVideoPlayer handles release() automatically.
   useEffect(() => {
     return () => {
-      player.pause();
+      try {
+        player.pause();
+      } catch {
+        // Player may already be released
+      }
     };
   }, [player]);
 
@@ -67,7 +71,11 @@ export function ShareExtensionTutorialSheet({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active' && visible) {
-        player.pause();
+        try {
+          player.pause();
+        } catch {
+          // Player may already be released
+        }
       }
     });
     return () => subscription.remove();
@@ -163,7 +171,11 @@ export function ShareExtensionTutorialSheet({
   // This is the single source of truth for video state
   useEffect(() => {
     if (!visible) {
-      player.pause();
+      try {
+        player.pause();
+      } catch {
+        // Player may already be released
+      }
     }
   }, [visible, player]);
 

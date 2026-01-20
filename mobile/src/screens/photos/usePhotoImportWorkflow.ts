@@ -15,14 +15,19 @@ import {
   RateLimitError,
   QuotaExhaustedError,
 } from '@hooks/usePhotoImport';
+import { useCreateEntry, PlaceInput, CreateEntryInput } from '@hooks/useEntries';
+import { useCreateTrip } from '@hooks/useTrips';
 import {
   extractPhotosWithLocation,
-  clusterByLocation,
-  geocodeClusterCentroids,
-  segmentTripsOptimized,
+  segmentTripsFromCache,
+  photoToCachedPhoto,
   getFullCluster,
   HomeCountryNotSetError,
-  type GeocodeRetryInfo,
+  getLastImportTime,
+  setLastImportTime,
+  getAllCachedPhotos,
+  cachePhotos,
+  clearPhotoCache,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -30,6 +35,7 @@ import {
   type ClusterSuggestion,
   type PlaceSuggestion,
   type PhotoWithLocation,
+  type CachedPhoto,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
 import type { EntryType } from '@navigation/types';
@@ -73,16 +79,28 @@ export interface PhotoImportWorkflowResult {
   clusterDisplays: Map<string, LocationClusterDisplay>;
   manualSearchCluster: LocationCluster | null;
   suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
+  /** Timestamp of last successful import, null if never imported */
+  lastImportTime: number | null;
+  /** Whether we're doing an incremental scan (has cache) or full scan */
+  isIncremental: boolean;
 
   // Actions
-  startScan: () => Promise<void>;
+  startScan: (forceRefresh?: boolean) => Promise<void>;
   cancelScan: () => void;
   selectCandidate: (candidate: TripCandidateDisplay) => Promise<void>;
   handleConfirmPlace: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
   handleRejectPlace: (suggestion: ClusterSuggestion) => void;
-  handleManualSelect: (place: SelectedPlace, category: EntryType) => void;
+  handleAddEntryForCluster: (clusterId: string) => void;
+  handleManualSelect: (
+    place: SelectedPlace,
+    category: EntryType,
+    tripId: string,
+    notes?: string
+  ) => Promise<string | undefined>;
+  handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
   backToCandidates: () => void;
   closeManualSearch: () => void;
+  isSaving: boolean;
 }
 
 interface UsePhotoImportWorkflowOptions {
@@ -110,7 +128,14 @@ export function usePhotoImportWorkflow({
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
+  const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
+  const [isIncremental, setIsIncremental] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Load last import time on mount
+  useEffect(() => {
+    getLastImportTime().then(setLastImportTimeState);
+  }, []);
 
   // Cleanup AbortController on unmount to prevent memory leaks
   useEffect(() => {
@@ -130,141 +155,155 @@ export function usePhotoImportWorkflow({
   const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
 
   const suggestPlacesMutation = useSuggestPlacesChunked();
+  const createEntry = useCreateEntry();
+  const createTrip = useCreateTrip();
 
-  const startScan = useCallback(async () => {
-    if (!homeCountry) {
-      Alert.alert(
-        'Set Home Country',
-        'Please set your home country in settings first. This helps us filter out local photos.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    setPhase('scanning');
-    Analytics.photoImportScanStarted();
-
-    try {
-      const photos = await extractPhotosWithLocation((progress) => {
-        // Guard against updates after abort
-        if (controller.signal.aborted) return;
-        setScanProgress(progress);
-      }, controller.signal);
-
-      // Check for abort after photo extraction
-      if (controller.signal.aborted) {
-        throw createAbortError('Scan aborted');
-      }
-
-      if (photos.length === 0) {
+  const startScan = useCallback(
+    async (forceRefresh = false) => {
+      if (!homeCountry) {
         Alert.alert(
-          'No Photos Found',
-          'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
+          'Set Home Country',
+          'Please set your home country in settings first. This helps us filter out local photos.',
           [{ text: 'OK' }]
         );
-        setPhase('idle');
-        abortControllerRef.current = null; // Clean up completed controller
         return;
       }
 
-      const clusters = clusterByLocation(photos);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      setPhase('scanning');
+      Analytics.photoImportScanStarted();
 
-      // Track current progress for retry updates
-      let currentDone = 0;
-      let currentTotal = 0;
+      try {
+        // Check if we have cached data and should do incremental import
+        const cachedImportTime = forceRefresh ? null : await getLastImportTime();
+        const doIncremental = cachedImportTime !== null;
+        setIsIncremental(doIncremental);
 
-      await geocodeClusterCentroids(
-        clusters,
-        (done, total) => {
-          // Guard against updates after abort
-          if (controller.signal.aborted) return;
-          currentDone = done;
-          currentTotal = total;
-          setScanProgress({
-            phase: 'geocoding',
-            current: done,
-            total,
-            percentage: Math.round((done / total) * 100),
-          });
-        },
-        (retryInfo: GeocodeRetryInfo | null) => {
-          // Guard against updates after abort
-          if (controller.signal.aborted) return;
-          // Update progress with retry info (or clear it)
-          setScanProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  retry: retryInfo ?? undefined,
-                }
-              : {
-                  phase: 'geocoding',
-                  current: currentDone,
-                  total: currentTotal,
-                  percentage: currentTotal > 0 ? Math.round((currentDone / currentTotal) * 100) : 0,
-                  retry: retryInfo ?? undefined,
-                }
+        if (forceRefresh) {
+          // Clear cache for full refresh
+          await clearPhotoCache();
+        }
+
+        let allCachedPhotos: CachedPhoto[] = [];
+        let newPhotos: PhotoWithLocation[] = [];
+
+        if (doIncremental) {
+          // Incremental import: load cached photos and scan only new ones
+          if (__DEV__) {
+            console.log(
+              '[PhotoImport] Incremental scan since:',
+              new Date(cachedImportTime).toISOString()
+            );
+          }
+
+          // Load cached photos first (fast)
+          allCachedPhotos = await getAllCachedPhotos();
+
+          // Scan only photos created after last import
+          newPhotos = await extractPhotosWithLocation(
+            (progress) => {
+              if (controller.signal.aborted) return;
+              setScanProgress(progress);
+            },
+            controller.signal,
+            new Date(cachedImportTime)
           );
-        },
-        controller.signal
-      );
 
-      // Check for abort after geocoding before continuing
-      if (controller.signal.aborted) {
-        throw createAbortError('Scan aborted');
-      }
+          if (__DEV__) {
+            console.log(
+              `[PhotoImport] Loaded ${allCachedPhotos.length} cached, found ${newPhotos.length} new`
+            );
+          }
+        } else {
+          // Full scan: no cache, scan all photos
+          newPhotos = await extractPhotosWithLocation((progress) => {
+            if (controller.signal.aborted) return;
+            setScanProgress(progress);
+          }, controller.signal);
+        }
 
-      const optimizedData = segmentTripsOptimized(clusters, homeCountry);
-      let candidates = optimizedData.candidates;
-      if (filterCountryCode) {
-        candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
-      }
+        // Check for abort after photo extraction
+        if (controller.signal.aborted) {
+          throw createAbortError('Scan aborted');
+        }
 
-      if (candidates.length === 0) {
-        Alert.alert(
-          'No Trips Found',
-          filterCountryCode
-            ? `No travel photos found for this country. Photos taken in your home country (${homeCountry}) are filtered out.`
-            : `No travel photos found. Photos taken in your home country (${homeCountry}) are filtered out.`,
-          [{ text: 'OK' }]
-        );
-        setPhase('idle');
-        abortControllerRef.current = null; // Clean up completed controller
-        return;
-      }
+        // Cache new photos if we found any
+        if (newPhotos.length > 0) {
+          const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
+          await cachePhotos(newCachedPhotos);
+          allCachedPhotos = [...allCachedPhotos, ...newCachedPhotos];
+        }
 
-      const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
-      Analytics.photoImportScanCompleted({
-        photoCount: totalPhotoCount,
-        tripCandidateCount: candidates.length,
-      });
+        // Update last import time
+        const importTime = Date.now();
+        await setLastImportTime(importTime);
+        setLastImportTimeState(importTime);
 
-      setPhotoLookup(optimizedData.photoLookup);
-      setClusterLookup(optimizedData.clusterLookup);
-      setClusterDisplays(optimizedData.clusterDisplays);
-      setTripCandidates(candidates);
-      setPhase('candidates');
-      abortControllerRef.current = null; // Clean up completed controller
-    } catch (error) {
-      abortControllerRef.current = null; // Clean up on error
-      if (isAbortError(error)) {
-        setPhase('idle');
-      } else if (error instanceof HomeCountryNotSetError) {
-        Alert.alert('Set Home Country', 'Please set your home country in settings first.');
-        Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
-        setPhase('idle');
-      } else {
-        if (__DEV__) console.error('[PhotoImport] Scan error:', error);
-        Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
-        Analytics.photoImportScanFailed({
-          error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
+        // Check if we have any photos at all
+        if (allCachedPhotos.length === 0 && newPhotos.length === 0) {
+          Alert.alert(
+            'No Photos Found',
+            'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
+            [{ text: 'OK' }]
+          );
+          setPhase('idle');
+          abortControllerRef.current = null;
+          return;
+        }
+
+        // Segment trips from cached data (fast: no geocoding needed)
+        const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
+        let candidates = optimizedData.candidates;
+        if (filterCountryCode) {
+          candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
+        }
+
+        if (candidates.length === 0) {
+          Alert.alert(
+            'No Trips Found',
+            filterCountryCode
+              ? `No travel photos found for this country. Photos taken in your home country (${homeCountry}) are filtered out.`
+              : `No travel photos found. Photos taken in your home country (${homeCountry}) are filtered out.`,
+            [{ text: 'OK' }]
+          );
+          setPhase('idle');
+          abortControllerRef.current = null;
+          return;
+        }
+
+        const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
+        Analytics.photoImportScanCompleted({
+          photoCount: totalPhotoCount,
+          tripCandidateCount: candidates.length,
         });
-        setPhase('idle');
+
+        setPhotoLookup(optimizedData.photoLookup);
+        setClusterLookup(optimizedData.clusterLookup);
+        setClusterDisplays(optimizedData.clusterDisplays);
+        setTripCandidates(candidates);
+        setPhase('candidates');
+        abortControllerRef.current = null;
+      } catch (error) {
+        abortControllerRef.current = null;
+        if (isAbortError(error)) {
+          setPhase('idle');
+        } else if (error instanceof HomeCountryNotSetError) {
+          Alert.alert('Set Home Country', 'Please set your home country in settings first.');
+          Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
+          setPhase('idle');
+        } else {
+          if (__DEV__) console.error('[PhotoImport] Scan error:', error);
+          Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
+          Analytics.photoImportScanFailed({
+            error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
+          });
+          setPhase('idle');
+        }
       }
-    }
-  }, [homeCountry, filterCountryCode]);
+    },
+    [homeCountry, filterCountryCode]
+  );
 
   const cancelScan = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -286,6 +325,19 @@ export function usePhotoImportWorkflow({
         .map((id) => getFullCluster(id, clusterLookup))
         .filter((c): c is LocationCluster => c !== undefined);
 
+      if (__DEV__) {
+        console.log('[PhotoImport] Sending clusters to API:', {
+          candidateId: candidate.id,
+          clusterIds: clustersForApi.map((c) => c.id),
+          clusterCount: clustersForApi.length,
+        });
+        for (const c of clustersForApi) {
+          console.log(
+            `[PhotoImport]   Cluster ${c.id}: centroid=(${c.centroid.latitude.toFixed(4)}, ${c.centroid.longitude.toFixed(4)}), photos=${c.photos.length}`
+          );
+        }
+      }
+
       try {
         const result = await suggestPlacesMutation.mutateAsync({
           clusters: clustersForApi.map((c) => ({
@@ -304,6 +356,13 @@ export function usePhotoImportWorkflow({
             end_time: c.timeRange.end.toISOString(),
           })),
         });
+
+        if (__DEV__) {
+          console.log('[PhotoImport] API result:', {
+            suggestionCount: result.suggestions.length,
+            suggestionClusterIds: result.suggestions.map((s) => s.cluster_id),
+          });
+        }
 
         // Track completion with failure count from progress
         const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
@@ -370,24 +429,76 @@ export function usePhotoImportWorkflow({
     [clusterLookup]
   );
 
-  const handleManualSelect = useCallback(
-    (place: SelectedPlace, category: EntryType) => {
-      const clusterPhotos = manualSearchCluster?.photos ?? [];
-      setManualSearchCluster(null);
-      if (selectedCandidate) {
-        onNavigateToTripForm({
-          countryId: selectedCandidate.countryCode,
-          prefillPlace: {
-            placeId: place.google_place_id,
-            name: place.name,
-            address: place.address ?? '',
-            category: category,
-          },
-          prefillPhotos: clusterPhotos.map((p) => p.uri),
-        });
+  const handleAddEntryForCluster = useCallback(
+    (clusterId: string) => {
+      const cluster = getFullCluster(clusterId, clusterLookup);
+      if (cluster) {
+        setManualSearchCluster(cluster);
+        Analytics.photoImportManualSearchOpened();
       }
     },
-    [selectedCandidate, manualSearchCluster, onNavigateToTripForm]
+    [clusterLookup]
+  );
+
+  const handleCreateTrip = useCallback(
+    async (name: string, countryCode: string): Promise<string> => {
+      try {
+        const trip = await createTrip.mutateAsync({ name, country_code: countryCode });
+        return trip.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create trip';
+        Alert.alert('Error', message);
+        throw err;
+      }
+    },
+    [createTrip]
+  );
+
+  const handleManualSelect = useCallback(
+    async (place: SelectedPlace, category: EntryType, tripId: string, notes?: string) => {
+      const cluster = manualSearchCluster;
+      const clusterId = cluster?.id;
+      setManualSearchCluster(null);
+
+      // Build place input for entry creation
+      const placeInput: PlaceInput = {
+        google_place_id: place.google_place_id,
+        name: place.name,
+        address: place.address,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        google_photo_url: place.google_photo_url,
+      };
+
+      // Create entry data
+      const entryData: CreateEntryInput = {
+        trip_id: tripId,
+        entry_type: category,
+        title: place.name,
+        notes: notes || undefined,
+        place: placeInput,
+        // Get entry date from cluster's earliest photo timestamp
+        entry_date: cluster?.timeRange.start.toISOString().split('T')[0],
+      };
+
+      try {
+        await createEntry.mutateAsync(entryData);
+        Analytics.photoImportPlaceConfirmed({ category });
+
+        // Entry saved successfully - modal will close and user returns to suggestions list
+        // Return the cluster ID so the screen can mark it as processed/dismissed
+        return clusterId;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to save entry';
+        Alert.alert('Save Failed', message);
+        // Re-open manual search so user can try again
+        if (cluster) {
+          setManualSearchCluster(cluster);
+        }
+        throw err; // Re-throw so caller knows it failed
+      }
+    },
+    [manualSearchCluster, createEntry]
   );
 
   const backToCandidates = useCallback(() => {
@@ -409,6 +520,9 @@ export function usePhotoImportWorkflow({
     clusterDisplays,
     manualSearchCluster,
     suggestPlacesMutation,
+    lastImportTime,
+    isIncremental,
+    isSaving: createEntry.isPending,
 
     // Actions
     startScan,
@@ -416,7 +530,9 @@ export function usePhotoImportWorkflow({
     selectCandidate,
     handleConfirmPlace,
     handleRejectPlace,
+    handleAddEntryForCluster,
     handleManualSelect,
+    handleCreateTrip,
     backToCandidates,
     closeManualSearch,
   };

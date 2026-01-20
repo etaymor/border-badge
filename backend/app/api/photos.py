@@ -81,6 +81,20 @@ async def suggest_places(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Place suggestion service is not configured. Please contact support.",
             ) from e
+        except httpx.TimeoutException as e:
+            # External service timeout
+            logger.warning(f"Place matching timeout: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Place suggestion service timed out. Please try again.",
+            ) from e
+        except httpx.RequestError as e:
+            # Network/connection errors
+            logger.error(f"Place matching network error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to reach place suggestion service.",
+            ) from e
         except Exception as e:
             logger.error(f"Place matching failed: {e}", exc_info=True)
             raise HTTPException(

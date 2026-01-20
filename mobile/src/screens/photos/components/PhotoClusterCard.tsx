@@ -1,6 +1,8 @@
 /**
- * PlaceSuggestionCard - Displays a place suggestion with photo previews
- * and confirm/reject actions. Supports swipe-left-to-dismiss.
+ * PhotoClusterCard - Displays a photo cluster without place suggestions.
+ *
+ * Shows photos with an "Add Entry" button for manual entry creation.
+ * Supports swipe-left-to-dismiss.
  */
 
 import { useRef } from 'react';
@@ -9,30 +11,24 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
-import type { ClusterSuggestion, PlaceSuggestion } from '@services/photoImport';
+import type { LocationClusterDisplay } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { styles } from '../photoImportStyles';
 
-export interface PlaceSuggestionCardProps {
-  suggestion: ClusterSuggestion;
-  previewUris: string[];
-  onConfirm: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
-  onReject: (suggestion: ClusterSuggestion) => void;
+export interface PhotoClusterCardProps {
+  cluster: LocationClusterDisplay;
+  onAddEntry: (cluster: LocationClusterDisplay) => void;
   onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
 }
 
-export function PlaceSuggestionCard({
-  suggestion,
-  previewUris,
-  onConfirm,
-  onReject,
+export function PhotoClusterCard({
+  cluster,
+  onAddEntry,
   onPhotoPress,
   onDismiss,
-}: PlaceSuggestionCardProps) {
+}: PhotoClusterCardProps) {
   const swipeableRef = useRef<Swipeable>(null);
-  const topPlace = suggestion.places[0];
-  if (!topPlace) return null;
 
   const renderRightActions = (
     progress: Animated.AnimatedInterpolation<number>,
@@ -56,7 +52,7 @@ export function PlaceSuggestionCard({
 
   const handleSwipeOpen = () => {
     if (onDismiss) {
-      onDismiss(suggestion.cluster_id);
+      onDismiss(cluster.id);
     }
   };
 
@@ -70,48 +66,37 @@ export function PlaceSuggestionCard({
       overshootRight={false}
     >
       <View style={styles.suggestionCard}>
-        {/* Photo thumbnails - uses previewUris instead of full photos array */}
+        {/* Photo thumbnails */}
         <ScrollView
           horizontal
           style={styles.suggestionPhotos}
           showsHorizontalScrollIndicator={false}
         >
-          {previewUris.slice(0, 5).map((uri, index) => (
+          {cluster.previewUris.slice(0, 5).map((uri, index) => (
             <TouchableOpacity key={`thumb-${index}`} onPress={() => onPhotoPress(uri)}>
               <Image source={{ uri }} style={styles.suggestionThumbnail} contentFit="cover" />
             </TouchableOpacity>
           ))}
+          {cluster.photoCount > 5 && (
+            <View style={styles.clusterMorePhotos}>
+              <Text style={styles.clusterMorePhotosText}>+{cluster.photoCount - 5}</Text>
+            </View>
+          )}
         </ScrollView>
 
-        {/* Place info */}
-        <View style={styles.suggestionInfo}>
-          <Text style={styles.suggestionName}>{topPlace.name}</Text>
-          <Text style={styles.suggestionAddress} numberOfLines={1}>
-            {topPlace.address}
+        {/* No suggestions message */}
+        <View style={styles.clusterInfo}>
+          <Text style={styles.clusterNoSuggestions}>No place suggestions found</Text>
+          <Text style={styles.clusterPhotoCount}>
+            {cluster.photoCount} photo{cluster.photoCount !== 1 ? 's' : ''} at this location
           </Text>
-          <View style={styles.suggestionMeta}>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{topPlace.category}</Text>
-            </View>
-            <Text style={styles.distanceText}>{Math.round(topPlace.distance_m)}m away</Text>
-          </View>
         </View>
 
-        {/* Yes/No buttons */}
-        <View style={styles.suggestionActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.rejectButton]}
-            onPress={() => onReject(suggestion)}
-          >
-            <Ionicons name="close" size={24} color={colors.adobeBrick} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.confirmButton]}
-            onPress={() => onConfirm(suggestion, topPlace)}
-          >
-            <Ionicons name="checkmark" size={24} color={colors.success} />
-          </TouchableOpacity>
-        </View>
+        {/* Add entry button */}
+        <TouchableOpacity style={styles.clusterAddButton} onPress={() => onAddEntry(cluster)}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.sunsetGold} />
+          <Text style={styles.clusterAddButtonText}>Add Entry Manually</Text>
+        </TouchableOpacity>
       </View>
     </Swipeable>
   );

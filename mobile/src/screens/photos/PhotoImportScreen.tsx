@@ -6,7 +6,7 @@
  * and confirm/reject place suggestions.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
@@ -14,13 +14,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, GlassBackButton } from '@components/ui';
-import type { TripCandidateDisplay, ClusterSuggestion } from '@services/photoImport';
+import type {
+  TripCandidateDisplay,
+  ClusterSuggestion,
+  LocationClusterDisplay,
+} from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
 import type { PassportStackScreenProps } from '@navigation/types';
-import { ManualPlaceSearch, TripCandidateCard, PlaceSuggestionCard } from './components';
+import {
+  ManualPlaceSearch,
+  TripCandidateCard,
+  PlaceSuggestionCard,
+  PhotoClusterCard,
+} from './components';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
 import { styles } from './photoImportStyles';
+
+/** Display item that can be either a cluster with suggestions or a photo-only cluster */
+type ClusterDisplayItem =
+  | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
+  | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
 type Props = PassportStackScreenProps<'PhotoImport'>;
 
@@ -37,10 +51,29 @@ const formatDateRange = (start: Date, end: Date) => {
   return `${startStr} - ${endStr}`;
 };
 
+/**
+ * Format relative time for last scan (e.g., "2 hours ago", "Yesterday")
+ */
+const formatLastScanTime = (timestamp: number): string => {
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+};
+
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { countryCode: filterCountryCode } = route.params ?? {};
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [dismissedClusterIds, setDismissedClusterIds] = useState<Set<string>>(new Set());
 
   const {
     phase,
@@ -50,12 +83,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     clusterDisplays,
     manualSearchCluster,
     suggestPlacesMutation,
+    lastImportTime,
+    isIncremental,
+    isSaving,
     startScan,
     cancelScan,
     selectCandidate,
     handleConfirmPlace,
     handleRejectPlace,
+    handleAddEntryForCluster,
     handleManualSelect,
+    handleCreateTrip,
     backToCandidates,
     closeManualSearch,
   } = usePhotoImportWorkflow({
@@ -75,20 +113,108 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     [selectCandidate]
   );
 
-  const renderSuggestionItem = useCallback(
-    ({ item }: { item: ClusterSuggestion }) => {
-      const clusterDisplay = clusterDisplays.get(item.cluster_id);
+  const handleDismissCluster = useCallback((clusterId: string) => {
+    setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
+  }, []);
+
+  // Wrapper for manual select that dismisses the cluster on success
+  const handleManualSelectWithDismiss = useCallback(
+    async (
+      place: Parameters<typeof handleManualSelect>[0],
+      category: Parameters<typeof handleManualSelect>[1],
+      tripId: Parameters<typeof handleManualSelect>[2],
+      notes?: Parameters<typeof handleManualSelect>[3]
+    ) => {
+      const clusterId = await handleManualSelect(place, category, tripId, notes);
+      if (clusterId) {
+        handleDismissCluster(clusterId);
+      }
+      return clusterId;
+    },
+    [handleManualSelect, handleDismissCluster]
+  );
+
+  const handleBackToCandidates = useCallback(() => {
+    setDismissedClusterIds(new Set()); // Reset dismissed clusters
+    backToCandidates();
+  }, [backToCandidates]);
+
+  // Build combined list of all clusters for the selected candidate
+  // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
+  const clusterItems: ClusterDisplayItem[] = useMemo(() => {
+    if (!selectedCandidate) return [];
+
+    const suggestions = suggestPlacesMutation.isPending
+      ? suggestPlacesMutation.partialResults
+      : (suggestPlacesMutation.data?.suggestions ?? []);
+
+    if (__DEV__) {
+      console.log('[PhotoImport] Building cluster items:', {
+        candidateClusterIds: selectedCandidate.locationClusterIds,
+        suggestionCount: suggestions.length,
+        suggestionClusterIds: suggestions.map((s) => s.cluster_id),
+        clusterDisplayKeys: Array.from(clusterDisplays.keys()),
+      });
+    }
+
+    // Build a map of cluster IDs that have suggestions
+    const suggestionsMap = new Map<string, ClusterSuggestion>();
+    for (const suggestion of suggestions) {
+      suggestionsMap.set(suggestion.cluster_id, suggestion);
+    }
+
+    // Build items for all clusters in the candidate (excluding dismissed ones)
+    const items: ClusterDisplayItem[] = [];
+    for (const clusterId of selectedCandidate.locationClusterIds) {
+      // Skip dismissed clusters
+      if (dismissedClusterIds.has(clusterId)) continue;
+
+      const cluster = clusterDisplays.get(clusterId);
+      if (!cluster) continue;
+
+      const suggestion = suggestionsMap.get(clusterId);
+      if (suggestion) {
+        if (__DEV__) {
+          console.log(
+            `[PhotoImport] Cluster ${clusterId}: matched suggestion with ${suggestion.places?.length ?? 0} places`
+          );
+        }
+        items.push({ type: 'suggestion', data: suggestion, cluster });
+      } else {
+        if (__DEV__) {
+          console.log(`[PhotoImport] Cluster ${clusterId}: no suggestion found`);
+        }
+        items.push({ type: 'photos-only', cluster });
+      }
+    }
+
+    return items;
+  }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIds]);
+
+  const renderClusterItem = useCallback(
+    ({ item }: { item: ClusterDisplayItem }) => {
+      if (item.type === 'suggestion') {
+        return (
+          <PlaceSuggestionCard
+            suggestion={item.data}
+            previewUris={item.cluster.previewUris}
+            onConfirm={handleConfirmPlace}
+            onReject={handleRejectPlace}
+            onPhotoPress={setPreviewPhoto}
+            onDismiss={handleDismissCluster}
+          />
+        );
+      }
       return (
-        <PlaceSuggestionCard
-          suggestion={item}
-          previewUris={clusterDisplay?.previewUris ?? []}
-          onConfirm={handleConfirmPlace}
-          onReject={handleRejectPlace}
+        <PhotoClusterCard
+          cluster={item.cluster}
+          onAddEntry={(cluster) => handleAddEntryForCluster(cluster.id)}
           onPhotoPress={setPreviewPhoto}
+          onDismiss={handleDismissCluster}
         />
       );
     },
-    [handleConfirmPlace, handleRejectPlace, clusterDisplays]
+    [handleConfirmPlace, handleRejectPlace, handleAddEntryForCluster, handleDismissCluster]
   );
 
   return (
@@ -106,10 +232,26 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <Ionicons name="images-outline" size={64} color={colors.sunsetGold} />
           <Text style={styles.idleTitle}>Import Travel Photos</Text>
           <Text style={styles.idleDescription}>
-            Scan your photo library to find travel photos and create entries automatically based on
-            where they were taken.
+            {lastImportTime
+              ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
+              : 'Scan your photo library to find travel photos and create entries automatically based on where they were taken.'}
           </Text>
-          <Button title="Start Scan" onPress={startScan} style={styles.scanButton} />
+          {lastImportTime && (
+            <Text style={styles.lastScanText}>
+              Last scanned: {formatLastScanTime(lastImportTime)}
+            </Text>
+          )}
+          <Button
+            title={lastImportTime ? 'Check for New Photos' : 'Start Scan'}
+            onPress={() => startScan(false)}
+            style={styles.scanButton}
+          />
+          {lastImportTime && (
+            <TouchableOpacity onPress={() => startScan(true)} style={styles.refreshLink}>
+              <Ionicons name="refresh-outline" size={16} color={colors.sunsetGold} />
+              <Text style={styles.refreshLinkText}>Refresh All Photos</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -120,17 +262,16 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <Text style={styles.scanningTitle}>
             {scanProgress?.phase === 'geocoding'
               ? 'Identifying Countries...'
-              : 'Scanning Photos...'}
+              : isIncremental
+                ? 'Checking for New Photos...'
+                : 'Scanning Photos...'}
           </Text>
           <Text style={styles.scanningProgress}>
             {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
+            {scanProgress?.phase === 'scanning' &&
+              scanProgress?.gpsPhotoCount !== undefined &&
+              ` (${scanProgress.gpsPhotoCount} with GPS)`}
           </Text>
-          {scanProgress?.retry && (
-            <Text style={styles.retryText}>
-              Retrying in {scanProgress.retry.delaySeconds}s (attempt {scanProgress.retry.attempt}/
-              {scanProgress.retry.maxAttempts})
-            </Text>
-          )}
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
           </View>
@@ -160,7 +301,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       {/* Suggestions List */}
       {phase === 'suggestions' && selectedCandidate && (
         <View style={styles.listContainer}>
-          <TouchableOpacity onPress={backToCandidates} style={styles.backLink}>
+          <TouchableOpacity onPress={handleBackToCandidates} style={styles.backLink}>
             <Ionicons name="arrow-back" size={16} color={colors.sunsetGold} />
             <Text style={styles.backLinkText}>Back to trips</Text>
           </TouchableOpacity>
@@ -192,27 +333,21 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Show partial results while loading, or final results when complete */}
+          {/* Show all clusters - those with suggestions use PlaceSuggestionCard, others use PhotoClusterCard */}
           <FlashList
-            data={
-              suggestPlacesMutation.isPending
-                ? suggestPlacesMutation.partialResults
-                : (suggestPlacesMutation.data?.suggestions ?? [])
-            }
-            renderItem={renderSuggestionItem}
+            data={clusterItems}
+            renderItem={renderClusterItem}
             contentContainerStyle={styles.listContent}
-            keyExtractor={(item) => item.cluster_id}
+            keyExtractor={(item) =>
+              item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id
+            }
             ListEmptyComponent={
               suggestPlacesMutation.isPending ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={colors.sunsetGold} />
                   <Text style={styles.loadingText}>Finding nearby places...</Text>
                 </View>
-              ) : (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No place suggestions found for these photos.</Text>
-                </View>
-              )
+              ) : null
             }
           />
         </View>
@@ -240,8 +375,10 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <ManualPlaceSearch
           cluster={manualSearchCluster}
           countryCode={selectedCandidate?.countryCode}
-          onSelect={handleManualSelect}
+          onSelect={handleManualSelectWithDismiss}
+          onCreateTrip={handleCreateTrip}
           onCancel={closeManualSearch}
+          isSaving={isSaving}
         />
       )}
     </View>

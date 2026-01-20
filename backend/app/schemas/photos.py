@@ -3,13 +3,12 @@
 These schemas handle the request/response types for the /photos/suggest-places
 endpoint which matches photo GPS clusters to nearby places.
 
-Coordinate precision is enforced server-side to max 4 decimal places (~11m)
-for PII protection. Client-side truncation is also applied but the backend
-validates this constraint as defense-in-depth.
+Coordinates are normalized server-side to 4 decimal places (~11m precision)
+for PII protection. This ensures consistent precision regardless of client
+input while maintaining sufficient accuracy for place matching.
 """
 
 from datetime import datetime
-from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -21,22 +20,13 @@ MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
 
 
-def _validate_coordinate_precision(value: float, field_name: str) -> float:
-    """Validate coordinate has at most 4 decimal places for PII protection."""
-    d = Decimal(str(value))
-    # Get the number of decimal places (scale)
-    # For a Decimal, the exponent is negative for fractional parts
-    exponent = d.as_tuple().exponent
-    # exponent can be 'n', 'N', 'F' for special values (NaN, Inf), but those
-    # won't pass the ge/le field constraints anyway
-    if isinstance(exponent, int):
-        scale = -exponent if exponent < 0 else 0
-        if scale > 4:
-            raise ValueError(
-                f"{field_name} must have at most 4 decimal places for PII protection, "
-                f"got {scale} decimal places"
-            )
-    return value
+def _normalize_coordinate_precision(value: float) -> float:
+    """Normalize coordinate to 4 decimal places (~11m) for PII protection.
+
+    Truncates high-precision coordinates to protect user privacy while
+    maintaining sufficient accuracy for place matching.
+    """
+    return round(value, 4)
 
 
 class Coordinate(BaseModel):
@@ -47,13 +37,13 @@ class Coordinate(BaseModel):
 
     @field_validator("latitude")
     @classmethod
-    def validate_latitude_precision(cls, v: float) -> float:
-        return _validate_coordinate_precision(v, "latitude")
+    def normalize_latitude_precision(cls, v: float) -> float:
+        return _normalize_coordinate_precision(v)
 
     @field_validator("longitude")
     @classmethod
-    def validate_longitude_precision(cls, v: float) -> float:
-        return _validate_coordinate_precision(v, "longitude")
+    def normalize_longitude_precision(cls, v: float) -> float:
+        return _normalize_coordinate_precision(v)
 
 
 class PhotoMetadata(BaseModel):
@@ -66,13 +56,13 @@ class PhotoMetadata(BaseModel):
 
     @field_validator("latitude")
     @classmethod
-    def validate_latitude_precision(cls, v: float) -> float:
-        return _validate_coordinate_precision(v, "latitude")
+    def normalize_latitude_precision(cls, v: float) -> float:
+        return _normalize_coordinate_precision(v)
 
     @field_validator("longitude")
     @classmethod
-    def validate_longitude_precision(cls, v: float) -> float:
-        return _validate_coordinate_precision(v, "longitude")
+    def normalize_longitude_precision(cls, v: float) -> float:
+        return _normalize_coordinate_precision(v)
 
 
 class PhotoCluster(BaseModel):
