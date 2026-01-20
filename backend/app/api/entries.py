@@ -11,9 +11,12 @@ from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import (
+    BulkMoveRequest,
+    BulkMoveResponse,
     Entry,
     EntryCreate,
     EntryMediaFile,
+    EntryMoveRequest,
     EntryType,
     EntryUpdate,
     EntryWithPlace,
@@ -454,3 +457,94 @@ async def restore_entry(
         place = Place(**places[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
+
+
+@router.patch("/entries/{entry_id}/move", response_model=EntryWithPlace)
+@limiter.limit("30/minute")
+async def move_entry(
+    request: Request,
+    entry_id: UUID,
+    data: EntryMoveRequest,
+    user: CurrentUser,
+) -> EntryWithPlace:
+    """Move an entry to a different trip.
+
+    This is useful for organizing entries from the Saved Places (uncategorized)
+    trip into specific country trips.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Use RPC for atomic move with validation
+    result = await db.rpc(
+        "move_entry_to_trip",
+        {"p_entry_id": str(entry_id), "p_target_trip_id": str(data.trip_id)},
+    )
+
+    if result is None or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not authorized",
+        )
+
+    row = result[0]
+    entry_data = row.get("entry_row")
+    place_data = row.get("place_row")
+
+    if not entry_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to move entry",
+        )
+
+    entry = Entry(**entry_data)
+    place = Place(**place_data) if place_data else None
+
+    return EntryWithPlace(**entry.model_dump(), place=place)
+
+
+@router.post("/entries/bulk-move", response_model=BulkMoveResponse)
+@limiter.limit("10/minute")
+async def bulk_move_entries(
+    request: Request,
+    data: BulkMoveRequest,
+    user: CurrentUser,
+) -> BulkMoveResponse:
+    """Move multiple entries to a target trip in a single atomic operation.
+
+    All entries must belong to trips owned by the current user.
+    If any entry would create a duplicate in the target trip, the entire
+    operation is rolled back.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Convert entry_ids to list of strings for RPC
+    entry_id_strs = [str(eid) for eid in data.entry_ids]
+
+    # Use RPC for atomic bulk move
+    result = await db.rpc(
+        "bulk_move_entries_to_trip",
+        {"p_entry_ids": entry_id_strs, "p_target_trip_id": str(data.target_trip_id)},
+    )
+
+    if result is None or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to move entries",
+        )
+
+    row = result[0]
+    moved_count = row.get("moved_count", 0)
+    entries_data = row.get("entries", [])
+
+    # Parse moved entries with their places
+    entries: list[EntryWithPlace] = []
+    for entry_data in entries_data:
+        entry = Entry(**entry_data)
+        # Fetch place for each entry
+        places_result = await db.get("place", {"entry_id": f"eq.{entry.id}"})
+        place = Place(**places_result[0]) if places_result else None
+        entries.append(EntryWithPlace(**entry.model_dump(), place=place))
+
+    return BulkMoveResponse(moved_count=moved_count, entries=entries)

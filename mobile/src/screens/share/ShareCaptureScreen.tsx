@@ -162,6 +162,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               }
               onCreateTrip={handleCreateTrip}
               isCreatingTrip={isCreatingTrip}
+              showSavedPlacesOption
             />
           </View>
 

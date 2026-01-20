@@ -123,3 +123,23 @@ class EntryWithPlace(Entry):
 
     place: Place | None = None
     media_files: list[EntryMediaFile] = []
+
+
+class EntryMoveRequest(BaseModel):
+    """Request to move an entry to a different trip."""
+
+    trip_id: UUID
+
+
+class BulkMoveRequest(BaseModel):
+    """Request to move multiple entries to a trip."""
+
+    entry_ids: list[UUID]
+    target_trip_id: UUID
+
+
+class BulkMoveResponse(BaseModel):
+    """Response from bulk move operation."""
+
+    moved_count: int
+    entries: list[EntryWithPlace]

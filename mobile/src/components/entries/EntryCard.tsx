@@ -19,6 +19,7 @@ const ENTRY_TYPE_CONFIG: Record<
 interface EntryCardProps {
   entry: EntryWithPlace;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 function formatDate(dateString: string | null): string {
@@ -61,7 +62,7 @@ function isValidGooglePhotoUrl(url: string | null): string | null {
   }
 }
 
-function EntryCardComponent({ entry, onPress }: EntryCardProps) {
+function EntryCardComponent({ entry, onPress, onLongPress }: EntryCardProps) {
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
   const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
@@ -108,6 +109,7 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     <Pressable
       style={styles.container}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityParts.join(', ')}
       accessibilityHint="Double tap to view entry details"
