@@ -9,8 +9,8 @@ class PlacesCache:
     """
     In-memory LRU cache for Google Places API responses.
 
-    Uses truncated coordinates (4 decimal places, ~11m precision) as cache keys
-    to match mobile precision and avoid returning wrong places for different locations.
+    Uses truncated coordinates (5 decimal places, ~1.1m precision) as cache keys
+    to match input precision and avoid returning wrong places for different locations.
 
     Includes max_size limit with LRU eviction to prevent unbounded memory growth.
 
@@ -40,7 +40,7 @@ class PlacesCache:
         """
         Generate a cache key from coordinates and radius.
 
-        Truncates to 4 decimal places (~11m precision) to match mobile coordinate
+        Truncates to 5 decimal places (~1.1m precision) to match input coordinate
         precision and avoid returning wrong places for nearby-but-different locations.
 
         Args:
@@ -51,7 +51,7 @@ class PlacesCache:
         Returns:
             Cache key string
         """
-        return f"{round(lat, 4)}_{round(lng, 4)}_{radius}"
+        return f"{round(lat, 5)}_{round(lng, 5)}_{radius}"
 
     async def get(self, key: str) -> list[dict] | None:
         """

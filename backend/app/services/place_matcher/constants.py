@@ -176,7 +176,34 @@ TYPE_TO_CATEGORY: dict[str, str] = {
     "establishment": "place",
 }
 
-# Minimal field mask to reduce API costs (Essentials tier)
+# Minimum review count for quality filtering
+# Places must have at least this many reviews OR be an institutional type
+MIN_REVIEW_COUNT = 5
+
+# Well-known/institutional place types that pass quality filter even without reviews
+# These are typically legitimate landmarks, parks, hotels that may have few Google reviews
+INSTITUTIONAL_TYPES: set[str] = {
+    "museum",
+    "national_park",
+    "state_park",
+    "historical_landmark",
+    "cultural_landmark",
+    "monument",
+    "hotel",
+    "resort_hotel",
+    "airport",
+    "train_station",
+    "university",
+    "hospital",
+    "place_of_worship",
+    "embassy",
+    "zoo",
+    "aquarium",
+    "botanical_garden",
+    "stadium",
+}
+
+# Field mask for Places API - includes quality signals for filtering
 FIELD_MASK = ",".join(
     [
         "places.id",
@@ -185,5 +212,9 @@ FIELD_MASK = ",".join(
         "places.location",
         "places.types",
         "places.primaryType",
+        # Quality signals for filtering
+        "places.rating",
+        "places.userRatingCount",
+        "places.businessStatus",
     ]
 )

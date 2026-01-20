@@ -18,9 +18,11 @@ from app.core.config import get_settings
 from .cache import places_cache
 from .constants import (
     FIELD_MASK,
+    INSTITUTIONAL_TYPES,
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACES_PER_SEARCH,
     MAX_SUGGESTIONS_PER_CLUSTER,
+    MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
@@ -99,8 +101,11 @@ class PlaceMatcher:
                     f"at radius={radius_used}m"
                 )
 
+                # Filter out low-quality places before ranking
+                quality_places = self._filter_low_quality_places(places)
+
                 ranked_places = self._rank_by_distance(
-                    places=places,
+                    places=quality_places,
                     cluster=cluster,
                 )
 
@@ -302,22 +307,77 @@ class PlaceMatcher:
         except Exception:
             return None
 
+    def _filter_low_quality_places(
+        self,
+        places: list[dict],
+    ) -> list[dict]:
+        """
+        Filter out low-quality places that would result in poor suggestions.
+
+        Filtering criteria (place must pass ALL hard rules AND at least one soft rule):
+
+        Hard rules (must pass all):
+        - Not permanently closed
+        - Has a non-empty display name
+
+        Soft rules (must pass at least one):
+        - Has at least MIN_REVIEW_COUNT reviews
+        - Is an institutional type (museum, hotel, national_park, etc.)
+
+        Args:
+            places: Raw places from API response
+
+        Returns:
+            Filtered list of quality places
+        """
+        filtered = []
+
+        for place in places:
+            # Hard rule: Skip permanently closed
+            if place.get("businessStatus") == "CLOSED_PERMANENTLY":
+                continue
+
+            # Hard rule: Must have a non-empty name
+            display_name = place.get("displayName", {})
+            name = display_name.get("text", "").strip()
+            if not name:
+                continue
+
+            # Soft rule 1: Has enough reviews
+            rating_count = place.get("userRatingCount", 0) or 0
+            has_enough_reviews = rating_count >= MIN_REVIEW_COUNT
+
+            # Soft rule 2: Is an institutional type
+            primary_type = place.get("primaryType", "")
+            is_institutional = primary_type in INSTITUTIONAL_TYPES
+
+            # Must pass at least one soft rule
+            if has_enough_reviews or is_institutional:
+                filtered.append(place)
+
+        logger.debug(
+            f"Quality filter: {len(places)} -> {len(filtered)} places "
+            f"(filtered {len(places) - len(filtered)})"
+        )
+        return filtered
+
     def _rank_by_distance(
         self,
         places: list[dict],
         cluster: dict,
     ) -> list[dict]:
         """
-        Rank places by distance only - simpler is better.
+        Rank places by distance, with quality as tie-breaker.
 
-        Users see "15m away" and decide Yes/No, not confidence percentages.
+        Users see "15m away" and decide Yes/No. Distance is primary.
+        Quality (review count) breaks ties for places at similar distances.
 
         Args:
             places: Places from API response
             cluster: Cluster with centroid
 
         Returns:
-            List of place suggestions sorted by distance
+            List of place suggestions sorted by distance (quality tie-break)
         """
         ranked = []
         cluster_lat = cluster["centroid"]["latitude"]
@@ -333,6 +393,9 @@ class PlaceMatcher:
             # Map type to category
             primary_type = place.get("primaryType", "point_of_interest")
             category = TYPE_TO_CATEGORY.get(primary_type, "place")
+
+            # Quality signal for tie-breaking
+            rating_count = place.get("userRatingCount", 0) or 0
 
             # Defensive access for displayName with sanitization
             display_name = place.get("displayName", {})
@@ -351,10 +414,23 @@ class PlaceMatcher:
                     "category": category,
                     "distance_m": round(distance_m, 1),
                     "types": place.get("types", []),
+                    "_rating_count": rating_count,  # Internal field for sorting
                 }
             )
 
-        return sorted(ranked, key=lambda x: x["distance_m"])
+        # Sort by distance (5m buckets), then by rating count (higher = better)
+        def sort_key(x: dict) -> tuple[int, int]:
+            distance_bucket = int(x["distance_m"] / 5)  # 5m buckets for tie-breaking
+            quality_score = -(x["_rating_count"])  # Negative for descending
+            return (distance_bucket, quality_score)
+
+        ranked.sort(key=sort_key)
+
+        # Remove internal field before returning
+        for r in ranked:
+            del r["_rating_count"]
+
+        return ranked
 
     # Keep static method for backward compatibility with tests
     @staticmethod

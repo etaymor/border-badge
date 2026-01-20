@@ -9,6 +9,8 @@ import pytest
 
 from app.schemas.entries import EntryType
 from app.services.place_matcher import (
+    INSTITUTIONAL_TYPES,
+    MIN_REVIEW_COUNT,
     TYPE_TO_CATEGORY,
     PlaceMatcher,
     PlacesCache,
@@ -334,22 +336,22 @@ class TestPlacesCacheCacheKeyGeneration:
     """Tests for cache key generation."""
 
     def test_get_cache_key_truncates_coordinates(self) -> None:
-        """Test that coordinates are truncated to 4 decimal places (~11m precision)."""
+        """Test that coordinates are truncated to 5 decimal places (~1.1m precision)."""
         cache = PlacesCache()
 
-        key1 = cache.get_cache_key(35.678912345, 139.650324567, 30)
-        key2 = cache.get_cache_key(35.6789, 139.6503, 30)
+        key1 = cache.get_cache_key(35.6789123456, 139.6503245678, 30)
+        key2 = cache.get_cache_key(35.67891, 139.65032, 30)
 
-        # Both should produce same key due to truncation to 4 decimal places
+        # Both should produce same key due to truncation to 5 decimal places
         assert key1 == key2
-        assert key1 == "35.6789_139.6503_30"
+        assert key1 == "35.67891_139.65032_30"
 
     def test_get_cache_key_includes_radius(self) -> None:
         """Test that different radii produce different keys."""
         cache = PlacesCache()
 
-        key1 = cache.get_cache_key(35.679, 139.650, 30)
-        key2 = cache.get_cache_key(35.679, 139.650, 75)
+        key1 = cache.get_cache_key(35.67912, 139.65034, 30)
+        key2 = cache.get_cache_key(35.67912, 139.65034, 75)
 
         assert key1 != key2
         assert "30" in key1
@@ -359,10 +361,10 @@ class TestPlacesCacheCacheKeyGeneration:
         """Test that negative coordinates are handled correctly."""
         cache = PlacesCache()
 
-        key = cache.get_cache_key(-33.8688, 151.2093, 30)
+        key = cache.get_cache_key(-33.86881, 151.20934, 30)
 
-        assert "-33.8688" in key
-        assert "151.2093" in key
+        assert "-33.86881" in key
+        assert "151.20934" in key
 
 
 # ============================================================================
@@ -556,7 +558,7 @@ class TestFindPlacesForClustersPartialFailures:
 
     @pytest.fixture
     def mock_places_response(self) -> dict[str, Any]:
-        """Sample Places API response."""
+        """Sample Places API response with quality fields."""
         return {
             "places": [
                 {
@@ -566,6 +568,9 @@ class TestFindPlacesForClustersPartialFailures:
                     "location": {"latitude": 35.6762, "longitude": 139.6503},
                     "primaryType": "restaurant",
                     "types": ["restaurant", "food"],
+                    "rating": 4.5,
+                    "userRatingCount": 100,
+                    "businessStatus": "OPERATIONAL",
                 }
             ]
         }
@@ -841,3 +846,276 @@ class TestFindPlacesForClustersPartialFailures:
 
         # Should have 2 results (clusters 0 and 3 succeeded)
         assert len(results) == 2
+
+
+# ============================================================================
+# Quality Filtering Tests
+# ============================================================================
+
+
+class TestQualityFiltering:
+    """Tests for the _filter_low_quality_places method."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        """Create a PlaceMatcher with mocked settings."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_filters_places_with_no_name(self, matcher) -> None:
+        """Test that places with empty display name are filtered out."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": ""},
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {},
+                "userRatingCount": 50,
+                "primaryType": "cafe",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Good Restaurant"},
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-3"
+
+    def test_filters_permanently_closed_places(self, matcher) -> None:
+        """Test that permanently closed places are filtered out."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Closed Restaurant"},
+                "businessStatus": "CLOSED_PERMANENTLY",
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Open Restaurant"},
+                "businessStatus": "OPERATIONAL",
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-2"
+
+    def test_filters_places_with_few_reviews(self, matcher) -> None:
+        """Test that places with fewer than MIN_REVIEW_COUNT reviews are filtered."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Few Reviews"},
+                "userRatingCount": MIN_REVIEW_COUNT - 1,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Enough Reviews"},
+                "userRatingCount": MIN_REVIEW_COUNT,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Many Reviews"},
+                "userRatingCount": 100,
+                "primaryType": "cafe",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 2
+        assert {p["id"] for p in filtered} == {"place-2", "place-3"}
+
+    def test_institutional_types_pass_without_reviews(self, matcher) -> None:
+        """Test that institutional types pass even without reviews."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Local Museum"},
+                "userRatingCount": 0,
+                "primaryType": "museum",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "National Park"},
+                "userRatingCount": 2,
+                "primaryType": "national_park",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Random Cafe"},
+                "userRatingCount": 2,
+                "primaryType": "cafe",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        # Museum and national_park pass (institutional), cafe filtered (not enough reviews)
+        assert len(filtered) == 2
+        assert {p["id"] for p in filtered} == {"place-1", "place-2"}
+
+    def test_all_institutional_types_are_recognized(self, matcher) -> None:
+        """Test that all defined institutional types pass the filter."""
+        for inst_type in INSTITUTIONAL_TYPES:
+            places = [
+                {
+                    "id": f"place-{inst_type}",
+                    "displayName": {"text": f"Test {inst_type}"},
+                    "userRatingCount": 0,  # No reviews
+                    "primaryType": inst_type,
+                }
+            ]
+
+            filtered = matcher._filter_low_quality_places(places)
+
+            assert len(filtered) == 1, f"Institutional type '{inst_type}' should pass"
+
+    def test_handles_missing_fields_gracefully(self, matcher) -> None:
+        """Test that places with missing optional fields are handled."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Good Place"},
+                # Missing userRatingCount, businessStatus, primaryType
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Place with Museum Type"},
+                "primaryType": "museum",
+                # Missing userRatingCount
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        # place-1: No reviews (0) and not institutional -> filtered out
+        # place-2: No reviews but institutional type -> passes
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-2"
+
+
+class TestQualityRanking:
+    """Tests for quality-based tie-breaking in ranking."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        """Create a PlaceMatcher with mocked settings."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_ranks_by_distance_primarily(self, matcher) -> None:
+        """Test that distance is the primary ranking factor."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        # Place 1: far but many reviews
+        # Place 2: close but few reviews
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Far Place"},
+                "location": {"latitude": 35.6862, "longitude": 139.6503},  # ~1km away
+                "userRatingCount": 1000,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Close Place"},
+                "location": {"latitude": 35.6763, "longitude": 139.6503},  # ~11m away
+                "userRatingCount": 5,
+                "primaryType": "cafe",
+                "types": ["cafe"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        # Close place should be first despite fewer reviews
+        assert ranked[0]["place_id"] == "place-2"
+        assert ranked[1]["place_id"] == "place-1"
+
+    def test_uses_review_count_for_tie_breaking(self, matcher) -> None:
+        """Test that review count breaks ties for places at similar distances."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        # Both places are within same 5m bucket (2m vs 3m)
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Few Reviews"},
+                "location": {"latitude": 35.67622, "longitude": 139.6503},  # ~2m
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Many Reviews"},
+                "location": {"latitude": 35.67623, "longitude": 139.6503},  # ~3m
+                "userRatingCount": 500,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        # Many reviews should come first (same distance bucket, higher quality)
+        assert ranked[0]["place_id"] == "place-2"
+        assert ranked[1]["place_id"] == "place-1"
+
+    def test_rating_count_not_in_response(self, matcher) -> None:
+        """Test that internal _rating_count field is not in the response."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Test Place"},
+                "location": {"latitude": 35.6763, "longitude": 139.6503},
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        assert "_rating_count" not in ranked[0]
+        assert "place_id" in ranked[0]
+        assert "name" in ranked[0]
+        assert "distance_m" in ranked[0]

@@ -7,11 +7,13 @@ Uses tiered radius search (10m → 30m → 75m) for optimal precision.
 from .cache import PlacesCache, places_cache
 from .constants import (
     FIELD_MASK,
+    INSTITUTIONAL_TYPES,
     MAX_ADDRESS_LENGTH,
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACE_NAME_LENGTH,
     MAX_PLACES_PER_SEARCH,
     MAX_SUGGESTIONS_PER_CLUSTER,
+    MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
@@ -48,6 +50,8 @@ __all__ = [
     "MAX_ADDRESS_LENGTH",
     "NEARBY_SEARCH_URL",
     "FIELD_MASK",
+    "MIN_REVIEW_COUNT",
+    "INSTITUTIONAL_TYPES",
     # Utils
     "sanitize_place_text",
     "sanitize_place_name",

@@ -3,9 +3,9 @@
 These schemas handle the request/response types for the /photos/suggest-places
 endpoint which matches photo GPS clusters to nearby places.
 
-Coordinates are normalized server-side to 4 decimal places (~11m precision)
-for PII protection. This ensures consistent precision regardless of client
-input while maintaining sufficient accuracy for place matching.
+Coordinates are normalized server-side to 5 decimal places (~1.1m precision)
+for accurate place matching. Since photos are from past trips (not real-time
+tracking), this provides better accuracy without significant privacy concerns.
 """
 
 from datetime import datetime
@@ -21,12 +21,12 @@ MAX_PHOTOS_PER_REQUEST = 500
 
 
 def _normalize_coordinate_precision(value: float) -> float:
-    """Normalize coordinate to 4 decimal places (~11m) for PII protection.
+    """Normalize coordinate to 5 decimal places (~1.1m) for place matching.
 
-    Truncates high-precision coordinates to protect user privacy while
-    maintaining sufficient accuracy for place matching.
+    Uses 5 decimal places for better accuracy in dense urban areas.
+    Since photos are from the past (not real-time tracking), PII concerns are minimal.
     """
-    return round(value, 4)
+    return round(value, 5)
 
 
 class Coordinate(BaseModel):
