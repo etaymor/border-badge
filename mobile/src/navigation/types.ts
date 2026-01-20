@@ -60,7 +60,11 @@ export type PassportStackParamList = {
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
-  PhotoImport: { countryCode?: string };
+  PhotoImport: {
+    countryCode?: string;
+    tripId?: string; // Pre-associate with existing trip
+    autoStart?: boolean; // Auto-start scan when cache exists
+  };
 };
 
 // Prefill place data for TripForm (from photo import)

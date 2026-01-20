@@ -10,3 +10,10 @@ export * from './photoCacheDb';
 
 // Re-export OptimizedTripData type from photoClustering
 export type { OptimizedTripData } from './photoClustering';
+
+// Explicit re-exports for background sync (for clarity)
+export {
+  performBackgroundPhotoSync,
+  isBackgroundSyncInProgress,
+  abortBackgroundSync,
+} from './photoCacheDb';

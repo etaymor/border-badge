@@ -28,6 +28,7 @@ import {
   getAllCachedPhotos,
   cachePhotos,
   clearPhotoCache,
+  abortBackgroundSync,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -38,7 +39,7 @@ import {
   type CachedPhoto,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
-import type { EntryType } from '@navigation/types';
+import type { EntryType, PrefillPlace } from '@navigation/types';
 
 export type ImportPhase = 'idle' | 'scanning' | 'candidates' | 'suggestions';
 
@@ -106,6 +107,8 @@ export interface PhotoImportWorkflowResult {
 
 interface UsePhotoImportWorkflowOptions {
   filterCountryCode?: string;
+  tripId?: string; // Pre-associated trip ID
+  autoStart?: boolean; // Auto-start scan when cache exists
   onNavigateToTripForm: (params: {
     countryId: string;
     prefillPlace: {
@@ -116,11 +119,19 @@ interface UsePhotoImportWorkflowOptions {
     };
     prefillPhotos: string[];
   }) => void;
+  onNavigateToTripDetail?: (params: {
+    tripId: string;
+    prefillPlace: PrefillPlace;
+    prefillPhotos: string[];
+  }) => void;
 }
 
 export function usePhotoImportWorkflow({
   filterCountryCode,
+  tripId,
+  autoStart,
   onNavigateToTripForm,
+  onNavigateToTripDetail,
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
 
@@ -171,6 +182,15 @@ export function usePhotoImportWorkflow({
     };
   }, []);
 
+  // Track whether auto-start has been attempted to avoid double-running
+  const autoStartAttemptedRef = useRef(false);
+
+  // Track whether we need to fetch suggestions for an auto-selected candidate
+  const [pendingAutoSelect, setPendingAutoSelect] = useState<{
+    candidate: TripCandidateDisplay;
+    clusterLookupMap: Map<string, LocationCluster>;
+  } | null>(null);
+
   const suggestPlacesMutation = useSuggestPlacesChunked();
   const createEntry = useCreateEntry();
   const createTrip = useCreateTrip();
@@ -185,6 +205,9 @@ export function usePhotoImportWorkflow({
         );
         return;
       }
+
+      // Abort any background sync in progress to prevent conflicts
+      abortBackgroundSync();
 
       // Abort any previous scan before starting a new one
       abortControllerRef.current?.abort();
@@ -302,7 +325,18 @@ export function usePhotoImportWorkflow({
         setClusterLookup(optimizedData.clusterLookup);
         setClusterDisplays(optimizedData.clusterDisplays);
         setTripCandidates(candidates);
-        setPhase('candidates');
+
+        // Auto-select if only one candidate matches the country filter
+        // This provides a seamless flow when coming from TripDetailScreen
+        if (candidates.length === 1 && filterCountryCode) {
+          // Set up pending auto-selection - will be handled by effect
+          setPendingAutoSelect({
+            candidate: candidates[0],
+            clusterLookupMap: optimizedData.clusterLookup,
+          });
+        } else {
+          setPhase('candidates');
+        }
         abortControllerRef.current = null;
       } catch (error) {
         abortControllerRef.current = null;
@@ -335,8 +369,13 @@ export function usePhotoImportWorkflow({
     Analytics.photoImportScanCancelled();
   }, [clearLargeDataStructures]);
 
-  const selectCandidate = useCallback(
-    async (candidate: TripCandidateDisplay) => {
+  /**
+   * Internal function to select a candidate and fetch suggestions.
+   * Accepts an optional clusterLookupMap for use during startScan when
+   * the state hasn't been updated yet.
+   */
+  const selectCandidateWithLookup = useCallback(
+    async (candidate: TripCandidateDisplay, clusterLookupMap: Map<string, LocationCluster>) => {
       setSelectedCandidate(candidate);
       setPhase('suggestions');
       Analytics.photoImportCandidateSelected({
@@ -345,7 +384,7 @@ export function usePhotoImportWorkflow({
       });
 
       const clustersForApi = candidate.locationClusterIds
-        .map((id) => getFullCluster(id, clusterLookup))
+        .map((id) => getFullCluster(id, clusterLookupMap))
         .filter((c): c is LocationCluster => c !== undefined);
 
       if (__DEV__) {
@@ -417,27 +456,76 @@ export function usePhotoImportWorkflow({
         }
       }
     },
-    [suggestPlacesMutation, clusterLookup]
+    [suggestPlacesMutation]
   );
+
+  /**
+   * Public function to select a candidate. Uses the current clusterLookup state.
+   */
+  const selectCandidate = useCallback(
+    async (candidate: TripCandidateDisplay) => {
+      await selectCandidateWithLookup(candidate, clusterLookup);
+    },
+    [selectCandidateWithLookup, clusterLookup]
+  );
+
+  // Effect to handle pending auto-selection after startScan completes
+  useEffect(() => {
+    if (pendingAutoSelect) {
+      const { candidate, clusterLookupMap } = pendingAutoSelect;
+      setPendingAutoSelect(null);
+      selectCandidateWithLookup(candidate, clusterLookupMap);
+    }
+  }, [pendingAutoSelect, selectCandidateWithLookup]);
+
+  // Auto-start effect: trigger scan when entering with context and cache exists
+  // This runs only on mount to check if we should auto-start the scan
+  useEffect(() => {
+    if (autoStart && filterCountryCode && !autoStartAttemptedRef.current && homeCountry) {
+      autoStartAttemptedRef.current = true;
+      // Check if we have cached data before auto-starting
+      getLastImportTime().then((lastImport) => {
+        if (lastImport) {
+          // Auto-start incremental scan - startScan will set phase to 'scanning'
+          startScan(false);
+        }
+      });
+    }
+    // We intentionally only run this on mount - don't add startScan to deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, filterCountryCode, homeCountry]);
 
   const handleConfirmPlace = useCallback(
     (suggestion: ClusterSuggestion, place: PlaceSuggestion) => {
       Analytics.photoImportPlaceConfirmed({ category: place.category });
       if (selectedCandidate) {
         const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
-        onNavigateToTripForm({
-          countryId: selectedCandidate.countryCode,
-          prefillPlace: {
-            placeId: place.place_id,
-            name: place.name,
-            address: place.address,
-            category: place.category,
-          },
-          prefillPhotos: cluster?.photos.map((p) => p.uri) ?? [],
-        });
+        const prefillPlaceData: PrefillPlace = {
+          placeId: place.place_id,
+          name: place.name,
+          address: place.address,
+          category: place.category,
+        };
+        const prefillPhotos = cluster?.photos.map((p) => p.uri) ?? [];
+
+        // If tripId is pre-set, navigate directly to TripDetail with prefill
+        if (tripId && onNavigateToTripDetail) {
+          onNavigateToTripDetail({
+            tripId,
+            prefillPlace: prefillPlaceData,
+            prefillPhotos,
+          });
+        } else {
+          // Otherwise, go to TripForm to create/select a trip
+          onNavigateToTripForm({
+            countryId: selectedCandidate.countryCode,
+            prefillPlace: prefillPlaceData,
+            prefillPhotos,
+          });
+        }
       }
     },
-    [selectedCandidate, clusterLookup, onNavigateToTripForm]
+    [selectedCandidate, clusterLookup, tripId, onNavigateToTripForm, onNavigateToTripDetail]
   );
 
   const handleRejectPlace = useCallback(

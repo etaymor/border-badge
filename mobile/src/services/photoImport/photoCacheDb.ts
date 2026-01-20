@@ -314,3 +314,167 @@ export async function closeDb(): Promise<void> {
     db = null;
   }
 }
+
+// =============================================================================
+// Background Photo Sync
+// =============================================================================
+
+// Lazy imports to avoid circular dependency
+// These are only used by performBackgroundPhotoSync
+let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
+let _photoToCachedPhoto: typeof import('./photoClustering').photoToCachedPhoto;
+let _MediaLibrary: typeof import('expo-media-library');
+
+async function getBackgroundSyncDeps() {
+  if (!_extractPhotosWithLocation) {
+    const { extractPhotosWithLocation } = await import('./photoImportService');
+    _extractPhotosWithLocation = extractPhotosWithLocation;
+  }
+  if (!_photoToCachedPhoto) {
+    const { photoToCachedPhoto } = await import('./photoClustering');
+    _photoToCachedPhoto = photoToCachedPhoto;
+  }
+  if (!_MediaLibrary) {
+    _MediaLibrary = await import('expo-media-library');
+  }
+  return {
+    extractPhotosWithLocation: _extractPhotosWithLocation,
+    photoToCachedPhoto: _photoToCachedPhoto,
+    MediaLibrary: _MediaLibrary,
+  };
+}
+
+// Module-level state for background sync coordination
+let backgroundSyncController: AbortController | null = null;
+let backgroundSyncInProgress = false;
+
+// Minimum interval between background syncs (1 hour)
+const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Check if a background sync is currently in progress.
+ */
+export function isBackgroundSyncInProgress(): boolean {
+  return backgroundSyncInProgress;
+}
+
+/**
+ * Abort any in-progress background sync.
+ * Call this before starting a manual scan to prevent conflicts.
+ */
+export function abortBackgroundSync(): void {
+  if (backgroundSyncController) {
+    backgroundSyncController.abort();
+    backgroundSyncController = null;
+    backgroundSyncInProgress = false;
+  }
+}
+
+/**
+ * Get the timestamp of the last background sync.
+ */
+export async function getLastBackgroundSyncTime(): Promise<number | null> {
+  const value = await getMetadata('last_background_sync_time');
+  return value ? parseInt(value, 10) : null;
+}
+
+/**
+ * Set the timestamp of the last background sync.
+ */
+async function setLastBackgroundSyncTime(timestamp: number): Promise<void> {
+  await setMetadata('last_background_sync_time', timestamp.toString());
+}
+
+/**
+ * Perform a silent background photo sync.
+ *
+ * Called when app comes to foreground to keep the photo cache fresh.
+ * Only runs if:
+ * 1. Home country is set (required for filtering)
+ * 2. Photo permissions are granted (checked without prompting)
+ * 3. Enough time has passed since last sync (1 hour)
+ * 4. A previous import exists (user has used photo import)
+ *
+ * Errors are swallowed silently - this is a convenience feature.
+ */
+export async function performBackgroundPhotoSync(
+  homeCountry: string | null
+): Promise<{ newPhotos: number } | null> {
+  // Skip if no home country set
+  if (!homeCountry) {
+    return null;
+  }
+
+  // Skip if already syncing
+  if (backgroundSyncInProgress) {
+    return null;
+  }
+
+  try {
+    // Lazy load dependencies to avoid circular imports
+    const { extractPhotosWithLocation, photoToCachedPhoto, MediaLibrary } =
+      await getBackgroundSyncDeps();
+
+    // Check permissions without prompting
+    const { status } = await MediaLibrary.getPermissionsAsync();
+    if (status !== 'granted') {
+      return null;
+    }
+
+    // Check if we have a previous import (cache exists)
+    const lastImportTime = await getLastImportTime();
+    if (!lastImportTime) {
+      // No previous import - user hasn't used photo import yet
+      return null;
+    }
+
+    // Check if enough time has passed since last background sync
+    const lastBackgroundSync = await getLastBackgroundSyncTime();
+    const now = Date.now();
+    if (lastBackgroundSync && now - lastBackgroundSync < BACKGROUND_SYNC_INTERVAL_MS) {
+      return null;
+    }
+
+    // Start background sync
+    backgroundSyncInProgress = true;
+    backgroundSyncController = new AbortController();
+
+    // Perform incremental scan (only photos since last import)
+    const newPhotos = await extractPhotosWithLocation(
+      () => {}, // No-op progress callback
+      backgroundSyncController.signal,
+      new Date(lastImportTime)
+    );
+
+    // Check if aborted
+    if (backgroundSyncController?.signal.aborted) {
+      return null;
+    }
+
+    // Cache new photos if found
+    if (newPhotos.length > 0) {
+      const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
+      await cachePhotos(newCachedPhotos);
+    }
+
+    // Update timestamps
+    const syncTime = Date.now();
+    await setLastImportTime(syncTime);
+    await setLastBackgroundSyncTime(syncTime);
+
+    if (__DEV__) {
+      console.log(`[PhotoSync] Background sync complete: ${newPhotos.length} new photos`);
+    }
+
+    return { newPhotos: newPhotos.length };
+  } catch (error) {
+    // Swallow all errors - this is a convenience feature
+    if (__DEV__) {
+      console.log('[PhotoSync] Background sync failed:', error);
+    }
+    return null;
+  } finally {
+    backgroundSyncInProgress = false;
+    backgroundSyncController = null;
+  }
+}

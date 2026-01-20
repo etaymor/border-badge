@@ -59,6 +59,8 @@ import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
 import { env } from '@config/env';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
+import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
+import { performBackgroundPhotoSync } from '@services/photoImport';
 import {
   NAVIGATION_STATE_TTL_MS,
   NAVIGATION_STATE_VERSION,
@@ -108,6 +110,7 @@ type ShareCaptureNavigationParams = {
 
 export default function App() {
   const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
+  const homeCountry = useOnboardingStore(selectHomeCountry);
   const [showSplash, setShowSplash] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
   const [isNavigationReady, setIsNavigationReady] = useState(false);
@@ -295,6 +298,11 @@ export default function App() {
 
           // Check for URLs shared via Share Extension while app was in background
           void checkAppGroupForSharedURL();
+
+          // Background photo sync - silently cache new photos for faster photo import
+          performBackgroundPhotoSync(homeCountry).catch(() => {
+            // Errors already handled internally
+          });
         }
       }
       appStateRef.current = nextAppState;
@@ -317,7 +325,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id, checkAppGroupForSharedURL]);
+  }, [session?.user?.id, checkAppGroupForSharedURL, homeCountry]);
 
   // Handle deep links: share extension only
   // Note: Auth callbacks (atlasi://auth-callback) are handled directly by

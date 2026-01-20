@@ -34,6 +34,7 @@ import { fonts } from '@constants/typography';
 export interface ManualPlaceSearchProps {
   cluster: LocationCluster;
   countryCode?: string;
+  preSelectedTripId?: string; // Pre-selected trip from photo import context
   onSelect: (
     place: SelectedPlace,
     category: EntryType,
@@ -48,6 +49,7 @@ export interface ManualPlaceSearchProps {
 export function ManualPlaceSearch({
   cluster,
   countryCode,
+  preSelectedTripId,
   onSelect,
   onCreateTrip,
   onCancel,
@@ -58,7 +60,8 @@ export function ManualPlaceSearch({
   const locationSectionY = useRef<number>(0);
 
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  // Initialize with pre-selected trip if provided
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(preSelectedTripId ?? null);
   const [selectedCategory, setSelectedCategory] = useState<EntryType | null>(null);
   const [hasSelectedType, setHasSelectedType] = useState(false);
   const [notes, setNotes] = useState('');
@@ -180,17 +183,19 @@ export function ManualPlaceSearch({
               />
             </View>
 
-            {/* Trip Section */}
-            <View style={localStyles.section}>
-              <Text style={localStyles.sectionLabel}>SAVE TO TRIP</Text>
-              <TripSelector
-                selectedTripId={selectedTripId}
-                onSelectTrip={setSelectedTripId}
-                countryCode={countryCode}
-                onCreateTrip={handleCreateTrip}
-                isCreatingTrip={isCreatingTrip}
-              />
-            </View>
+            {/* Trip Section - hidden when trip is pre-selected */}
+            {!preSelectedTripId && (
+              <View style={localStyles.section}>
+                <Text style={localStyles.sectionLabel}>SAVE TO TRIP</Text>
+                <TripSelector
+                  selectedTripId={selectedTripId}
+                  onSelectTrip={setSelectedTripId}
+                  countryCode={countryCode}
+                  onCreateTrip={handleCreateTrip}
+                  isCreatingTrip={isCreatingTrip}
+                />
+              </View>
+            )}
 
             {/* Category Selection */}
             <CategorySelector

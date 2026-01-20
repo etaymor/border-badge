@@ -71,7 +71,7 @@ const formatLastScanTime = (timestamp: number): string => {
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { countryCode: filterCountryCode } = route.params ?? {};
+  const { countryCode: filterCountryCode, tripId, autoStart } = route.params ?? {};
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [dismissedClusterIds, setDismissedClusterIds] = useState<Set<string>>(new Set());
 
@@ -98,9 +98,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     closeManualSearch,
   } = usePhotoImportWorkflow({
     filterCountryCode,
+    tripId,
+    autoStart,
     onNavigateToTripForm: (params) => {
       navigation.navigate('Trips', {
         screen: 'TripForm',
+        params,
+      });
+    },
+    onNavigateToTripDetail: (params) => {
+      navigation.navigate('Trips', {
+        screen: 'TripDetail',
         params,
       });
     },
@@ -229,28 +237,40 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       {/* Idle State */}
       {phase === 'idle' && (
         <View style={styles.idleContainer}>
-          <Ionicons name="images-outline" size={64} color={colors.sunsetGold} />
-          <Text style={styles.idleTitle}>Import Travel Photos</Text>
-          <Text style={styles.idleDescription}>
-            {lastImportTime
-              ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
-              : 'Scan your photo library to find travel photos and create entries automatically based on where they were taken.'}
-          </Text>
-          {lastImportTime && (
-            <Text style={styles.lastScanText}>
-              Last scanned: {formatLastScanTime(lastImportTime)}
-            </Text>
-          )}
-          <Button
-            title={lastImportTime ? 'Check for New Photos' : 'Start Scan'}
-            onPress={() => startScan(false)}
-            style={styles.scanButton}
-          />
-          {lastImportTime && (
-            <TouchableOpacity onPress={() => startScan(true)} style={styles.refreshLink}>
-              <Ionicons name="refresh-outline" size={16} color={colors.sunsetGold} />
-              <Text style={styles.refreshLinkText}>Refresh All Photos</Text>
-            </TouchableOpacity>
+          {autoStart && lastImportTime ? (
+            // Brief loading state while auto-start is initializing
+            <>
+              <ActivityIndicator size="large" color={colors.sunsetGold} />
+              <Text style={styles.idleTitle}>Preparing...</Text>
+              <Text style={styles.idleDescription}>Checking for new photos...</Text>
+            </>
+          ) : (
+            // Normal idle state for manual start
+            <>
+              <Ionicons name="images-outline" size={64} color={colors.sunsetGold} />
+              <Text style={styles.idleTitle}>Import Travel Photos</Text>
+              <Text style={styles.idleDescription}>
+                {lastImportTime
+                  ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
+                  : 'Scan your photo library to find travel photos and create entries automatically based on where they were taken.'}
+              </Text>
+              {lastImportTime && (
+                <Text style={styles.lastScanText}>
+                  Last scanned: {formatLastScanTime(lastImportTime)}
+                </Text>
+              )}
+              <Button
+                title={lastImportTime ? 'Check for New Photos' : 'Start Scan'}
+                onPress={() => startScan(false)}
+                style={styles.scanButton}
+              />
+              {lastImportTime && (
+                <TouchableOpacity onPress={() => startScan(true)} style={styles.refreshLink}>
+                  <Ionicons name="refresh-outline" size={16} color={colors.sunsetGold} />
+                  <Text style={styles.refreshLinkText}>Refresh All Photos</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
       )}
@@ -375,6 +395,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <ManualPlaceSearch
           cluster={manualSearchCluster}
           countryCode={selectedCandidate?.countryCode}
+          preSelectedTripId={tripId}
           onSelect={handleManualSelectWithDismiss}
           onCreateTrip={handleCreateTrip}
           onCancel={closeManualSearch}

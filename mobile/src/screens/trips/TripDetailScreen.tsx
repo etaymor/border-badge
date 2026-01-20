@@ -123,9 +123,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
     if (parentNav) {
       parentNav.navigate('PhotoImport', {
         countryCode: trip?.country_code,
+        tripId,
+        autoStart: true,
       });
     }
-  }, [navigation, trip?.country_code]);
+  }, [navigation, trip?.country_code, tripId]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
