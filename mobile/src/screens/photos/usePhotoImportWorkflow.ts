@@ -150,11 +150,15 @@ export function usePhotoImportWorkflow({
   }, []);
 
   // Lookup maps for full data when needed (can be large: ~5-10MB for 10k photos)
+  // Use refs alongside state to enable proper cleanup on unmount (setState is a no-op after unmount)
   const [_photoLookup, setPhotoLookup] = useState<Map<string, PhotoWithLocation>>(new Map());
   const [clusterLookup, setClusterLookup] = useState<Map<string, LocationCluster>>(new Map());
   const [clusterDisplays, setClusterDisplays] = useState<Map<string, LocationClusterDisplay>>(
     new Map()
   );
+  const photoLookupRef = useRef<Map<string, PhotoWithLocation>>(new Map());
+  const clusterLookupRef = useRef<Map<string, LocationCluster>>(new Map());
+  const clusterDisplaysRef = useRef<Map<string, LocationClusterDisplay>>(new Map());
 
   // Manual search state
   const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
@@ -164,6 +168,7 @@ export function usePhotoImportWorkflow({
    * Called when returning to idle phase or on unmount.
    */
   const clearLargeDataStructures = useCallback(() => {
+    // Clear state for re-renders
     setPhotoLookup(new Map());
     setClusterLookup(new Map());
     setClusterDisplays(new Map());
@@ -171,14 +176,21 @@ export function usePhotoImportWorkflow({
     setSelectedCandidate(null);
     setManualSearchCluster(null);
     setScanProgress(null);
+    // Clear refs directly (works even after unmount)
+    photoLookupRef.current.clear();
+    clusterLookupRef.current.clear();
+    clusterDisplaysRef.current.clear();
   }, []);
 
   // Cleanup large data structures on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
-      // Note: We can't call clearLargeDataStructures here because setState
-      // after unmount is a no-op, but we clear the ref which helps GC
       abortControllerRef.current?.abort();
+      // Clear Maps directly via refs (setState is a no-op after unmount)
+      // This releases 5-10MB for large photo libraries
+      photoLookupRef.current.clear();
+      clusterLookupRef.current.clear();
+      clusterDisplaysRef.current.clear();
     };
   }, []);
 
@@ -321,9 +333,13 @@ export function usePhotoImportWorkflow({
           tripCandidateCount: candidates.length,
         });
 
+        // Update both state and refs (refs enable cleanup after unmount)
         setPhotoLookup(optimizedData.photoLookup);
         setClusterLookup(optimizedData.clusterLookup);
         setClusterDisplays(optimizedData.clusterDisplays);
+        photoLookupRef.current = optimizedData.photoLookup;
+        clusterLookupRef.current = optimizedData.clusterLookup;
+        clusterDisplaysRef.current = optimizedData.clusterDisplays;
         setTripCandidates(candidates);
 
         // Auto-select if only one candidate matches the country filter
