@@ -107,7 +107,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   });
 
   const renderCandidateItem = useCallback(
-    ({ item, index }: { item: TripCandidateDisplay; index: number }) => (
+    ({ item }: { item: TripCandidateDisplay }) => (
       <TripCandidateCard candidate={item} onSelect={selectCandidate} />
     ),
     [selectCandidate]
@@ -192,7 +192,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIds]);
 
   const renderClusterItem = useCallback(
-    ({ item, index }: { item: ClusterDisplayItem; index: number }) => {
+    ({ item }: { item: ClusterDisplayItem }) => {
       if (item.type === 'suggestion') {
         return (
           <PlaceSuggestionCard

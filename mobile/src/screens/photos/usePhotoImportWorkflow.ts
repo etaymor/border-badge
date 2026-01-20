@@ -138,14 +138,7 @@ export function usePhotoImportWorkflow({
     getLastImportTime().then(setLastImportTimeState);
   }, []);
 
-  // Cleanup AbortController on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  // Lookup maps for full data when needed
+  // Lookup maps for full data when needed (can be large: ~5-10MB for 10k photos)
   const [_photoLookup, setPhotoLookup] = useState<Map<string, PhotoWithLocation>>(new Map());
   const [clusterLookup, setClusterLookup] = useState<Map<string, LocationCluster>>(new Map());
   const [clusterDisplays, setClusterDisplays] = useState<Map<string, LocationClusterDisplay>>(
@@ -154,6 +147,29 @@ export function usePhotoImportWorkflow({
 
   // Manual search state
   const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
+
+  /**
+   * Clear large in-memory data structures to prevent memory leaks.
+   * Called when returning to idle phase or on unmount.
+   */
+  const clearLargeDataStructures = useCallback(() => {
+    setPhotoLookup(new Map());
+    setClusterLookup(new Map());
+    setClusterDisplays(new Map());
+    setTripCandidates([]);
+    setSelectedCandidate(null);
+    setManualSearchCluster(null);
+    setScanProgress(null);
+  }, []);
+
+  // Cleanup large data structures on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      // Note: We can't call clearLargeDataStructures here because setState
+      // after unmount is a no-op, but we clear the ref which helps GC
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const suggestPlacesMutation = useSuggestPlacesChunked();
   const createEntry = useCreateEntry();
@@ -290,6 +306,8 @@ export function usePhotoImportWorkflow({
         abortControllerRef.current = null;
       } catch (error) {
         abortControllerRef.current = null;
+        // Clear data structures on any error to free memory
+        clearLargeDataStructures();
         if (isAbortError(error)) {
           setPhase('idle');
         } else if (error instanceof HomeCountryNotSetError) {
@@ -306,15 +324,16 @@ export function usePhotoImportWorkflow({
         }
       }
     },
-    [homeCountry, filterCountryCode]
+    [homeCountry, filterCountryCode, clearLargeDataStructures]
   );
 
   const cancelScan = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    clearLargeDataStructures();
     setPhase('idle');
     Analytics.photoImportScanCancelled();
-  }, []);
+  }, [clearLargeDataStructures]);
 
   const selectCandidate = useCallback(
     async (candidate: TripCandidateDisplay) => {

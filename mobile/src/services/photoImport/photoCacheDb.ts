@@ -57,11 +57,21 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   }
 
   dbInitPromise = (async () => {
-    const conn = await SQLite.openDatabaseAsync(DB_NAME);
-    db = conn;
-    await initSchema();
-    dbInitPromise = null;
-    return db;
+    let conn: SQLite.SQLiteDatabase | null = null;
+    try {
+      conn = await SQLite.openDatabaseAsync(DB_NAME);
+      db = conn;
+      await initSchema();
+      dbInitPromise = null;
+      return db;
+    } catch (error) {
+      if (conn) {
+        await conn.closeAsync();
+      }
+      db = null;
+      dbInitPromise = null;
+      throw error;
+    }
   })();
 
   return dbInitPromise;
