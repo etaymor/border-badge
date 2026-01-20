@@ -96,10 +96,11 @@ class PlacesCache:
                     del self._cache[oldest_key]
                 self._cache[key] = (data, time.time())
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         """Clear all cached entries and in-flight requests."""
-        self._cache.clear()
-        self._in_flight.clear()
+        async with self._lock:
+            self._cache.clear()
+            self._in_flight.clear()
 
     @property
     def size(self) -> int:

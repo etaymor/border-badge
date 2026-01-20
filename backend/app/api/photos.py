@@ -28,7 +28,7 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
-@limiter.limit("5/minute")  # Strict limit - heavy processing + external API
+@limiter.limit("30/minute")  # Allow burst usage for users with many clusters
 async def suggest_places(
     request: Request,  # Required by slowapi limiter
     data: PlaceSuggestionRequest,
@@ -40,7 +40,7 @@ async def suggest_places(
 
     Users see "15m away" and decide Yes/No - no confidence percentages.
 
-    Rate limited to 5 requests/minute per user to control API costs.
+    Rate limited to 30 requests/minute per user to allow reasonable batch imports.
     """
     logger.info(
         f"Processing {len(data.clusters)} clusters for user {user.id}",

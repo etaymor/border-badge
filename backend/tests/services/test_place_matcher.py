@@ -262,7 +262,8 @@ class TestPlacesCacheLRU:
         # key1 should exist with updated value
         assert await cache.get("key1") == [{"place": "updated1"}]
 
-    def test_clear_removes_all_entries(self) -> None:
+    @pytest.mark.asyncio
+    async def test_clear_removes_all_entries(self) -> None:
         """Test that clear() empties the cache."""
         cache = PlacesCache(ttl_hours=24, max_size=100)
 
@@ -271,7 +272,7 @@ class TestPlacesCacheLRU:
         cache._cache["key2"] = ([{"place": "data2"}], 1000000.0)
         assert cache.size == 2
 
-        cache.clear()
+        await cache.clear()
 
         assert cache.size == 0
 
@@ -588,13 +589,13 @@ class TestFindPlacesForClustersPartialFailures:
         return settings
 
     @pytest.fixture
-    def clean_cache(self):
+    async def clean_cache(self):
         """Clear the module-level places cache before each test."""
         from app.services.place_matcher import places_cache
 
-        places_cache.clear()
+        await places_cache.clear()
         yield
-        places_cache.clear()
+        await places_cache.clear()
 
     @pytest.mark.asyncio
     async def test_returns_successful_results_when_some_clusters_fail(
