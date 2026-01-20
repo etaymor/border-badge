@@ -539,9 +539,19 @@ export function usePhotoImportWorkflow({
             prefillPhotos,
           });
         }
+
+        // Clean up large data structures after navigation to free ~10MB for large libraries
+        clearLargeDataStructures();
       }
     },
-    [selectedCandidate, clusterLookup, tripId, onNavigateToTripForm, onNavigateToTripDetail]
+    [
+      selectedCandidate,
+      clusterLookup,
+      tripId,
+      onNavigateToTripForm,
+      onNavigateToTripDetail,
+      clearLargeDataStructures,
+    ]
   );
 
   const handleRejectPlace = useCallback(
