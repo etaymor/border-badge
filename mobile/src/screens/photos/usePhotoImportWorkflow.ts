@@ -66,9 +66,10 @@ function createAbortError(message: string): Error {
 }
 
 /**
- * Truncate coordinate to 4 decimal places (~11m precision) for PII protection.
+ * Truncate coordinate to 5 decimal places (~1.1m precision) for PII protection.
+ * Matches backend cache precision in place_matcher/cache.py.
  */
-const truncateCoordinate = (value: number): number => Math.round(value * 10000) / 10000;
+const truncateCoordinate = (value: number): number => Math.round(value * 100000) / 100000;
 
 export interface PhotoImportWorkflowResult {
   // State
@@ -168,6 +169,9 @@ export function usePhotoImportWorkflow({
         );
         return;
       }
+
+      // Abort any previous scan before starting a new one
+      abortControllerRef.current?.abort();
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -333,7 +337,7 @@ export function usePhotoImportWorkflow({
         });
         for (const c of clustersForApi) {
           console.log(
-            `[PhotoImport]   Cluster ${c.id}: centroid=(${c.centroid.latitude.toFixed(4)}, ${c.centroid.longitude.toFixed(4)}), photos=${c.photos.length}`
+            `[PhotoImport]   Cluster ${c.id}: centroid=(${c.centroid.latitude.toFixed(5)}, ${c.centroid.longitude.toFixed(5)}), photos=${c.photos.length}`
           );
         }
       }

@@ -100,9 +100,10 @@ async def search_places(
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
             if response.status_code != 200:
+                # Don't log response body - may contain sensitive error details
                 logger.warning(
                     f"places_autocomplete_error: status={response.status_code} "
-                    f"query={query[:50]!r} response={response.text[:300]}"
+                    f"query={query[:50]!r}"
                 )
                 return []
 
@@ -195,9 +196,10 @@ async def get_place_details(place_id: str) -> dict | None:
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
             if response.status_code != 200:
+                # Don't log response body - may contain sensitive error details
                 logger.warning(
                     f"PLACES DETAILS ERROR: status={response.status_code}, "
-                    f"place_id={place_id}, response={response.text[:500]}"
+                    f"place_id={place_id}"
                 )
                 return None
 

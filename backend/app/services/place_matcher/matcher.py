@@ -232,9 +232,8 @@ class PlaceMatcher:
                     raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
-                logger.error(
-                    f"Google Places API error: {response.status_code} - {response.text[:500]}"
-                )
+                # Don't log response body - may contain sensitive error details
+                logger.error(f"Google Places API error: status={response.status_code}")
                 return []
 
             response_json = response.json()

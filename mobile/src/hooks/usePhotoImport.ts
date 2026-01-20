@@ -23,7 +23,7 @@ export interface PlaceSuggestionProgress {
 }
 
 /** Chunk size for batched place suggestion requests */
-const CHUNK_SIZE = 10;
+const CHUNK_SIZE = 15;
 
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {

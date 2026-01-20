@@ -19,6 +19,29 @@ const SCHEMA_VERSION = 1;
 let db: SQLite.SQLiteDatabase | null = null;
 
 /**
+ * Validate photo ID format for defense-in-depth.
+ * expo-media-library returns UUIDs on iOS and numeric strings on Android.
+ * Allows alphanumeric characters, hyphens, and forward slashes.
+ */
+const VALID_PHOTO_ID_PATTERN = /^[a-zA-Z0-9/-]+$/;
+
+function isValidPhotoId(id: string): boolean {
+  return id.length > 0 && id.length <= 256 && VALID_PHOTO_ID_PATTERN.test(id);
+}
+
+function validatePhotoIds(ids: string[]): string[] {
+  return ids.filter((id) => {
+    if (!isValidPhotoId(id)) {
+      if (__DEV__) {
+        console.warn(`[PhotoCache] Invalid photo ID format: ${id.substring(0, 50)}`);
+      }
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
  * Get or create the database instance.
  */
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
@@ -221,13 +244,18 @@ export async function hasCachedPhotos(): Promise<boolean> {
 
 /**
  * Remove photos by IDs (for handling deleted photos).
+ * IDs are validated for defense-in-depth against malformed input.
  */
 export async function removeCachedPhotos(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
 
+  // Defense-in-depth: validate IDs even though we use parameterized queries
+  const validIds = validatePhotoIds(ids);
+  if (validIds.length === 0) return;
+
   const database = await getDb();
-  const placeholders = ids.map(() => '?').join(',');
-  await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, ids);
+  const placeholders = validIds.map(() => '?').join(',');
+  await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, validIds);
 }
 
 /**
