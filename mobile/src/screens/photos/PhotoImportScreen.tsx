@@ -107,7 +107,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   });
 
   const renderCandidateItem = useCallback(
-    ({ item }: { item: TripCandidateDisplay }) => (
+    ({ item, index }: { item: TripCandidateDisplay; index: number }) => (
       <TripCandidateCard candidate={item} onSelect={selectCandidate} />
     ),
     [selectCandidate]
@@ -192,7 +192,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIds]);
 
   const renderClusterItem = useCallback(
-    ({ item }: { item: ClusterDisplayItem }) => {
+    ({ item, index }: { item: ClusterDisplayItem; index: number }) => {
       if (item.type === 'suggestion') {
         return (
           <PlaceSuggestionCard
@@ -294,7 +294,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             renderItem={renderCandidateItem}
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) => item.id}
-            estimatedItemSize={120}
           />
         </View>
       )}
@@ -342,7 +341,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             keyExtractor={(item) =>
               item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id
             }
-            estimatedItemSize={200}
             ListEmptyComponent={
               suggestPlacesMutation.isPending ? (
                 <View style={styles.loadingContainer}>

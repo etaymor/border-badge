@@ -17,6 +17,7 @@ const DB_NAME = 'photos.db';
 const SCHEMA_VERSION = 1;
 
 let db: SQLite.SQLiteDatabase | null = null;
+let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 /**
  * Validate photo ID format for defense-in-depth.
@@ -43,13 +44,27 @@ function validatePhotoIds(ids: string[]): string[] {
 
 /**
  * Get or create the database instance.
+ * Uses a promise-based singleton to prevent race conditions where
+ * concurrent callers could each open separate DB connections.
  */
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!db) {
-    db = await SQLite.openDatabaseAsync(DB_NAME);
-    await initSchema();
+  if (db) {
+    return db;
   }
-  return db;
+
+  if (dbInitPromise) {
+    return dbInitPromise;
+  }
+
+  dbInitPromise = (async () => {
+    const conn = await SQLite.openDatabaseAsync(DB_NAME);
+    db = conn;
+    await initSchema();
+    dbInitPromise = null;
+    return db;
+  })();
+
+  return dbInitPromise;
 }
 
 /**
