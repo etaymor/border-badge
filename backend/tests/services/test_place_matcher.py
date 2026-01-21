@@ -630,10 +630,11 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # Should have 3 successful results (5 clusters - 2 failures)
         assert len(results) == 3
+        assert failed_count == 2
         # All results should have valid structure
         for result in results:
             assert "cluster_id" in result
@@ -665,10 +666,13 @@ class TestFindPlacesForClustersPartialFailures:
         matcher = PlaceMatcher(http_client=mock_client)
 
         # All clusters should timeout, but no exception should be raised
-        results = await matcher.find_places_for_clusters(sample_clusters[:2])
+        results, failed_count = await matcher.find_places_for_clusters(
+            sample_clusters[:2]
+        )
 
         # All clusters timed out, so empty results
         assert len(results) == 0
+        assert failed_count == 2
 
     @pytest.mark.asyncio
     async def test_handles_http_error_for_individual_cluster(
@@ -706,10 +710,11 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # Should have 4 successful results (5 clusters - 1 HTTP error)
         assert len(results) == 4
+        assert failed_count == 1
 
     @pytest.mark.asyncio
     async def test_handles_rate_limit_error_gracefully(
@@ -745,10 +750,11 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # RateLimitError gets raised and filtered, other clusters succeed
         assert len(results) == 4
+        assert failed_count == 1
 
     @pytest.mark.asyncio
     async def test_all_clusters_fail_returns_empty_list(
@@ -766,10 +772,11 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # All clusters failed, return empty list
         assert results == []
+        assert failed_count == 5
 
     @pytest.mark.asyncio
     async def test_no_results_for_cluster_returns_none_filtered(
@@ -791,10 +798,12 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # All clusters returned no places, so all filtered out
+        # Note: no-place-found results are None, which is counted as "failed"
         assert results == []
+        assert failed_count == 5
 
     @pytest.mark.asyncio
     async def test_mixed_success_none_and_exceptions(
@@ -843,10 +852,12 @@ class TestFindPlacesForClustersPartialFailures:
         mock_client.post = mock_post
 
         matcher = PlaceMatcher(http_client=mock_client)
-        results = await matcher.find_places_for_clusters(sample_clusters)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
         # Should have 2 results (clusters 0 and 3 succeeded)
+        # Failures: cluster 1 (no places), cluster 2 (exception), cluster 4 (timeout)
         assert len(results) == 2
+        assert failed_count == 3
 
 
 # ============================================================================

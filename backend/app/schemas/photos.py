@@ -127,3 +127,4 @@ class PlaceSuggestionResponse(BaseModel):
     """Response with place suggestions."""
 
     suggestions: list[ClusterSuggestion]
+    failed_cluster_count: int = 0  # Clusters that timed out or failed to process

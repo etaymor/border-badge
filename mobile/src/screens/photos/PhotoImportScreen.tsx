@@ -336,28 +336,40 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
       {/* Scanning State */}
       {phase === 'scanning' && (
-        <View style={styles.scanningContainer}>
-          <ActivityIndicator size="large" color={colors.sunsetGold} />
-          <Text style={styles.scanningTitle}>
-            {scanProgress?.phase === 'geocoding'
-              ? 'Identifying Countries...'
-              : isIncremental
-                ? 'Checking for New Photos...'
-                : 'Scanning Photos...'}
-          </Text>
-          <Text style={styles.scanningProgress}>
-            {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
-            {scanProgress?.phase === 'scanning' &&
-              scanProgress?.gpsPhotoCount !== undefined &&
-              ` (${scanProgress.gpsPhotoCount} with GPS)`}
-          </Text>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
+        <>
+          <View style={styles.scanningContainer}>
+            <ActivityIndicator size="large" color={colors.sunsetGold} />
+            <Text style={styles.scanningTitle}>
+              {scanProgress?.phase === 'geocoding'
+                ? 'Identifying Countries...'
+                : isIncremental
+                  ? 'Checking for New Photos...'
+                  : 'Scanning Photos...'}
+            </Text>
+            <Text style={styles.scanningProgress}>
+              {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
+              {scanProgress?.phase === 'scanning' &&
+                scanProgress?.gpsPhotoCount !== undefined &&
+                ` (${scanProgress.gpsPhotoCount} with GPS)`}
+            </Text>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
+            </View>
+            <TouchableOpacity onPress={cancelScan} style={styles.cancelButton}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={cancelScan} style={styles.cancelButton}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
+          {/* Large library warning */}
+          {scanProgress?.gpsPhotoCount !== undefined && scanProgress.gpsPhotoCount > 5000 && (
+            <View style={styles.warningBannerScanning}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.sunsetGold} />
+              <Text style={styles.warningText}>
+                Large photo library detected ({scanProgress.gpsPhotoCount.toLocaleString()} photos).
+                For best performance, filter by country after scanning.
+              </Text>
+            </View>
+          )}
+        </>
       )}
 
       {/* Candidates List */}
@@ -404,6 +416,25 @@ export function PhotoImportScreen({ navigation, route }: Props) {
               </View>
             </View>
           )}
+
+          {/* Warning banner when some clusters or chunks failed to process */}
+          {!suggestPlacesMutation.isPending &&
+            suggestPlacesMutation.progress &&
+            (suggestPlacesMutation.progress.failedClusters > 0 ||
+              suggestPlacesMutation.progress.failedChunks > 0) && (
+              <View style={styles.warningBanner}>
+                <Ionicons name="warning-outline" size={20} color={colors.sunsetGold} />
+                <Text style={styles.warningText}>
+                  {suggestPlacesMutation.progress.failedChunks > 0
+                    ? `Some suggestions couldn't be loaded due to network issues. `
+                    : ''}
+                  {suggestPlacesMutation.progress.failedClusters > 0
+                    ? `${suggestPlacesMutation.progress.failedClusters} location${suggestPlacesMutation.progress.failedClusters === 1 ? '' : 's'} could not be processed. `
+                    : ''}
+                  You can add places manually using the search button.
+                </Text>
+              </View>
+            )}
 
           {/* Show all clusters - those with suggestions use PlaceSuggestionCard, others use PhotoClusterCard */}
           <FlashList

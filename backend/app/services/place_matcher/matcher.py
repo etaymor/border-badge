@@ -57,7 +57,7 @@ class PlaceMatcher:
 
     async def find_places_for_clusters(
         self, clusters: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """
         Find place suggestions for photo clusters.
 
@@ -72,7 +72,7 @@ class PlaceMatcher:
             clusters: List of cluster dicts with centroid and photos
 
         Returns:
-            List of cluster suggestions with places ranked by distance
+            Tuple of (cluster_suggestions, failed_cluster_count)
         """
         logger.info(
             f"Processing {len(clusters)} clusters",
@@ -153,9 +153,21 @@ class PlaceMatcher:
         )
 
         # Filter out None results (no places found) and exceptions (partial failures)
-        return [
+        # Track failed clusters to inform the user
+        successful = [
             r for r in results if r is not None and not isinstance(r, BaseException)
         ]
+        failed_count = sum(
+            1 for r in results if r is None or isinstance(r, BaseException)
+        )
+
+        if failed_count > 0:
+            logger.warning(
+                f"Failed to process {failed_count}/{len(clusters)} clusters "
+                "(timeouts or errors)"
+            )
+
+        return successful, failed_count
 
     async def _search_nearby_tiered(
         self,

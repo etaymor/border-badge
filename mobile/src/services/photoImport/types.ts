@@ -130,6 +130,7 @@ export interface PlaceSuggestionRequest {
 // Response from place suggestion API
 export interface PlaceSuggestionResponse {
   suggestions: ClusterSuggestion[];
+  failed_cluster_count: number; // Clusters that timed out or failed to process
 }
 
 // Cached photo metadata stored in SQLite

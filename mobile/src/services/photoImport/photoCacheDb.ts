@@ -287,6 +287,7 @@ export async function hasCachedPhotos(): Promise<boolean> {
 /**
  * Remove photos by IDs (for handling deleted photos).
  * IDs are validated for defense-in-depth against malformed input.
+ * Deletes in batches to avoid SQLite bound-parameter limits.
  */
 export async function removeCachedPhotos(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
@@ -296,8 +297,13 @@ export async function removeCachedPhotos(ids: string[]): Promise<void> {
   if (validIds.length === 0) return;
 
   const database = await getDb();
-  const placeholders = validIds.map(() => '?').join(',');
-  await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, validIds);
+  const BATCH_SIZE = 100;
+
+  for (let i = 0; i < validIds.length; i += BATCH_SIZE) {
+    const batch = validIds.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, batch);
+  }
 }
 
 /**

@@ -52,14 +52,17 @@ async def suggest_places(
     async with httpx.AsyncClient(timeout=settings.places_api_timeout_seconds) as client:
         matcher = PlaceMatcher(http_client=client)
         try:
-            suggestion_dicts = await matcher.find_places_for_clusters(
+            suggestion_dicts, failed_count = await matcher.find_places_for_clusters(
                 [c.model_dump() for c in data.clusters]
             )
             # Convert dicts to ClusterSuggestion models for validation
             suggestions = [
                 ClusterSuggestion.model_validate(s) for s in suggestion_dicts
             ]
-            return PlaceSuggestionResponse(suggestions=suggestions)
+            return PlaceSuggestionResponse(
+                suggestions=suggestions,
+                failed_cluster_count=failed_count,
+            )
         except QuotaExhaustedError as e:
             # Daily quota exhausted - tell user to try again tomorrow
             raise HTTPException(

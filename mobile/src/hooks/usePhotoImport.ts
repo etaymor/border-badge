@@ -20,6 +20,8 @@ export interface PlaceSuggestionProgress {
   percentage: number;
   /** Number of chunks that failed (non-fatal errors) */
   failedChunks: number;
+  /** Number of individual clusters that timed out or failed within successful chunks */
+  failedClusters: number;
 }
 
 /** Chunk size for batched place suggestion requests */
@@ -113,6 +115,7 @@ export function useSuggestPlacesChunked() {
       const chunks = chunkArray(clusters, CHUNK_SIZE);
       const allSuggestions: ClusterSuggestion[] = [];
       let failedChunkCount = 0;
+      let failedClusterCount = 0;
 
       // Reset state for new request
       abortRef.current = false;
@@ -122,6 +125,7 @@ export function useSuggestPlacesChunked() {
         clustersCompleted: 0,
         percentage: 0,
         failedChunks: 0,
+        failedClusters: 0,
       });
 
       for (let i = 0; i < chunks.length; i++) {
@@ -138,14 +142,19 @@ export function useSuggestPlacesChunked() {
           clustersCompleted: clustersProcessed,
           percentage: Math.round((clustersProcessed / totalClusters) * 100),
           failedChunks: failedChunkCount,
+          failedClusters: failedClusterCount,
         });
 
         try {
           const response = await api.post('/photos/suggest-places', { clusters: chunk });
-          const suggestions = response.data.suggestions as ClusterSuggestion[];
+          const responseData = response.data as PlaceSuggestionResponse;
+          const suggestions = responseData.suggestions;
+          const chunkFailedClusters = responseData.failed_cluster_count ?? 0;
+          failedClusterCount += chunkFailedClusters;
           if (__DEV__) {
             console.log(
-              `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions`,
+              `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions` +
+                (chunkFailedClusters > 0 ? `, ${chunkFailedClusters} clusters timed out` : ''),
               suggestions.map((s) => ({
                 clusterId: s.cluster_id,
                 placeCount: s.places?.length ?? 0,
@@ -183,10 +192,11 @@ export function useSuggestPlacesChunked() {
           clustersCompleted: totalClusters,
           percentage: 100,
           failedChunks: failedChunkCount,
+          failedClusters: failedClusterCount,
         });
       }
 
-      return { suggestions: allSuggestions };
+      return { suggestions: allSuggestions, failed_cluster_count: failedClusterCount };
     },
     onError: () => {
       // Reset progress on error
