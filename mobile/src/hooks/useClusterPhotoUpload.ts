@@ -21,6 +21,12 @@ export interface ClusterUploadState {
   error: string | null;
 }
 
+/** Result from uploadPhotos operation */
+export interface UploadPhotosResult {
+  mediaIds: string[];
+  failedCount: number;
+}
+
 const initialState: ClusterUploadState = {
   isUploading: false,
   currentPhotoIndex: 0,
@@ -148,15 +154,15 @@ export function useClusterPhotoUpload() {
 
   /**
    * Upload photos from a cluster.
-   * Returns array of successfully uploaded media IDs.
+   * Returns object with successfully uploaded media IDs and failed count.
    */
   const uploadPhotos = useCallback(
-    async (photos: PhotoWithLocation[], tripId: string): Promise<string[]> => {
+    async (photos: PhotoWithLocation[], tripId: string): Promise<UploadPhotosResult> => {
       // Limit to max photos per entry
       const photosToUpload = photos.slice(0, MAX_PHOTOS_PER_ENTRY);
 
       if (photosToUpload.length === 0) {
-        return [];
+        return { mediaIds: [], failedCount: 0 };
       }
 
       // Initialize state
@@ -274,7 +280,7 @@ export function useClusterPhotoUpload() {
       }));
 
       abortControllerRef.current = null;
-      return mediaIds;
+      return { mediaIds, failedCount };
     },
     [uploadMedia]
   );

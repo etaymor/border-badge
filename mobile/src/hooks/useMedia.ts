@@ -254,18 +254,15 @@ async function uploadToStorage(
       reject(new Error('Upload was cancelled.'));
     };
 
-    // Create form data for upload
-    const formData = new FormData();
-    formData.append('file', {
+    // Send raw file as PUT request body (matching mediaUpload.ts pattern)
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    // Send the file URI object as the body - React Native XHR handles this
+    xhr.send({
       uri: file.uri,
       name: file.name,
       type: file.type,
     } as unknown as Blob);
-
-    xhr.open('POST', uploadUrl);
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.setRequestHeader('Content-Type', file.type);
-    xhr.send(formData);
   });
 }
 

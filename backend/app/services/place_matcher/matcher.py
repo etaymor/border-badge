@@ -91,51 +91,60 @@ class PlaceMatcher:
         async def search_with_timeout(cluster: dict[str, Any]) -> dict[str, Any] | None:
             """Search for places with semaphore-bounded concurrency and timeout.
 
-            The semaphore acquisition is inside the timeout to prevent slot leaks:
-            if wait_for times out while waiting for the semaphore OR during the
-            search, the slot is properly released.
+            The semaphore acquisition is inside the timeout so cluster_timeout
+            covers both waiting for a slot and the search itself. This prevents
+            tasks from waiting indefinitely when the semaphore queue is deep
+            (e.g., 50 clusters with semaphore=5 means 45 waiting tasks).
             """
-            async with semaphore:
+
+            async def inner() -> tuple[list[dict], int]:
+                """Acquire semaphore and run search, releasing in finally."""
+                await semaphore.acquire()
                 try:
-                    places, radius_used = await asyncio.wait_for(
-                        self._search_nearby_tiered(
-                            latitude=cluster["centroid"]["latitude"],
-                            longitude=cluster["centroid"]["longitude"],
-                        ),
-                        timeout=cluster_timeout,
+                    return await self._search_nearby_tiered(
+                        latitude=cluster["centroid"]["latitude"],
+                        longitude=cluster["centroid"]["longitude"],
                     )
-                except TimeoutError:
-                    logger.warning(
-                        f"Cluster search timed out after {cluster_timeout}s",
-                        extra={"cluster_id": cluster.get("id")},
-                    )
-                    return None
+                finally:
+                    semaphore.release()
 
-                lat = cluster["centroid"]["latitude"]
-                lng = cluster["centroid"]["longitude"]
-                logger.info(
-                    f"Cluster {cluster['id']}: centroid=({lat:.5f}, {lng:.5f}), "
-                    f"found {len(places)} quality places at radius={radius_used}m"
+            try:
+                places, radius_used = await asyncio.wait_for(
+                    inner(),
+                    timeout=cluster_timeout,
                 )
-
-                # Places are already quality-filtered by _search_nearby_tiered
-                ranked_places = self._rank_by_distance(
-                    places=places,
-                    cluster=cluster,
+            except TimeoutError:
+                logger.warning(
+                    f"Cluster search timed out after {cluster_timeout}s",
+                    extra={"cluster_id": cluster.get("id")},
                 )
-
-                if ranked_places:
-                    logger.info(
-                        f"Cluster {cluster['id']}: returning {len(ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER])} suggestions, "
-                        f"top={ranked_places[0]['name'] if ranked_places else 'none'}"
-                    )
-                    return {
-                        "cluster_id": cluster["id"],
-                        "photo_ids": [p["asset_id"] for p in cluster.get("photos", [])],
-                        "places": ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER],
-                    }
-                logger.info(f"Cluster {cluster['id']}: no places found after ranking")
                 return None
+
+            lat = cluster["centroid"]["latitude"]
+            lng = cluster["centroid"]["longitude"]
+            logger.info(
+                f"Cluster {cluster['id']}: centroid=({lat:.5f}, {lng:.5f}), "
+                f"found {len(places)} quality places at radius={radius_used}m"
+            )
+
+            # Places are already quality-filtered by _search_nearby_tiered
+            ranked_places = self._rank_by_distance(
+                places=places,
+                cluster=cluster,
+            )
+
+            if ranked_places:
+                logger.info(
+                    f"Cluster {cluster['id']}: returning {len(ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER])} suggestions, "
+                    f"top={ranked_places[0]['name'] if ranked_places else 'none'}"
+                )
+                return {
+                    "cluster_id": cluster["id"],
+                    "photo_ids": [p["asset_id"] for p in cluster.get("photos", [])],
+                    "places": ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER],
+                }
+            logger.info(f"Cluster {cluster['id']}: no places found after ranking")
+            return None
 
         # Execute all searches in parallel with bounded concurrency and per-cluster timeout
         results = await asyncio.gather(

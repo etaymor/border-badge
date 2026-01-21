@@ -135,8 +135,12 @@ export function usePhotoScan({
           allCachedPhotos = [...allCachedPhotos, ...newCachedPhotos];
         }
 
-        // Update last import time
-        const importTime = Date.now();
+        // Update last import time using the newest photo's creationTime to avoid
+        // missing photos taken during the scan. Falls back to Date.now() if no photos.
+        const importTime =
+          newPhotos.length > 0
+            ? Math.max(...newPhotos.map((p) => p.creationTime.getTime()))
+            : Date.now();
         await setLastImportTime(importTime);
 
         // Check if we have any photos at all

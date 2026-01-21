@@ -90,7 +90,7 @@ export function useEntryCreation({
 
       try {
         // Upload photos first
-        const mediaIds = await uploadPhotos(cluster.photos, selectedTripId);
+        const { mediaIds, failedCount } = await uploadPhotos(cluster.photos, selectedTripId);
 
         // Build place input for entry creation
         const placeInput: PlaceInput = {
@@ -122,10 +122,10 @@ export function useEntryCreation({
         await markClusterProcessed(suggestion.cluster_id, 'confirmed');
 
         // Show alert if some photos failed to upload
-        if (uploadState.failedCount > 0) {
+        if (failedCount > 0) {
           Alert.alert(
             'Entry Created',
-            `${mediaIds.length} photo${mediaIds.length !== 1 ? 's' : ''} saved. ${uploadState.failedCount} photo${uploadState.failedCount !== 1 ? 's' : ''} failed to upload.`
+            `${mediaIds.length} photo${mediaIds.length !== 1 ? 's' : ''} saved. ${failedCount} photo${failedCount !== 1 ? 's' : ''} failed to upload.`
           );
         }
       } catch (err) {
@@ -154,7 +154,6 @@ export function useEntryCreation({
       createEntry,
       uploadPhotos,
       resetUpload,
-      uploadState.failedCount,
       setDismissedClusterIds,
       setUploadingClusterId,
     ]
@@ -229,8 +228,11 @@ export function useEntryCreation({
       try {
         // Upload photos first if we have a cluster
         let mediaIds: string[] = [];
+        let failedCount = 0;
         if (cluster) {
-          mediaIds = await uploadPhotos(cluster.photos, tripIdToUse);
+          const uploadResult = await uploadPhotos(cluster.photos, tripIdToUse);
+          mediaIds = uploadResult.mediaIds;
+          failedCount = uploadResult.failedCount;
         }
 
         // Build place input for entry creation
@@ -266,10 +268,10 @@ export function useEntryCreation({
         }
 
         // Show alert if some photos failed to upload
-        if (uploadState.failedCount > 0) {
+        if (failedCount > 0) {
           Alert.alert(
             'Entry Created',
-            `${mediaIds.length} photo${mediaIds.length !== 1 ? 's' : ''} saved. ${uploadState.failedCount} photo${uploadState.failedCount !== 1 ? 's' : ''} failed to upload.`
+            `${mediaIds.length} photo${mediaIds.length !== 1 ? 's' : ''} saved. ${failedCount} photo${failedCount !== 1 ? 's' : ''} failed to upload.`
           );
         }
 
@@ -309,7 +311,6 @@ export function useEntryCreation({
       createEntry,
       uploadPhotos,
       resetUpload,
-      uploadState.failedCount,
       setManualSearchCluster,
       setDismissedClusterIds,
       setUploadingClusterId,
