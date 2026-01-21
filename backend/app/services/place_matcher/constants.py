@@ -12,9 +12,9 @@ NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 
 # Configuration
 SEARCH_RADII_METERS = [
-    10,
-    30,
-    75,
+    15,
+    50,
+    125,
 ]  # Tiered: start tight for dense cities, widen if empty
 MAX_PLACES_PER_SEARCH = 10
 MAX_SUGGESTIONS_PER_CLUSTER = 3  # Top 3 by distance
@@ -81,9 +81,9 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "market",
     "store",
     "shopping_mall",
-    # Religious (1)
-    "place_of_worship",
-]  # Total: 50 types
+    # Note: place_of_worship is NOT supported by Nearby Search API (Table A)
+    # Religious sites are typically tagged as tourist_attraction or historical_landmark
+]  # Total: 49 types
 
 # Place type to entry category mapping (includes types returned by API)
 TYPE_TO_CATEGORY: dict[str, str] = {

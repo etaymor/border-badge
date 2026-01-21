@@ -1,191 +1,98 @@
 /**
  * usePhotoImportWorkflow - Custom hook managing the photo import workflow state and logic.
  *
- * Extracts all scan, geocode, and candidate selection logic from the screen component
- * to keep the screen focused on rendering.
+ * Composes smaller hooks for scanning, suggestions, and entry creation.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
 
-import type { SelectedPlace } from '@components/places';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import {
-  useSuggestPlacesChunked,
-  RateLimitError,
-  QuotaExhaustedError,
-} from '@hooks/usePhotoImport';
-import { useCreateEntry, PlaceInput, CreateEntryInput } from '@hooks/useEntries';
-import { useCreateTrip } from '@hooks/useTrips';
-import {
-  extractPhotosWithLocation,
-  segmentTripsFromCache,
-  photoToCachedPhoto,
-  getFullCluster,
-  HomeCountryNotSetError,
   getLastImportTime,
-  setLastImportTime,
-  getAllCachedPhotos,
-  cachePhotos,
-  clearPhotoCache,
-  abortBackgroundSync,
+  getProcessedClusterIds,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
   type LocationClusterDisplay,
-  type ClusterSuggestion,
-  type PlaceSuggestion,
   type PhotoWithLocation,
-  type CachedPhoto,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
-import type { EntryType, PrefillPlace } from '@navigation/types';
 
-export type ImportPhase = 'idle' | 'scanning' | 'candidates' | 'suggestions';
+import type {
+  ImportPhase,
+  PhotoImportWorkflowResult,
+  UsePhotoImportWorkflowOptions,
+} from './photoImportTypes';
+import { usePhotoScan, ScanResult } from './usePhotoScan';
+import { usePlaceSuggestions } from './usePlaceSuggestions';
+import { useEntryCreation } from './useEntryCreation';
 
-/**
- * Type guard for AbortError.
- * Uses name-based check for React Native compatibility (no DOMException).
- */
-function isAbortError(error: unknown): error is Error {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'name' in error &&
-    (error as Error).name === 'AbortError'
-  );
-}
-
-/**
- * Create an AbortError compatible with React Native.
- * Standard Error with name set to 'AbortError' for isAbortError detection.
- */
-function createAbortError(message: string): Error {
-  const error = new Error(message);
-  error.name = 'AbortError';
-  return error;
-}
-
-/**
- * Truncate coordinate to 5 decimal places (~1.1m precision) for PII protection.
- * Matches backend cache precision in place_matcher/cache.py.
- */
-const truncateCoordinate = (value: number): number => Math.round(value * 100000) / 100000;
-
-export interface PhotoImportWorkflowResult {
-  // State
-  phase: ImportPhase;
-  scanProgress: ScanProgress | null;
-  tripCandidates: TripCandidateDisplay[];
-  selectedCandidate: TripCandidateDisplay | null;
-  clusterDisplays: Map<string, LocationClusterDisplay>;
-  manualSearchCluster: LocationCluster | null;
-  suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
-  /** Timestamp of last successful import, null if never imported */
-  lastImportTime: number | null;
-  /** Whether we're doing an incremental scan (has cache) or full scan */
-  isIncremental: boolean;
-
-  // Actions
-  startScan: (forceRefresh?: boolean) => Promise<void>;
-  cancelScan: () => void;
-  selectCandidate: (candidate: TripCandidateDisplay) => Promise<void>;
-  handleConfirmPlace: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
-  handleRejectPlace: (suggestion: ClusterSuggestion) => void;
-  handleAddEntryForCluster: (clusterId: string) => void;
-  handleManualSelect: (
-    place: SelectedPlace,
-    category: EntryType,
-    tripId: string,
-    notes?: string
-  ) => Promise<string | undefined>;
-  handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
-  backToCandidates: () => void;
-  closeManualSearch: () => void;
-  isSaving: boolean;
-}
-
-interface UsePhotoImportWorkflowOptions {
-  filterCountryCode?: string;
-  tripId?: string; // Pre-associated trip ID
-  autoStart?: boolean; // Auto-start scan when cache exists
-  onNavigateToTripForm: (params: {
-    countryId: string;
-    prefillPlace: {
-      placeId: string;
-      name: string;
-      address: string;
-      category: EntryType;
-    };
-    prefillPhotos: string[];
-  }) => void;
-  onNavigateToTripDetail?: (params: {
-    tripId: string;
-    prefillPlace: PrefillPlace;
-    prefillPhotos: string[];
-  }) => void;
-}
+// Re-export types for convenience
+export type {
+  ImportPhase,
+  PhotoImportWorkflowResult,
+  UsePhotoImportWorkflowOptions,
+} from './photoImportTypes';
 
 export function usePhotoImportWorkflow({
   filterCountryCode,
   tripId,
   autoStart,
-  onNavigateToTripForm,
-  onNavigateToTripDetail,
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
 
-  // Workflow state
+  // ==========================================================================
+  // Core State
+  // ==========================================================================
   const [phase, setPhase] = useState<ImportPhase>('idle');
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId ?? null);
   const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
   const [isIncremental, setIsIncremental] = useState<boolean>(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Load last import time on mount
-  useEffect(() => {
-    getLastImportTime().then(setLastImportTimeState);
-  }, []);
+  // Track dismissed clusters to mark as processed after confirm
+  const [dismissedClusterIdsInternal, setDismissedClusterIdsInternal] = useState<Set<string>>(
+    new Set()
+  );
 
-  // Lookup maps for full data when needed (can be large: ~5-10MB for 10k photos)
-  // Use refs alongside state to enable proper cleanup on unmount (setState is a no-op after unmount)
+  // Manual search state
+  const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
+
+  // Upload state for UI
+  const [uploadingClusterId, setUploadingClusterId] = useState<string | null>(null);
+
+  // ==========================================================================
+  // Data Lookups (can be large: ~5-10MB for 10k photos)
+  // ==========================================================================
   const [_photoLookup, setPhotoLookup] = useState<Map<string, PhotoWithLocation>>(new Map());
   const [clusterLookup, setClusterLookup] = useState<Map<string, LocationCluster>>(new Map());
   const [clusterDisplays, setClusterDisplays] = useState<Map<string, LocationClusterDisplay>>(
     new Map()
   );
+
+  // Refs for cleanup after unmount (setState is a no-op after unmount)
   const photoLookupRef = useRef<Map<string, PhotoWithLocation>>(new Map());
   const clusterLookupRef = useRef<Map<string, LocationCluster>>(new Map());
   const clusterDisplaysRef = useRef<Map<string, LocationClusterDisplay>>(new Map());
 
-  // Manual search state
-  const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
+  // Track whether auto-start has been attempted
+  const autoStartAttemptedRef = useRef(false);
 
-  /**
-   * Clear large in-memory data structures to prevent memory leaks.
-   * Called when returning to idle phase or on unmount.
-   */
-  const clearLargeDataStructures = useCallback(() => {
-    // Clear state for re-renders
-    setPhotoLookup(new Map());
-    setClusterLookup(new Map());
-    setClusterDisplays(new Map());
-    setTripCandidates([]);
-    setSelectedCandidate(null);
-    setManualSearchCluster(null);
-    setScanProgress(null);
-    // Clear refs directly (works even after unmount)
-    photoLookupRef.current.clear();
-    clusterLookupRef.current.clear();
-    clusterDisplaysRef.current.clear();
+  // ==========================================================================
+  // Load persisted state on mount
+  // ==========================================================================
+  useEffect(() => {
+    getLastImportTime().then(setLastImportTimeState);
+    getProcessedClusterIds().then(setDismissedClusterIdsInternal);
   }, []);
 
-  // Cleanup large data structures on unmount to prevent memory leaks
+  // ==========================================================================
+  // Cleanup on unmount
+  // ==========================================================================
   useEffect(() => {
     return () => {
-      abortControllerRef.current?.abort();
       // Clear Maps directly via refs (setState is a no-op after unmount)
       // This releases 5-10MB for large photo libraries
       photoLookupRef.current.clear();
@@ -194,483 +101,204 @@ export function usePhotoImportWorkflow({
     };
   }, []);
 
-  // Track whether auto-start has been attempted to avoid double-running
-  const autoStartAttemptedRef = useRef(false);
+  // ==========================================================================
+  // Clear large data structures (for navigation/error cleanup)
+  // ==========================================================================
+  const clearLargeDataStructures = useCallback(() => {
+    setPhotoLookup(new Map());
+    setClusterLookup(new Map());
+    setClusterDisplays(new Map());
+    setTripCandidates([]);
+    setSelectedCandidate(null);
+    setManualSearchCluster(null);
+    setScanProgress(null);
+    photoLookupRef.current.clear();
+    clusterLookupRef.current.clear();
+    clusterDisplaysRef.current.clear();
+  }, []);
 
-  // Track whether we need to fetch suggestions for an auto-selected candidate
-  const [pendingAutoSelect, setPendingAutoSelect] = useState<{
-    candidate: TripCandidateDisplay;
-    clusterLookupMap: Map<string, LocationCluster>;
-  } | null>(null);
+  // ==========================================================================
+  // Photo Scan Hook
+  // ==========================================================================
+  const onScanComplete = useCallback((result: ScanResult) => {
+    setPhotoLookup(result.photoLookup);
+    setClusterLookup(result.clusterLookup);
+    setClusterDisplays(result.clusterDisplays);
+    photoLookupRef.current = result.photoLookup;
+    clusterLookupRef.current = result.clusterLookup;
+    clusterDisplaysRef.current = result.clusterDisplays;
+    setTripCandidates(result.candidates);
+    setLastImportTimeState(result.importTime);
+    setIsIncremental(result.isIncremental);
+    setPhase('candidates');
+  }, []);
 
-  const suggestPlacesMutation = useSuggestPlacesChunked();
-  const createEntry = useCreateEntry();
-  const createTrip = useCreateTrip();
+  const onScanError = useCallback(() => {
+    clearLargeDataStructures();
+    setPhase('idle');
+  }, [clearLargeDataStructures]);
+
+  const { startScan: startScanInternal, cancelScan: cancelScanInternal } = usePhotoScan({
+    homeCountry,
+    filterCountryCode,
+    onScanProgress: setScanProgress,
+    onScanComplete,
+    onScanError,
+  });
 
   const startScan = useCallback(
     async (forceRefresh = false) => {
-      if (!homeCountry) {
-        Alert.alert(
-          'Set Home Country',
-          'Please set your home country in settings first. This helps us filter out local photos.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      // Abort any background sync in progress to prevent conflicts
-      abortBackgroundSync();
-
-      // Abort any previous scan before starting a new one
-      abortControllerRef.current?.abort();
-
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
       setPhase('scanning');
-      Analytics.photoImportScanStarted();
-
-      try {
-        // Check if we have cached data and should do incremental import
-        const cachedImportTime = forceRefresh ? null : await getLastImportTime();
-        const doIncremental = cachedImportTime !== null;
-        setIsIncremental(doIncremental);
-
-        if (forceRefresh) {
-          // Clear cache for full refresh
-          await clearPhotoCache();
-        }
-
-        let allCachedPhotos: CachedPhoto[] = [];
-        let newPhotos: PhotoWithLocation[] = [];
-
-        if (doIncremental) {
-          // Incremental import: load cached photos and scan only new ones
-          if (__DEV__) {
-            console.log(
-              '[PhotoImport] Incremental scan since:',
-              new Date(cachedImportTime).toISOString()
-            );
-          }
-
-          // Load cached photos first (fast)
-          allCachedPhotos = await getAllCachedPhotos();
-
-          // Scan only photos created after last import
-          newPhotos = await extractPhotosWithLocation(
-            (progress) => {
-              if (controller.signal.aborted) return;
-              setScanProgress(progress);
-            },
-            controller.signal,
-            new Date(cachedImportTime)
-          );
-
-          if (__DEV__) {
-            console.log(
-              `[PhotoImport] Loaded ${allCachedPhotos.length} cached, found ${newPhotos.length} new`
-            );
-          }
-        } else {
-          // Full scan: no cache, scan all photos
-          newPhotos = await extractPhotosWithLocation((progress) => {
-            if (controller.signal.aborted) return;
-            setScanProgress(progress);
-          }, controller.signal);
-        }
-
-        // Check for abort after photo extraction
-        if (controller.signal.aborted) {
-          throw createAbortError('Scan aborted');
-        }
-
-        // Cache new photos if we found any
-        if (newPhotos.length > 0) {
-          const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
-          await cachePhotos(newCachedPhotos);
-          allCachedPhotos = [...allCachedPhotos, ...newCachedPhotos];
-        }
-
-        // Update last import time
-        const importTime = Date.now();
-        await setLastImportTime(importTime);
-        setLastImportTimeState(importTime);
-
-        // Check if we have any photos at all
-        if (allCachedPhotos.length === 0 && newPhotos.length === 0) {
-          Alert.alert(
-            'No Photos Found',
-            'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
-            [{ text: 'OK' }]
-          );
-          setPhase('idle');
-          abortControllerRef.current = null;
-          return;
-        }
-
-        // Segment trips from cached data (fast: no geocoding needed)
-        const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
-        let candidates = optimizedData.candidates;
-        if (filterCountryCode) {
-          candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
-        }
-
-        if (candidates.length === 0) {
-          Alert.alert(
-            'No Trips Found',
-            filterCountryCode
-              ? `No travel photos found for this country. Photos taken in your home country (${homeCountry}) are filtered out.`
-              : `No travel photos found. Photos taken in your home country (${homeCountry}) are filtered out.`,
-            [{ text: 'OK' }]
-          );
-          setPhase('idle');
-          abortControllerRef.current = null;
-          return;
-        }
-
-        const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
-        Analytics.photoImportScanCompleted({
-          photoCount: totalPhotoCount,
-          tripCandidateCount: candidates.length,
-        });
-
-        // Update both state and refs (refs enable cleanup after unmount)
-        setPhotoLookup(optimizedData.photoLookup);
-        setClusterLookup(optimizedData.clusterLookup);
-        setClusterDisplays(optimizedData.clusterDisplays);
-        photoLookupRef.current = optimizedData.photoLookup;
-        clusterLookupRef.current = optimizedData.clusterLookup;
-        clusterDisplaysRef.current = optimizedData.clusterDisplays;
-        setTripCandidates(candidates);
-
-        // Auto-select if only one candidate matches the country filter
-        // This provides a seamless flow when coming from TripDetailScreen
-        if (candidates.length === 1 && filterCountryCode) {
-          // Set up pending auto-selection - will be handled by effect
-          setPendingAutoSelect({
-            candidate: candidates[0],
-            clusterLookupMap: optimizedData.clusterLookup,
-          });
-        } else {
-          setPhase('candidates');
-        }
-        abortControllerRef.current = null;
-      } catch (error) {
-        abortControllerRef.current = null;
-        // Clear data structures on any error to free memory
-        clearLargeDataStructures();
-        if (isAbortError(error)) {
-          setPhase('idle');
-        } else if (error instanceof HomeCountryNotSetError) {
-          Alert.alert('Set Home Country', 'Please set your home country in settings first.');
-          Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
-          setPhase('idle');
-        } else {
-          if (__DEV__) console.error('[PhotoImport] Scan error:', error);
-          Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
-          Analytics.photoImportScanFailed({
-            error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
-          });
-          setPhase('idle');
-        }
+      const success = await startScanInternal(forceRefresh);
+      if (!success) {
+        setPhase('idle');
       }
     },
-    [homeCountry, filterCountryCode, clearLargeDataStructures]
+    [startScanInternal]
   );
 
   const cancelScan = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
+    cancelScanInternal();
     clearLargeDataStructures();
     setPhase('idle');
-    Analytics.photoImportScanCancelled();
-  }, [clearLargeDataStructures]);
+  }, [cancelScanInternal, clearLargeDataStructures]);
+
+  // ==========================================================================
+  // Place Suggestions Hook
+  // ==========================================================================
+  const { suggestPlacesMutation, fetchSuggestions, clearFetchedCache } = usePlaceSuggestions({
+    clusterLookupRef,
+  });
+
+  // ==========================================================================
+  // Entry Creation Hook
+  // ==========================================================================
+  const {
+    createEntry,
+    uploadState,
+    cancelUpload,
+    handleConfirmPlace,
+    handleRejectPlace,
+    handleHideCluster,
+    handleAddEntryForCluster,
+    handleManualSelect,
+    handleCreateTrip,
+    closeManualSearch,
+  } = useEntryCreation({
+    clusterLookup,
+    selectedTripId,
+    manualSearchCluster,
+    setManualSearchCluster,
+    setDismissedClusterIds: setDismissedClusterIdsInternal,
+    setUploadingClusterId,
+  });
+
+  // ==========================================================================
+  // Navigation Actions
+  // ==========================================================================
 
   /**
-   * Internal function to select a candidate and fetch suggestions.
-   * Accepts an optional clusterLookupMap for use during startScan when
-   * the state hasn't been updated yet.
+   * Select a candidate and go to trip selection phase.
    */
-  const selectCandidateWithLookup = useCallback(
-    async (candidate: TripCandidateDisplay, clusterLookupMap: Map<string, LocationCluster>) => {
-      setSelectedCandidate(candidate);
+  const selectCandidate = useCallback((candidate: TripCandidateDisplay) => {
+    setSelectedCandidate(candidate);
+    setPhase('trip-selection');
+    Analytics.photoImportCandidateSelected({
+      countryCode: candidate.countryCode,
+      clusterCount: candidate.locationClusterIds.length,
+    });
+  }, []);
+
+  /**
+   * Select a trip and proceed to suggestions phase.
+   * Accepts optional candidate parameter to use when called in the same
+   * render cycle as selectCandidate (avoids stale closure).
+   */
+  const selectTrip = useCallback(
+    async (tripIdToSelect: string, candidate?: TripCandidateDisplay) => {
+      const candidateToUse = candidate ?? selectedCandidate;
+      if (!candidateToUse) {
+        if (__DEV__) console.warn('[PhotoImport] selectTrip called without candidate');
+        return;
+      }
+      setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
-      Analytics.photoImportCandidateSelected({
-        countryCode: candidate.countryCode,
-        clusterCount: candidate.locationClusterIds.length,
-      });
-
-      const clustersForApi = candidate.locationClusterIds
-        .map((id) => getFullCluster(id, clusterLookupMap))
-        .filter((c): c is LocationCluster => c !== undefined);
-
-      if (__DEV__) {
-        console.log('[PhotoImport] Sending clusters to API:', {
-          candidateId: candidate.id,
-          clusterIds: clustersForApi.map((c) => c.id),
-          clusterCount: clustersForApi.length,
-        });
-        for (const c of clustersForApi) {
-          console.log(
-            `[PhotoImport]   Cluster ${c.id}: centroid=(${c.centroid.latitude.toFixed(5)}, ${c.centroid.longitude.toFixed(5)}), photos=${c.photos.length}`
-          );
-        }
-      }
-
-      try {
-        const result = await suggestPlacesMutation.mutateAsync({
-          clusters: clustersForApi.map((c) => ({
-            id: c.id,
-            centroid: {
-              latitude: truncateCoordinate(c.centroid.latitude),
-              longitude: truncateCoordinate(c.centroid.longitude),
-            },
-            photos: c.photos.map((p) => ({
-              asset_id: p.id,
-              latitude: truncateCoordinate(p.location.latitude),
-              longitude: truncateCoordinate(p.location.longitude),
-              timestamp: p.creationTime.toISOString(),
-            })),
-            start_time: c.timeRange.start.toISOString(),
-            end_time: c.timeRange.end.toISOString(),
-          })),
-        });
-
-        if (__DEV__) {
-          console.log('[PhotoImport] API result:', {
-            suggestionCount: result.suggestions.length,
-            suggestionClusterIds: result.suggestions.map((s) => s.cluster_id),
-          });
-        }
-
-        // Track completion with failure count from progress
-        const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
-        Analytics.photoImportSuggestionsCompleted({
-          suggestionCount: result.suggestions.length,
-          failedChunks,
-        });
-      } catch (error) {
-        if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
-
-        if (error instanceof QuotaExhaustedError) {
-          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
-          Alert.alert(
-            'Service Temporarily Unavailable',
-            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
-          );
-        } else if (error instanceof RateLimitError) {
-          Analytics.photoImportApiError({ errorType: 'rate_limited' });
-          Alert.alert(
-            'Too Many Requests',
-            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
-          );
-        } else {
-          Analytics.photoImportApiError({ errorType: 'unknown' });
-          Alert.alert(
-            'Failed to Get Suggestions',
-            'Unable to find place suggestions. Please try again.'
-          );
-        }
-      }
+      await fetchSuggestions(candidateToUse);
     },
-    [suggestPlacesMutation]
-  );
-
-  /**
-   * Public function to select a candidate. Uses the current clusterLookup state.
-   */
-  const selectCandidate = useCallback(
-    async (candidate: TripCandidateDisplay) => {
-      await selectCandidateWithLookup(candidate, clusterLookup);
-    },
-    [selectCandidateWithLookup, clusterLookup]
-  );
-
-  // Effect to handle pending auto-selection after startScan completes
-  useEffect(() => {
-    if (pendingAutoSelect) {
-      const { candidate, clusterLookupMap } = pendingAutoSelect;
-      setPendingAutoSelect(null);
-      selectCandidateWithLookup(candidate, clusterLookupMap);
-    }
-  }, [pendingAutoSelect, selectCandidateWithLookup]);
-
-  // Auto-start effect: trigger scan when entering with context and cache exists
-  // This runs only on mount to check if we should auto-start the scan
-  useEffect(() => {
-    if (autoStart && filterCountryCode && !autoStartAttemptedRef.current && homeCountry) {
-      autoStartAttemptedRef.current = true;
-      // Check if we have cached data before auto-starting
-      getLastImportTime().then((lastImport) => {
-        if (lastImport) {
-          // Auto-start incremental scan - startScan will set phase to 'scanning'
-          startScan(false);
-        }
-      });
-    }
-    // We intentionally only run this on mount - don't add startScan to deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, filterCountryCode, homeCountry]);
-
-  const handleConfirmPlace = useCallback(
-    (suggestion: ClusterSuggestion, place: PlaceSuggestion) => {
-      Analytics.photoImportPlaceConfirmed({ category: place.category });
-      if (selectedCandidate) {
-        const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
-        const prefillPlaceData: PrefillPlace = {
-          placeId: place.place_id,
-          name: place.name,
-          address: place.address,
-          category: place.category,
-        };
-        const prefillPhotos = cluster?.photos.map((p) => p.uri) ?? [];
-
-        // If tripId is pre-set, navigate directly to TripDetail with prefill
-        if (tripId && onNavigateToTripDetail) {
-          onNavigateToTripDetail({
-            tripId,
-            prefillPlace: prefillPlaceData,
-            prefillPhotos,
-          });
-        } else {
-          // Otherwise, go to TripForm to create/select a trip
-          onNavigateToTripForm({
-            countryId: selectedCandidate.countryCode,
-            prefillPlace: prefillPlaceData,
-            prefillPhotos,
-          });
-        }
-
-        // Clean up large data structures after navigation to free ~10MB for large libraries
-        clearLargeDataStructures();
-      }
-    },
-    [
-      selectedCandidate,
-      clusterLookup,
-      tripId,
-      onNavigateToTripForm,
-      onNavigateToTripDetail,
-      clearLargeDataStructures,
-    ]
-  );
-
-  const handleRejectPlace = useCallback(
-    (suggestion: ClusterSuggestion) => {
-      Analytics.photoImportPlaceRejected();
-      const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
-      if (cluster) {
-        setManualSearchCluster(cluster);
-        Analytics.photoImportManualSearchOpened();
-      }
-    },
-    [clusterLookup]
-  );
-
-  const handleAddEntryForCluster = useCallback(
-    (clusterId: string) => {
-      const cluster = getFullCluster(clusterId, clusterLookup);
-      if (cluster) {
-        setManualSearchCluster(cluster);
-        Analytics.photoImportManualSearchOpened();
-      }
-    },
-    [clusterLookup]
-  );
-
-  const handleCreateTrip = useCallback(
-    async (name: string, countryCode: string): Promise<string> => {
-      try {
-        const trip = await createTrip.mutateAsync({ name, country_code: countryCode });
-        return trip.id;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to create trip';
-        Alert.alert('Error', message);
-        throw err;
-      }
-    },
-    [createTrip]
-  );
-
-  const handleManualSelect = useCallback(
-    async (place: SelectedPlace, category: EntryType, tripId: string, notes?: string) => {
-      const cluster = manualSearchCluster;
-      const clusterId = cluster?.id;
-      setManualSearchCluster(null);
-
-      // Build place input for entry creation
-      const placeInput: PlaceInput = {
-        google_place_id: place.google_place_id,
-        name: place.name,
-        address: place.address,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        google_photo_url: place.google_photo_url,
-      };
-
-      // Create entry data
-      const entryData: CreateEntryInput = {
-        trip_id: tripId,
-        entry_type: category,
-        title: place.name,
-        notes: notes || undefined,
-        place: placeInput,
-        // Get entry date from cluster's earliest photo timestamp
-        entry_date: cluster?.timeRange.start.toISOString().split('T')[0],
-      };
-
-      try {
-        await createEntry.mutateAsync(entryData);
-        Analytics.photoImportPlaceConfirmed({ category });
-
-        // Entry saved successfully - modal will close and user returns to suggestions list
-        // Return the cluster ID so the screen can mark it as processed/dismissed
-        return clusterId;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to save entry';
-        Alert.alert('Save Failed', message);
-        // Re-open manual search so user can try again
-        if (cluster) {
-          setManualSearchCluster(cluster);
-        }
-        throw err; // Re-throw so caller knows it failed
-      }
-    },
-    [manualSearchCluster, createEntry]
+    [fetchSuggestions, selectedCandidate]
   );
 
   const backToCandidates = useCallback(() => {
     setSelectedCandidate(null);
+    setSelectedTripId(null);
     setPhase('candidates');
     suggestPlacesMutation.reset();
   }, [suggestPlacesMutation]);
 
-  const closeManualSearch = useCallback(() => {
-    setManualSearchCluster(null);
-  }, []);
+  const backToTripSelection = useCallback(() => {
+    setSelectedTripId(null);
+    setPhase('trip-selection');
+    suggestPlacesMutation.reset();
+  }, [suggestPlacesMutation]);
 
+  // ==========================================================================
+  // Auto-start effect
+  // ==========================================================================
+  useEffect(() => {
+    if (autoStart && filterCountryCode && !autoStartAttemptedRef.current && homeCountry) {
+      autoStartAttemptedRef.current = true;
+      getLastImportTime().then((lastImport) => {
+        if (lastImport) {
+          startScan(false);
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, filterCountryCode, homeCountry]);
+
+  // ==========================================================================
+  // Cleanup on unmount - clear fetched cache
+  // ==========================================================================
+  useEffect(() => {
+    return () => {
+      clearFetchedCache();
+    };
+  }, [clearFetchedCache]);
+
+  // ==========================================================================
+  // Return
+  // ==========================================================================
   return {
     // State
     phase,
     scanProgress,
     tripCandidates,
     selectedCandidate,
+    selectedTripId,
     clusterDisplays,
     manualSearchCluster,
     suggestPlacesMutation,
     lastImportTime,
     isIncremental,
     isSaving: createEntry.isPending,
+    dismissedClusterIdsInternal,
+    uploadState,
+    uploadingClusterId,
 
     // Actions
     startScan,
     cancelScan,
     selectCandidate,
+    selectTrip,
     handleConfirmPlace,
     handleRejectPlace,
+    handleHideCluster,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
+    backToTripSelection,
     closeManualSearch,
+    cancelUpload,
   };
 }

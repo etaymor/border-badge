@@ -119,9 +119,12 @@ export async function extractPhotosWithLocation(
         });
 
         if (info.location?.latitude && info.location?.longitude) {
+          // Prefer localUri (file://) over uri (ph://) for reliable file access
+          // ph:// URIs are volatile and fail ~75% of the time with FileSystem.copyAsync
+          const photoUri = info.localUri ?? info.uri ?? asset.uri;
           return {
             id: asset.id,
-            uri: asset.uri,
+            uri: photoUri,
             filename: asset.filename,
             creationTime: new Date(asset.creationTime),
             location: {

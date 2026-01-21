@@ -62,7 +62,6 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
       conn = await SQLite.openDatabaseAsync(DB_NAME);
       db = conn;
       await initSchema();
-      dbInitPromise = null;
       return db;
     } catch (error) {
       if (conn) {
@@ -73,6 +72,12 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
       throw error;
     }
   })();
+
+  // Clear the promise only after it resolves successfully,
+  // ensuring all concurrent callers receive the same db instance
+  dbInitPromise.then(() => {
+    dbInitPromise = null;
+  });
 
   return dbInitPromise;
 }
@@ -99,6 +104,12 @@ async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS photo_cache_metadata (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS processed_clusters (
+      cluster_id TEXT PRIMARY KEY NOT NULL,
+      status TEXT NOT NULL,
+      processed_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
@@ -304,6 +315,48 @@ export async function clearPhotoCache(): Promise<void> {
   });
 }
 
+// =============================================================================
+// Processed Clusters (for hiding already-processed suggestions)
+// =============================================================================
+
+export type ProcessedClusterStatus = 'confirmed' | 'hidden';
+
+/**
+ * Mark a cluster as processed (confirmed or hidden).
+ * This prevents the cluster from appearing in future suggestion lists.
+ */
+export async function markClusterProcessed(
+  clusterId: string,
+  status: ProcessedClusterStatus
+): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    'INSERT OR REPLACE INTO processed_clusters (cluster_id, status, processed_at) VALUES (?, ?, ?)',
+    [clusterId, status, Date.now()]
+  );
+}
+
+/**
+ * Get all processed cluster IDs.
+ * Returns a Set for efficient lookup when filtering suggestions.
+ */
+export async function getProcessedClusterIds(): Promise<Set<string>> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ cluster_id: string }>(
+    'SELECT cluster_id FROM processed_clusters'
+  );
+  return new Set(rows.map((r) => r.cluster_id));
+}
+
+/**
+ * Clear all processed clusters.
+ * Call this when user wants to see all suggestions again.
+ */
+export async function clearProcessedClusters(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM processed_clusters');
+}
+
 /**
  * Close the database connection.
  * Primarily used for testing cleanup.
@@ -405,10 +458,12 @@ export async function performBackgroundPhotoSync(
     return null;
   }
 
-  // Skip if already syncing
+  // Atomically check and acquire lock before any async operations to prevent race conditions
   if (backgroundSyncInProgress) {
     return null;
   }
+  backgroundSyncInProgress = true;
+  backgroundSyncController = new AbortController();
 
   try {
     // Lazy load dependencies to avoid circular imports
@@ -434,10 +489,6 @@ export async function performBackgroundPhotoSync(
     if (lastBackgroundSync && now - lastBackgroundSync < BACKGROUND_SYNC_INTERVAL_MS) {
       return null;
     }
-
-    // Start background sync
-    backgroundSyncInProgress = true;
-    backgroundSyncController = new AbortController();
 
     // Perform incremental scan (only photos since last import)
     const newPhotos = await extractPhotosWithLocation(

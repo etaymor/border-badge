@@ -106,7 +106,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   }, [countryId, displayName, navigation]);
 
   const handleImportPhotos = useCallback(() => {
-    navigation.navigate('PhotoImport', { countryCode: code });
+    navigation.navigate('PhotoImport', { countryCode: code, autoStart: true });
   }, [code, navigation]);
 
   const handleTripPress = useCallback(

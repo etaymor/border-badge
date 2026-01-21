@@ -97,3 +97,6 @@ export type {
 export { useReducedMotion } from './useReducedMotion';
 
 export { useSuggestPlaces } from './usePhotoImport';
+
+export { useClusterPhotoUpload } from './useClusterPhotoUpload';
+export type { ClusterUploadState } from './useClusterPhotoUpload';

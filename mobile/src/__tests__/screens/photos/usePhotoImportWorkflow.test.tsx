@@ -41,6 +41,8 @@ jest.mock('../../../services/photoImport', () => ({
   cachePhotos: jest.fn(),
   clearPhotoCache: jest.fn(),
   abortBackgroundSync: jest.fn(),
+  markClusterProcessed: jest.fn(),
+  getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
 }));
 
 jest.mock('../../../hooks/usePhotoImport', () => ({
@@ -167,7 +169,6 @@ function createMockCluster(id: string) {
 
 describe('usePhotoImportWorkflow', () => {
   let queryClient: QueryClient;
-  const mockNavigateToTripForm = jest.fn();
   const mockSuggestPlacesMutation = {
     mutateAsync: jest.fn(),
     reset: jest.fn(),
@@ -203,13 +204,9 @@ describe('usePhotoImportWorkflow', () => {
 
   describe('initial state', () => {
     it('starts in idle phase', () => {
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       expect(result.current.phase).toBe('idle');
       expect(result.current.scanProgress).toBeNull();
@@ -221,13 +218,9 @@ describe('usePhotoImportWorkflow', () => {
       const lastImportTime = Date.now() - 3600000;
       mockedPhotoImport.getLastImportTime.mockResolvedValue(lastImportTime);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await waitFor(() => {
         expect(result.current.lastImportTime).toBe(lastImportTime);
@@ -239,13 +232,9 @@ describe('usePhotoImportWorkflow', () => {
     it('shows alert when home country is not set', async () => {
       mockedOnboardingStore.useOnboardingStore.mockReturnValue(null);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -269,13 +258,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -296,13 +281,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -326,13 +307,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan(true); // forceRefresh = true
@@ -345,13 +322,9 @@ describe('usePhotoImportWorkflow', () => {
       mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([]);
       mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([]);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -374,13 +347,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -404,13 +373,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -441,7 +406,6 @@ describe('usePhotoImportWorkflow', () => {
         () =>
           usePhotoImportWorkflow({
             filterCountryCode: 'JP',
-            onNavigateToTripForm: mockNavigateToTripForm,
           }),
         { wrapper: createWrapper(queryClient) }
       );
@@ -464,13 +428,9 @@ describe('usePhotoImportWorkflow', () => {
         clusterDisplays: new Map(),
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       await act(async () => {
         await result.current.startScan();
@@ -483,13 +443,9 @@ describe('usePhotoImportWorkflow', () => {
 
   describe('cancelScan', () => {
     it('aborts the scan and returns to idle', async () => {
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       // Call cancelScan directly - it should work even in idle state
       act(() => {
@@ -502,6 +458,27 @@ describe('usePhotoImportWorkflow', () => {
   });
 
   describe('selectCandidate', () => {
+    it('transitions to trip-selection phase', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      expect(result.current.phase).toBe('trip-selection');
+      expect(result.current.selectedCandidate).toEqual(mockCandidate);
+      expect(Analytics.photoImportCandidateSelected).toHaveBeenCalledWith({
+        countryCode: 'JP',
+        clusterCount: 1,
+      });
+    });
+  });
+
+  describe('selectTrip', () => {
     it('transitions to suggestions phase and fetches suggestions', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       const mockCluster = createMockCluster('cluster-1');
@@ -526,24 +503,23 @@ describe('usePhotoImportWorkflow', () => {
         ],
       });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
+      // First select a candidate to get to trip-selection phase
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      expect(result.current.phase).toBe('trip-selection');
+
+      // Then select a trip to transition to suggestions
       await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+        await result.current.selectTrip('trip-123');
       });
 
       expect(result.current.phase).toBe('suggestions');
-      expect(result.current.selectedCandidate).toEqual(mockCandidate);
-      expect(Analytics.photoImportCandidateSelected).toHaveBeenCalledWith({
-        countryCode: 'JP',
-        clusterCount: 1,
-      });
+      expect(result.current.selectedTripId).toBe('trip-123');
       expect(mockSuggestPlacesMutation.mutateAsync).toHaveBeenCalled();
     });
 
@@ -554,16 +530,18 @@ describe('usePhotoImportWorkflow', () => {
         new photoImportHooks.QuotaExhaustedError()
       );
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
+      // First select a candidate
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      // Then select a trip (which triggers fetching suggestions)
       await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+        await result.current.selectTrip('trip-123');
       });
 
       expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'quota_exhausted' });
@@ -580,16 +558,18 @@ describe('usePhotoImportWorkflow', () => {
         new photoImportHooks.RateLimitError(30)
       );
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
+      // First select a candidate
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      // Then select a trip
       await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+        await result.current.selectTrip('trip-123');
       });
 
       expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'rate_limited' });
@@ -601,7 +581,7 @@ describe('usePhotoImportWorkflow', () => {
   });
 
   describe('handleConfirmPlace', () => {
-    it('navigates to trip form with prefilled data', async () => {
+    it('creates entry directly when trip is selected', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       const mockCluster = createMockCluster('cluster-1');
       const mockSuggestion = {
@@ -613,7 +593,10 @@ describe('usePhotoImportWorkflow', () => {
         place_id: 'ChIJ123',
         name: 'Test Place',
         address: 'Test Address',
-        location: { latitude: 35.6762, longitude: 139.6503 },
+        location: {
+          latitude: 35.6762,
+          longitude: 139.6503,
+        },
         category: 'place' as const,
         distance_m: 50,
         types: ['tourist_attraction'],
@@ -622,34 +605,65 @@ describe('usePhotoImportWorkflow', () => {
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
       mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
-
-      // First select a candidate to set selectedCandidate
-      await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
       });
 
+      // First select a candidate
       act(() => {
-        result.current.handleConfirmPlace(mockSuggestion, mockPlace);
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      // Then select a trip
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      // Now confirm a place - should create entry directly
+      await act(async () => {
+        await result.current.handleConfirmPlace(mockSuggestion, mockPlace);
       });
 
       expect(Analytics.photoImportPlaceConfirmed).toHaveBeenCalledWith({ category: 'place' });
-      expect(mockNavigateToTripForm).toHaveBeenCalledWith({
-        countryId: 'JP',
-        prefillPlace: {
-          placeId: 'ChIJ123',
-          name: 'Test Place',
-          address: 'Test Address',
-          category: 'place',
+      // Cluster should be dismissed after confirmation
+      expect(result.current.dismissedClusterIdsInternal.has('cluster-1')).toBe(true);
+    });
+
+    it('shows error if no trip selected', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['photo-1'],
+        places: [],
+      };
+      const mockPlace = {
+        place_id: 'ChIJ123',
+        name: 'Test Place',
+        address: 'Test Address',
+        location: {
+          latitude: 35.6762,
+          longitude: 139.6503,
         },
-        prefillPhotos: expect.any(Array),
+        category: 'place' as const,
+        distance_m: 50,
+        types: ['tourist_attraction'],
+      };
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
       });
+
+      // Select a candidate but don't select a trip
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      // Try to confirm without selecting a trip
+      await act(async () => {
+        await result.current.handleConfirmPlace(mockSuggestion, mockPlace);
+      });
+
+      expect(global.__mockAlert.alert).toHaveBeenCalledWith('Error', 'Please select a trip first.');
     });
   });
 
@@ -664,13 +678,9 @@ describe('usePhotoImportWorkflow', () => {
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       act(() => {
         result.current.handleRejectPlace(mockSuggestion);
@@ -687,13 +697,9 @@ describe('usePhotoImportWorkflow', () => {
       const mockCluster = createMockCluster('cluster-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       act(() => {
         result.current.handleAddEntryForCluster('cluster-1');
@@ -705,25 +711,21 @@ describe('usePhotoImportWorkflow', () => {
   });
 
   describe('backToCandidates', () => {
-    it('returns to candidates phase and resets suggestions', async () => {
+    it('returns to candidates phase and resets state', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
       mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
-
-      // Go to suggestions phase first
-      await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
       });
 
-      expect(result.current.phase).toBe('suggestions');
+      // Go to trip-selection phase first
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      expect(result.current.phase).toBe('trip-selection');
 
       act(() => {
         result.current.backToCandidates();
@@ -731,6 +733,38 @@ describe('usePhotoImportWorkflow', () => {
 
       expect(result.current.phase).toBe('candidates');
       expect(result.current.selectedCandidate).toBeNull();
+      expect(result.current.selectedTripId).toBeNull();
+      expect(mockSuggestPlacesMutation.reset).toHaveBeenCalled();
+    });
+  });
+
+  describe('backToTripSelection', () => {
+    it('returns to trip-selection phase and resets suggestions', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      // Go through the full flow to suggestions phase
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      expect(result.current.phase).toBe('suggestions');
+
+      act(() => {
+        result.current.backToTripSelection();
+      });
+
+      expect(result.current.phase).toBe('trip-selection');
+      expect(result.current.selectedTripId).toBeNull();
       expect(mockSuggestPlacesMutation.reset).toHaveBeenCalled();
     });
   });
@@ -740,13 +774,9 @@ describe('usePhotoImportWorkflow', () => {
       const mockCluster = createMockCluster('cluster-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       // Open manual search first
       act(() => {
@@ -766,13 +796,9 @@ describe('usePhotoImportWorkflow', () => {
   describe('handleCreateTrip', () => {
     it('creates a new trip and returns its ID', async () => {
       // The hook is already mocked in jest.mock above, which returns { id: 'trip-1' }
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       let tripId: string;
       await act(async () => {
@@ -785,7 +811,7 @@ describe('usePhotoImportWorkflow', () => {
   });
 
   describe('phase transitions', () => {
-    it('follows idle -> scanning -> candidates -> suggestions flow', async () => {
+    it('follows idle -> scanning -> candidates -> trip-selection -> suggestions flow', async () => {
       const phases: ImportPhase[] = [];
       const mockCandidate = createMockTripCandidate('trip-1');
 
@@ -799,13 +825,9 @@ describe('usePhotoImportWorkflow', () => {
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
       mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
 
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            onNavigateToTripForm: mockNavigateToTripForm,
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
       phases.push(result.current.phase);
 
@@ -814,12 +836,17 @@ describe('usePhotoImportWorkflow', () => {
       });
       phases.push(result.current.phase);
 
-      await act(async () => {
-        await result.current.selectCandidate(mockCandidate);
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
       });
       phases.push(result.current.phase);
 
-      expect(phases).toEqual(['idle', 'candidates', 'suggestions']);
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+      phases.push(result.current.phase);
+
+      expect(phases).toEqual(['idle', 'candidates', 'trip-selection', 'suggestions']);
     });
   });
 });

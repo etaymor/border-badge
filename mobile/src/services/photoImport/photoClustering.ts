@@ -10,7 +10,6 @@ import * as geohash from 'ngeohash';
 
 import type {
   CachedPhoto,
-  ClusteringConfig,
   LocationCluster,
   LocationClusterDisplay,
   PhotoWithLocation,
@@ -18,50 +17,12 @@ import type {
   TripCandidateDisplay,
 } from './types';
 
-// Default configuration
-const DEFAULT_CLUSTERING_CONFIG = {
-  TIME_GAP_THRESHOLD_MS: 7 * 24 * 60 * 60 * 1000, // 7 days between trips
-  GEOHASH_PRECISION: 7, // ~153m cells for location clustering
-  MAX_PREVIEW_URIS: 5, // Limit preview URIs stored per candidate/cluster
-} as const;
-
-// Current active configuration (can be overridden)
-let CLUSTERING_CONFIG = { ...DEFAULT_CLUSTERING_CONFIG };
-
-/**
- * Update clustering configuration.
- * Useful for adjusting precision in dense urban areas.
- *
- * @param config - Partial config to merge with defaults
- */
-export function setClusteringConfig(config: Partial<ClusteringConfig>): void {
-  CLUSTERING_CONFIG = {
-    ...DEFAULT_CLUSTERING_CONFIG,
-    ...(config.geohashPrecision !== undefined && {
-      GEOHASH_PRECISION: config.geohashPrecision,
-    }),
-    ...(config.timeGapThresholdMs !== undefined && {
-      TIME_GAP_THRESHOLD_MS: config.timeGapThresholdMs,
-    }),
-    ...(config.maxPreviewUris !== undefined && {
-      MAX_PREVIEW_URIS: config.maxPreviewUris,
-    }),
-  } as typeof DEFAULT_CLUSTERING_CONFIG;
-}
-
-/**
- * Reset clustering configuration to defaults.
- */
-export function resetClusteringConfig(): void {
-  CLUSTERING_CONFIG = { ...DEFAULT_CLUSTERING_CONFIG };
-}
-
-/**
- * Get current clustering configuration (for testing/debugging).
- */
-export function getClusteringConfig(): typeof DEFAULT_CLUSTERING_CONFIG {
-  return { ...CLUSTERING_CONFIG };
-}
+// Clustering configuration constants
+// These are fixed values to ensure consistency between cached photos (SQLite)
+// and runtime clustering. Changing these would create data consistency bugs.
+const TIME_GAP_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days between trips
+const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
+const MAX_PREVIEW_URIS = 5; // Limit preview URIs stored per candidate/cluster
 
 /**
  * Group photos into location clusters using geohash.
@@ -77,7 +38,7 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
     const hash = geohash.encode(
       photo.location.latitude,
       photo.location.longitude,
-      CLUSTERING_CONFIG.GEOHASH_PRECISION
+      GEOHASH_PRECISION
     );
     const existing = groups.get(hash) ?? [];
     existing.push(photo);
@@ -205,7 +166,7 @@ export function segmentTripsByTimeGap(
         // Treat as same trip to avoid splitting on bad data
         if (gap < 0) {
           currentTrip.push(photo);
-        } else if (gap > CLUSTERING_CONFIG.TIME_GAP_THRESHOLD_MS) {
+        } else if (gap > TIME_GAP_THRESHOLD_MS) {
           // Save current trip, start new one
           trips.push(createTripCandidate(countryCode, currentTrip));
           currentTrip = [photo];
@@ -292,7 +253,7 @@ export function toLocationClusterDisplay(cluster: LocationCluster): LocationClus
     centroid: cluster.centroid,
     photoIds: sortedPhotos.map((p) => p.id),
     photoCount: sortedPhotos.length,
-    previewUris: sortedPhotos.slice(0, CLUSTERING_CONFIG.MAX_PREVIEW_URIS).map((p) => p.uri),
+    previewUris: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.uri),
     timeRange: cluster.timeRange,
     countryCode: cluster.countryCode,
   };
@@ -320,7 +281,7 @@ export function toTripCandidateDisplay(candidate: TripCandidate): TripCandidateD
     dateRange: candidate.dateRange,
     photoIds: sortedPhotos.map((p) => p.id),
     photoCount: sortedPhotos.length,
-    previewUris: sortedPhotos.slice(0, CLUSTERING_CONFIG.MAX_PREVIEW_URIS).map((p) => p.uri),
+    previewUris: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.uri),
     locationClusterIds: candidate.locationClusters.map((c) => c.id),
   };
 }
@@ -442,11 +403,7 @@ function cachedPhotoToPhotoWithLocation(cached: CachedPhoto): PhotoWithLocation 
  * Computes geohash and country code for caching.
  */
 export function photoToCachedPhoto(photo: PhotoWithLocation): CachedPhoto {
-  const hash = geohash.encode(
-    photo.location.latitude,
-    photo.location.longitude,
-    CLUSTERING_CONFIG.GEOHASH_PRECISION
-  );
+  const hash = geohash.encode(photo.location.latitude, photo.location.longitude, GEOHASH_PRECISION);
   const countryCode = iso1A2Code([photo.location.longitude, photo.location.latitude]);
 
   return {

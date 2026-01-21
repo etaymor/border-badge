@@ -121,6 +121,62 @@ export const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 40,
   },
+  tripSelectionContent: {
+    paddingBottom: 40,
+  },
+
+  // Trip selection phase
+  candidateSummary: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  photoPreviewStrip: {
+    marginVertical: 16,
+  },
+  previewThumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  morePhotosIndicator: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    backgroundColor: colors.midnightNavy + '80',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoCountText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  tripSelectorSection: {
+    marginBottom: 24,
+  },
+  tripSelectorLabel: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 12,
+    color: colors.midnightNavy,
+    marginBottom: 8,
+    letterSpacing: 1.5,
+    opacity: 0.7,
+    textTransform: 'uppercase',
+  },
+  tripSelectorHint: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 24,
@@ -211,6 +267,10 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.sunsetGold,
     marginTop: 2,
+  },
+  candidateExpanded: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
 
   // Suggestion card
@@ -335,6 +395,26 @@ export const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
+  // Trip info header (suggestions phase)
+  tripName: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+    marginBottom: 4,
+  },
+  tripMeta: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  tripDates: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 16,
+  },
+
   // Progress header for suggestions loading
   progressHeader: {
     marginBottom: 16,
@@ -391,6 +471,16 @@ export const styles = StyleSheet.create({
   fullPreview: {
     width: '100%',
     height: '80%',
+  },
+  previewLoadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewLoadingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.white,
+    marginTop: 12,
   },
 
   // Manual search modal

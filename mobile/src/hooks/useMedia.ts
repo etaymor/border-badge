@@ -191,75 +191,82 @@ async function requestUploadUrl(request: UploadUrlRequest): Promise<UploadUrlRes
 // Upload timeout in ms (60 seconds)
 const UPLOAD_TIMEOUT = 60 * 1000;
 
-// Upload file to Supabase Storage
-async function uploadToStorage(uploadUrl: string, file: LocalFile): Promise<void> {
+// Upload file to Supabase Storage with progress tracking
+async function uploadToStorage(
+  uploadUrl: string,
+  file: LocalFile,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<void> {
   const token = await getStoredToken();
   if (!token) {
     throw new Error('Please sign in to upload photos');
   }
 
-  // Create form data for upload
-  const formData = new FormData();
-  formData.append('file', {
-    uri: file.uri,
-    name: file.name,
-    type: file.type,
-  } as unknown as Blob);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-  // Create abort controller for timeout
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT);
+    // Set up timeout
+    const timeoutId = setTimeout(() => {
+      xhr.abort();
+      reject(new Error('Upload timed out. Please check your connection and try again.'));
+    }, UPLOAD_TIMEOUT);
 
-  try {
-    // Upload to Supabase Storage
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': file.type,
-      },
-      body: formData,
-      signal: controller.signal,
-    });
+    // Track upload progress
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        const percentage = Math.round((event.loaded / event.total) * 100);
+        onProgress({ loaded: event.loaded, total: event.total, percentage });
+      }
+    };
 
-    if (!response.ok) {
-      const statusCode = response.status;
-      let errorMessage = 'Upload failed';
+    xhr.onload = () => {
+      clearTimeout(timeoutId);
 
-      if (statusCode === 413) {
-        errorMessage = 'File is too large. Please choose a smaller photo.';
-      } else if (statusCode === 401 || statusCode === 403) {
-        errorMessage = 'Please sign in again to upload photos.';
-      } else if (statusCode === 429) {
-        errorMessage = 'Too many uploads. Please wait a moment and try again.';
-      } else if (statusCode >= 500) {
-        errorMessage = 'Server error. Please try again later.';
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
       } else {
-        try {
-          const errorText = await response.text();
-          if (errorText) {
-            errorMessage = `Upload failed: ${errorText}`;
-          }
-        } catch {
-          // Ignore JSON parse errors
+        let errorMessage = 'Upload failed';
+        const statusCode = xhr.status;
+
+        if (statusCode === 413) {
+          errorMessage = 'File is too large. Please choose a smaller photo.';
+        } else if (statusCode === 401 || statusCode === 403) {
+          errorMessage = 'Please sign in again to upload photos.';
+        } else if (statusCode === 429) {
+          errorMessage = 'Too many uploads. Please wait a moment and try again.';
+        } else if (statusCode >= 500) {
+          errorMessage = 'Server error. Please try again later.';
+        } else if (xhr.responseText) {
+          errorMessage = `Upload failed: ${xhr.responseText}`;
         }
-      }
 
-      throw new Error(errorMessage);
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error('Upload timed out. Please check your connection and try again.');
+        reject(new Error(errorMessage));
       }
-      throw error;
-    }
+    };
 
-    throw new Error('Upload failed. Please try again.');
-  } finally {
-    // Guaranteed cleanup in all paths
-    clearTimeout(timeoutId);
-  }
+    xhr.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('Upload failed. Please try again.'));
+    };
+
+    xhr.onabort = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('Upload was cancelled.'));
+    };
+
+    // Create form data for upload
+    const formData = new FormData();
+    formData.append('file', {
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+    } as unknown as Blob);
+
+    xhr.open('POST', uploadUrl);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.send(formData);
+  });
 }
 
 // Update media status after upload
@@ -290,10 +297,12 @@ export function useUploadMedia() {
         throw new Error(validationError);
       }
 
-      // Report initial progress
-      onProgress?.({ loaded: 0, total: file.size ?? 0, percentage: 0 });
+      const fileSize = file.size ?? 0;
 
-      // Request upload URL
+      // Report initial progress
+      onProgress?.({ loaded: 0, total: fileSize, percentage: 0 });
+
+      // Request upload URL (0-10% of progress)
       const { media_id, upload_url } = await requestUploadUrl({
         filename: file.name,
         content_type: file.type,
@@ -301,21 +310,28 @@ export function useUploadMedia() {
         entry_id: entryId,
       });
 
-      // Report 50% progress after getting URL
-      onProgress?.({ loaded: (file.size ?? 0) / 2, total: file.size ?? 0, percentage: 50 });
+      onProgress?.({ loaded: fileSize * 0.1, total: fileSize, percentage: 10 });
 
       try {
-        // Upload to storage
-        await uploadToStorage(upload_url, file);
+        // Upload to storage (10-95% of progress)
+        // Scale the upload progress to fit within our 10-95% range
+        await uploadToStorage(upload_url, file, (uploadProgress) => {
+          // Upload progress goes from 0-100%, scale to 10-95% of overall
+          const scaledPercentage = 10 + uploadProgress.percentage * 0.85;
+          onProgress?.({
+            loaded: fileSize * (scaledPercentage / 100),
+            total: fileSize,
+            percentage: Math.round(scaledPercentage),
+          });
+        });
 
-        // Report 90% progress after upload
-        onProgress?.({ loaded: (file.size ?? 0) * 0.9, total: file.size ?? 0, percentage: 90 });
+        onProgress?.({ loaded: fileSize * 0.95, total: fileSize, percentage: 95 });
 
-        // Update status to uploaded
+        // Update status to uploaded (95-100%)
         const media = await updateMediaStatus(media_id, { status: 'uploaded' });
 
         // Report 100% progress
-        onProgress?.({ loaded: file.size ?? 0, total: file.size ?? 0, percentage: 100 });
+        onProgress?.({ loaded: fileSize, total: fileSize, percentage: 100 });
 
         return media;
       } catch (uploadError) {

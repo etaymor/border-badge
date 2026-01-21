@@ -15,5 +15,6 @@ export {
 export { OnboardingShareOverlay } from './OnboardingShareOverlay';
 export { ShareCard, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT } from './ShareCard';
 export { ShareCardOverlay } from './ShareCardOverlay';
+export { InlineTripSelector } from './InlineTripSelector';
 export { TripSelector } from './TripSelector';
 export { WorldMapSvg } from './WorldMapSvg';

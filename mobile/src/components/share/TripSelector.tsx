@@ -211,16 +211,32 @@ export function TripSelector({
                           )}
                         </ScrollView>
 
-                        {/* Create New Trip Button */}
+                        {/* Create New Trip - secondary option when trips exist */}
                         <TouchableOpacity
-                          style={styles.createButton}
+                          style={
+                            filteredTrips.length > 0
+                              ? styles.createButtonSecondary
+                              : styles.createButton
+                          }
                           onPress={handleShowCreateForm}
                           activeOpacity={0.7}
                         >
-                          <View style={styles.createButtonIcon}>
-                            <Ionicons name="add" size={20} color={colors.white} />
-                          </View>
-                          <Text style={styles.createButtonText}>Create New Trip</Text>
+                          <Ionicons
+                            name="add-circle-outline"
+                            size={20}
+                            color={
+                              filteredTrips.length > 0 ? colors.stormGray : colors.midnightNavy
+                            }
+                          />
+                          <Text
+                            style={
+                              filteredTrips.length > 0
+                                ? styles.createButtonTextSecondary
+                                : styles.createButtonText
+                            }
+                          >
+                            Create New Trip
+                          </Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.cancelButton} onPress={handleCloseModal}>
@@ -383,7 +399,7 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
   },
 
-  // Create Button
+  // Create Button - Primary (no trips available)
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,18 +415,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  createButtonIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   createButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
     color: colors.midnightNavy,
+  },
+  // Create Button - Secondary (trips available, this is optional action)
+  createButtonSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginBottom: 8,
+    gap: 6,
+  },
+  createButtonTextSecondary: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.stormGray,
   },
 
   // Cancel Button

@@ -1,16 +1,25 @@
 /**
  * PlaceSuggestionCard - Displays a place suggestion with photo previews
- * and confirm/reject actions. Supports swipe-left-to-dismiss.
+ * and confirm/reject actions. Supports swipe-left-to-dismiss and upload progress.
  */
 
 import { useRef } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { ClusterSuggestion, PlaceSuggestion } from '@services/photoImport';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { styles } from '../photoImportStyles';
 
 export interface PlaceSuggestionCardProps {
@@ -20,6 +29,16 @@ export interface PlaceSuggestionCardProps {
   onReject: (suggestion: ClusterSuggestion) => void;
   onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
+  /** Whether this card is currently uploading photos */
+  isUploading?: boolean;
+  /** Upload progress (0-100) */
+  uploadProgress?: number;
+  /** Current photo being uploaded (0-indexed) */
+  uploadingPhotoIndex?: number;
+  /** Total photos to upload */
+  totalPhotosToUpload?: number;
+  /** Callback to cancel upload */
+  onCancelUpload?: () => void;
 }
 
 export function PlaceSuggestionCard({
@@ -29,6 +48,11 @@ export function PlaceSuggestionCard({
   onReject,
   onPhotoPress,
   onDismiss,
+  isUploading,
+  uploadProgress = 0,
+  uploadingPhotoIndex = 0,
+  totalPhotosToUpload = 0,
+  onCancelUpload,
 }: PlaceSuggestionCardProps) {
   const swipeableRef = useRef<Swipeable>(null);
   const topPlace = suggestion.places[0];
@@ -68,6 +92,7 @@ export function PlaceSuggestionCard({
       friction={2}
       rightThreshold={80}
       overshootRight={false}
+      enabled={!isUploading} // Disable swipe during upload
     >
       <View style={styles.suggestionCard}>
         {/* Photo thumbnails - uses previewUris instead of full photos array */}
@@ -77,7 +102,11 @@ export function PlaceSuggestionCard({
           showsHorizontalScrollIndicator={false}
         >
           {previewUris.slice(0, 5).map((uri, index) => (
-            <TouchableOpacity key={`thumb-${index}`} onPress={() => onPhotoPress(uri)}>
+            <TouchableOpacity
+              key={`thumb-${index}`}
+              onPress={() => onPhotoPress(uri)}
+              disabled={isUploading}
+            >
               <Image source={{ uri }} style={styles.suggestionThumbnail} contentFit="cover" />
             </TouchableOpacity>
           ))}
@@ -97,21 +126,40 @@ export function PlaceSuggestionCard({
           </View>
         </View>
 
-        {/* Yes/No buttons */}
-        <View style={styles.suggestionActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.rejectButton]}
-            onPress={() => onReject(suggestion)}
-          >
-            <Ionicons name="close" size={24} color={colors.adobeBrick} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.confirmButton]}
-            onPress={() => onConfirm(suggestion, topPlace)}
-          >
-            <Ionicons name="checkmark" size={24} color={colors.success} />
-          </TouchableOpacity>
-        </View>
+        {/* Upload progress or Yes/No buttons */}
+        {isUploading ? (
+          <View style={localStyles.uploadContainer}>
+            <View style={localStyles.uploadContent}>
+              <ActivityIndicator size="small" color={colors.sunsetGold} />
+              <Text style={localStyles.uploadText}>
+                Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
+              </Text>
+            </View>
+            <View style={localStyles.uploadProgressBar}>
+              <View style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]} />
+            </View>
+            {onCancelUpload && (
+              <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
+                <Text style={localStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <View style={styles.suggestionActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.rejectButton]}
+              onPress={() => onReject(suggestion)}
+            >
+              <Ionicons name="close" size={24} color={colors.adobeBrick} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.confirmButton]}
+              onPress={() => onConfirm(suggestion, topPlace)}
+            >
+              <Ionicons name="checkmark" size={24} color={colors.success} />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </Swipeable>
   );
@@ -119,7 +167,7 @@ export function PlaceSuggestionCard({
 
 const localStyles = StyleSheet.create({
   swipeActionContainer: {
-    flex: 1,
+    width: 100,
     backgroundColor: colors.adobeBrick,
     justifyContent: 'center',
     alignItems: 'center',
@@ -137,5 +185,43 @@ const localStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 4,
+  },
+  uploadContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  uploadContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  uploadText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginLeft: 8,
+  },
+  uploadProgressBar: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  uploadProgressFill: {
+    height: '100%',
+    backgroundColor: colors.sunsetGold,
+  },
+  cancelButton: {
+    alignSelf: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  cancelText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.adobeBrick,
   },
 });

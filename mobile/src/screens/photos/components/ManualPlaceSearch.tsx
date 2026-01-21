@@ -11,12 +11,14 @@
 
 import { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -44,6 +46,16 @@ export interface ManualPlaceSearchProps {
   onCreateTrip: (name: string, countryCode: string) => Promise<string>;
   onCancel: () => void;
   isSaving?: boolean;
+  /** Whether photos are currently being uploaded */
+  isUploading?: boolean;
+  /** Upload progress (0-100) */
+  uploadProgress?: number;
+  /** Current photo being uploaded (0-indexed) */
+  uploadingPhotoIndex?: number;
+  /** Total photos to upload */
+  totalPhotosToUpload?: number;
+  /** Cancel upload callback */
+  onCancelUpload?: () => void;
 }
 
 export function ManualPlaceSearch({
@@ -54,6 +66,11 @@ export function ManualPlaceSearch({
   onCreateTrip,
   onCancel,
   isSaving = false,
+  isUploading = false,
+  uploadProgress = 0,
+  uploadingPhotoIndex = 0,
+  totalPhotosToUpload = 0,
+  onCancelUpload,
 }: ManualPlaceSearchProps) {
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -216,14 +233,35 @@ export function ManualPlaceSearch({
               />
             </View>
 
-            {/* Save Button */}
+            {/* Save Button or Upload Progress */}
             <View style={[localStyles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-              <Button
-                title="Save to Trip"
-                onPress={handleConfirm}
-                loading={isSaving}
-                disabled={!canSave || isSaving}
-              />
+              {isUploading ? (
+                <View style={localStyles.uploadContainer}>
+                  <View style={localStyles.uploadContent}>
+                    <ActivityIndicator size="small" color={colors.sunsetGold} />
+                    <Text style={localStyles.uploadText}>
+                      Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
+                    </Text>
+                  </View>
+                  <View style={localStyles.uploadProgressBar}>
+                    <View
+                      style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]}
+                    />
+                  </View>
+                  {onCancelUpload && (
+                    <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
+                      <Text style={localStyles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : (
+                <Button
+                  title="Save to Trip"
+                  onPress={handleConfirm}
+                  loading={isSaving}
+                  disabled={!canSave || isSaving}
+                />
+              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -347,5 +385,49 @@ const localStyles = StyleSheet.create({
   // Footer
   footer: {
     paddingTop: 16,
+  },
+
+  // Upload progress
+  uploadContainer: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  uploadContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  uploadText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginLeft: 8,
+  },
+  uploadProgressBar: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  uploadProgressFill: {
+    height: '100%',
+    backgroundColor: colors.sunsetGold,
+  },
+  cancelButton: {
+    alignSelf: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  cancelText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.adobeBrick,
   },
 });

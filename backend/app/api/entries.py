@@ -68,6 +68,7 @@ async def list_entries(
         "entry",
         {
             "trip_id": f"eq.{trip_id}",
+            "deleted_at": "is.null",
             "select": "*, place(*), media_files(*)",
             "order": "date.asc.nullslast,created_at.asc",
             "limit": limit,
@@ -272,8 +273,11 @@ async def get_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch entry with embedded place in single query
-    entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
+    # Fetch entry with embedded place in single query (exclude soft-deleted)
+    entries = await db.get(
+        "entry",
+        {"id": f"eq.{entry_id}", "deleted_at": "is.null", "select": "*, place(*)"},
+    )
 
     if not entries:
         raise HTTPException(

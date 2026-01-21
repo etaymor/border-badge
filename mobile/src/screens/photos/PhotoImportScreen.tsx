@@ -1,14 +1,14 @@
 /**
  * PhotoImportScreen - Single screen for photo-to-trip import workflow.
  *
- * Flow: idle → scanning → candidates → suggestions
+ * Flow: idle → scanning → candidates → trip-selection → suggestions
  * Users can scan their photo library, see trip candidates by country,
- * and confirm/reject place suggestions.
+ * select a trip, and confirm/reject place suggestions.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
+import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,8 @@ import type {
   ClusterSuggestion,
   LocationClusterDisplay,
 } from '@services/photoImport';
+import { useCountryByCode } from '@hooks/useCountries';
+import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -73,79 +75,90 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { countryCode: filterCountryCode, tripId, autoStart } = route.params ?? {};
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
-  const [dismissedClusterIds, setDismissedClusterIds] = useState<Set<string>>(new Set());
+  const [previewError, setPreviewError] = useState(false);
+
+  // Reset error state when preview photo changes
+  useEffect(() => {
+    if (previewPhoto) {
+      setPreviewError(false);
+    }
+  }, [previewPhoto]);
 
   const {
     phase,
     scanProgress,
     tripCandidates,
     selectedCandidate,
+    selectedTripId,
     clusterDisplays,
     manualSearchCluster,
     suggestPlacesMutation,
     lastImportTime,
     isIncremental,
     isSaving,
+    dismissedClusterIdsInternal,
+    uploadState,
+    uploadingClusterId,
     startScan,
     cancelScan,
     selectCandidate,
+    selectTrip,
     handleConfirmPlace,
     handleRejectPlace,
+    handleHideCluster,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
     closeManualSearch,
+    cancelUpload,
   } = usePhotoImportWorkflow({
     filterCountryCode,
     tripId,
     autoStart,
-    onNavigateToTripForm: (params) => {
-      navigation.navigate('Trips', {
-        screen: 'TripForm',
-        params,
-      });
-    },
-    onNavigateToTripDetail: (params) => {
-      navigation.navigate('Trips', {
-        screen: 'TripDetail',
-        params,
-      });
-    },
   });
 
-  const renderCandidateItem = useCallback(
-    ({ item }: { item: TripCandidateDisplay }) => (
-      <TripCandidateCard candidate={item} onSelect={selectCandidate} />
-    ),
-    [selectCandidate]
-  );
+  // Get country name for display in suggestions header
+  const { data: selectedCountry } = useCountryByCode(selectedCandidate?.countryCode);
+  const selectedCountryName = selectedCountry?.name ?? selectedCandidate?.countryCode ?? '';
 
-  const handleDismissCluster = useCallback((clusterId: string) => {
-    setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
-  }, []);
+  // Get trip name for display in suggestions header
+  const { data: selectedTripData } = useTrip(selectedTripId ?? '');
+  const selectedTripName = selectedTripData?.name ?? '';
 
-  // Wrapper for manual select that dismisses the cluster on success
-  const handleManualSelectWithDismiss = useCallback(
-    async (
-      place: Parameters<typeof handleManualSelect>[0],
-      category: Parameters<typeof handleManualSelect>[1],
-      tripId: Parameters<typeof handleManualSelect>[2],
-      notes?: Parameters<typeof handleManualSelect>[3]
-    ) => {
-      const clusterId = await handleManualSelect(place, category, tripId, notes);
-      if (clusterId) {
-        handleDismissCluster(clusterId);
-      }
-      return clusterId;
+  // Track selected trip ID for auto-proceed on subsequent candidate selections
+  const [rememberedTripId, setRememberedTripId] = useState<string | null>(tripId ?? null);
+
+  // Handle trip selection from candidate card (either first time or auto-proceed)
+  const handleSelectTripForCandidate = useCallback(
+    async (candidate: TripCandidateDisplay, tripIdToUse: string) => {
+      // Remember this trip for future selections
+      setRememberedTripId(tripIdToUse);
+      // Set the candidate and trip, then proceed to suggestions
+      // Pass candidate directly to selectTrip to avoid stale closure issue
+      selectCandidate(candidate);
+      await selectTrip(tripIdToUse, candidate);
     },
-    [handleManualSelect, handleDismissCluster]
+    [selectCandidate, selectTrip]
   );
 
-  const handleBackToCandidates = useCallback(() => {
-    setDismissedClusterIds(new Set()); // Reset dismissed clusters
-    backToCandidates();
-  }, [backToCandidates]);
+  const renderCandidateItem: ListRenderItem<TripCandidateDisplay> = useCallback(
+    ({ item }) => (
+      <TripCandidateCard
+        candidate={item}
+        onSelectTrip={handleSelectTripForCandidate}
+        onCreateTrip={handleCreateTrip}
+        selectedTripId={rememberedTripId}
+        isLoadingSuggestions={suggestPlacesMutation.isPending}
+      />
+    ),
+    [
+      handleSelectTripForCandidate,
+      handleCreateTrip,
+      rememberedTripId,
+      suggestPlacesMutation.isPending,
+    ]
+  );
 
   // Build combined list of all clusters for the selected candidate
   // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
@@ -171,11 +184,11 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       suggestionsMap.set(suggestion.cluster_id, suggestion);
     }
 
-    // Build items for all clusters in the candidate (excluding dismissed ones)
+    // Build items for all clusters in the candidate (excluding dismissed/processed ones)
     const items: ClusterDisplayItem[] = [];
     for (const clusterId of selectedCandidate.locationClusterIds) {
-      // Skip dismissed clusters
-      if (dismissedClusterIds.has(clusterId)) continue;
+      // Skip clusters that have been confirmed or hidden (persisted in SQLite)
+      if (dismissedClusterIdsInternal.has(clusterId)) continue;
 
       const cluster = clusterDisplays.get(clusterId);
       if (!cluster) continue;
@@ -197,10 +210,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     }
 
     return items;
-  }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIds]);
+  }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIdsInternal]);
 
-  const renderClusterItem = useCallback(
-    ({ item }: { item: ClusterDisplayItem }) => {
+  const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
+    ({ item }) => {
+      const isUploadingThisCluster =
+        item.type === 'suggestion'
+          ? uploadingClusterId === item.data.cluster_id
+          : uploadingClusterId === item.cluster.id;
+
       if (item.type === 'suggestion') {
         return (
           <PlaceSuggestionCard
@@ -209,7 +227,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             onConfirm={handleConfirmPlace}
             onReject={handleRejectPlace}
             onPhotoPress={setPreviewPhoto}
-            onDismiss={handleDismissCluster}
+            onDismiss={handleHideCluster}
+            isUploading={isUploadingThisCluster}
+            uploadProgress={uploadState.overallProgress}
+            uploadingPhotoIndex={uploadState.currentPhotoIndex}
+            totalPhotosToUpload={uploadState.totalPhotos}
+            onCancelUpload={cancelUpload}
           />
         );
       }
@@ -218,19 +241,37 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           cluster={item.cluster}
           onAddEntry={(cluster) => handleAddEntryForCluster(cluster.id)}
           onPhotoPress={setPreviewPhoto}
-          onDismiss={handleDismissCluster}
+          onDismiss={handleHideCluster}
         />
       );
     },
-    [handleConfirmPlace, handleRejectPlace, handleAddEntryForCluster, handleDismissCluster]
+    [
+      handleConfirmPlace,
+      handleRejectPlace,
+      handleAddEntryForCluster,
+      handleHideCluster,
+      uploadingClusterId,
+      uploadState,
+      cancelUpload,
+    ]
   );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <GlassBackButton onPress={() => navigation.goBack()} />
-        <Text style={styles.headerTitle}>Import from Photos</Text>
+        <GlassBackButton
+          onPress={() => {
+            if (phase === 'suggestions') {
+              backToCandidates();
+            } else {
+              navigation.goBack();
+            }
+          }}
+        />
+        <Text style={styles.headerTitle}>
+          {phase === 'suggestions' ? 'Trip Suggestions' : 'We Found Trips'}
+        </Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -304,11 +345,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       {/* Candidates List */}
       {phase === 'candidates' && (
         <View style={styles.listContainer}>
-          <Text style={styles.sectionTitle}>Trip Candidates</Text>
-          <Text style={styles.sectionSubtitle}>
-            Found {tripCandidates.length} potential trip{tripCandidates.length !== 1 ? 's' : ''} in
-            your photos
-          </Text>
           <FlashList
             data={tripCandidates}
             renderItem={renderCandidateItem}
@@ -321,14 +357,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       {/* Suggestions List */}
       {phase === 'suggestions' && selectedCandidate && (
         <View style={styles.listContainer}>
-          <TouchableOpacity onPress={handleBackToCandidates} style={styles.backLink}>
-            <Ionicons name="arrow-back" size={16} color={colors.sunsetGold} />
-            <Text style={styles.backLinkText}>Back to trips</Text>
-          </TouchableOpacity>
-          <Text style={styles.sectionTitle}>
-            {getFlagEmoji(selectedCandidate.countryCode)} {selectedCandidate.countryCode}
+          {/* Trip info header */}
+          {selectedTripName && <Text style={styles.tripName}>{selectedTripName}</Text>}
+          <Text style={styles.tripMeta}>
+            {getFlagEmoji(selectedCandidate.countryCode)} {selectedCountryName}
           </Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={styles.tripDates}>
             {formatDateRange(selectedCandidate.dateRange.start, selectedCandidate.dateRange.end)}
           </Text>
 
@@ -385,7 +419,19 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             <TouchableOpacity style={styles.closeButton} onPress={() => setPreviewPhoto(null)}>
               <Ionicons name="close" size={28} color={colors.white} />
             </TouchableOpacity>
-            <Image source={{ uri: previewPhoto }} style={styles.fullPreview} contentFit="contain" />
+            {previewError ? (
+              <View style={styles.previewLoadingContainer}>
+                <Ionicons name="image-outline" size={48} color={colors.stormGray} />
+                <Text style={styles.previewLoadingText}>Unable to load photo</Text>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: previewPhoto }}
+                style={styles.fullPreview}
+                contentFit="contain"
+                onError={() => setPreviewError(true)}
+              />
+            )}
           </Pressable>
         </Modal>
       )}
@@ -395,11 +441,16 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <ManualPlaceSearch
           cluster={manualSearchCluster}
           countryCode={selectedCandidate?.countryCode}
-          preSelectedTripId={tripId}
-          onSelect={handleManualSelectWithDismiss}
+          preSelectedTripId={selectedTripId ?? tripId}
+          onSelect={handleManualSelect}
           onCreateTrip={handleCreateTrip}
           onCancel={closeManualSearch}
           isSaving={isSaving}
+          isUploading={uploadState.isUploading}
+          uploadProgress={uploadState.overallProgress}
+          uploadingPhotoIndex={uploadState.currentPhotoIndex}
+          totalPhotosToUpload={uploadState.totalPhotos}
+          onCancelUpload={cancelUpload}
         />
       )}
     </View>

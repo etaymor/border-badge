@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import logging
+import math
 from typing import Any
 
 import httpx
@@ -87,25 +88,39 @@ class PlaceMatcher:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
         cluster_timeout = self._settings.places_cluster_timeout_seconds
 
-        async def search_with_semaphore(
-            cluster: dict[str, Any],
-        ) -> dict[str, Any] | None:
+        async def search_with_timeout(cluster: dict[str, Any]) -> dict[str, Any] | None:
+            """Search for places with semaphore-bounded concurrency and timeout.
+
+            The semaphore acquisition is inside the timeout to prevent slot leaks:
+            if wait_for times out while waiting for the semaphore OR during the
+            search, the slot is properly released.
+            """
             async with semaphore:
-                places, radius_used = await self._search_nearby_tiered(
-                    latitude=cluster["centroid"]["latitude"],
-                    longitude=cluster["centroid"]["longitude"],
-                )
+                try:
+                    places, radius_used = await asyncio.wait_for(
+                        self._search_nearby_tiered(
+                            latitude=cluster["centroid"]["latitude"],
+                            longitude=cluster["centroid"]["longitude"],
+                        ),
+                        timeout=cluster_timeout,
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        f"Cluster search timed out after {cluster_timeout}s",
+                        extra={"cluster_id": cluster.get("id")},
+                    )
+                    return None
 
+                lat = cluster["centroid"]["latitude"]
+                lng = cluster["centroid"]["longitude"]
                 logger.info(
-                    f"Cluster {cluster['id']}: found {len(places)} places "
-                    f"at radius={radius_used}m"
+                    f"Cluster {cluster['id']}: centroid=({lat:.5f}, {lng:.5f}), "
+                    f"found {len(places)} quality places at radius={radius_used}m"
                 )
 
-                # Filter out low-quality places before ranking
-                quality_places = self._filter_low_quality_places(places)
-
+                # Places are already quality-filtered by _search_nearby_tiered
                 ranked_places = self._rank_by_distance(
-                    places=quality_places,
+                    places=places,
                     cluster=cluster,
                 )
 
@@ -120,20 +135,6 @@ class PlaceMatcher:
                         "places": ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER],
                     }
                 logger.info(f"Cluster {cluster['id']}: no places found after ranking")
-                return None
-
-        async def search_with_timeout(cluster: dict[str, Any]) -> dict[str, Any] | None:
-            """Wrap cluster search with per-cluster timeout."""
-            try:
-                return await asyncio.wait_for(
-                    search_with_semaphore(cluster),
-                    timeout=cluster_timeout,
-                )
-            except TimeoutError:
-                logger.warning(
-                    f"Cluster search timed out after {cluster_timeout}s",
-                    extra={"cluster_id": cluster.get("id")},
-                )
                 return None
 
         # Execute all searches in parallel with bounded concurrency and per-cluster timeout
@@ -153,17 +154,26 @@ class PlaceMatcher:
         longitude: float,
     ) -> tuple[list[dict], int]:
         """
-        Tiered radius search: 30m → 75m → 150m
+        Tiered radius search: 15m → 30m → 75m
 
         Smaller radius = more precise match for restaurants/hotels.
+        Expands radius until quality places are found (not just any places).
 
         Returns:
-            Tuple of (places, radius_used)
+            Tuple of (quality_places, radius_used)
         """
         for radius in SEARCH_RADII_METERS:
             places = await self._execute_search(latitude, longitude, radius)
             if places:
-                return places, radius
+                # Apply quality filter before deciding to stop
+                # This ensures we expand radius if only low-quality places found
+                quality_places = self._filter_low_quality_places(places)
+                if quality_places:
+                    return quality_places, radius
+                # Found places but none passed quality - continue to wider radius
+                logger.debug(
+                    f"Radius {radius}m: {len(places)} places found but 0 passed quality filter, expanding"
+                )
 
         return [], 0
 
@@ -232,8 +242,11 @@ class PlaceMatcher:
                     raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
-                # Don't log response body - may contain sensitive error details
-                logger.error(f"Google Places API error: status={response.status_code}")
+                # Log error details for debugging (no PII in error responses)
+                logger.error(
+                    f"Google Places API error: status={response.status_code}, "
+                    f"body={response.text[:500]}"
+                )
                 return []
 
             response_json = response.json()
@@ -242,9 +255,15 @@ class PlaceMatcher:
                 f"Places API at ({latitude:.4f}, {longitude:.4f}) radius={radius}m: "
                 f"found {len(places)} places"
             )
-            if places:
+            # Log all places with their details for debugging
+            for i, p in enumerate(places):
+                name = p.get("displayName", {}).get("text", "N/A")
+                primary_type = p.get("primaryType", "unknown")
+                rating = p.get("rating", 0)
+                review_count = p.get("userRatingCount", 0)
                 logger.debug(
-                    f"First place: {places[0].get('displayName', {}).get('text', 'N/A')}"
+                    f"  [{i+1}] {name} | type={primary_type} | "
+                    f"rating={rating} | reviews={review_count}"
                 )
             return places
 
@@ -313,15 +332,10 @@ class PlaceMatcher:
         """
         Filter out low-quality places that would result in poor suggestions.
 
-        Filtering criteria (place must pass ALL hard rules AND at least one soft rule):
-
-        Hard rules (must pass all):
+        Filtering criteria (must pass ALL):
         - Not permanently closed
         - Has a non-empty display name
-
-        Soft rules (must pass at least one):
-        - Has at least MIN_REVIEW_COUNT reviews
-        - Is an institutional type (museum, hotel, national_park, etc.)
+        - Has at least MIN_REVIEW_COUNT reviews (no exceptions)
 
         Args:
             places: Raw places from API response
@@ -332,27 +346,32 @@ class PlaceMatcher:
         filtered = []
 
         for place in places:
-            # Hard rule: Skip permanently closed
-            if place.get("businessStatus") == "CLOSED_PERMANENTLY":
-                continue
-
-            # Hard rule: Must have a non-empty name
             display_name = place.get("displayName", {})
             name = display_name.get("text", "").strip()
-            if not name:
+            rating_count = place.get("userRatingCount", 0) or 0
+            business_status = place.get("businessStatus", "OPERATIONAL")
+            primary_type = place.get("primaryType", "unknown")
+
+            # Skip permanently closed
+            if business_status == "CLOSED_PERMANENTLY":
+                logger.debug(f"Filtered (closed): {name}")
                 continue
 
-            # Soft rule 1: Has enough reviews
-            rating_count = place.get("userRatingCount", 0) or 0
-            has_enough_reviews = rating_count >= MIN_REVIEW_COUNT
+            # Must have a non-empty name
+            if not name:
+                logger.debug(f"Filtered (no name): place_id={place.get('id')}")
+                continue
 
-            # Soft rule 2: Is an institutional type
-            primary_type = place.get("primaryType", "")
+            # Must have enough reviews OR be an institutional type
             is_institutional = primary_type in INSTITUTIONAL_TYPES
+            if rating_count < MIN_REVIEW_COUNT and not is_institutional:
+                logger.debug(
+                    f"Filtered (low reviews): {name} | type={primary_type} | "
+                    f"reviews={rating_count} < {MIN_REVIEW_COUNT}"
+                )
+                continue
 
-            # Must pass at least one soft rule
-            if has_enough_reviews or is_institutional:
-                filtered.append(place)
+            filtered.append(place)
 
         logger.debug(
             f"Quality filter: {len(places)} -> {len(filtered)} places "
@@ -417,11 +436,24 @@ class PlaceMatcher:
                 }
             )
 
-        # Sort by distance (5m buckets), then by rating count (higher = better)
-        def sort_key(x: dict) -> tuple[int, int]:
-            distance_bucket = int(x["distance_m"] / 5)  # 5m buckets for tie-breaking
-            quality_score = -(x["_rating_count"])  # Negative for descending
-            return (distance_bucket, quality_score)
+        # Sort by combined score: distance penalty + review bonus
+        # Photo GPS is typically 5-15m accuracy, so we use 20m buckets
+        # Places with significantly more reviews can overcome small distance differences
+        def sort_key(x: dict) -> float:
+            distance_m = x["distance_m"]
+            review_count = x["_rating_count"]
+
+            # Distance penalty: 1 point per 20m bucket
+            distance_penalty = distance_m / 20.0
+
+            # Review bonus: log scale so 1000 reviews >> 10 reviews >> 1 review
+            # log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
+            review_bonus = math.log10(max(review_count, 1) + 1)  # +1 to avoid log(0)
+
+            # Lower score = better rank
+            # A place 20m away with 1000 reviews (bonus=3) beats
+            # a place 0m away with 10 reviews (bonus=1)
+            return distance_penalty - review_bonus
 
         ranked.sort(key=sort_key)
 

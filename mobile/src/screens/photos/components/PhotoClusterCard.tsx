@@ -104,7 +104,7 @@ export function PhotoClusterCard({
 
 const localStyles = StyleSheet.create({
   swipeActionContainer: {
-    flex: 1,
+    width: 100,
     backgroundColor: colors.adobeBrick,
     justifyContent: 'center',
     alignItems: 'center',

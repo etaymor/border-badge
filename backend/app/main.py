@@ -98,6 +98,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "SUPABASE_URL is missing. Token validation will fail. "
             "Set SUPABASE_URL to your Supabase project URL."
         )
+
+    # Startup validation - warn if Google Places API key is missing
+    if not settings.google_places_api_key:
+        logger.warning(
+            "PHOTOS_FEATURE_UNAVAILABLE: GOOGLE_PLACES_API_KEY is not set. "
+            "Photo import place suggestions will fail. "
+            "Set this env var or disable the feature."
+        )
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

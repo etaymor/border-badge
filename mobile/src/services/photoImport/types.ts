@@ -132,27 +132,6 @@ export interface PlaceSuggestionResponse {
   suggestions: ClusterSuggestion[];
 }
 
-// Configuration for photo clustering
-export interface ClusteringConfig {
-  /**
-   * Geohash precision for location clustering.
-   * Higher = more precise (smaller cells), lower = coarser (larger cells).
-   *
-   * Common values:
-   * - 6: ~610m cells (coarse, groups across blocks)
-   * - 7: ~153m cells (default, good for most use cases)
-   * - 8: ~19m cells (fine, separates restaurant from hotel across street)
-   *
-   * Use higher precision in dense urban areas where different venues
-   * may be very close together (e.g., Tokyo, NYC).
-   */
-  geohashPrecision: number;
-  /** Time gap (ms) that separates distinct trips (default: 7 days) */
-  timeGapThresholdMs: number;
-  /** Max preview URIs stored per candidate/cluster (default: 5) */
-  maxPreviewUris: number;
-}
-
 // Cached photo metadata stored in SQLite
 export interface CachedPhoto {
   id: string; // Asset ID from MediaLibrary
