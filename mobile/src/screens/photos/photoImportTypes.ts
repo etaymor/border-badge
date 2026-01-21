@@ -27,6 +27,8 @@ export interface PhotoImportWorkflowResult {
   clusterDisplays: Map<string, LocationClusterDisplay>;
   manualSearchCluster: LocationCluster | null;
   suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
+  /** Suggestions loaded from SQLite cache (merged with API results in UI) */
+  cachedSuggestions: ClusterSuggestion[];
   /** Timestamp of last successful import, null if never imported */
   lastImportTime: number | null;
   /** Whether we're doing an incremental scan (has cache) or full scan */

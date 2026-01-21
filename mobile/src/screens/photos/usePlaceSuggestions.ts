@@ -1,10 +1,11 @@
 /**
  * usePlaceSuggestions - Hook for fetching place suggestions from the API.
  *
- * Handles chunked API calls, caching, and error handling.
+ * Handles chunked API calls, persistent SQLite caching, and error handling.
+ * Checks SQLite cache before API calls to minimize Google Places API costs.
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import {
@@ -14,8 +15,11 @@ import {
 } from '@hooks/usePhotoImport';
 import {
   getFullCluster,
+  getCachedSuggestions,
+  cacheSuggestions,
   type TripCandidateDisplay,
   type LocationCluster,
+  type ClusterSuggestion,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
 import { truncateCoordinate } from './photoImportUtils';
@@ -27,55 +31,102 @@ export interface UsePlaceSuggestionsOptions {
 export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOptions) {
   const suggestPlacesMutation = useSuggestPlacesChunked();
 
-  // Cache for fetched suggestions by candidate ID - prevents redundant API calls
+  // Session cache for fetched candidates - prevents re-running cache logic within same session
   const fetchedCandidatesRef = useRef<Set<string>>(new Set());
+
+  // Cached suggestions loaded from SQLite - merged with API results in the UI
+  const [cachedSuggestions, setCachedSuggestions] = useState<ClusterSuggestion[]>([]);
 
   /**
    * Fetch place suggestions for a candidate.
-   * Caches results to prevent redundant API calls when switching trips.
+   * Checks SQLite cache first, only fetching uncached clusters from API.
    */
   const fetchSuggestions = useCallback(
     async (candidate: TripCandidateDisplay) => {
-      // Skip if we've already fetched suggestions for this candidate
+      // Skip if we've already processed this candidate in this session
       if (fetchedCandidatesRef.current.has(candidate.id)) {
         if (__DEV__) {
-          console.log('[PhotoImport] Skipping fetch - already have suggestions for:', candidate.id);
+          console.log('[PhotoImport] Skipping fetch - already processed:', candidate.id);
         }
         return;
       }
 
-      // Use ref to get current value - avoids stale closure issues
       const currentClusterLookup = clusterLookupRef.current;
 
-      if (__DEV__) {
-        console.log('[PhotoImport] fetchSuggestions called:', {
-          candidateId: candidate.id,
-          candidateClusterIds: candidate.locationClusterIds,
-          clusterLookupRefSize: currentClusterLookup.size,
-          clusterLookupRefKeys: Array.from(currentClusterLookup.keys()).slice(0, 5),
-        });
-      }
-
-      const clustersForApi = candidate.locationClusterIds
+      // Get all clusters for this candidate
+      const allClusters = candidate.locationClusterIds
         .map((id) => getFullCluster(id, currentClusterLookup))
         .filter((c): c is LocationCluster => c !== undefined);
 
-      if (__DEV__) {
-        console.log('[PhotoImport] Sending clusters to API:', {
-          candidateId: candidate.id,
-          clusterIds: clustersForApi.map((c) => c.id),
-          clusterCount: clustersForApi.length,
-        });
-        for (const c of clustersForApi) {
-          console.log(
-            `[PhotoImport]   Cluster ${c.id}: centroid=(${c.centroid.latitude.toFixed(5)}, ${c.centroid.longitude.toFixed(5)}), photos=${c.photos.length}`
-          );
+      if (allClusters.length === 0) {
+        if (__DEV__) {
+          console.log('[PhotoImport] No clusters found for candidate:', candidate.id);
         }
+        fetchedCandidatesRef.current.add(candidate.id);
+        return;
+      }
+
+      // Check SQLite cache for existing suggestions
+      const cachedSuggestionsMap = await getCachedSuggestions(allClusters.map((c) => c.id));
+
+      // Separate cached and uncached clusters
+      const cachedClusterIds = new Set(cachedSuggestionsMap.keys());
+      const uncachedClusters = allClusters.filter((c) => !cachedClusterIds.has(c.id));
+
+      if (__DEV__) {
+        console.log('[PhotoImport] Cache check:', {
+          candidateId: candidate.id,
+          totalClusters: allClusters.length,
+          cachedClusters: cachedClusterIds.size,
+          uncachedClusters: uncachedClusters.length,
+        });
+      }
+
+      // Build cached suggestions in ClusterSuggestion format
+      const cachedResults: ClusterSuggestion[] = [];
+      for (const cluster of allClusters) {
+        const cached = cachedSuggestionsMap.get(cluster.id);
+        if (cached !== undefined) {
+          cachedResults.push({
+            cluster_id: cluster.id,
+            photo_ids: cluster.photos.map((p) => p.id),
+            places: cached as ClusterSuggestion['places'],
+          });
+        }
+      }
+
+      // Store cached results for the UI to merge with API results
+      setCachedSuggestions(cachedResults);
+
+      // If all clusters are cached, we're done - no API call needed
+      if (uncachedClusters.length === 0) {
+        if (__DEV__) {
+          console.log('[PhotoImport] All clusters cached - no API call needed');
+        }
+        // Reset mutation state and mark as fetched
+        suggestPlacesMutation.reset();
+        fetchedCandidatesRef.current.add(candidate.id);
+
+        // Track analytics for cache hits
+        Analytics.photoImportSuggestionsCompleted({
+          suggestionCount: cachedResults.length,
+          failedChunks: 0,
+        });
+        return;
+      }
+
+      // Fetch uncached clusters from API
+      if (__DEV__) {
+        console.log('[PhotoImport] Fetching uncached clusters from API:', {
+          candidateId: candidate.id,
+          clusterIds: uncachedClusters.map((c) => c.id),
+          clusterCount: uncachedClusters.length,
+        });
       }
 
       try {
         const result = await suggestPlacesMutation.mutateAsync({
-          clusters: clustersForApi.map((c) => ({
+          clusters: uncachedClusters.map((c) => ({
             id: c.id,
             centroid: {
               latitude: truncateCoordinate(c.centroid.latitude),
@@ -99,13 +150,33 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
           });
         }
 
-        // Mark candidate as fetched so we don't re-fetch on trip changes
+        // Cache the fresh API results to SQLite
+        // Include clusters that returned no suggestions (empty array) to prevent re-querying
+        const suggestionsToCache = uncachedClusters.map((cluster) => {
+          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+          return {
+            cluster_id: cluster.id,
+            places: suggestion?.places ?? [],
+          };
+        });
+
+        await cacheSuggestions(suggestionsToCache);
+
+        if (__DEV__) {
+          console.log('[PhotoImport] Cached suggestions to SQLite:', {
+            cachedCount: suggestionsToCache.length,
+            withPlaces: suggestionsToCache.filter((s) => s.places.length > 0).length,
+            empty: suggestionsToCache.filter((s) => s.places.length === 0).length,
+          });
+        }
+
+        // Mark candidate as processed
         fetchedCandidatesRef.current.add(candidate.id);
 
-        // Track completion with failure count from progress
+        // Track analytics
         const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
         Analytics.photoImportSuggestionsCompleted({
-          suggestionCount: result.suggestions.length,
+          suggestionCount: result.suggestions.length + cachedResults.length,
           failedChunks,
         });
       } catch (error) {
@@ -136,15 +207,17 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
   );
 
   /**
-   * Clear the fetched candidates cache.
+   * Clear the session cache and cached suggestions.
    * Called when navigating away or on unmount.
    */
   const clearFetchedCache = useCallback(() => {
     fetchedCandidatesRef.current.clear();
+    setCachedSuggestions([]);
   }, []);
 
   return {
     suggestPlacesMutation,
+    cachedSuggestions,
     fetchSuggestions,
     clearFetchedCache,
     fetchedCandidatesRef,

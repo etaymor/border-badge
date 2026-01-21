@@ -93,6 +93,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     clusterDisplays,
     manualSearchCluster,
     suggestPlacesMutation,
+    cachedSuggestions,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -165,23 +166,34 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const clusterItems: ClusterDisplayItem[] = useMemo(() => {
     if (!selectedCandidate) return [];
 
-    const suggestions = suggestPlacesMutation.isPending
+    // Get API results (partial during loading, full when done)
+    const apiSuggestions = suggestPlacesMutation.isPending
       ? suggestPlacesMutation.partialResults
       : (suggestPlacesMutation.data?.suggestions ?? []);
+
+    // Merge cached suggestions with API results (cached takes precedence for deduplication)
+    const suggestionsMap = new Map<string, ClusterSuggestion>();
+
+    // Add cached suggestions first
+    for (const suggestion of cachedSuggestions) {
+      suggestionsMap.set(suggestion.cluster_id, suggestion);
+    }
+
+    // Add API suggestions (won't overwrite cached ones)
+    for (const suggestion of apiSuggestions) {
+      if (!suggestionsMap.has(suggestion.cluster_id)) {
+        suggestionsMap.set(suggestion.cluster_id, suggestion);
+      }
+    }
 
     if (__DEV__) {
       console.log('[PhotoImport] Building cluster items:', {
         candidateClusterIds: selectedCandidate.locationClusterIds,
-        suggestionCount: suggestions.length,
-        suggestionClusterIds: suggestions.map((s) => s.cluster_id),
+        cachedCount: cachedSuggestions.length,
+        apiCount: apiSuggestions.length,
+        mergedCount: suggestionsMap.size,
         clusterDisplayKeys: Array.from(clusterDisplays.keys()),
       });
-    }
-
-    // Build a map of cluster IDs that have suggestions
-    const suggestionsMap = new Map<string, ClusterSuggestion>();
-    for (const suggestion of suggestions) {
-      suggestionsMap.set(suggestion.cluster_id, suggestion);
     }
 
     // Build items for all clusters in the candidate (excluding dismissed/processed ones)
@@ -210,7 +222,13 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     }
 
     return items;
-  }, [selectedCandidate, suggestPlacesMutation, clusterDisplays, dismissedClusterIdsInternal]);
+  }, [
+    selectedCandidate,
+    suggestPlacesMutation,
+    cachedSuggestions,
+    clusterDisplays,
+    dismissedClusterIdsInternal,
+  ]);
 
   const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
     ({ item }) => {

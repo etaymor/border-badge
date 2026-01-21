@@ -112,6 +112,12 @@ async function initSchema(): Promise<void> {
       processed_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS cached_place_suggestions (
+      cluster_id TEXT PRIMARY KEY NOT NULL,
+      suggestions_json TEXT NOT NULL,
+      cached_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_country_code ON cached_photos(country_code);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_geohash ON cached_photos(geohash);
@@ -366,6 +372,111 @@ export async function closeDb(): Promise<void> {
     await db.closeAsync();
     db = null;
   }
+}
+
+// =============================================================================
+// Place Suggestions Cache (prevents redundant Google Places API calls)
+// =============================================================================
+
+export interface CachedPlaceSuggestion {
+  cluster_id: string;
+  places: Array<{
+    place_id: string;
+    name: string;
+    address: string;
+    location: { latitude: number; longitude: number };
+    category: string;
+    distance_m: number;
+    types: string[];
+  }>;
+}
+
+/**
+ * Get cached place suggestions for multiple clusters.
+ * Returns a Map of cluster_id -> places array for clusters that have cached data.
+ * Clusters not in the cache are not included in the result.
+ */
+export async function getCachedSuggestions(
+  clusterIds: string[]
+): Promise<Map<string, CachedPlaceSuggestion['places']>> {
+  if (clusterIds.length === 0) return new Map();
+
+  const database = await getDb();
+  const result = new Map<string, CachedPlaceSuggestion['places']>();
+
+  // Query in batches to avoid SQLite parameter limits
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < clusterIds.length; i += BATCH_SIZE) {
+    const batch = clusterIds.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      cluster_id: string;
+      suggestions_json: string;
+    }>(
+      `SELECT cluster_id, suggestions_json FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
+      batch
+    );
+
+    for (const row of rows) {
+      try {
+        const places = JSON.parse(row.suggestions_json);
+        result.set(row.cluster_id, places);
+      } catch {
+        // Skip invalid JSON entries
+        if (__DEV__) {
+          console.warn(`[PhotoCache] Invalid JSON for cluster ${row.cluster_id}`);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Cache place suggestions for multiple clusters.
+ * Stores results persistently so we don't need to re-query the Google Places API.
+ * Empty place arrays are also cached to prevent re-querying locations with no nearby places.
+ */
+export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Promise<void> {
+  if (suggestions.length === 0) return;
+
+  const database = await getDb();
+  const now = Date.now();
+  const BATCH_SIZE = 50;
+
+  await database.withTransactionAsync(async () => {
+    for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
+      const batch = suggestions.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+      const values = batch.flatMap((s) => [s.cluster_id, JSON.stringify(s.places), now]);
+
+      await database.runAsync(
+        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at) VALUES ${placeholders}`,
+        values
+      );
+    }
+  });
+}
+
+/**
+ * Clear all cached place suggestions.
+ * Call this when user wants to refresh suggestions or on algorithm changes.
+ */
+export async function clearSuggestionCache(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM cached_place_suggestions');
+}
+
+/**
+ * Get the count of cached suggestions.
+ */
+export async function getCachedSuggestionCount(): Promise<number> {
+  const database = await getDb();
+  const result = await database.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM cached_place_suggestions'
+  );
+  return result?.count ?? 0;
 }
 
 // =============================================================================
