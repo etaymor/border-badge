@@ -73,12 +73,6 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
     }
   })();
 
-  // Clear the promise only after it resolves successfully,
-  // ensuring all concurrent callers receive the same db instance
-  dbInitPromise.then(() => {
-    dbInitPromise = null;
-  });
-
   return dbInitPromise;
 }
 

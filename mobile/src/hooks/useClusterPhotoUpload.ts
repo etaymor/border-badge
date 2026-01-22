@@ -182,94 +182,130 @@ export function useClusterPhotoUpload() {
       const mediaIds: string[] = [];
       let failedCount = 0;
 
-      for (let i = 0; i < photosToUpload.length; i++) {
-        if (signal.aborted) {
-          break;
-        }
+      // Track temp files for cleanup after upload
+      const tempFilesToCleanup: string[] = [];
+      const cacheDir = FileSystem.cacheDirectory;
 
-        // Update current photo index
-        setState((prev) => ({
-          ...prev,
-          currentPhotoIndex: i,
-        }));
+      // Helper to check if a URI is a temp file we created
+      const isTempFile = (uri: string) => cacheDir && uri.startsWith(cacheDir);
 
-        try {
-          const photo = photosToUpload[i];
-
-          if (__DEV__) {
-            console.log('[ClusterUpload] Processing photo', i, {
-              originalUri: photo.uri,
-              filename: photo.filename,
-            });
+      // Helper to clean up a single temp file
+      const cleanupTempFile = async (uri: string) => {
+        if (isTempFile(uri)) {
+          try {
+            await FileSystem.deleteAsync(uri, { idempotent: true });
+          } catch {
+            // Ignore cleanup errors
           }
+        }
+      };
 
-          // Convert ph:// URI to file:// URI
-          const localFile = await convertPhotoUri(photo, signal);
-
+      try {
+        for (let i = 0; i < photosToUpload.length; i++) {
           if (signal.aborted) {
             break;
           }
 
-          if (!localFile) {
-            if (__DEV__) {
-              console.warn('[ClusterUpload] Failed to convert photo URI:', photo.uri);
-            }
-            failedCount++;
-            setState((prev) => ({ ...prev, failedCount }));
-            continue;
-          }
-
-          if (__DEV__) {
-            console.log('[ClusterUpload] Converted URI:', {
-              original: photo.uri,
-              converted: localFile.uri,
-              name: localFile.name,
-              type: localFile.type,
-            });
-          }
-
-          // Double-check the URI is valid before attempting upload
-          if (isPhotoLibraryUri(localFile.uri)) {
-            if (__DEV__) {
-              console.error(
-                '[ClusterUpload] BUG: localFile still has photo library URI after conversion:',
-                localFile.uri
-              );
-            }
-            failedCount++;
-            setState((prev) => ({ ...prev, failedCount }));
-            continue;
-          }
-
-          // Upload the file
-          const result = await uploadMedia.mutateAsync({
-            tripId,
-            file: localFile,
-            onProgress: (progress) => {
-              if (!signal.aborted) {
-                const overallProgress =
-                  ((i + progress.percentage / 100) / photosToUpload.length) * 100;
-                setState((prev) => ({
-                  ...prev,
-                  overallProgress,
-                }));
-              }
-            },
-          });
-
-          mediaIds.push(result.id);
+          // Update current photo index
           setState((prev) => ({
             ...prev,
-            uploadedMediaIds: [...prev.uploadedMediaIds, result.id],
+            currentPhotoIndex: i,
           }));
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('[ClusterUpload] Failed to upload photo:', error);
+
+          let currentTempUri: string | null = null;
+
+          try {
+            const photo = photosToUpload[i];
+
+            if (__DEV__) {
+              console.log('[ClusterUpload] Processing photo', i, {
+                originalUri: photo.uri,
+                filename: photo.filename,
+              });
+            }
+
+            // Convert ph:// URI to file:// URI
+            const localFile = await convertPhotoUri(photo, signal);
+
+            if (signal.aborted) {
+              break;
+            }
+
+            if (!localFile) {
+              if (__DEV__) {
+                console.warn('[ClusterUpload] Failed to convert photo URI:', photo.uri);
+              }
+              failedCount++;
+              setState((prev) => ({ ...prev, failedCount }));
+              continue;
+            }
+
+            // Track temp file for cleanup
+            if (isTempFile(localFile.uri)) {
+              currentTempUri = localFile.uri;
+              tempFilesToCleanup.push(localFile.uri);
+            }
+
+            if (__DEV__) {
+              console.log('[ClusterUpload] Converted URI:', {
+                original: photo.uri,
+                converted: localFile.uri,
+                name: localFile.name,
+                type: localFile.type,
+              });
+            }
+
+            // Double-check the URI is valid before attempting upload
+            if (isPhotoLibraryUri(localFile.uri)) {
+              if (__DEV__) {
+                console.error(
+                  '[ClusterUpload] BUG: localFile still has photo library URI after conversion:',
+                  localFile.uri
+                );
+              }
+              failedCount++;
+              setState((prev) => ({ ...prev, failedCount }));
+              continue;
+            }
+
+            // Upload the file
+            const result = await uploadMedia.mutateAsync({
+              tripId,
+              file: localFile,
+              onProgress: (progress) => {
+                if (!signal.aborted) {
+                  const overallProgress =
+                    ((i + progress.percentage / 100) / photosToUpload.length) * 100;
+                  setState((prev) => ({
+                    ...prev,
+                    overallProgress,
+                  }));
+                }
+              },
+            });
+
+            mediaIds.push(result.id);
+            setState((prev) => ({
+              ...prev,
+              uploadedMediaIds: [...prev.uploadedMediaIds, result.id],
+            }));
+          } catch (error) {
+            if (__DEV__) {
+              console.warn('[ClusterUpload] Failed to upload photo:', error);
+            }
+            failedCount++;
+            setState((prev) => ({ ...prev, failedCount }));
+            // Continue with next photo
+          } finally {
+            // Clean up temp file after each photo (success or failure)
+            if (currentTempUri) {
+              await cleanupTempFile(currentTempUri);
+            }
           }
-          failedCount++;
-          setState((prev) => ({ ...prev, failedCount }));
-          // Continue with next photo
         }
+      } finally {
+        // Batch cleanup: remove any remaining temp files (handles edge cases)
+        await Promise.all(tempFilesToCleanup.map(cleanupTempFile));
       }
 
       // Final state update
