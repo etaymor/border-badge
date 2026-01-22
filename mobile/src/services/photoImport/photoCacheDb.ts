@@ -68,8 +68,10 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         await conn.closeAsync();
       }
       db = null;
-      dbInitPromise = null;
       throw error;
+    } finally {
+      // Clear promise so subsequent calls after close/failure re-init fresh
+      dbInitPromise = null;
     }
   })();
 
@@ -352,14 +354,19 @@ export async function getCachedPhotoIds(): Promise<Set<string>> {
 }
 
 /**
- * Clear entire photo cache.
+ * Clear entire photo cache including sensitive suggestion/cluster data.
  * Call this on logout or when user requests full refresh.
  */
 export async function clearPhotoCache(): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
     await database.runAsync('DELETE FROM cached_photos');
+    await database.runAsync('DELETE FROM processed_clusters');
+    await database.runAsync('DELETE FROM cached_place_suggestions');
     await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
+    await database.runAsync(
+      "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
+    );
   });
 }
 
@@ -414,6 +421,7 @@ export async function closeDb(): Promise<void> {
     await db.closeAsync();
     db = null;
   }
+  dbInitPromise = null;
 }
 
 // =============================================================================

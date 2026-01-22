@@ -30,11 +30,10 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
 @limiter.limit("30/minute")  # Allow burst usage for users with many clusters
 async def suggest_places(
-    request: Request,  # Required by slowapi limiter
+    request: Request,  # Required for rate limiter
     data: PlaceSuggestionRequest,
     user: CurrentUser,
 ) -> PlaceSuggestionResponse:
-    _ = request  # Used by slowapi limiter
     """
     Receive photo clusters, return place suggestions ranked by distance.
 
