@@ -39,8 +39,8 @@ export function useCountryPhotoInfo(countryCode: string | undefined): CountryPho
       setIsLoading(true);
       try {
         const [photoCount, trips, lastImport] = await Promise.all([
-          getPhotoCountByCountry(countryCode),
-          getTripCandidateCountByCountry(countryCode),
+          getPhotoCountByCountry(countryCode!),
+          getTripCandidateCountByCountry(countryCode!),
           getLastImportTime(),
         ]);
 
