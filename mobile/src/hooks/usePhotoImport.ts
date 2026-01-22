@@ -27,6 +27,12 @@ export interface PlaceSuggestionProgress {
 /** Chunk size for batched place suggestion requests */
 const CHUNK_SIZE = 15;
 
+/** Extended response with client-side timing data */
+export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
+  /** Per-chunk API response times in milliseconds (client-side only) */
+  chunkResponseTimes: number[];
+}
+
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {
   retryAfterSeconds: number;
@@ -109,13 +115,14 @@ export function useSuggestPlacesChunked() {
   }, []);
 
   const mutation = useMutation({
-    mutationFn: async (data: PlaceSuggestionRequest): Promise<PlaceSuggestionResponse> => {
+    mutationFn: async (data: PlaceSuggestionRequest): Promise<ChunkedPlaceSuggestionResult> => {
       const clusters = data.clusters;
       const totalClusters = clusters.length;
       const chunks = chunkArray(clusters, CHUNK_SIZE);
       const allSuggestions: ClusterSuggestion[] = [];
       let failedChunkCount = 0;
       let failedClusterCount = 0;
+      const chunkResponseTimes: number[] = [];
 
       // Reset state for new request
       abortRef.current = false;
@@ -145,15 +152,18 @@ export function useSuggestPlacesChunked() {
           failedClusters: failedClusterCount,
         });
 
+        const chunkStartTime = Date.now();
         try {
           const response = await api.post('/photos/suggest-places', { clusters: chunk });
+          const chunkDurationMs = Date.now() - chunkStartTime;
+          chunkResponseTimes.push(chunkDurationMs);
           const responseData = response.data as PlaceSuggestionResponse;
           const suggestions = responseData.suggestions;
           const chunkFailedClusters = responseData.failed_cluster_count ?? 0;
           failedClusterCount += chunkFailedClusters;
           if (__DEV__) {
             console.log(
-              `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions` +
+              `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions in ${chunkDurationMs}ms` +
                 (chunkFailedClusters > 0 ? `, ${chunkFailedClusters} clusters timed out` : ''),
               suggestions.map((s) => ({
                 clusterId: s.cluster_id,
@@ -166,6 +176,8 @@ export function useSuggestPlacesChunked() {
           // Update partial results for immediate display
           setPartialResults([...allSuggestions]);
         } catch (error) {
+          const chunkDurationMs = Date.now() - chunkStartTime;
+          chunkResponseTimes.push(chunkDurationMs);
           // Re-throw fatal errors (quota exhausted, rate limited)
           if (error instanceof AxiosError) {
             if (error.response?.status === 503) {
@@ -196,7 +208,11 @@ export function useSuggestPlacesChunked() {
         });
       }
 
-      return { suggestions: allSuggestions, failed_cluster_count: failedClusterCount };
+      return {
+        suggestions: allSuggestions,
+        failed_cluster_count: failedClusterCount,
+        chunkResponseTimes,
+      };
     },
     onError: () => {
       // Reset progress on error

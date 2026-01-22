@@ -84,6 +84,18 @@ export function usePhotoImportWorkflow({
   const autoStartAttemptedRef = useRef(false);
 
   // ==========================================================================
+  // Workflow Analytics Tracking
+  // ==========================================================================
+  // Track workflow timing and completion for analytics
+  const workflowStartTimeRef = useRef<number | null>(null);
+  const workflowConfirmedCountRef = useRef(0);
+  const workflowRejectedCountRef = useRef(0);
+  const workflowHiddenCountRef = useRef(0);
+  const workflowTotalClustersRef = useRef(0);
+  const workflowClustersWithSuggestionsRef = useRef(0);
+  const workflowCompletedRef = useRef(false);
+
+  // ==========================================================================
   // Load persisted state on mount
   // ==========================================================================
   useEffect(() => {
@@ -181,9 +193,9 @@ export function usePhotoImportWorkflow({
     createEntry,
     uploadState,
     cancelUpload,
-    handleConfirmPlace,
-    handleRejectPlace,
-    handleHideCluster,
+    handleConfirmPlace: handleConfirmPlaceInternal,
+    handleRejectPlace: handleRejectPlaceInternal,
+    handleHideCluster: handleHideClusterInternal,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
@@ -196,6 +208,35 @@ export function usePhotoImportWorkflow({
     setDismissedClusterIds: setDismissedClusterIdsInternal,
     setUploadingClusterId,
   });
+
+  // ==========================================================================
+  // Workflow Analytics Wrappers
+  // ==========================================================================
+  // Wrap handlers to track workflow progress for analytics
+
+  const handleConfirmPlace = useCallback(
+    async (...args: Parameters<typeof handleConfirmPlaceInternal>) => {
+      await handleConfirmPlaceInternal(...args);
+      workflowConfirmedCountRef.current += 1;
+    },
+    [handleConfirmPlaceInternal]
+  );
+
+  const handleRejectPlace = useCallback(
+    (...args: Parameters<typeof handleRejectPlaceInternal>) => {
+      handleRejectPlaceInternal(...args);
+      workflowRejectedCountRef.current += 1;
+    },
+    [handleRejectPlaceInternal]
+  );
+
+  const handleHideCluster = useCallback(
+    async (...args: Parameters<typeof handleHideClusterInternal>) => {
+      await handleHideClusterInternal(...args);
+      workflowHiddenCountRef.current += 1;
+    },
+    [handleHideClusterInternal]
+  );
 
   // ==========================================================================
   // Navigation Actions
@@ -324,10 +365,102 @@ export function usePhotoImportWorkflow({
   }, [autoStart, filterCountryCode, homeCountry, skipToSuggestions]);
 
   // ==========================================================================
-  // Cleanup on unmount - clear fetched cache
+  // Workflow Analytics: Start timing when entering suggestions phase
+  // ==========================================================================
+  useEffect(() => {
+    if (phase === 'suggestions' && selectedCandidate && !workflowStartTimeRef.current) {
+      workflowStartTimeRef.current = Date.now();
+      workflowTotalClustersRef.current = selectedCandidate.locationClusterIds.length;
+      workflowConfirmedCountRef.current = 0;
+      workflowRejectedCountRef.current = 0;
+      workflowHiddenCountRef.current = 0;
+      workflowCompletedRef.current = false;
+    }
+    // Reset tracking when leaving suggestions phase
+    if (phase !== 'suggestions') {
+      workflowStartTimeRef.current = null;
+    }
+  }, [phase, selectedCandidate]);
+
+  // ==========================================================================
+  // Workflow Analytics: Track clusters with suggestions for success rate
+  // ==========================================================================
+  useEffect(() => {
+    // Count clusters that have at least one suggestion (from API or cache)
+    const allSuggestions = [
+      ...(suggestPlacesMutation.data?.suggestions ?? []),
+      ...cachedSuggestions,
+    ];
+    const clustersWithSuggestions = allSuggestions.filter((s) => s.places.length > 0).length;
+    workflowClustersWithSuggestionsRef.current = clustersWithSuggestions;
+  }, [suggestPlacesMutation.data, cachedSuggestions]);
+
+  // ==========================================================================
+  // Workflow Analytics: Track completion
+  // ==========================================================================
+  useEffect(() => {
+    if (!selectedCandidate || !workflowStartTimeRef.current || workflowCompletedRef.current) {
+      return;
+    }
+
+    const totalClusters = workflowTotalClustersRef.current;
+    const processedClusters =
+      workflowConfirmedCountRef.current +
+      workflowRejectedCountRef.current +
+      workflowHiddenCountRef.current;
+
+    if (processedClusters >= totalClusters && totalClusters > 0) {
+      workflowCompletedRef.current = true;
+
+      const successRate =
+        totalClusters > 0
+          ? Math.round((workflowClustersWithSuggestionsRef.current / totalClusters) * 100)
+          : 0;
+      const acceptanceRate =
+        totalClusters > 0
+          ? Math.round((workflowConfirmedCountRef.current / totalClusters) * 100)
+          : 0;
+
+      Analytics.photoImportWorkflowCompleted({
+        totalClusters,
+        confirmedCount: workflowConfirmedCountRef.current,
+        rejectedCount: workflowRejectedCountRef.current,
+        hiddenCount: workflowHiddenCountRef.current,
+        workflowDurationMs: Date.now() - workflowStartTimeRef.current,
+        successRate,
+        acceptanceRate,
+      });
+    }
+  }, [selectedCandidate, dismissedClusterIdsInternal]);
+
+  // ==========================================================================
+  // Cleanup on unmount - clear fetched cache and track workflow exit
   // ==========================================================================
   useEffect(() => {
     return () => {
+      // Track workflow exit if we had started but didn't complete
+      if (
+        workflowStartTimeRef.current &&
+        !workflowCompletedRef.current &&
+        workflowTotalClustersRef.current > 0
+      ) {
+        const totalClusters = workflowTotalClustersRef.current;
+        const processedClusters =
+          workflowConfirmedCountRef.current +
+          workflowRejectedCountRef.current +
+          workflowHiddenCountRef.current;
+        const remainingClusters = totalClusters - processedClusters;
+
+        if (remainingClusters > 0) {
+          Analytics.photoImportWorkflowExited({
+            totalClusters,
+            processedClusters,
+            remainingClusters,
+            workflowDurationMs: Date.now() - workflowStartTimeRef.current,
+          });
+        }
+      }
+
       clearFetchedCache();
     };
   }, [clearFetchedCache]);

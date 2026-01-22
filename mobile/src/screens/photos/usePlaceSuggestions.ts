@@ -21,7 +21,7 @@ import {
   type LocationCluster,
   type ClusterSuggestion,
 } from '@services/photoImport';
-import { Analytics } from '@services/analytics';
+import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { truncateCoordinate } from './photoImportUtils';
 
 export interface UsePlaceSuggestionsOptions {
@@ -98,6 +98,13 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
       // Store cached results for the UI to merge with API results
       setCachedSuggestions(cachedResults);
 
+      // Calculate cache metrics
+      const cachedClusterCount = cachedClusterIds.size;
+      const uncachedClusterCount = uncachedClusters.length;
+      const totalClusterCount = allClusters.length;
+      const cacheHitRate =
+        totalClusterCount > 0 ? Math.round((cachedClusterCount / totalClusterCount) * 100) : 0;
+
       // If all clusters are cached, we're done - no API call needed
       if (uncachedClusters.length === 0) {
         if (__DEV__) {
@@ -107,10 +114,13 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
         suggestPlacesMutation.reset();
         fetchedCandidatesRef.current.add(candidate.id);
 
-        // Track analytics for cache hits
+        // Track analytics for cache hits (100% cache hit rate, no API times)
         Analytics.photoImportSuggestionsCompleted({
           suggestionCount: cachedResults.length,
           failedChunks: 0,
+          cachedClusters: cachedClusterCount,
+          uncachedClusters: 0,
+          cacheHitRate: 100,
         });
         return;
       }
@@ -173,11 +183,21 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
         // Mark candidate as processed
         fetchedCandidatesRef.current.add(candidate.id);
 
-        // Track analytics
+        // Track analytics with cache metrics and API timing
         const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
+        const apiTimes = result.chunkResponseTimes ?? [];
+        const percentiles = apiTimes.length > 0 ? calculateApiPercentiles(apiTimes) : null;
+
         Analytics.photoImportSuggestionsCompleted({
           suggestionCount: result.suggestions.length + cachedResults.length,
           failedChunks,
+          cachedClusters: cachedClusterCount,
+          uncachedClusters: uncachedClusterCount,
+          cacheHitRate,
+          apiP50Ms: percentiles?.p50,
+          apiP95Ms: percentiles?.p95,
+          apiP99Ms: percentiles?.p99,
+          totalApiDurationMs: apiTimes.reduce((sum, t) => sum + t, 0),
         });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);

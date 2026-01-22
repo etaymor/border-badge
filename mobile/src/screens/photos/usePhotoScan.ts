@@ -73,6 +73,7 @@ export function usePhotoScan({
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const scanStartTime = Date.now();
       Analytics.photoImportScanStarted();
 
       try {
@@ -174,9 +175,13 @@ export function usePhotoScan({
         }
 
         const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
+        const scanDurationMs = Date.now() - scanStartTime;
         Analytics.photoImportScanCompleted({
           photoCount: totalPhotoCount,
           tripCandidateCount: candidates.length,
+          scanDurationMs,
+          isIncremental: doIncremental,
+          newPhotosCount: doIncremental ? newPhotos.length : undefined,
         });
 
         onScanComplete({

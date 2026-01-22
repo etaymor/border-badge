@@ -114,6 +114,36 @@ function sanitizeUrlForAnalytics(url: string, maxLength = 100): string {
 }
 
 // ============================================================================
+// Percentile Calculation Utilities
+// ============================================================================
+
+/**
+ * Calculate a percentile value from a sorted array.
+ */
+function calculatePercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.ceil((percentile / 100) * sortedValues.length) - 1;
+  return sortedValues[Math.max(0, index)];
+}
+
+/**
+ * Calculate p50, p95, and p99 percentiles from an array of response times.
+ * Used for API performance tracking.
+ */
+export function calculateApiPercentiles(responseTimes: number[]): {
+  p50: number;
+  p95: number;
+  p99: number;
+} {
+  const sorted = [...responseTimes].sort((a, b) => a - b);
+  return {
+    p50: calculatePercentile(sorted, 50),
+    p95: calculatePercentile(sorted, 95),
+    p99: calculatePercentile(sorted, 99),
+  };
+}
+
+// ============================================================================
 // Typed Event Helpers
 // ============================================================================
 
@@ -264,10 +294,19 @@ export const Analytics = {
   // Photo Import Events
   photoImportScanStarted: () => track('photo_import_scan_started'),
 
-  photoImportScanCompleted: (props: { photoCount: number; tripCandidateCount: number }) =>
+  photoImportScanCompleted: (props: {
+    photoCount: number;
+    tripCandidateCount: number;
+    scanDurationMs: number;
+    isIncremental: boolean;
+    newPhotosCount?: number;
+  }) =>
     track('photo_import_scan_completed', {
       photo_count: props.photoCount,
       trip_candidate_count: props.tripCandidateCount,
+      scan_duration_ms: props.scanDurationMs,
+      is_incremental: props.isIncremental,
+      new_photos_count: props.newPhotosCount ?? null,
     }),
 
   photoImportCandidateSelected: (props: { countryCode: string; clusterCount: number }) =>
@@ -276,10 +315,24 @@ export const Analytics = {
       cluster_count: props.clusterCount,
     }),
 
-  photoImportPlaceConfirmed: (props: { category: string }) =>
-    track('photo_import_place_confirmed', { category: props.category }),
+  photoImportPlaceConfirmed: (props: {
+    category: string;
+    suggestionRank: number;
+    wasFromCache: boolean;
+  }) =>
+    track('photo_import_place_confirmed', {
+      category: props.category,
+      suggestion_rank: props.suggestionRank,
+      was_from_cache: props.wasFromCache,
+    }),
 
-  photoImportPlaceRejected: () => track('photo_import_place_rejected'),
+  photoImportPlaceRejected: (props: { suggestionCount: number; wasFromCache: boolean }) =>
+    track('photo_import_place_rejected', {
+      suggestion_count: props.suggestionCount,
+      was_from_cache: props.wasFromCache,
+    }),
+
+  photoImportClusterHidden: () => track('photo_import_cluster_hidden'),
 
   photoImportScanCancelled: () => track('photo_import_scan_cancelled'),
 
@@ -288,12 +341,61 @@ export const Analytics = {
 
   photoImportManualSearchOpened: () => track('photo_import_manual_search_opened'),
 
-  photoImportSuggestionsCompleted: (props: { suggestionCount: number; failedChunks: number }) =>
+  photoImportSuggestionsCompleted: (props: {
+    suggestionCount: number;
+    failedChunks: number;
+    cachedClusters: number;
+    uncachedClusters: number;
+    cacheHitRate: number;
+    apiP50Ms?: number;
+    apiP95Ms?: number;
+    apiP99Ms?: number;
+    totalApiDurationMs?: number;
+  }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
       failed_chunks: props.failedChunks,
+      cached_clusters: props.cachedClusters,
+      uncached_clusters: props.uncachedClusters,
+      cache_hit_rate: props.cacheHitRate,
+      api_p50_ms: props.apiP50Ms ?? null,
+      api_p95_ms: props.apiP95Ms ?? null,
+      api_p99_ms: props.apiP99Ms ?? null,
+      total_api_duration_ms: props.totalApiDurationMs ?? null,
     }),
 
   photoImportApiError: (props: { errorType: 'quota_exhausted' | 'rate_limited' | 'unknown' }) =>
     track('photo_import_api_error', { error_type: props.errorType }),
+
+  photoImportWorkflowCompleted: (props: {
+    totalClusters: number;
+    confirmedCount: number;
+    rejectedCount: number;
+    hiddenCount: number;
+    workflowDurationMs: number;
+    successRate: number;
+    acceptanceRate: number;
+  }) =>
+    track('photo_import_workflow_completed', {
+      total_clusters: props.totalClusters,
+      confirmed_count: props.confirmedCount,
+      rejected_count: props.rejectedCount,
+      hidden_count: props.hiddenCount,
+      workflow_duration_ms: props.workflowDurationMs,
+      success_rate: props.successRate,
+      acceptance_rate: props.acceptanceRate,
+    }),
+
+  photoImportWorkflowExited: (props: {
+    totalClusters: number;
+    processedClusters: number;
+    remainingClusters: number;
+    workflowDurationMs: number;
+  }) =>
+    track('photo_import_workflow_exited', {
+      total_clusters: props.totalClusters,
+      processed_clusters: props.processedClusters,
+      remaining_clusters: props.remainingClusters,
+      workflow_duration_ms: props.workflowDurationMs,
+    }),
 };

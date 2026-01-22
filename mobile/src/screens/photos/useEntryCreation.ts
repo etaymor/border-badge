@@ -53,9 +53,10 @@ export function useEntryCreation({
 
   /**
    * Confirm a place suggestion and create an entry.
+   * @param wasFromCache - Whether this suggestion was served from SQLite cache
    */
   const handleConfirmPlace = useCallback(
-    async (suggestion: ClusterSuggestion, place: PlaceSuggestion) => {
+    async (suggestion: ClusterSuggestion, place: PlaceSuggestion, wasFromCache = false) => {
       if (__DEV__) {
         console.log('[EntryCreation] handleConfirmPlace called:', {
           clusterId: suggestion.cluster_id,
@@ -115,7 +116,14 @@ export function useEntryCreation({
         };
 
         await createEntry.mutateAsync(entryData);
-        Analytics.photoImportPlaceConfirmed({ category: place.category });
+        // Calculate suggestion rank (1-based index)
+        const suggestionRank =
+          suggestion.places.findIndex((p) => p.place_id === place.place_id) + 1;
+        Analytics.photoImportPlaceConfirmed({
+          category: place.category,
+          suggestionRank: suggestionRank > 0 ? suggestionRank : 1,
+          wasFromCache,
+        });
 
         // Mark cluster as processed in memory and persist to SQLite
         setDismissedClusterIds((prev) => new Set(prev).add(suggestion.cluster_id));
@@ -161,10 +169,14 @@ export function useEntryCreation({
 
   /**
    * Reject a place suggestion and open manual search.
+   * @param wasFromCache - Whether this suggestion was served from SQLite cache
    */
   const handleRejectPlace = useCallback(
-    (suggestion: ClusterSuggestion) => {
-      Analytics.photoImportPlaceRejected();
+    (suggestion: ClusterSuggestion, wasFromCache = false) => {
+      Analytics.photoImportPlaceRejected({
+        suggestionCount: suggestion.places.length,
+        wasFromCache,
+      });
       const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
       if (cluster) {
         setManualSearchCluster(cluster);
@@ -180,6 +192,7 @@ export function useEntryCreation({
    */
   const handleHideCluster = useCallback(
     async (clusterId: string) => {
+      Analytics.photoImportClusterHidden();
       setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
       await markClusterProcessed(clusterId, 'hidden');
     },
@@ -259,7 +272,12 @@ export function useEntryCreation({
         };
 
         await createEntry.mutateAsync(entryData);
-        Analytics.photoImportPlaceConfirmed({ category });
+        // Manual selection = user rejected suggestions, so rank is 0 (not from suggestions)
+        Analytics.photoImportPlaceConfirmed({
+          category,
+          suggestionRank: 0, // Manual entry, not from suggestions
+          wasFromCache: false,
+        });
 
         // Entry saved successfully - mark cluster as processed in memory and persist to SQLite
         if (clusterId) {
