@@ -73,7 +73,8 @@ const formatLastScanTime = (timestamp: number): string => {
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { countryCode: filterCountryCode, tripId, autoStart } = route.params ?? {};
+  const { countryCode: filterCountryCode, tripId, autoStart, skipToSuggestions } =
+    route.params ?? {};
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
 
@@ -117,6 +118,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     filterCountryCode,
     tripId,
     autoStart,
+    skipToSuggestions,
   });
 
   // Get country name for display in suggestions header

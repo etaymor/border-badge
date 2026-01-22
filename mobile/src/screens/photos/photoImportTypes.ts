@@ -69,4 +69,5 @@ export interface UsePhotoImportWorkflowOptions {
   filterCountryCode?: string;
   tripId?: string; // Pre-associated trip ID
   autoStart?: boolean; // Auto-start scan when cache exists
+  skipToSuggestions?: boolean; // Skip scanning and go directly to candidates when cache exists
 }

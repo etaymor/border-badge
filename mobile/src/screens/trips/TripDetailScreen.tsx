@@ -28,7 +28,7 @@ import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useCountryByCode } from '@hooks/useCountries';
+import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
 import { EntryWithPlace, useEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
@@ -74,7 +74,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
   const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
   const { data: lists } = useTripLists(tripId);
-  const { data: country } = useCountryByCode(trip?.country_code ?? '');
   const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
@@ -85,6 +84,10 @@ export function TripDetailScreen({ route, navigation }: Props) {
     userCountries?.some(
       (uc) => uc.country_code === trip?.country_code && uc.status === 'visited'
     ) ?? false;
+
+  // Photo import state - show button only if no import has happened yet OR this country has photos
+  const { hasPhotos, hasInitialImport } = useCountryPhotoInfo(trip?.country_code);
+  const showPhotoImportButton = !hasInitialImport || hasPhotos;
 
   // Auto-navigate to EntryForm when coming from photo import with prefill data
   useEffect(() => {
@@ -125,9 +128,10 @@ export function TripDetailScreen({ route, navigation }: Props) {
         countryCode: trip?.country_code,
         tripId,
         autoStart: true,
+        skipToSuggestions: hasPhotos && hasInitialImport,
       });
     }
-  }, [navigation, trip?.country_code, tripId]);
+  }, [navigation, trip?.country_code, tripId, hasPhotos, hasInitialImport]);
 
   const handleEntryPress = useCallback(
     (entryId: string) => {
@@ -252,11 +256,17 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
             <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
-              <Pressable style={styles.glassButtonWrapper} onPress={handleImportPhotos} hitSlop={8}>
-                <BlurView intensity={20} tint="dark" style={styles.glassButton}>
-                  <Ionicons name="images-outline" size={20} color="#fff" />
-                </BlurView>
-              </Pressable>
+              {showPhotoImportButton && (
+                <Pressable
+                  style={styles.glassButtonWrapper}
+                  onPress={handleImportPhotos}
+                  hitSlop={8}
+                >
+                  <BlurView intensity={20} tint="dark" style={styles.glassButton}>
+                    <Ionicons name="images-outline" size={20} color="#fff" />
+                  </BlurView>
+                </Pressable>
+              )}
               <Pressable style={styles.glassButtonWrapper} onPress={handleEditTrip} hitSlop={8}>
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
                   <Ionicons name="pencil" size={20} color="#fff" />
@@ -277,9 +287,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={styles.noCoverHeaderRow}>
             <GlassBackButton onPress={() => navigation.goBack()} />
             <View style={styles.headerRightIcons}>
-              <Pressable onPress={handleImportPhotos} hitSlop={8} style={styles.actionButton}>
-                <Ionicons name="images-outline" size={22} color={colors.midnightNavy} />
-              </Pressable>
+              {showPhotoImportButton && (
+                <Pressable onPress={handleImportPhotos} hitSlop={8} style={styles.actionButton}>
+                  <Ionicons name="images-outline" size={22} color={colors.midnightNavy} />
+                </Pressable>
+              )}
               <Pressable onPress={handleEditTrip} hitSlop={8} style={styles.actionButton}>
                 <Ionicons name="pencil" size={22} color={colors.midnightNavy} />
               </Pressable>
@@ -290,22 +302,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
           </View>
           {/* Trip name */}
           <Text style={styles.tripNameNoCover}>{trip.name}</Text>
-        </View>
-      )}
-
-      {/* Country badge (Luggage Tag Style) */}
-      {country && (
-        <View style={styles.countryBadgeContainer}>
-          <View style={styles.luggageTag}>
-            <View style={styles.luggageTagHole} />
-            <Ionicons
-              name="location-sharp"
-              size={14}
-              color={colors.adobeBrick}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={styles.countryName}>{country.name.toUpperCase()}</Text>
-          </View>
         </View>
       )}
 
@@ -502,48 +498,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 8,
     letterSpacing: -0.5,
-  },
-
-  // Country badge (Luggage Tag)
-  countryBadgeContainer: {
-    backgroundColor: colors.warmCream,
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-    marginTop: -20, // Overlap slightly if needed, or just standard spacing
-    zIndex: 10,
-  },
-  luggageTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: colors.paperBeige,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-    transform: [{ rotate: '-1deg' }], // Whimsical tilt
-  },
-  luggageTagHole: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.warmCream,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-    marginRight: 10,
-  },
-  countryName: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 13,
-    color: colors.midnightNavy,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
   },
 
   // Journal Header

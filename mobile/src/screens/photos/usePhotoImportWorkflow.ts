@@ -8,8 +8,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import {
+  getAllCachedPhotos,
   getLastImportTime,
   getProcessedClusterIds,
+  segmentTripsFromCache,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -38,6 +40,7 @@ export function usePhotoImportWorkflow({
   filterCountryCode,
   tripId,
   autoStart,
+  skipToSuggestions,
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
 
@@ -248,14 +251,77 @@ export function usePhotoImportWorkflow({
   useEffect(() => {
     if (autoStart && filterCountryCode && !autoStartAttemptedRef.current && homeCountry) {
       autoStartAttemptedRef.current = true;
-      getLastImportTime().then((lastImport) => {
-        if (lastImport) {
+
+      (async () => {
+        const lastImport = await getLastImportTime();
+        if (!lastImport) {
+          // No previous import - can't auto-start
+          return;
+        }
+
+        // If skipToSuggestions is enabled, load from cache directly
+        if (skipToSuggestions) {
+          const allCachedPhotos = await getAllCachedPhotos();
+          if (allCachedPhotos.length === 0) {
+            // Cache empty, fallback to normal scan
+            startScan(false);
+            return;
+          }
+
+          // Build candidates from cache (fast - no device scanning)
+          const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
+          let candidates = optimizedData.candidates;
+
+          // Filter to the requested country
+          candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
+
+          if (candidates.length === 0) {
+            // No candidates for this country - shouldn't happen if UI showed button
+            // but fallback to scan just in case
+            startScan(false);
+            return;
+          }
+
+          // Set state and jump directly to candidates phase
+          setPhotoLookup(optimizedData.photoLookup);
+          setClusterLookup(optimizedData.clusterLookup);
+          setClusterDisplays(optimizedData.clusterDisplays);
+          photoLookupRef.current = optimizedData.photoLookup;
+          clusterLookupRef.current = optimizedData.clusterLookup;
+          clusterDisplaysRef.current = optimizedData.clusterDisplays;
+          setTripCandidates(candidates);
+          setLastImportTimeState(lastImport);
+          setIsIncremental(true);
+          setPhase('candidates');
+
+          // Auto-select if single candidate (common case when filtering by country)
+          if (candidates.length === 1) {
+            const candidate = candidates[0];
+            setSelectedCandidate(candidate);
+
+            if (tripId) {
+              // We have a tripId - go directly to suggestions phase
+              setSelectedTripId(tripId);
+              setPhase('suggestions');
+              fetchSuggestions(candidate);
+            } else {
+              // No tripId - stay on candidates phase so TripCandidateCard shows
+              setPhase('candidates');
+            }
+
+            Analytics.photoImportCandidateSelected({
+              countryCode: candidate.countryCode,
+              clusterCount: candidate.locationClusterIds.length,
+            });
+          }
+        } else {
+          // Normal incremental scan
           startScan(false);
         }
-      });
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, filterCountryCode, homeCountry]);
+  }, [autoStart, filterCountryCode, homeCountry, skipToSuggestions]);
 
   // ==========================================================================
   // Cleanup on unmount - clear fetched cache

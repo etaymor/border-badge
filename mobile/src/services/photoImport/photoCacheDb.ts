@@ -277,6 +277,48 @@ export async function getCachedPhotoCount(): Promise<number> {
 }
 
 /**
+ * Get count of cached photos for a specific country.
+ * Uses indexed query - fast O(1) lookup.
+ */
+export async function getPhotoCountByCountry(countryCode: string): Promise<number> {
+  const database = await getDb();
+  const result = await database.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM cached_photos WHERE country_code = ?',
+    [countryCode]
+  );
+  return result?.count ?? 0;
+}
+
+// 14 days in milliseconds - matches TIME_GAP_THRESHOLD_MS in photoClustering.ts
+const TRIP_GAP_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Get count of potential trip candidates for a specific country.
+ * Trips are segmented by 14+ day gaps between photos.
+ * This is a lightweight calculation that doesn't require full clustering.
+ */
+export async function getTripCandidateCountByCountry(countryCode: string): Promise<number> {
+  const database = await getDb();
+  // Get creation times sorted for this country
+  const rows = await database.getAllAsync<{ creation_time: number }>(
+    'SELECT creation_time FROM cached_photos WHERE country_code = ? ORDER BY creation_time ASC',
+    [countryCode]
+  );
+
+  if (rows.length === 0) return 0;
+
+  let tripCount = 1; // At least one trip if we have photos
+  for (let i = 1; i < rows.length; i++) {
+    const gap = rows[i].creation_time - rows[i - 1].creation_time;
+    if (gap > TRIP_GAP_THRESHOLD_MS) {
+      tripCount++;
+    }
+  }
+
+  return tripCount;
+}
+
+/**
  * Check if cache has any data.
  */
 export async function hasCachedPhotos(): Promise<boolean> {
