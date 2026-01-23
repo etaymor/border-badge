@@ -30,6 +30,14 @@ export const env = {
 
   // Debug flags
   enableDevTools: process.env.EXPO_PUBLIC_ENABLE_DEV_TOOLS === 'true',
+
+  // Web base URL for public pages (terms, privacy, etc.)
+  // In production: https://atlasi.app
+  // In development: same as API URL
+  webBaseUrl:
+    process.env.EXPO_PUBLIC_WEB_BASE_URL ||
+    process.env.EXPO_PUBLIC_API_URL ||
+    'http://localhost:8000',
 } as const;
 
 // Helper to check if we're in development

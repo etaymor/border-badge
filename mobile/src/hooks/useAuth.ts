@@ -200,3 +200,38 @@ export function useSignOut() {
     },
   });
 }
+
+// ============================================================================
+// Delete Account Hook
+// ============================================================================
+
+/**
+ * Hook to permanently delete the user's account.
+ * This is irreversible and will delete all user data.
+ */
+export function useDeleteAccount() {
+  const { signOut } = useAuthStore();
+  const { reset: resetOnboarding } = useOnboardingStore();
+
+  return useMutation({
+    mutationFn: async () => {
+      // Call backend to delete account (uses Supabase Admin API)
+      await api.delete('/profile');
+    },
+    onSuccess: async () => {
+      // Clear all local state after successful deletion
+      signOut();
+      resetOnboarding();
+      queryClient.clear();
+      await clearTokens();
+      await clearOnboardingComplete();
+    },
+    onError: (error) => {
+      console.error('Account deletion failed:', getSafeLogMessage(error));
+      Alert.alert(
+        'Deletion Failed',
+        'Failed to delete your account. Please try again or contact support.'
+      );
+    },
+  });
+}

@@ -1,7 +1,15 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
@@ -10,7 +18,7 @@ import { ALL_REGIONS } from '@constants/regions';
 import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { useResponsive } from '@hooks/useResponsive';
-import { useSignOut } from '@hooks/useAuth';
+import { useDeleteAccount, useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useProfile, useUpdateProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
@@ -26,6 +34,7 @@ import { ProfileAvatar } from './components/ProfileAvatar';
 import { ProfileNameSection } from './components/ProfileNameSection';
 import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
+import { LegalSection } from './components/LegalSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
@@ -72,6 +81,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const updateDisplayName = useUpdateDisplayName();
   const updateProfile = useUpdateProfile();
   const signOut = useSignOut();
+  const deleteAccount = useDeleteAccount();
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
@@ -156,6 +166,56 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     signOut.mutate();
   }, [signOut]);
+
+  const handleDeleteAccount = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+    Alert.alert(
+      'Delete Account',
+      'This action is permanent and cannot be undone. All your data including trips, entries, and photos will be permanently deleted.\n\nTo confirm, type DELETE below:',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            // Show second alert with text input
+            Alert.prompt(
+              'Confirm Deletion',
+              'Type DELETE to permanently delete your account:',
+              [
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                },
+                {
+                  text: 'Delete Forever',
+                  style: 'destructive',
+                  onPress: (value) => {
+                    if (value === 'DELETE') {
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                      deleteAccount.mutate();
+                    } else {
+                      Alert.alert(
+                        'Incorrect Confirmation',
+                        'You must type DELETE exactly to confirm account deletion.'
+                      );
+                    }
+                  },
+                },
+              ],
+              'plain-text',
+              '',
+              'default'
+            );
+          },
+        },
+      ]
+    );
+  }, [deleteAccount]);
 
   const handleOpenTrackingModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -396,10 +456,16 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
         <View style={styles.divider} />
 
+        <LegalSection isSmallScreen={isSmallScreen} />
+
+        <View style={styles.divider} />
+
         <SignOutSection
           onSignOut={handleSignOut}
           isPending={signOut.isPending}
           isSmallScreen={isSmallScreen}
+          onDeleteAccount={handleDeleteAccount}
+          isDeleting={deleteAccount.isPending}
         />
       </ScrollView>
 
