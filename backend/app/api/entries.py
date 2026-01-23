@@ -514,7 +514,7 @@ async def bulk_move_entries(
 
     All entries must belong to trips owned by the current user.
     If any entry would create a duplicate in the target trip, the entire
-    operation is rolled back.
+    operation is rolled back (atomic).
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -522,29 +522,78 @@ async def bulk_move_entries(
     # Convert entry_ids to list of strings for RPC
     entry_id_strs = [str(eid) for eid in data.entry_ids]
 
-    # Use RPC for atomic bulk move
-    result = await db.rpc(
-        "bulk_move_entries_to_trip",
-        {"p_entry_ids": entry_id_strs, "p_target_trip_id": str(data.target_trip_id)},
-    )
+    # Call RPC with explicit error handling for known failure modes
+    # The bulk_move_entries_to_trip function is atomic - it either moves all
+    # entries or rolls back completely, so we don't need to handle partial success.
+    try:
+        result = await db.rpc(
+            "bulk_move_entries_to_trip",
+            {
+                "p_entry_ids": entry_id_strs,
+                "p_target_trip_id": str(data.target_trip_id),
+            },
+        )
+    except HTTPException as e:
+        # Map RPC error messages to appropriate HTTP status codes.
+        # Using 'from None' since these are intentional transformations to cleaner errors.
+        detail = str(e.detail).lower() if e.detail else ""
 
-    if result is None or len(result) == 0:
+        if "not authenticated" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            ) from None
+        elif "not authorized" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to perform this operation",
+            ) from None
+        elif "not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=e.detail,
+            ) from None
+        elif "already exist" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="One or more places already exist in the target trip",
+            ) from None
+        elif "no entries specified" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No entries specified",
+            ) from None
+        # Re-raise unexpected errors as-is (client already converts to 5xx for network errors)
+        raise
+
+    # Validate response structure - the RPC always returns exactly one row on success
+    if not result or not isinstance(result, list) or len(result) == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to move entries",
+            detail="Unexpected response from bulk move operation",
         )
 
     row = result[0]
     moved_count = row.get("moved_count", 0)
     entries_data = row.get("entries", [])
 
-    # Parse moved entries with their places
+    # Parse moved entries and batch fetch their places
+    parsed_entries = [Entry(**entry_data) for entry_data in entries_data]
+
+    # Batch fetch all places in a single query
+    entry_ids = [str(entry.id) for entry in parsed_entries]
+    places_by_entry_id: dict[str, Place] = {}
+    if entry_ids:
+        ids_param = ",".join(entry_ids)
+        places_result = await db.get("place", {"entry_id": f"in.({ids_param})"})
+        for place_data in places_result or []:
+            place = Place(**place_data)
+            places_by_entry_id[str(place.entry_id)] = place
+
+    # Build EntryWithPlace objects using the lookup map
     entries: list[EntryWithPlace] = []
-    for entry_data in entries_data:
-        entry = Entry(**entry_data)
-        # Fetch place for each entry
-        places_result = await db.get("place", {"entry_id": f"eq.{entry.id}"})
-        place = Place(**places_result[0]) if places_result else None
+    for entry in parsed_entries:
+        place = places_by_entry_id.get(str(entry.id))
         entries.append(EntryWithPlace(**entry.model_dump(), place=place))
 
     return BulkMoveResponse(moved_count=moved_count, entries=entries)

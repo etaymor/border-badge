@@ -55,12 +55,12 @@ CREATE POLICY "Users can create own trips" ON trip
   FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
--- Policy: Users can update their own trips (but not system trips)
+-- Policy: Users can update their own trips (but not system or deleted trips)
 DROP POLICY IF EXISTS "Users can update own trips" ON trip;
 CREATE POLICY "Users can update own trips" ON trip
   FOR UPDATE
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = auth.uid() AND deleted_at IS NULL AND is_system = false)
+  WITH CHECK (user_id = auth.uid() AND deleted_at IS NULL AND is_system = false);
 
 -- Policy: Users can soft-delete their own trips (but not system trips)
 -- Note: Actual deletion prevention for system trips handled in application layer
@@ -85,7 +85,11 @@ RETURNS TABLE (
   created_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ,
   entry_count BIGINT
-) AS $$
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
 DECLARE
   v_user_id UUID;
   v_trip_id UUID;
@@ -96,19 +100,20 @@ BEGIN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
 
-  -- Try to find existing uncategorized trip
+  -- Attempt to insert a new system trip; if one already exists for this user,
+  -- the partial unique index (user_id WHERE is_system = true AND deleted_at IS NULL)
+  -- will cause a conflict and DO NOTHING will skip the insert.
+  INSERT INTO trip (user_id, country_id, name, is_system)
+  VALUES (v_user_id, NULL, 'Saved Places', true)
+  ON CONFLICT (user_id) WHERE is_system = true AND deleted_at IS NULL
+  DO NOTHING;
+
+  -- Now select the trip (either just inserted or already existing)
   SELECT t.id INTO v_trip_id
   FROM trip t
   WHERE t.user_id = v_user_id
     AND t.is_system = true
     AND t.deleted_at IS NULL;
-
-  -- Create if doesn't exist
-  IF v_trip_id IS NULL THEN
-    INSERT INTO trip (user_id, country_id, name, is_system)
-    VALUES (v_user_id, NULL, 'Saved Places', true)
-    RETURNING trip.id INTO v_trip_id;
-  END IF;
 
   -- Return trip with entry count
   RETURN QUERY
@@ -128,7 +133,7 @@ BEGIN
   WHERE t.id = v_trip_id
   GROUP BY t.id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- Grant execute to authenticated users
 GRANT EXECUTE ON FUNCTION get_or_create_uncategorized_trip() TO authenticated;
@@ -144,7 +149,11 @@ CREATE OR REPLACE FUNCTION move_entry_to_trip(
 RETURNS TABLE (
   entry_row JSONB,
   place_row JSONB
-) AS $$
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
 DECLARE
   v_user_id UUID;
   v_source_trip_user_id UUID;
@@ -216,7 +225,7 @@ BEGIN
     to_jsonb(v_entry) AS entry_row,
     CASE WHEN v_place IS NOT NULL THEN to_jsonb(v_place) ELSE NULL END AS place_row;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- Grant execute to authenticated users
 GRANT EXECUTE ON FUNCTION move_entry_to_trip(UUID, UUID) TO authenticated;
@@ -232,12 +241,18 @@ CREATE OR REPLACE FUNCTION bulk_move_entries_to_trip(
 RETURNS TABLE (
   moved_count INT,
   entries JSONB
-) AS $$
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
 DECLARE
   v_user_id UUID;
   v_target_trip_user_id UUID;
   v_moved_entries JSONB;
   v_count INT;
+  v_found INT;
+  v_requested INT;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
@@ -259,15 +274,22 @@ BEGIN
     RAISE EXCEPTION 'Not authorized to move to this trip';
   END IF;
 
-  -- Verify all entries belong to trips owned by the user
-  IF EXISTS (
-    SELECT 1
-    FROM unnest(p_entry_ids) AS entry_id
-    JOIN entry e ON e.id = entry_id
-    JOIN trip t ON t.id = e.trip_id
-    WHERE t.user_id != v_user_id OR e.deleted_at IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'One or more entries not found or not authorized';
+  -- Explicit existence and ownership check: count matching entries
+  -- This enforces all-or-nothing semantics - all entry IDs must exist,
+  -- belong to trips owned by the user, and not be soft-deleted
+  v_requested := array_length(p_entry_ids, 1);
+  IF v_requested IS NULL OR v_requested = 0 THEN
+    RAISE EXCEPTION 'No entries specified';
+  END IF;
+
+  SELECT COUNT(*)::INT INTO v_found
+  FROM entry e
+  WHERE e.id = ANY(p_entry_ids)
+    AND e.trip_id IN (SELECT id FROM trip WHERE user_id = v_user_id)
+    AND e.deleted_at IS NULL;
+
+  IF v_found != v_requested THEN
+    RAISE EXCEPTION 'One or more entries not found or not authorized (found % of % requested)', v_found, v_requested;
   END IF;
 
   -- Check for duplicate places in target trip
@@ -297,7 +319,7 @@ BEGIN
 
   RETURN QUERY SELECT v_count, COALESCE(v_moved_entries, '[]'::JSONB);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- Grant execute to authenticated users
 GRANT EXECUTE ON FUNCTION bulk_move_entries_to_trip(UUID[], UUID) TO authenticated;

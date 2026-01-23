@@ -351,7 +351,7 @@ def test_bulk_move_rpc_failure_returns_500(
             )
 
         assert response.status_code == 500
-        assert "Failed to move" in response.json()["detail"]
+        assert "Unexpected response" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
 
