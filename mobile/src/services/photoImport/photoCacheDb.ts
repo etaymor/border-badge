@@ -693,9 +693,17 @@ export async function performBackgroundPhotoSync(
     if (localController.signal.aborted) {
       return null;
     }
-    const syncTime = Date.now();
-    await setLastImportTime(syncTime);
-    await setLastBackgroundSyncTime(syncTime);
+
+    // Update last_import_time to the newest photo's creation time (not wall-clock).
+    // This prevents skipping photos created during the scan window.
+    // Only update if we processed photos; otherwise keep the previous value.
+    if (newPhotos.length > 0) {
+      const newestPhotoTime = Math.max(...newPhotos.map((p) => p.creationTime.getTime()));
+      await setLastImportTime(newestPhotoTime);
+    }
+
+    // Background sync time uses wall-clock to throttle sync frequency
+    await setLastBackgroundSyncTime(Date.now());
 
     if (__DEV__) {
       console.log(`[PhotoSync] Background sync complete: ${newPhotos.length} new photos`);

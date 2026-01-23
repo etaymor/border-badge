@@ -182,7 +182,12 @@ export function useClusterPhotoUpload() {
    */
   const uploadPhotos = useCallback(
     async (photos: PhotoWithLocation[], tripId: string): Promise<UploadPhotosResult> => {
-      console.log('[ClusterUpload] 🚀 Starting upload for', photos.length, 'photos to trip', tripId);
+      console.log(
+        '[ClusterUpload] 🚀 Starting upload for',
+        photos.length,
+        'photos to trip',
+        tripId
+      );
 
       // Limit to max photos per entry
       const photosToUpload = photos.slice(0, MAX_PHOTOS_PER_ENTRY);
