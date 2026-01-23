@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -20,14 +21,17 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTrips, useMoveEntry, useBulkMoveEntries, Trip } from '@hooks/useTrips';
+import type { TripsStackParamList } from '@navigation/types';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.65;
 const DISMISS_THRESHOLD = 100;
 
@@ -36,10 +40,19 @@ interface MoveToTripSheetProps {
   entryIds: string[];
   onComplete: () => void;
   onCancel: () => void;
+  /** Optional callback when user wants to create a new trip. If not provided, navigates to TripForm. */
+  onCreateNewTrip?: () => void;
 }
 
-export function MoveToTripSheet({ visible, entryIds, onComplete, onCancel }: MoveToTripSheetProps) {
+export function MoveToTripSheet({
+  visible,
+  entryIds,
+  onComplete,
+  onCancel,
+  onCreateNewTrip,
+}: MoveToTripSheetProps) {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<TripsStackParamList>>();
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
@@ -165,9 +178,14 @@ export function MoveToTripSheet({ visible, entryIds, onComplete, onCancel }: Mov
         setSelectedTripId(null);
         onComplete();
       });
-    } catch {
+    } catch (error) {
       setIsMoving(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+
+      // Show user-friendly error message
+      const message =
+        error instanceof Error ? error.message : 'Failed to move places. Please try again.';
+      Alert.alert('Move Failed', message);
     }
   }, [
     selectedTripId,
@@ -184,6 +202,31 @@ export function MoveToTripSheet({ visible, entryIds, onComplete, onCancel }: Mov
     Haptics.selectionAsync().catch(() => {});
     setSelectedTripId(trip.id);
   }, []);
+
+  const handleCreateNewTrip = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    // Close the sheet first
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: SHEET_HEIGHT,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onCancel();
+      // Use callback if provided, otherwise navigate directly
+      if (onCreateNewTrip) {
+        onCreateNewTrip();
+      } else {
+        navigation.navigate('TripForm', {});
+      }
+    });
+  }, [translateY, backdropOpacity, onCancel, onCreateNewTrip, navigation]);
 
   // Open animation on visible change
   useEffect(() => {
@@ -251,7 +294,11 @@ export function MoveToTripSheet({ visible, entryIds, onComplete, onCancel }: Mov
                 bounces={false}
               >
                 {/* Create New Trip Button */}
-                <TouchableOpacity style={styles.createTripButton} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={styles.createTripButton}
+                  activeOpacity={0.7}
+                  onPress={handleCreateNewTrip}
+                >
                   <View style={styles.createTripIcon}>
                     <Ionicons name="add" size={20} color={colors.white} />
                   </View>
