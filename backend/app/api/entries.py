@@ -471,15 +471,35 @@ async def move_entry(
 
     This is useful for organizing entries from the Saved Places (uncategorized)
     trip into specific country trips.
+
+    Note: The RPC returns place_row directly to avoid an N+1 query. Duplicate
+    detection relies on the unique index (idx_place_unique_google_per_trip)
+    enforced atomically via trigger when entry.trip_id changes.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
     # Use RPC for atomic move with validation
-    result = await db.rpc(
-        "move_entry_to_trip",
-        {"p_entry_id": str(entry_id), "p_target_trip_id": str(data.trip_id)},
-    )
+    try:
+        result = await db.rpc(
+            "move_entry_to_trip",
+            {"p_entry_id": str(entry_id), "p_target_trip_id": str(data.trip_id)},
+        )
+    except HTTPException as e:
+        # Handle unique constraint violations from concurrent moves
+        # Using 'from None' for intentional error transformation
+        detail = str(e.detail).lower() if e.detail else ""
+        if "unique" in detail or "duplicate" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place already exists in the target trip",
+            ) from None
+        elif "already exist" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place already exists in the target trip",
+            ) from None
+        raise
 
     if result is None or len(result) == 0:
         raise HTTPException(
@@ -581,9 +601,11 @@ async def bulk_move_entries(
     parsed_entries = [Entry(**entry_data) for entry_data in entries_data]
 
     # Batch fetch all places in a single query
-    entry_ids = [str(entry.id) for entry in parsed_entries]
+    # Re-validate UUIDs defensively even though they come from the DB
+    entry_ids = [str(UUID(str(entry.id))) for entry in parsed_entries]
     places_by_entry_id: dict[str, Place] = {}
     if entry_ids:
+        # Use proper PostgREST array syntax with validated UUIDs
         ids_param = ",".join(entry_ids)
         places_result = await db.get("place", {"entry_id": f"in.({ids_param})"})
         for place_data in places_result or []:
