@@ -4,7 +4,11 @@
 
 -- Replace the soft_delete_trip function with one that checks is_system
 CREATE OR REPLACE FUNCTION soft_delete_trip(p_trip_id UUID)
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
 BEGIN
   UPDATE trip
   SET deleted_at = now()
@@ -14,4 +18,4 @@ BEGIN
     AND is_system = false;  -- Defense-in-depth: prevent system trip deletion
   RETURN FOUND;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;

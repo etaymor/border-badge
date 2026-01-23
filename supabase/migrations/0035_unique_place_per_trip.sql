@@ -1,22 +1,9 @@
 -- Migration: Add unique constraint to prevent duplicate places per trip
 -- This provides atomic duplicate prevention that the application-level EXISTS
 -- check cannot guarantee under concurrent access.
-
--- Create a unique index on (google_place_id, trip_id) via the entry relationship
--- This ensures no two places with the same google_place_id can exist in the same trip
--- Partial index excludes NULL google_place_ids and soft-deleted entries
-
-CREATE UNIQUE INDEX idx_place_unique_per_trip
-  ON place(google_place_id, (SELECT trip_id FROM entry WHERE entry.id = place.entry_id))
-  WHERE google_place_id IS NOT NULL
-    AND entry_id IN (SELECT id FROM entry WHERE deleted_at IS NULL);
-
--- Note: PostgreSQL doesn't support subqueries in unique index expressions.
--- Alternative approach: Add trip_id as a denormalized column to place table
--- and maintain it via trigger for the unique constraint.
-
--- Drop the attempted index and use the trigger approach instead
-DROP INDEX IF EXISTS idx_place_unique_per_trip;
+--
+-- We use a denormalized trip_id column on place maintained via triggers,
+-- since PostgreSQL doesn't support subqueries in unique index expressions.
 
 -- Add trip_id column to place (denormalized for constraint enforcement)
 ALTER TABLE place ADD COLUMN IF NOT EXISTS trip_id UUID REFERENCES trip(id) ON DELETE CASCADE;

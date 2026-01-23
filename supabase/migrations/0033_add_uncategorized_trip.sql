@@ -103,9 +103,11 @@ BEGIN
   -- Attempt to insert a new system trip; if one already exists for this user,
   -- the partial unique index (user_id WHERE is_system = true AND deleted_at IS NULL)
   -- will cause a conflict and DO NOTHING will skip the insert.
+  -- Use the partial unique index for conflict detection.
+  -- The index idx_trip_unique_system_per_user covers (user_id) WHERE is_system = true AND deleted_at IS NULL
   INSERT INTO trip (user_id, country_id, name, is_system)
   VALUES (v_user_id, NULL, 'Saved Places', true)
-  ON CONFLICT (user_id) WHERE is_system = true AND deleted_at IS NULL
+  ON CONFLICT (user_id) WHERE (is_system = true AND deleted_at IS NULL)
   DO NOTHING;
 
   -- Now select the trip (either just inserted or already existing)

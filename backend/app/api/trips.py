@@ -105,6 +105,7 @@ async def list_trips(
 
 
 @router.get("/uncategorized", response_model=UncategorizedTrip)
+@limiter.limit("10/minute")
 async def get_uncategorized_trip(
     request: Request,
     user: CurrentUser,

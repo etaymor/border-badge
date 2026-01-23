@@ -286,6 +286,17 @@ export function MoveToTripSheet({
                 <Text style={styles.emptyText}>
                   No trips available. Create a trip first to organize your saved places.
                 </Text>
+                <TouchableOpacity
+                  style={styles.emptyCreateTripButton}
+                  activeOpacity={0.7}
+                  onPress={handleCreateNewTrip}
+                >
+                  <View style={styles.createTripIcon}>
+                    <Ionicons name="add" size={20} color={colors.white} />
+                  </View>
+                  <Text style={styles.createTripText}>Create New Trip</Text>
+                  <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
+                </TouchableOpacity>
               </View>
             ) : (
               <ScrollView
@@ -437,6 +448,19 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 24,
+  },
+  emptyCreateTripButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.sunsetGold,
+    borderStyle: 'dashed',
+    width: '100%',
   },
   content: {
     flex: 1,
