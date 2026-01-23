@@ -167,15 +167,20 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     ]
   );
 
+  // Extract stable values from mutation to avoid re-renders when mutation object reference changes
+  const suggestionsIsPending = suggestPlacesMutation.isPending;
+  const suggestionsPartialResults = suggestPlacesMutation.partialResults;
+  const suggestionsData = suggestPlacesMutation.data;
+
   // Build combined list of all clusters for the selected candidate
   // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
   const clusterItems: ClusterDisplayItem[] = useMemo(() => {
     if (!selectedCandidate) return [];
 
     // Get API results (partial during loading, full when done)
-    const apiSuggestions = suggestPlacesMutation.isPending
-      ? suggestPlacesMutation.partialResults
-      : (suggestPlacesMutation.data?.suggestions ?? []);
+    const apiSuggestions = suggestionsIsPending
+      ? suggestionsPartialResults
+      : (suggestionsData?.suggestions ?? []);
 
     // Merge cached suggestions with API results (cached takes precedence for deduplication)
     const suggestionsMap = new Map<string, ClusterSuggestion>();
@@ -192,16 +197,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       }
     }
 
-    if (__DEV__) {
-      console.log('[PhotoImport] Building cluster items:', {
-        candidateClusterIds: selectedCandidate.locationClusterIds,
-        cachedCount: cachedSuggestions.length,
-        apiCount: apiSuggestions.length,
-        mergedCount: suggestionsMap.size,
-        clusterDisplayKeys: Array.from(clusterDisplays.keys()),
-      });
-    }
-
     // Build items for all clusters in the candidate (excluding dismissed/processed ones)
     const items: ClusterDisplayItem[] = [];
     for (const clusterId of selectedCandidate.locationClusterIds) {
@@ -213,16 +208,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
       const suggestion = suggestionsMap.get(clusterId);
       if (suggestion) {
-        if (__DEV__) {
-          console.log(
-            `[PhotoImport] Cluster ${clusterId}: matched suggestion with ${suggestion.places?.length ?? 0} places`
-          );
-        }
         items.push({ type: 'suggestion', data: suggestion, cluster });
       } else {
-        if (__DEV__) {
-          console.log(`[PhotoImport] Cluster ${clusterId}: no suggestion found`);
-        }
         items.push({ type: 'photos-only', cluster });
       }
     }
@@ -230,7 +217,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     return items;
   }, [
     selectedCandidate,
-    suggestPlacesMutation,
+    suggestionsIsPending,
+    suggestionsPartialResults,
+    suggestionsData,
     cachedSuggestions,
     clusterDisplays,
     dismissedClusterIdsInternal,

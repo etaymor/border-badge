@@ -5,6 +5,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 
 import { useUploadMedia, MAX_PHOTOS_PER_ENTRY } from './useMedia';
 import type { LocalFile } from './useMedia';
@@ -65,9 +66,19 @@ function isPhotoLibraryUri(uri: string): boolean {
 }
 
 /**
+ * Extract the asset ID from a ph:// URI.
+ * ph:// URIs have format: ph://ASSET-ID/L0/001 or similar
+ */
+function extractAssetIdFromPhUri(uri: string): string | null {
+  // Remove the ph:// prefix and get the first path component (the asset ID)
+  const match = uri.match(/^ph:\/\/([A-F0-9-]+)/i);
+  return match ? match[1] : null;
+}
+
+/**
  * Convert a ph:// URI to a file:// URI that can be uploaded.
- * Uses FileSystem.copyAsync which natively supports ph:// URIs on iOS.
- * For photos stored in iCloud, iOS will download them during the copy.
+ * For iCloud photos, downloads them first using MediaLibrary.getAssetInfoAsync.
+ * Then copies to cache directory for upload.
  */
 async function convertPhotoUri(
   photo: PhotoWithLocation,
@@ -82,30 +93,53 @@ async function convertPhotoUri(
     };
   }
 
-  // Copy the photo library URI to cache directory using FileSystem.copyAsync
-  // This uses native iOS APIs that can read from the Photos framework
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
-    if (__DEV__) {
-      console.warn('[ClusterUpload] No cache directory available');
-    }
+    console.error('[ClusterUpload] ❌ No cache directory available');
     return null;
   }
 
   const targetUri = `${cacheDir}upload_${Date.now()}_${photo.filename}`;
 
   try {
-    if (__DEV__) {
-      console.log('[ClusterUpload] Copying photo to cache:', {
-        from: photo.uri,
-        to: targetUri,
-      });
+    // Extract asset ID from ph:// URI to use MediaLibrary
+    const assetId = extractAssetIdFromPhUri(photo.uri);
+    if (!assetId) {
+      console.error('[ClusterUpload] ❌ Could not extract asset ID from URI:', photo.uri);
+      return null;
     }
 
-    await FileSystem.copyAsync({ from: photo.uri, to: targetUri });
+    console.log('[ClusterUpload] 📷 Requesting photo from library (may download from iCloud)...');
+
+    // Use MediaLibrary to get the photo, allowing iCloud download
+    // This is the key fix: shouldDownloadFromNetwork: true will download iCloud photos
+    const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId, {
+      shouldDownloadFromNetwork: true,
+    });
 
     if (signal.aborted) {
-      // Clean up the copied file if aborted
+      return null;
+    }
+
+    // Prefer localUri (file://) which should now be available after download
+    const sourceUri = assetInfo.localUri ?? assetInfo.uri;
+
+    if (!sourceUri) {
+      console.error('[ClusterUpload] ❌ No URI available after asset info fetch');
+      return null;
+    }
+
+    console.log('[ClusterUpload] 📂 Got source URI:', sourceUri.substring(0, 60));
+
+    // If we got a file:// URI directly, copy it to cache
+    if (sourceUri.startsWith('file://')) {
+      await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
+    } else {
+      // Still a ph:// URI - try copyAsync as fallback (should work now that it's downloaded)
+      await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
+    }
+
+    if (signal.aborted) {
       try {
         await FileSystem.deleteAsync(targetUri, { idempotent: true });
       } catch {
@@ -117,19 +151,11 @@ async function convertPhotoUri(
     // Verify the copy succeeded
     const info = await FileSystem.getInfoAsync(targetUri);
     if (!info.exists || info.size === 0) {
-      if (__DEV__) {
-        console.warn('[ClusterUpload] Copied file is empty or missing:', targetUri);
-      }
+      console.error('[ClusterUpload] ❌ Copied file is empty or missing:', targetUri);
       return null;
     }
 
-    if (__DEV__) {
-      console.log('[ClusterUpload] Successfully copied photo:', {
-        original: photo.uri,
-        copied: targetUri,
-        size: info.size,
-      });
-    }
+    console.log('[ClusterUpload] ✅ Photo ready for upload, size:', info.size);
 
     return {
       uri: targetUri,
@@ -137,9 +163,7 @@ async function convertPhotoUri(
       type: getMimeType(photo.filename),
     };
   } catch (error) {
-    if (__DEV__) {
-      console.warn('[ClusterUpload] FileSystem.copyAsync failed:', error);
-    }
+    console.error('[ClusterUpload] ❌ Failed to prepare photo:', error);
     return null;
   }
 }
@@ -158,10 +182,13 @@ export function useClusterPhotoUpload() {
    */
   const uploadPhotos = useCallback(
     async (photos: PhotoWithLocation[], tripId: string): Promise<UploadPhotosResult> => {
+      console.log('[ClusterUpload] 🚀 Starting upload for', photos.length, 'photos to trip', tripId);
+
       // Limit to max photos per entry
       const photosToUpload = photos.slice(0, MAX_PHOTOS_PER_ENTRY);
 
       if (photosToUpload.length === 0) {
+        console.log('[ClusterUpload] No photos to upload');
         return { mediaIds: [], failedCount: 0 };
       }
 
@@ -232,9 +259,7 @@ export function useClusterPhotoUpload() {
             }
 
             if (!localFile) {
-              if (__DEV__) {
-                console.warn('[ClusterUpload] Failed to convert photo URI:', photo.uri);
-              }
+              console.error('[ClusterUpload] ❌ FAILED to convert photo URI:', photo.uri);
               failedCount++;
               setState((prev) => ({ ...prev, failedCount }));
               continue;
@@ -257,12 +282,10 @@ export function useClusterPhotoUpload() {
 
             // Double-check the URI is valid before attempting upload
             if (isPhotoLibraryUri(localFile.uri)) {
-              if (__DEV__) {
-                console.error(
-                  '[ClusterUpload] BUG: localFile still has photo library URI after conversion:',
-                  localFile.uri
-                );
-              }
+              console.error(
+                '[ClusterUpload] ❌ BUG: localFile still has photo library URI after conversion:',
+                localFile.uri
+              );
               failedCount++;
               setState((prev) => ({ ...prev, failedCount }));
               continue;
@@ -290,9 +313,11 @@ export function useClusterPhotoUpload() {
               uploadedMediaIds: [...prev.uploadedMediaIds, result.id],
             }));
           } catch (error) {
-            if (__DEV__) {
-              console.warn('[ClusterUpload] Failed to upload photo:', error);
-            }
+            console.error('[ClusterUpload] ❌ Failed to upload photo:', {
+              error,
+              message: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            });
             failedCount++;
             setState((prev) => ({ ...prev, failedCount }));
             // Continue with next photo
