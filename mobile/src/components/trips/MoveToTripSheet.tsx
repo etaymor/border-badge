@@ -8,7 +8,6 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -27,6 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTrips, useMoveEntry, useBulkMoveEntries, Trip } from '@hooks/useTrips';
 import type { TripsStackParamList } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
@@ -160,6 +160,7 @@ export function MoveToTripSheet({
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Analytics.moveEntry({ entryCount: entryIds.length, targetTripId: selectedTripId });
 
       // Close sheet and notify parent
       Animated.parallel([
@@ -178,14 +179,10 @@ export function MoveToTripSheet({
         setSelectedTripId(null);
         onComplete();
       });
-    } catch (error) {
+    } catch {
       setIsMoving(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-
-      // Show user-friendly error message
-      const message =
-        error instanceof Error ? error.message : 'Failed to move places. Please try again.';
-      Alert.alert('Move Failed', message);
+      // Error alerts are shown by useMoveEntry/useBulkMoveEntries onError handlers
     }
   }, [
     selectedTripId,
