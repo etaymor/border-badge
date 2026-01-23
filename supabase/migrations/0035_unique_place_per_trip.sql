@@ -55,6 +55,11 @@ CREATE TRIGGER trg_sync_place_trip_id_on_entry
 
 -- Now create the unique constraint
 -- Only applies when google_place_id is not null (external places)
+--
+-- Note: Custom places (google_place_id IS NULL) are intentionally NOT constrained:
+-- 1. User-entered names lack canonical identifiers for reliable deduplication
+-- 2. Normalized matching (lowercase, trim) would still allow legitimate duplicates
+-- 3. Risk of false positives (e.g., two different "Coffee Shop" entries in same trip)
 CREATE UNIQUE INDEX idx_place_unique_google_per_trip
   ON place(google_place_id, trip_id)
   WHERE google_place_id IS NOT NULL;
