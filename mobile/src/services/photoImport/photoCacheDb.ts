@@ -16,6 +16,16 @@ import type { CachedPhoto } from './types';
 const DB_NAME = 'photos.db';
 const SCHEMA_VERSION = 1;
 
+/**
+ * SQLite has a default limit of 999 bound parameters per query.
+ * All batch operations use sizes well under this limit:
+ * - cachePhotos: 50 rows × 9 params = 450 params
+ * - cacheSuggestions: 50 rows × 3 params = 150 params
+ * - removeCachedPhotos: 100 IDs = 100 params
+ * - getCachedSuggestions: 100 IDs = 100 params
+ */
+const SQLITE_PARAM_LIMIT = 999;
+
 let db: SQLite.SQLiteDatabase | null = null;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -334,8 +344,10 @@ export async function removeCachedPhotos(ids: string[]): Promise<void> {
   const validIds = validatePhotoIds(ids);
   if (validIds.length === 0) return;
 
+  // Batch size must stay under SQLITE_PARAM_LIMIT (999)
+  const BATCH_SIZE = Math.min(100, SQLITE_PARAM_LIMIT);
+
   const database = await getDb();
-  const BATCH_SIZE = 100;
 
   for (let i = 0; i < validIds.length; i += BATCH_SIZE) {
     const batch = validIds.slice(i, i + BATCH_SIZE);
@@ -454,8 +466,8 @@ export async function getCachedSuggestions(
   const database = await getDb();
   const result = new Map<string, CachedPlaceSuggestion['places']>();
 
-  // Query in batches to avoid SQLite parameter limits
-  const BATCH_SIZE = 100;
+  // Batch size must stay under SQLITE_PARAM_LIMIT (999)
+  const BATCH_SIZE = Math.min(100, SQLITE_PARAM_LIMIT);
   for (let i = 0; i < clusterIds.length; i += BATCH_SIZE) {
     const batch = clusterIds.slice(i, i + BATCH_SIZE);
     const placeholders = batch.map(() => '?').join(',');
@@ -619,12 +631,20 @@ export async function performBackgroundPhotoSync(
     return null;
   }
 
-  // Atomically check and acquire lock before any async operations to prevent race conditions
+  // Atomically check and acquire lock before any async operations to prevent race conditions.
+  // In JavaScript's single-threaded event loop, synchronous code runs to completion,
+  // so this check-and-set is atomic as long as it happens before any `await`.
   if (backgroundSyncInProgress) {
     return null;
   }
   backgroundSyncInProgress = true;
   backgroundSyncController = new AbortController();
+
+  // Capture controller locally to avoid race condition where abortBackgroundSync()
+  // sets backgroundSyncController to null before we check the aborted signal.
+  // The captured localController will still reflect the aborted signal even after
+  // the global reference is cleared.
+  const localController = backgroundSyncController;
 
   try {
     // Lazy load dependencies to avoid circular imports
@@ -654,12 +674,12 @@ export async function performBackgroundPhotoSync(
     // Perform incremental scan (only photos since last import)
     const newPhotos = await extractPhotosWithLocation(
       () => {}, // No-op progress callback
-      backgroundSyncController.signal,
+      localController.signal,
       new Date(lastImportTime)
     );
 
-    // Check if aborted
-    if (backgroundSyncController?.signal.aborted) {
+    // Check if aborted (use local controller to avoid race with abortBackgroundSync)
+    if (localController.signal.aborted) {
       return null;
     }
 
@@ -669,7 +689,10 @@ export async function performBackgroundPhotoSync(
       await cachePhotos(newCachedPhotos);
     }
 
-    // Update timestamps
+    // Update timestamps (skip if aborted to avoid updating state after cancellation)
+    if (localController.signal.aborted) {
+      return null;
+    }
     const syncTime = Date.now();
     await setLastImportTime(syncTime);
     await setLastBackgroundSyncTime(syncTime);

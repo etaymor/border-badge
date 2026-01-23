@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import {
+  abortBackgroundSync,
   getAllCachedPhotos,
   getLastImportTime,
   getProcessedClusterIds,
@@ -108,6 +109,10 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   useEffect(() => {
     return () => {
+      // Abort any in-progress background sync to prevent closures from holding
+      // references to large data structures after unmount
+      abortBackgroundSync();
+
       // Clear Maps directly via refs (setState is a no-op after unmount)
       // This releases 5-10MB for large photo libraries
       photoLookupRef.current.clear();

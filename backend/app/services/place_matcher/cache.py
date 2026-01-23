@@ -178,8 +178,13 @@ class PlacesCache:
                 self._in_flight.pop(key, None)
                 if not our_future.done():
                     # Propagate the exception to waiting callers so they receive
-                    # the actual error instead of CancelledError
-                    our_future.set_exception(error)
+                    # the actual error instead of CancelledError.
+                    # Catch secondary errors to ensure original error is not lost.
+                    try:
+                        our_future.set_exception(error)
+                    except Exception:
+                        # set_exception failed (e.g., InvalidStateError) - already done
+                        pass
             raise
 
 

@@ -91,6 +91,9 @@ jest.mock('../../../services/analytics', () => ({
     photoImportPlaceConfirmed: jest.fn(),
     photoImportPlaceRejected: jest.fn(),
     photoImportManualSearchOpened: jest.fn(),
+    photoImportClusterHidden: jest.fn(),
+    photoImportWorkflowCompleted: jest.fn(),
+    photoImportWorkflowExited: jest.fn(),
   },
 }));
 
@@ -385,10 +388,12 @@ describe('usePhotoImportWorkflow', () => {
 
       expect(result.current.phase).toBe('candidates');
       expect(result.current.tripCandidates).toEqual(mockCandidates);
-      expect(Analytics.photoImportScanCompleted).toHaveBeenCalledWith({
-        photoCount: 2,
-        tripCandidateCount: 1,
-      });
+      expect(Analytics.photoImportScanCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          photoCount: 2,
+          tripCandidateCount: 1,
+        })
+      );
     });
 
     it('filters candidates by country code when filterCountryCode is set', async () => {
@@ -626,7 +631,9 @@ describe('usePhotoImportWorkflow', () => {
         await result.current.handleConfirmPlace(mockSuggestion, mockPlace);
       });
 
-      expect(Analytics.photoImportPlaceConfirmed).toHaveBeenCalledWith({ category: 'place' });
+      expect(Analytics.photoImportPlaceConfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'place' })
+      );
       // Cluster should be dismissed after confirmation
       expect(result.current.dismissedClusterIdsInternal.has('cluster-1')).toBe(true);
     });
