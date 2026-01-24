@@ -37,12 +37,12 @@ enum ShareCaptureState: Equatable {
 
     static func == (lhs: ShareCaptureState, rhs: ShareCaptureState) -> Bool {
         switch (lhs, rhs) {
-        case (.loading(let a), .loading(let b)): return a == b
-        case (.error(let a), .error(let b)): return a.message == b.message
+        case (.loading(let lhsMsg), .loading(let rhsMsg)): return lhsMsg == rhsMsg
+        case (.error(let lhsErr), .error(let rhsErr)): return lhsErr.message == rhsErr.message
         case (.form, .form): return true
         case (.saving, .saving): return true
         case (.success, .success): return true
-        case (.successQueued(let a), .successQueued(let b)): return a == b
+        case (.successQueued(let lhsReason), .successQueued(let rhsReason)): return lhsReason == rhsReason
         default: return false
         }
     }
@@ -114,6 +114,7 @@ class ShareCaptureViewModel: ObservableObject {
     @Published var hasSelectedType: Bool = false
     @Published var notes: String = ""
     @Published var isManualEntryMode: Bool = false
+    @Published var userClearedPlace: Bool = false  // True when user explicitly cleared the place selection
 
     // MARK: - Private State
 
@@ -137,6 +138,14 @@ class ShareCaptureViewModel: ObservableObject {
 
     var detectedCountryCode: String? {
         ingestResult?.detectedPlace?.countryCode ?? ingestResult?.detectedCountry?.countryCode
+    }
+
+    /// Effective country code for filtering - nil if user cleared the place (search worldwide)
+    var effectiveCountryCode: String? {
+        if userClearedPlace {
+            return nil
+        }
+        return selectedPlace?.countryCode ?? detectedCountryCode
     }
 
     var canSave: Bool {
@@ -215,11 +224,18 @@ class ShareCaptureViewModel: ObservableObject {
     /// Select a place from autocomplete or detected
     func selectPlace(_ place: DetectedPlace) {
         selectedPlace = place
+        userClearedPlace = false  // User selected a new place, restore country focus
 
         // Infer entry type from place types if not manually selected
         if !hasSelectedType {
             entryType = EntryType.from(primaryType: place.primaryType, types: place.types)
         }
+    }
+
+    /// Clear the selected place (user explicitly removed it)
+    func clearPlace() {
+        selectedPlace = nil
+        userClearedPlace = true  // User cleared the place, remove country focus
     }
 
     /// Set the entry type

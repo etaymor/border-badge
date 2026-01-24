@@ -8,7 +8,7 @@ import { Alert } from 'react-native';
 
 import type { EntryType } from '@navigation/types';
 import { useSocialIngest, useSaveToTrip, SocialIngestResponse } from '@hooks/useSocialIngest';
-import { useCreateTrip, useTrips, Trip } from '@hooks/useTrips';
+import { useCreateTrip, useTrips, useUncategorizedTrip, Trip } from '@hooks/useTrips';
 import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
@@ -41,6 +41,7 @@ export interface ShareCaptureState {
   error: string | null;
   isLoading: boolean;
   isSaving: boolean;
+  userClearedPlace: boolean; // True when user explicitly cleared the place selection
 }
 
 export interface ShareCaptureHandlers {
@@ -81,6 +82,7 @@ export function useShareCapture({
 
   // Trips data
   const { data: trips = [] } = useTrips();
+  const { data: uncategorizedTrip } = useUncategorizedTrip();
 
   // State
   const [ingestResult, setIngestResult] = useState<SocialIngestResponse | null>(null);
@@ -93,6 +95,7 @@ export function useShareCapture({
   const [isManualEntryMode, setIsManualEntryMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveCompleted, setSaveCompleted] = useState(false);
+  const [userClearedPlace, setUserClearedPlace] = useState(false);
 
   // Clean up on unmount if save was not completed
   // This handles cases where user navigates away or cancels
@@ -135,22 +138,48 @@ export function useShareCapture({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-select matching trip based on detected place or country hint
+  // Auto-select trip: prioritize country-specific trip, then fall back to "Saved Places"
+  // This effect runs whenever trips, uncategorizedTrip, or ingestResult changes
   useEffect(() => {
-    if (selectedTripId || trips.length === 0) return;
-
-    // Use detected place country first, then fall back to detected country hint
     const countryCode =
       ingestResult?.detected_place?.country_code ?? ingestResult?.detected_country?.country_code;
     const matchingTrips = findMatchingTrips(trips, countryCode);
+
+    // Debug logging
+    console.log('[useShareCapture] Auto-select effect:', {
+      selectedTripId,
+      uncategorizedTripId: uncategorizedTrip?.id,
+      countryCode,
+      tripsCount: trips.length,
+      matchingTripsCount: matchingTrips.length,
+    });
+
+    // Don't override user's selection
+    if (selectedTripId) {
+      console.log('[useShareCapture] Skipping - already have selection');
+      return;
+    }
+
     if (matchingTrips.length > 0) {
+      // Use the most recent trip for the detected country
+      console.log('[useShareCapture] Selecting country trip:', matchingTrips[0].id);
       setSelectedTripId(matchingTrips[0].id);
+      return;
+    }
+
+    // Default to "Saved Places" if available
+    if (uncategorizedTrip?.id) {
+      console.log('[useShareCapture] Selecting Saved Places:', uncategorizedTrip.id);
+      setSelectedTripId(uncategorizedTrip.id);
+    } else {
+      console.log('[useShareCapture] No uncategorized trip available yet');
     }
   }, [
     ingestResult?.detected_place?.country_code,
     ingestResult?.detected_country?.country_code,
     trips,
     selectedTripId,
+    uncategorizedTrip?.id,
   ]);
 
   const handleTypeSelect = useCallback(
@@ -169,12 +198,31 @@ export function useShareCapture({
     (place: SelectedPlace | null) => {
       setSelectedPlace(place);
 
-      if (place?.country_code && trips.length > 0) {
+      if (place === null) {
+        // User explicitly cleared the place - reset country focus
+        setUserClearedPlace(true);
+        // Reset trip selection to uncategorized (if available) so user can pick any trip
+        if (uncategorizedTrip?.id) {
+          setSelectedTripId(uncategorizedTrip.id);
+        } else {
+          setSelectedTripId(null);
+        }
+      } else if (place.country_code) {
+        // User selected a new place - restore country focus
+        setUserClearedPlace(false);
         const matchingTrips = findMatchingTrips(trips, place.country_code);
-        setSelectedTripId(matchingTrips.length > 0 ? matchingTrips[0].id : null);
+        if (matchingTrips.length > 0) {
+          setSelectedTripId(matchingTrips[0].id);
+        } else if (uncategorizedTrip?.id) {
+          // Default to "Saved Places" when no matching trips exist
+          setSelectedTripId(uncategorizedTrip.id);
+        }
+      } else {
+        // Place selected without country code - just clear the flag
+        setUserClearedPlace(false);
       }
     },
-    [trips]
+    [trips, uncategorizedTrip?.id]
   );
 
   const handleCreateTrip = useCallback(
@@ -385,6 +433,7 @@ export function useShareCapture({
     error,
     isLoading: socialIngest.isPending && !ingestResult,
     isSaving: saveToTrip.isPending || createEntry.isPending,
+    userClearedPlace,
 
     // Handlers
     handleTypeSelect,

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { STALE_TIMES } from '../queryClient';
 import { Analytics } from '@services/analytics';
 
 // Trip tag status enum matching backend
@@ -23,12 +24,18 @@ export interface TripTag {
 export interface Trip {
   id: string;
   user_id: string;
-  country_id: string;
-  country_code: string; // ISO 3166-1 alpha-2 code (e.g., "JP", "US")
+  country_id?: string; // Nullable for system trips
+  country_code?: string; // ISO 3166-1 alpha-2 code (e.g., "JP", "US"), nullable for system trips
   name: string;
   cover_image_url?: string;
   date_range?: string; // PostgreSQL daterange as string e.g. "[2024-01-01,2024-01-15]"
+  is_system?: boolean; // True for uncategorized/system trips
   created_at: string;
+}
+
+// Uncategorized trip with entry count
+export interface UncategorizedTrip extends Trip {
+  entry_count: number;
 }
 
 // Trip with tags matching backend TripWithTags schema
@@ -98,7 +105,9 @@ export function useCreateTrip() {
     },
     onSuccess: (data) => {
       // Track trip creation
-      Analytics.createTrip(data.country_code);
+      if (data.country_code) {
+        Analytics.createTrip(data.country_code);
+      }
 
       // Invalidate the main trips list and country-specific list
       queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
@@ -180,6 +189,93 @@ export function useRestoreTrip() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to restore trip';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Query key for uncategorized trip
+const UNCATEGORIZED_TRIP_QUERY_KEY = ['trips', 'uncategorized'];
+
+// Fetch the user's uncategorized/Saved Places trip (creates if doesn't exist)
+export function useUncategorizedTrip() {
+  return useQuery({
+    queryKey: UNCATEGORIZED_TRIP_QUERY_KEY,
+    queryFn: async (): Promise<UncategorizedTrip> => {
+      const response = await api.get('/trips/uncategorized');
+      return response.data;
+    },
+    // Trip metadata never changes; only entry_count changes via move mutations
+    // which trigger invalidation. Longer staleTime reduces redundant fetches.
+    staleTime: STALE_TIMES.SYSTEM_TRIP, // 10 minutes
+    gcTime: 1000 * 60 * 60, // 1 hour - keep singleton in cache longer
+  });
+}
+
+// Move entry to different trip
+export interface MoveEntryInput {
+  entryId: string;
+  tripId: string;
+}
+
+export function useMoveEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ entryId, tripId }: MoveEntryInput) => {
+      const response = await api.patch(`/entries/${entryId}/move`, { trip_id: tripId });
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      // Invalidate uncategorized trip (entry count changed)
+      queryClient.invalidateQueries({ queryKey: UNCATEGORIZED_TRIP_QUERY_KEY });
+      // Invalidate entries for both source and target trips
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
+      // Invalidate specific trip entry list
+      queryClient.invalidateQueries({ queryKey: ['entries', variables.tripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to move entry';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Bulk move entries to a trip
+export interface BulkMoveInput {
+  entryIds: string[];
+  targetTripId: string;
+}
+
+export interface BulkMoveResult {
+  moved_count: number;
+  entries: unknown[];
+}
+
+export function useBulkMoveEntries() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ entryIds, targetTripId }: BulkMoveInput): Promise<BulkMoveResult> => {
+      if (entryIds.length === 0) {
+        throw new Error('No entries selected');
+      }
+      const response = await api.post('/entries/bulk-move', {
+        entry_ids: entryIds,
+        target_trip_id: targetTripId,
+      });
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      // Invalidate uncategorized trip (entry count changed)
+      queryClient.invalidateQueries({ queryKey: UNCATEGORIZED_TRIP_QUERY_KEY });
+      // Invalidate entries for both source and target trips
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
+      // Invalidate specific trip entry list
+      queryClient.invalidateQueries({ queryKey: ['entries', variables.targetTripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to move entries';
       Alert.alert('Error', message);
     },
   });

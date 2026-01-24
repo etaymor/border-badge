@@ -21,6 +21,7 @@ from app.schemas.trips import (
     TripTagStatus,
     TripUpdate,
     TripWithTags,
+    UncategorizedTrip,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,21 +60,30 @@ async def list_trips(
     request: Request,
     user: CurrentUser,
     country_code: str | None = Query(None, description="Filter trips by country code"),
+    include_system: bool = Query(
+        False, description="Include system trips like Saved Places"
+    ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> list[Trip]:
     """List all trips accessible to the current user (owned or approved tags).
 
     Optionally filter by country_code to get trips for a specific country.
+    By default, system trips (Saved Places) are excluded.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    params: dict[str, str | int] = {
+    params: dict[str, str | int | bool] = {
         "select": "*, country:country_id(code)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
     }
+
+    # Filter out system trips by default
+    if not include_system:
+        params["is_system"] = "eq.false"
+
     if country_code:
         # Look up country UUID from code
         countries = await db.get("country", {"code": f"eq.{country_code}"})
@@ -86,12 +96,51 @@ async def list_trips(
     return [
         Trip(
             **{k: v for k, v in row.items() if k != "country"},
-            country_code=row.get("country", {}).get("code", "")
+            country_code=row.get("country", {}).get("code")
             if row.get("country")
-            else "",
+            else None,
         )
         for row in rows
     ]
+
+
+@router.get("/uncategorized", response_model=UncategorizedTrip)
+@limiter.limit("30/minute")
+async def get_uncategorized_trip(
+    request: Request,
+    user: CurrentUser,
+) -> UncategorizedTrip:
+    """Get or create the user's uncategorized/Saved Places trip.
+
+    This is a system trip with no country association, used as a holding area
+    for entries when the user doesn't have a trip for the detected country.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Use RPC to atomically get or create the uncategorized trip
+    result = await db.rpc("get_or_create_uncategorized_trip")
+
+    if not result or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get or create uncategorized trip",
+        )
+
+    row = result[0]
+    return UncategorizedTrip(
+        id=row["id"],
+        user_id=row["user_id"],
+        country_id=row.get("country_id"),
+        country_code=None,  # System trips have no country
+        name=row["name"],
+        cover_image_url=row.get("cover_image_url"),
+        date_range=row.get("date_range"),
+        is_system=row.get("is_system", True),
+        created_at=row["created_at"],
+        deleted_at=row.get("deleted_at"),
+        entry_count=row.get("entry_count", 0),
+    )
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
