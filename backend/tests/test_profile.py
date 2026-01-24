@@ -7,7 +7,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
-from app.main import app
+from app.main import app, limiter
 from tests.conftest import TEST_USER_ID, mock_auth_dependency
 
 # ============================================================================
@@ -477,6 +477,9 @@ def test_delete_account_rate_limiting(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that account deletion is rate limited to 5/hour."""
+    # Reset limiter to ensure clean state from prior tests
+    limiter.reset()
+
     # Mock HTTP client for successful deletions
     mock_http_response = Mock()
     mock_http_response.status_code = 200
