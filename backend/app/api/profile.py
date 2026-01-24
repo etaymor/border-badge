@@ -91,8 +91,8 @@ async def delete_account(
     Permanently delete the current user's account and all associated data.
 
     This operation is irreversible and will:
-    - Delete all user data (trips, entries, media, etc.) via RLS cascade
     - Delete the user's authentication record from Supabase Auth
+    - Delete all user data (trips, entries, media, etc.) via database CASCADE constraints
 
     Rate limited to 5 requests per hour for security.
     """

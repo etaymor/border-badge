@@ -1,8 +1,9 @@
 """Tests for user profile endpoints."""
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
@@ -373,5 +374,130 @@ def test_get_profile_with_tracking_preference(
         data = response.json()
         assert "tracking_preference" in data
         assert data["tracking_preference"] == "explorer_plus"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Delete Account Tests
+# ============================================================================
+
+
+def test_delete_account_requires_auth(client: TestClient) -> None:
+    """Test that deleting account requires authentication."""
+    response = client.delete("/profile")
+    assert response.status_code == 403
+
+
+def test_delete_account_success(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test successful account deletion."""
+    # Mock HTTP client for Supabase Auth API call
+    mock_http_response = Mock()
+    mock_http_response.status_code = 200
+    mock_http_response.raise_for_status = Mock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.delete = AsyncMock(return_value=mock_http_response)
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+            response = client.delete("/profile", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Account deleted successfully"
+
+        # Verify the HTTP client was called with correct parameters
+        mock_http_client.delete.assert_called_once()
+        call_args = mock_http_client.delete.call_args
+        assert f"/auth/v1/admin/users/{mock_user.id}" in str(call_args)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_account_http_error(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test account deletion when Supabase returns HTTP error."""
+    # Mock HTTP client that raises HTTPStatusError
+    mock_http_response = Mock()
+    mock_http_response.status_code = 500
+    mock_http_response.text = "Internal server error from Supabase"
+
+    mock_http_client = AsyncMock()
+    mock_http_client.delete = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "Error", request=Mock(), response=mock_http_response
+        )
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+            response = client.delete("/profile", headers=auth_headers)
+        assert response.status_code == 500
+        data = response.json()
+        assert "Failed to delete account" in data["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_account_network_error(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test account deletion when network error occurs."""
+    # Mock HTTP client that raises RequestError
+    mock_http_client = AsyncMock()
+    mock_http_client.delete = AsyncMock(
+        side_effect=httpx.RequestError("Network error", request=Mock())
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+            response = client.delete("/profile", headers=auth_headers)
+        assert response.status_code == 503
+        data = response.json()
+        assert "Service temporarily unavailable" in data["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_account_rate_limiting(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that account deletion is rate limited to 5/hour."""
+    # Mock HTTP client for successful deletions
+    mock_http_response = Mock()
+    mock_http_response.status_code = 200
+    mock_http_response.raise_for_status = Mock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.delete = AsyncMock(return_value=mock_http_response)
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+            # Make 6 requests - 6th should be rate limited
+            responses = []
+            for _ in range(6):
+                responses.append(client.delete("/profile", headers=auth_headers))
+
+            # First 5 should succeed
+            for i in range(5):
+                assert responses[i].status_code == 200, f"Request {i+1} failed"
+
+            # 6th should be rate limited
+            assert responses[5].status_code == 429
     finally:
         app.dependency_overrides.clear()

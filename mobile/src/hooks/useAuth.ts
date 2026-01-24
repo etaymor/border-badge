@@ -219,6 +219,9 @@ export function useDeleteAccount() {
       await api.delete('/profile');
     },
     onSuccess: async () => {
+      // Clear Supabase session first
+      await supabase.auth.signOut();
+
       // Clear all local state after successful deletion
       signOut();
       resetOnboarding();

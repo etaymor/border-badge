@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -39,6 +40,7 @@ import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
 import { ClipboardEnableModal } from './components/ClipboardEnableModal';
+import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -100,6 +102,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const [clipboardPermissionModalVisible, setClipboardPermissionModalVisible] = useState(false);
   // Clipboard enable modal state (shown when user clicks Enable button)
   const [clipboardEnableModalVisible, setClipboardEnableModalVisible] = useState(false);
+  // Delete confirmation modal state (Android only)
+  const [deleteConfirmModalVisible, setDeleteConfirmModalVisible] = useState(false);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -182,35 +186,40 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           text: 'Continue',
           style: 'destructive',
           onPress: () => {
-            // Show second alert with text input
-            Alert.prompt(
-              'Confirm Deletion',
-              'Type DELETE to permanently delete your account:',
-              [
-                {
-                  text: 'Cancel',
-                  style: 'cancel',
-                },
-                {
-                  text: 'Delete Forever',
-                  style: 'destructive',
-                  onPress: (value?: string) => {
-                    if (value === 'DELETE') {
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                      deleteAccount.mutate();
-                    } else {
-                      Alert.alert(
-                        'Incorrect Confirmation',
-                        'You must type DELETE exactly to confirm account deletion.'
-                      );
-                    }
+            if (Platform.OS === 'ios') {
+              // iOS: Use Alert.prompt
+              Alert.prompt(
+                'Confirm Deletion',
+                'Type DELETE to permanently delete your account:',
+                [
+                  {
+                    text: 'Cancel',
+                    style: 'cancel',
                   },
-                },
-              ],
-              'plain-text',
-              '',
-              'default'
-            );
+                  {
+                    text: 'Delete Forever',
+                    style: 'destructive',
+                    onPress: (value?: string) => {
+                      if (value === 'DELETE') {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        deleteAccount.mutate();
+                      } else {
+                        Alert.alert(
+                          'Incorrect Confirmation',
+                          'You must type DELETE exactly to confirm account deletion.'
+                        );
+                      }
+                    },
+                  },
+                ],
+                'plain-text',
+                '',
+                'default'
+              );
+            } else {
+              // Android: Use custom modal
+              setDeleteConfirmModalVisible(true);
+            }
           },
         },
       ]
@@ -286,6 +295,15 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
+
+  const handleConfirmDelete = useCallback(() => {
+    setDeleteConfirmModalVisible(false);
+    deleteAccount.mutate();
+  }, [deleteAccount]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeleteConfirmModalVisible(false);
+  }, []);
 
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
@@ -494,6 +512,12 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         visible={clipboardEnableModalVisible}
         onClose={handleCloseClipboardEnableModal}
         onEnable={handleEnableClipboard}
+      />
+
+      <DeleteConfirmationModal
+        visible={deleteConfirmModalVisible}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
       />
     </SafeAreaView>
   );
