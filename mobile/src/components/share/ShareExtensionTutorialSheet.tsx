@@ -57,12 +57,13 @@ export function ShareExtensionTutorialSheet({
   });
 
   // Pause video on unmount for clean UX. useVideoPlayer handles release() automatically.
+  // Wrap in try-catch because the native shared object may already be released.
   useEffect(() => {
     return () => {
       try {
         player.pause();
       } catch {
-        // Player may already be released
+        // Native player already released, safe to ignore
       }
     };
   }, [player]);
@@ -74,7 +75,7 @@ export function ShareExtensionTutorialSheet({
         try {
           player.pause();
         } catch {
-          // Player may already be released
+          // Native player may be released, safe to ignore
         }
       }
     });
@@ -174,7 +175,7 @@ export function ShareExtensionTutorialSheet({
       try {
         player.pause();
       } catch {
-        // Player may already be released
+        // Native player may be released, safe to ignore
       }
     }
   }, [visible, player]);

@@ -11,6 +11,7 @@ class TripSelectorViewModel: ObservableObject {
 
     @Published var trips: [Trip] = []
     @Published var countries: [Country] = []
+    @Published var uncategorizedTrip: Trip?  // "Saved Places" system trip
     @Published var isLoading: Bool = false
     @Published var isCreating: Bool = false
     @Published var error: String?
@@ -36,13 +37,16 @@ class TripSelectorViewModel: ObservableObject {
 
     // MARK: - Public API
 
-    /// Load trips and countries
+    /// Load trips, countries, and uncategorized trip
     func load() {
+        // Prevent multiple simultaneous loads
+        guard !isLoading else { return }
         isLoading = true
         error = nil
 
         Task {
             do {
+                // Load trips and countries (required)
                 async let tripsTask = apiClient.getTrips()
                 async let countriesTask = apiClient.getCountries()
 
@@ -50,9 +54,22 @@ class TripSelectorViewModel: ObservableObject {
 
                 trips = loadedTrips.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
                 countries = loadedCountries.sorted { $0.name < $1.name }
+                NSLog("[Atlasi] Loaded \(trips.count) trips and \(countries.count) countries")
+
+                // Load uncategorized trip separately (optional - don't fail if this errors)
+                do {
+                    let loaded = try await apiClient.getUncategorizedTrip()
+                    uncategorizedTrip = loaded
+                    NSLog("[Atlasi] Loaded uncategorized trip: \(loaded.id) - \(loaded.name)")
+                } catch {
+                    NSLog("[Atlasi] Failed to load uncategorized trip: \(error)")
+                    // Continue without uncategorized trip
+                }
+
                 isLoading = false
 
             } catch {
+                NSLog("[Atlasi] Failed to load trips/countries: \(error)")
                 self.error = "Failed to load trips"
                 isLoading = false
             }
@@ -94,5 +111,13 @@ class TripSelectorViewModel: ObservableObject {
     /// Get country by code
     func country(for code: String) -> Country? {
         countries.first { $0.code == code }
+    }
+
+    /// Resolve the uncategorized trip, falling back to a system trip from /trips if needed
+    func resolvedUncategorizedTrip() -> Trip? {
+        if let uncategorizedTrip {
+            return uncategorizedTrip
+        }
+        return trips.first { $0.isSystem == true }
     }
 }

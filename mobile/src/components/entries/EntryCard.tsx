@@ -4,21 +4,26 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { getFlagEmoji } from '@utils/flags';
 import { logger } from '@utils/logger';
-// Entry type icons and colors
+
+// Entry type icons and colors using brand palette
 const ENTRY_TYPE_CONFIG: Record<
   EntryType,
   { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }
 > = {
-  place: { icon: 'location', color: '#007AFF', label: 'Place' },
-  food: { icon: 'restaurant', color: '#FF9500', label: 'Food' },
-  stay: { icon: 'bed', color: '#5856D6', label: 'Stay' },
-  experience: { icon: 'star', color: '#34C759', label: 'Experience' },
+  place: { icon: 'location', color: colors.adobeBrick, label: 'Place' },
+  food: { icon: 'restaurant', color: colors.sunsetGold, label: 'Food' },
+  stay: { icon: 'bed', color: colors.mossGreen, label: 'Stay' },
+  experience: { icon: 'star', color: colors.midnightNavy, label: 'Experience' },
 };
 
 interface EntryCardProps {
   entry: EntryWithPlace;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 function formatDate(dateString: string | null): string {
@@ -29,6 +34,90 @@ function formatDate(dateString: string | null): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+/**
+ * Extract country name from Google Places address.
+ * Most addresses end with country name after last comma.
+ */
+function extractCountryFromAddress(address: string | null): string | null {
+  if (!address) return null;
+  const parts = address.split(',').map((p) => p.trim());
+  return parts.length >= 2 ? parts[parts.length - 1] : null;
+}
+
+/**
+ * Common country name to ISO code mapping for flag display.
+ */
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  Thailand: 'TH',
+  Egypt: 'EG',
+  Canada: 'CA',
+  'United States': 'US',
+  USA: 'US',
+  'United Kingdom': 'GB',
+  UK: 'GB',
+  France: 'FR',
+  Germany: 'DE',
+  Italy: 'IT',
+  Spain: 'ES',
+  Japan: 'JP',
+  China: 'CN',
+  Australia: 'AU',
+  Mexico: 'MX',
+  Brazil: 'BR',
+  India: 'IN',
+  'South Korea': 'KR',
+  Netherlands: 'NL',
+  Switzerland: 'CH',
+  Portugal: 'PT',
+  Greece: 'GR',
+  Turkey: 'TR',
+  Indonesia: 'ID',
+  Vietnam: 'VN',
+  Singapore: 'SG',
+  Malaysia: 'MY',
+  Philippines: 'PH',
+  'New Zealand': 'NZ',
+  Argentina: 'AR',
+  Chile: 'CL',
+  Colombia: 'CO',
+  Peru: 'PE',
+  Morocco: 'MA',
+  'South Africa': 'ZA',
+  Kenya: 'KE',
+  Iceland: 'IS',
+  Norway: 'NO',
+  Sweden: 'SE',
+  Denmark: 'DK',
+  Finland: 'FI',
+  Ireland: 'IE',
+  Austria: 'AT',
+  Belgium: 'BE',
+  'Czech Republic': 'CZ',
+  Czechia: 'CZ',
+  Poland: 'PL',
+  Hungary: 'HU',
+  Croatia: 'HR',
+  Russia: 'RU',
+  Ukraine: 'UA',
+  Israel: 'IL',
+  'United Arab Emirates': 'AE',
+  UAE: 'AE',
+  'Saudi Arabia': 'SA',
+  Qatar: 'QA',
+  Taiwan: 'TW',
+  'Hong Kong': 'HK',
+};
+
+/**
+ * Get flag emoji for a country name.
+ * Falls back to globe emoji if country code not found.
+ */
+function getCountryFlag(countryName: string | null): string {
+  if (!countryName) return '\u{1F30D}'; // Globe emoji
+  const code = COUNTRY_NAME_TO_CODE[countryName];
+  return code ? getFlagEmoji(code) : '\u{1F30D}';
 }
 
 /**
@@ -61,7 +150,7 @@ function isValidGooglePhotoUrl(url: string | null): string | null {
   }
 }
 
-function EntryCardComponent({ entry, onPress }: EntryCardProps) {
+function EntryCardComponent({ entry, onPress, onLongPress }: EntryCardProps) {
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
   const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
@@ -83,10 +172,13 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     }
   }, [entry.id, entry.place?.google_photo_url, placePhotoUrl, hasUserMedia]);
 
-  // Use user-uploaded media first, fall back to Google Places photo
+  // Social media thumbnail from metadata (Instagram/TikTok)
+  const socialThumbnailUrl = entry.metadata?.thumbnail_url ?? null;
+
+  // Use user-uploaded media first, then social thumbnail, then Google Places photo
   const firstMediaUrl = hasUserMedia
     ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
-    : placePhotoUrl;
+    : (socialThumbnailUrl ?? placePhotoUrl);
 
   const hasMedia = !!firstMediaUrl;
   const shouldShowImage = hasMedia && !imageError;
@@ -108,6 +200,7 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     <Pressable
       style={styles.container}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityParts.join(', ')}
       accessibilityHint="Double tap to view entry details"
@@ -123,12 +216,14 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
           {entry.title}
         </Text>
 
-        {/* Place name if available */}
-        {entry.place?.name && (
+        {/* Country from address if available - show with flag */}
+        {entry.place?.address && extractCountryFromAddress(entry.place.address) && (
           <View style={styles.placeRow}>
-            <Ionicons name="location-outline" size={14} color="#666" />
-            <Text style={styles.placeName} numberOfLines={1}>
-              {entry.place.name}
+            <Text style={styles.countryFlag}>
+              {getCountryFlag(extractCountryFromAddress(entry.place.address))}
+            </Text>
+            <Text style={styles.countryText} numberOfLines={1}>
+              {extractCountryFromAddress(entry.place.address)}
             </Text>
           </View>
         )}
@@ -137,40 +232,38 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
         {entry.entry_date && <Text style={styles.date}>{formatDate(entry.entry_date)}</Text>}
       </View>
 
-      {/* Media Preview */}
-      {shouldShowImage ? (
-        <View style={styles.mediaContainer}>
-          {firstMediaUrl ? (
-            <Image
-              source={{ uri: firstMediaUrl }}
-              style={styles.mediaThumbnail}
-              onError={(e) => {
-                logger.warn('[EntryCard] Image load error', {
-                  url: firstMediaUrl.substring(0, 100),
-                  error: e.nativeEvent?.error,
-                });
-                setImageError(true);
-              }}
-              onLoad={() => {
-                logger.log('[EntryCard] Image loaded successfully', {
-                  url: firstMediaUrl.substring(0, 100),
-                });
-              }}
-            />
-          ) : (
-            <View style={styles.mediaThumbnailPlaceholder}>
-              <Ionicons name="image" size={20} color="#ccc" />
-            </View>
-          )}
-          {mediaCount > 1 && (
-            <View style={styles.mediaCount}>
-              <Text style={styles.mediaCountText}>+{mediaCount - 1}</Text>
-            </View>
-          )}
-        </View>
-      ) : (
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      )}
+      {/* Media Preview - always show thumbnail area */}
+      <View style={styles.mediaContainer}>
+        {shouldShowImage && firstMediaUrl ? (
+          <Image
+            source={{ uri: firstMediaUrl }}
+            style={styles.mediaThumbnail}
+            onError={(e) => {
+              logger.warn('[EntryCard] Image load error', {
+                url: firstMediaUrl.substring(0, 100),
+                error: e.nativeEvent?.error,
+              });
+              setImageError(true);
+            }}
+            onLoad={() => {
+              logger.log('[EntryCard] Image loaded successfully', {
+                url: firstMediaUrl.substring(0, 100),
+              });
+            }}
+          />
+        ) : (
+          <View
+            style={[styles.mediaThumbnailPlaceholder, { backgroundColor: typeConfig.color + '15' }]}
+          >
+            <Ionicons name={typeConfig.icon} size={28} color={typeConfig.color} />
+          </View>
+        )}
+        {mediaCount > 1 && (
+          <View style={styles.mediaCount}>
+            <Text style={styles.mediaCountText}>+{mediaCount - 1}</Text>
+          </View>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -181,14 +274,14 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.paperBeige,
+    borderRadius: 16,
     padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   typeBadge: {
     width: 36,
@@ -203,9 +296,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   title: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   placeRow: {
@@ -213,30 +306,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 2,
   },
-  placeName: {
+  countryFlag: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  countryText: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 13,
-    color: '#666',
-    marginLeft: 4,
+    color: colors.stormGray,
     flex: 1,
   },
   date: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 12,
-    color: '#999',
+    color: colors.textTertiary,
   },
   mediaContainer: {
     position: 'relative',
   },
   mediaThumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundMuted,
   },
   mediaThumbnailPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundMuted,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -244,7 +342,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: -4,
     right: -4,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.mossGreen,
     borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -252,8 +350,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   mediaCountText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
+    color: colors.white,
   },
 });

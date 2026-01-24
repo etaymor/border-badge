@@ -103,6 +103,7 @@ export type TripsStackParamList = {
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };
+  SavedPlaces: undefined; // Uncategorized entries holding area
 };
 
 // Screen props helpers

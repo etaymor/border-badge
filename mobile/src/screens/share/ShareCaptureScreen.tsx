@@ -50,6 +50,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     error,
     isLoading,
     isSaving,
+    userClearedPlace,
     handleTypeSelect,
     handleChangeType,
     handlePlaceSelect,
@@ -73,6 +74,15 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
       }
     },
   });
+
+  // Derive effective country code:
+  // - If user explicitly cleared the place, don't bias by country (search worldwide)
+  // - Otherwise, use selected place country, detected place country, or detected country hint
+  const effectiveCountryCode = userClearedPlace
+    ? undefined
+    : (selectedPlace?.country_code ??
+      ingestResult?.detected_place?.country_code ??
+      ingestResult?.detected_country?.country_code);
 
   // Loading state
   if (isLoading) {
@@ -131,11 +141,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               value={selectedPlace}
               onSelect={handlePlaceSelect}
               placeholder="Search for a place..."
-              countryCode={
-                ingestResult?.detected_place?.country_code ??
-                ingestResult?.detected_country?.country_code ??
-                undefined
-              }
+              countryCode={effectiveCountryCode}
               onDropdownOpen={(isOpen) => {
                 setScrollEnabled(!isOpen);
                 if (isOpen) {
@@ -154,14 +160,10 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             <TripSelector
               selectedTripId={selectedTripId}
               onSelectTrip={setSelectedTripId}
-              countryCode={
-                selectedPlace?.country_code ??
-                ingestResult?.detected_place?.country_code ??
-                ingestResult?.detected_country?.country_code ??
-                undefined
-              }
+              countryCode={effectiveCountryCode}
               onCreateTrip={handleCreateTrip}
               isCreatingTrip={isCreatingTrip}
+              showSavedPlacesOption
             />
           </View>
 

@@ -123,7 +123,7 @@ EXPO_PUBLIC_SUPABASE_URL=<supabase-url>
 EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 EXPO_PUBLIC_APP_ENV=development
 EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=<google-places-key>
-EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000
+EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000  # Base URL for public web pages (Terms, Privacy)
 EXPO_PUBLIC_POSTHOG_API_KEY=<posthog-api-key>  # Optional: for production analytics
 EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
 ```
@@ -288,6 +288,33 @@ user_profile     - Extended user data
 | `docs/travel-prd.md`                      | Product requirements          |
 | `docs/travel-technical-design.md`         | Technical design              |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
+
+## Share Extension Architecture (IMPORTANT)
+
+The share capture flow has **TWO implementations** that must be kept in sync:
+
+| Platform | Location | Language |
+|----------|----------|----------|
+| React Native (in-app) | `mobile/src/screens/share/` | TypeScript |
+| iOS Share Extension | `mobile/plugins/share-extension/` | Swift |
+
+**CRITICAL:** The iOS Share Extension source files are in `mobile/plugins/share-extension/`, NOT in `mobile/ios/ShareExtension/`. The `mobile/ios/` directory is gitignored and regenerated during builds - any changes there will be lost!
+
+**When modifying share capture behavior:**
+1. Update React Native code in `mobile/src/screens/share/`
+2. Update Swift code in `mobile/plugins/share-extension/`
+3. Ensure both implementations have the same behavior
+4. Run `npx expo prebuild --clean` to regenerate `mobile/ios/` with your changes
+5. Rebuild the main app so the updated extension bundle is embedded
+
+**Key parallel files:**
+
+| React Native | Swift (in `mobile/plugins/share-extension/`) |
+|--------------|-------|
+| `useShareCapture.ts` | `ViewModels/ShareCaptureViewModel.swift` |
+| `TripSelector.tsx` | `Views/TripSelectorView.swift` + `ViewModels/TripSelectorViewModel.swift` |
+| `useTrips.ts` (Trip interface) | `Models/Trip.swift` |
+| `api.ts` | `Services/APIClient.swift` |
 
 ## Authentication System (IMPORTANT)
 

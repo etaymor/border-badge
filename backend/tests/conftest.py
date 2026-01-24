@@ -22,6 +22,7 @@ TEST_TAG_ID = "550e8400-e29b-41d4-a716-446655440006"
 TEST_USER_COUNTRY_ID = "550e8400-e29b-41d4-a716-446655440007"
 TEST_LIST_ID = "550e8400-e29b-41d4-a716-446655440008"
 TEST_LIST_ENTRY_ID = "550e8400-e29b-41d4-a716-446655440009"
+TEST_UNCATEGORIZED_TRIP_ID = "550e8400-e29b-41d4-a716-446655440010"
 OTHER_USER_ID = "550e8400-e29b-41d4-a716-446655440099"
 
 
@@ -153,6 +154,23 @@ def sample_list_entry() -> dict[str, Any]:
         "entry_id": TEST_ENTRY_ID,
         "position": 0,
         "created_at": "2024-01-01T00:00:00Z",
+    }
+
+
+@pytest.fixture
+def sample_uncategorized_trip() -> dict[str, Any]:
+    """Sample uncategorized/system trip data (Saved Places)."""
+    return {
+        "id": TEST_UNCATEGORIZED_TRIP_ID,
+        "user_id": TEST_USER_ID,
+        "country_id": None,
+        "name": "Saved Places",
+        "cover_image_url": None,
+        "date_range": None,
+        "is_system": True,
+        "created_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "entry_count": 0,
     }
 
 

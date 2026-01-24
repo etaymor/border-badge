@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class EntryType(str, Enum):
@@ -123,3 +123,23 @@ class EntryWithPlace(Entry):
 
     place: Place | None = None
     media_files: list[EntryMediaFile] = []
+
+
+class EntryMoveRequest(BaseModel):
+    """Request to move an entry to a different trip."""
+
+    trip_id: UUID
+
+
+class BulkMoveRequest(BaseModel):
+    """Request to move multiple entries to a trip."""
+
+    entry_ids: list[UUID] = Field(..., min_length=1)
+    target_trip_id: UUID
+
+
+class BulkMoveResponse(BaseModel):
+    """Response from bulk move operation."""
+
+    moved_count: int
+    entries: list[EntryWithPlace]

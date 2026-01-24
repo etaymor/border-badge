@@ -17,7 +17,7 @@ import { TripCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
-import { Trip, useTrips } from '@hooks/useTrips';
+import { Trip, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
 import type { TripsStackScreenProps } from '@navigation/types';
@@ -60,10 +60,31 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   );
 }
 
+// Saved Places Card Component
+function SavedPlacesCard({ entryCount, onPress }: { entryCount: number; onPress: () => void }) {
+  if (entryCount === 0) return null;
+
+  return (
+    <Pressable style={styles.savedPlacesCard} onPress={onPress}>
+      <View style={styles.savedPlacesIcon}>
+        <Ionicons name="bookmark" size={24} color={colors.sunsetGold} />
+      </View>
+      <View style={styles.savedPlacesContent}>
+        <Text style={styles.savedPlacesTitle}>Saved Places</Text>
+        <Text style={styles.savedPlacesSubtitle}>
+          {entryCount} {entryCount === 1 ? 'place' : 'places'} waiting to be organized
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
+    </Pressable>
+  );
+}
+
 export function TripsListScreen({ navigation }: Props) {
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
+  const { data: uncategorizedTrip } = useUncategorizedTrip();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Create a set of visited country codes for quick lookup
@@ -87,7 +108,7 @@ export function TripsListScreen({ navigation }: Props) {
     const query = searchQuery.toLowerCase().trim();
     const filteredTrips = trips.filter((trip) => {
       if (!query) return true;
-      const country = countriesMap.get(trip.country_code); // O(1) Map lookup instead of O(n) find
+      const country = trip.country_code ? countriesMap.get(trip.country_code) : undefined; // O(1) Map lookup instead of O(n) find
       const countryName = country?.name.toLowerCase() || '';
       return trip.name.toLowerCase().includes(query) || countryName.includes(query);
     });
@@ -98,7 +119,7 @@ export function TripsListScreen({ navigation }: Props) {
     const plannedTrips: Trip[] = [];
 
     filteredTrips.forEach((trip) => {
-      if (visitedCountryCodes.has(trip.country_code)) {
+      if (trip.country_code && visitedCountryCodes.has(trip.country_code)) {
         visitedTrips.push(trip);
       } else {
         plannedTrips.push(trip);
@@ -119,6 +140,10 @@ export function TripsListScreen({ navigation }: Props) {
     navigation.navigate('TripForm', {});
   }, [navigation]);
 
+  const handleSavedPlacesPress = useCallback(() => {
+    navigation.navigate('SavedPlaces');
+  }, [navigation]);
+
   const handleTripPress = useCallback(
     (tripId: string) => {
       navigation.navigate('TripDetail', { tripId });
@@ -128,7 +153,7 @@ export function TripsListScreen({ navigation }: Props) {
 
   const renderItem = useCallback(
     ({ item }: { item: Trip }) => {
-      const flagEmoji = getFlagEmoji(item.country_code);
+      const flagEmoji = item.country_code ? getFlagEmoji(item.country_code) : '';
       return (
         <TripCard trip={item} flagEmoji={flagEmoji} onPress={() => handleTripPress(item.id)} />
       );
@@ -174,9 +199,17 @@ export function TripsListScreen({ navigation }: Props) {
             </BlurView>
           </View>
         </View>
+
+        {/* Saved Places Card */}
+        <View style={styles.savedPlacesContainer}>
+          <SavedPlacesCard
+            entryCount={uncategorizedTrip?.entry_count ?? 0}
+            onPress={handleSavedPlacesPress}
+          />
+        </View>
       </>
     ),
-    [searchQuery]
+    [searchQuery, uncategorizedTrip?.entry_count, handleSavedPlacesPress]
   );
 
   if (isLoading) {
@@ -411,5 +444,42 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
+  },
+  savedPlacesContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  savedPlacesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 194, 78, 0.3)',
+  },
+  savedPlacesIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(244, 194, 78, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  savedPlacesContent: {
+    flex: 1,
+  },
+  savedPlacesTitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  savedPlacesSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    marginTop: 2,
   },
 });

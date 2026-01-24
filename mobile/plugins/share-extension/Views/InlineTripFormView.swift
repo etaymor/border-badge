@@ -89,7 +89,9 @@ struct InlineTripFormView: View {
                         }
                     } else {
                         // Selectable country
-                        Button(action: { isShowingCountryPicker = true }) {
+                        Button(
+                            action: { isShowingCountryPicker = true },
+                            label: {
                             HStack {
                                 if let country = viewModel.country(for: selectedCountryCode) {
                                     HStack(spacing: 10) {
@@ -120,7 +122,7 @@ struct InlineTripFormView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(Color.white.opacity(0.6), lineWidth: 1)
                             )
-                        }
+                        })
                         .buttonStyle(.plain)
                     }
                 }

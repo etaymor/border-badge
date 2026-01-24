@@ -5,6 +5,7 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { env } from '@config/env';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
@@ -425,6 +427,26 @@ export function AccountCreationScreen({ navigation }: Props) {
                 <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
               </TouchableOpacity>
             </Animated.View>
+
+            {/* Terms and Privacy */}
+            <Animated.View style={[styles.legalContainer, { opacity: contentAnim }]}>
+              <Text style={styles.legalText}>
+                By creating an account, you agree to our{' '}
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => Linking.openURL(`${env.webBaseUrl}/terms`)}
+                >
+                  Terms of Service
+                </Text>{' '}
+                and{' '}
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => Linking.openURL(`${env.webBaseUrl}/privacy`)}
+                >
+                  Privacy Policy
+                </Text>
+              </Text>
+            </Animated.View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -597,5 +619,20 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
+  },
+  legalContainer: {
+    marginTop: 24,
+    paddingHorizontal: 16,
+  },
+  legalText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 12,
+    color: colors.stormGray,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  legalLink: {
+    color: colors.mossGreen,
+    textDecorationLine: 'underline',
   },
 });

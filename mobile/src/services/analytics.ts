@@ -398,4 +398,13 @@ export const Analytics = {
       remaining_clusters: props.remainingClusters,
       workflow_duration_ms: props.workflowDurationMs,
     }),
+
+  // Entry organization (Saved Places feature)
+  moveEntry: (props: { entryCount: number; targetTripId: string; isUncategorizedTrip: boolean }) =>
+    track('move_entry', {
+      entry_count: props.entryCount,
+      target_trip_id: props.targetTripId,
+      is_bulk: props.entryCount > 1,
+      is_uncategorized_trip: props.isUncategorizedTrip,
+    }),
 };

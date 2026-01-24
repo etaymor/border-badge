@@ -115,6 +115,11 @@ actor APIClient {
         return try await get(path: "/trips", timeout: defaultTimeout)
     }
 
+    /// Get or create the user's uncategorized trip ("Saved Places")
+    func getUncategorizedTrip() async throws -> Trip {
+        return try await get(path: "/trips/uncategorized", timeout: defaultTimeout)
+    }
+
     /// Create a new trip
     func createTrip(name: String, countryCode: String) async throws -> Trip {
         let request = CreateTripRequest(name: name, countryCode: countryCode)

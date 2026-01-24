@@ -136,7 +136,7 @@ enum AppGroupStorage {
     // - Main app only removes items after successful sync
     // - Concurrent modification is rare in practice
     //
-    // TODO: For production, wrap queue operations with NSFileCoordinator for atomic access.
+    // NOTE: For production, consider wrapping queue operations with NSFileCoordinator for atomic access.
     // See file header documentation for implementation details.
 
     /// Get the offline share queue

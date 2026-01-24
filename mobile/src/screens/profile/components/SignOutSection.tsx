@@ -7,14 +7,22 @@ interface SignOutSectionProps {
   onSignOut: () => void;
   isPending: boolean;
   isSmallScreen?: boolean;
+  onDeleteAccount?: () => void;
+  isDeleting?: boolean;
 }
 
-export function SignOutSection({ onSignOut, isPending, isSmallScreen }: SignOutSectionProps) {
+export function SignOutSection({
+  onSignOut,
+  isPending,
+  isSmallScreen,
+  onDeleteAccount,
+  isDeleting,
+}: SignOutSectionProps) {
   return (
     <View style={styles.signOutSection}>
       <Pressable
         onPress={onSignOut}
-        disabled={isPending}
+        disabled={isPending || isDeleting}
         style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
         accessibilityRole="button"
         accessibilityLabel="Sign out"
@@ -28,6 +36,31 @@ export function SignOutSection({ onSignOut, isPending, isSmallScreen }: SignOutS
           </Text>
         )}
       </Pressable>
+
+      {/* Delete Account - Semi-hidden at bottom */}
+      {onDeleteAccount && (
+        <Pressable
+          onPress={onDeleteAccount}
+          disabled={isPending || isDeleting}
+          style={({ pressed }) => [
+            styles.deleteAccountButton,
+            pressed && styles.deleteAccountButtonPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Delete account"
+          testID="delete-account-button"
+        >
+          {isDeleting ? (
+            <ActivityIndicator size="small" color={colors.stormGray} />
+          ) : (
+            <Text
+              style={[styles.deleteAccountText, isSmallScreen && styles.deleteAccountTextSmall]}
+            >
+              Delete Account
+            </Text>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -59,5 +92,21 @@ const styles = StyleSheet.create({
   },
   signOutTextSmall: {
     fontSize: 14,
+  },
+  deleteAccountButton: {
+    marginTop: 24,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  deleteAccountButtonPressed: {
+    opacity: 0.5,
+  },
+  deleteAccountText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+  },
+  deleteAccountTextSmall: {
+    fontSize: 12,
   },
 });

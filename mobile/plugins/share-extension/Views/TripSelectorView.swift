@@ -27,33 +27,74 @@ struct TripSelectorView: View {
     @State private var activeSheet: ActiveSheet?
 
     var body: some View {
+        let resolvedUncategorized = viewModel.resolvedUncategorizedTrip()
+
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(text: "Save to Trip")
 
-            Button(action: {
-                // Go directly to create if no trips exist for this country
-                let filtered = viewModel.filteredTrips(countryCode: countryCode)
-                if filtered.isEmpty && !viewModel.isLoading {
-                    activeSheet = .create
-                } else {
+            Button(
+                action: {
+                    // Always show selection sheet - it includes Saved Places option
                     activeSheet = .selection
-                }
-            }) {
+                },
+                label: {
                 HStack(spacing: 8) {
-                    if let tripId = selectedTripId,
-                       let trip = viewModel.trips.first(where: { $0.id == tripId }) {
-                        // Selected trip name + country code
-                        Text(trip.name)
-                            .font(Typography.semibold(16))
-                            .foregroundColor(BrandColors.midnightNavy)
-                            .lineLimit(1)
+                    if let tripId = selectedTripId {
+                        // Check if it's the uncategorized "Saved Places" trip
+                        if tripId == resolvedUncategorized?.id {
+                            // Show bookmark icon for Saved Places
+                            Image(systemName: "bookmark.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(BrandColors.sunsetGold)
 
-                        Spacer()
+                            Text("Saved Places")
+                                .font(Typography.semibold(16))
+                                .foregroundColor(BrandColors.midnightNavy)
+                                .lineLimit(1)
 
-                        if let code = trip.countryCode {
-                            Text(code)
-                                .font(Typography.body(14))
+                            Spacer()
+                        } else if let trip = viewModel.trips.first(where: { $0.id == tripId }) {
+                            // Regular trip - show name + country code
+                            Text(trip.name)
+                                .font(Typography.semibold(16))
+                                .foregroundColor(BrandColors.midnightNavy)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            if let code = trip.countryCode {
+                                Text(code)
+                                    .font(Typography.body(14))
+                                    .foregroundColor(BrandColors.stormGray)
+                            }
+                        } else if viewModel.isLoading {
+                            // Trip selected but data still loading
+                            Text("Loading...")
+                                .font(Typography.body(16))
                                 .foregroundColor(BrandColors.stormGray)
+
+                            Spacer()
+                        } else {
+                            // Trip ID set but not found - show Saved Places as fallback
+                            // This handles the case where uncategorizedTrip hasn't loaded yet
+                            if resolvedUncategorized != nil {
+                                Image(systemName: "bookmark.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(BrandColors.sunsetGold)
+
+                                Text("Saved Places")
+                                    .font(Typography.semibold(16))
+                                    .foregroundColor(BrandColors.midnightNavy)
+                                    .lineLimit(1)
+
+                                Spacer()
+                            } else {
+                                Text("Select a trip...")
+                                    .font(Typography.body(16))
+                                    .foregroundColor(BrandColors.stormGray)
+
+                                Spacer()
+                            }
                         }
                     } else {
                         Text("Select a trip...")
@@ -75,8 +116,9 @@ struct TripSelectorView: View {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color.white.opacity(0.6), lineWidth: 1)
                 )
-            }
+            })
             .buttonStyle(.plain)
+
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -150,19 +192,116 @@ struct TripSelectorView: View {
             }
         }
         .onAppear {
-            if viewModel.trips.isEmpty {
-                viewModel.load()
-            }
+            // Always load trips data
+            viewModel.load()
+            // Try auto-select immediately if data is already available
+            autoSelectTrip()
         }
         .onChange(of: viewModel.trips) { _ in
-            // Auto-select the first matching trip when trips load
+            // Auto-select trip when trips load
+            // Also re-evaluate if we're on Saved Places but now have trips for the detected country
             if selectedTripId == nil {
-                let filtered = viewModel.filteredTrips(countryCode: countryCode)
-                if let firstTrip = filtered.first {
-                    selectedTripId = firstTrip.id
-                    onTripSelected(firstTrip.id)
-                }
+                autoSelectTrip()
+            } else {
+                autoSelectTripForCountryChange()
             }
+        }
+        .onChange(of: viewModel.uncategorizedTrip) { _ in
+            // Auto-select when uncategorized trip loads (may load after trips)
+            autoSelectTrip()
+        }
+        .onChange(of: viewModel.isLoading) { isLoading in
+            // Auto-select after loading completes
+            if !isLoading {
+                autoSelectTrip()
+            }
+        }
+        .onChange(of: countryCode) { _ in
+            // Re-evaluate trip selection when country changes (e.g., from place detection)
+            autoSelectTripForCountryChange()
+        }
+    }
+
+    /// Auto-select the best trip: country-specific trip first, then uncategorized ("Saved Places")
+    private func autoSelectTrip() {
+        NSLog("[TripSelectorView] autoSelectTrip called - selectedTripId: \(selectedTripId ?? "nil")")
+        guard selectedTripId == nil else {
+            NSLog("[TripSelectorView] autoSelectTrip - skipping, already have selection")
+            return
+        }
+        selectBestTrip()
+    }
+
+    /// Re-evaluate trip selection when country changes or trips load
+    /// Unlike autoSelectTrip(), this allows changing from uncategorized to a country-specific trip
+    private func autoSelectTripForCountryChange() {
+        let code = countryCode ?? "nil"
+        let tripId = selectedTripId ?? "nil"
+        NSLog("[TripSelectorView] autoSelectTripForCountryChange - code: %@, trip: %@, loading: %d",
+              code, tripId, viewModel.isLoading ? 1 : 0)
+
+        let resolvedUncategorized = viewModel.resolvedUncategorizedTrip()
+
+        // Check if selectedTripId is stale (no longer exists in available trips)
+        if let currentId = selectedTripId {
+            let isUncategorized = resolvedUncategorized?.id == currentId
+            let existsInTrips = viewModel.trips.contains { $0.id == currentId }
+
+            if !isUncategorized && !existsInTrips && !viewModel.isLoading {
+                // Selected trip no longer exists - reset and re-select
+                NSLog("[TripSelectorView] autoSelectTripForCountryChange - stale trip detected, resetting")
+                selectedTripId = nil
+                selectBestTrip()
+                return
+            }
+        }
+
+        // If currently on uncategorized trip (Saved Places), check if there's now a country-specific trip
+        if let uncategorized = resolvedUncategorized,
+           selectedTripId == uncategorized.id,
+           let code = countryCode {
+            let countryTrips = viewModel.trips.filter { $0.countryCode == code }
+            NSLog("[TripSelectorView] autoSelectTripForCountryChange - found %d trips for %@",
+                  countryTrips.count, code)
+            if let firstTrip = countryTrips.first {
+                // Switch to country-specific trip
+                NSLog("[TripSelectorView] autoSelectTripForCountryChange - switching to country trip: \(firstTrip.id)")
+                selectedTripId = firstTrip.id
+                onTripSelected(firstTrip.id)
+            }
+            // Otherwise stay on Saved Places (no trips for this country)
+        } else if selectedTripId == nil {
+            // No selection yet, do normal auto-select
+            selectBestTrip()
+        }
+    }
+
+    /// Select the best available trip based on current state
+    private func selectBestTrip() {
+        let resolvedUncategorized = viewModel.resolvedUncategorizedTrip()
+        let code = countryCode ?? "nil"
+        let uncatId = resolvedUncategorized?.id ?? "nil"
+        NSLog("[TripSelectorView] selectBestTrip - countryCode: %@, uncategorized: %@", code, uncatId)
+
+        // Only consider country-specific trips if we have a detected country
+        if let code = countryCode {
+            let countryTrips = viewModel.trips.filter { $0.countryCode == code }
+            if let firstTrip = countryTrips.first {
+                // Select the most recent trip for the detected country
+                NSLog("[TripSelectorView] selectBestTrip - selecting country trip: \(firstTrip.id)")
+                selectedTripId = firstTrip.id
+                onTripSelected(firstTrip.id)
+                return
+            }
+        }
+
+        // Default to "Saved Places" when no country detected or no matching trips
+        if let uncategorized = resolvedUncategorized {
+            NSLog("[TripSelectorView] selectBestTrip - selecting Saved Places: \(uncategorized.id)")
+            selectedTripId = uncategorized.id
+            onTripSelected(uncategorized.id)
+        } else {
+            NSLog("[TripSelectorView] selectBestTrip - no Saved Places available")
         }
     }
 }
@@ -198,25 +337,35 @@ private struct TripSelectionSheet: View {
                     ProgressView()
                         .tint(BrandColors.sunsetGold)
                     Spacer()
-                } else if filteredTrips.isEmpty {
-                    // No trips for this country
-                    VStack(spacing: 16) {
-                        Spacer()
-
-                        Text(countryCode != nil
-                            ? "No trips for this country yet. Create one below!"
-                            : "No trips yet. Create one below!")
-                            .font(Typography.body(14))
-                            .foregroundColor(BrandColors.stormGray)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 20)
-
-                        Spacer()
-                    }
                 } else {
-                    // Trip list
+                    // Trip list with Saved Places option
                     ScrollView {
                         VStack(spacing: 8) {
+                            // Saved Places option (always shown first)
+                            if let uncategorized = viewModel.resolvedUncategorizedTrip() {
+                                SavedPlacesRow(
+                                    isSelected: selectedTripId == uncategorized.id,
+                                    onTap: { onTripSelected(uncategorized.id) }
+                                )
+
+                                // Divider if there are country trips
+                                if !filteredTrips.isEmpty {
+                                    HStack {
+                                        Rectangle()
+                                            .fill(Color.black.opacity(0.1))
+                                            .frame(height: 1)
+                                        Text("or add to a trip")
+                                            .font(Typography.body(12))
+                                            .foregroundColor(BrandColors.stormGray)
+                                        Rectangle()
+                                            .fill(Color.black.opacity(0.1))
+                                            .frame(height: 1)
+                                    }
+                                    .padding(.vertical, 12)
+                                }
+                            }
+
+                            // Country-specific trips
                             ForEach(filteredTrips) { trip in
                                 TripRow(
                                     trip: trip,
@@ -267,6 +416,59 @@ private struct TripSelectionSheet: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+// MARK: - Saved Places Row
+
+private struct SavedPlacesRow: View {
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                // Bookmark icon
+                Image(systemName: "bookmark.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(BrandColors.sunsetGold)
+
+                // Label
+                Text("Saved Places")
+                    .font(Typography.semibold(15))
+                    .foregroundColor(isSelected ? BrandColors.mossGreen : BrandColors.midnightNavy)
+
+                // Hint
+                Text("Organize later")
+                    .font(Typography.body(12))
+                    .foregroundColor(BrandColors.stormGray)
+
+                Spacer()
+
+                // Checkmark when selected
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(BrandColors.mossGreen)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                isSelected
+                    ? Color(red: 84/255, green: 122/255, blue: 95/255).opacity(0.15)  // mossGreen 0.15
+                    : BrandColors.sunsetGold.opacity(0.15)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        isSelected ? BrandColors.mossGreen : BrandColors.sunsetGold.opacity(0.3),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

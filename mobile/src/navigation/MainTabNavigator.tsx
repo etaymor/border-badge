@@ -2,7 +2,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-navigation/native';
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
-import { ProfileScreen } from '@screens/ProfileScreen';
 
 import { DreamsNavigator } from './DreamsNavigator';
 import { PassportNavigator } from './PassportNavigator';
@@ -12,7 +11,7 @@ import type { MainTabParamList } from './types';
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 // Screens where tab bar should be hidden (creation/editing modes)
-const HIDDEN_TAB_BAR_SCREENS = ['TripForm', 'ListCreate', 'ListEdit', 'EntryForm'];
+const HIDDEN_TAB_BAR_SCREENS = ['TripForm', 'ListCreate', 'ListEdit', 'EntryForm', 'ShareCapture'];
 
 /**
  * Determines tab bar visibility based on the currently focused screen.
@@ -39,7 +38,11 @@ export function MainTabNavigator() {
       <Tab.Screen
         name="Passport"
         component={PassportNavigator}
-        options={{ title: 'Passport', tabBarAccessibilityLabel: 'passport-tab' }}
+        options={({ route }) => ({
+          title: 'Passport',
+          tabBarAccessibilityLabel: 'passport-tab',
+          tabBarStyle: getTabBarStyle(route),
+        })}
         listeners={({ navigation }) => ({
           tabPress: () => {
             // Reset to the first screen of the stack when tab is pressed
@@ -87,11 +90,13 @@ export function MainTabNavigator() {
           },
         })}
       />
+      {/* LAUNCH_SIMPLIFICATION: Friends tab hidden for initial launch
       <Tab.Screen
         name="Friends"
         component={ProfileScreen}
         options={{ title: 'Friends', headerShown: true, tabBarAccessibilityLabel: 'friends-tab' }}
       />
+      */}
     </Tab.Navigator>
   );
 }

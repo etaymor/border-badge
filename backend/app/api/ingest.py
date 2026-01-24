@@ -6,7 +6,7 @@ from urllib.parse import urlparse, urlunparse
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.countries import get_country_name_by_code
-from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
+from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
@@ -226,25 +226,9 @@ async def save_to_trip(
             detail="Trip not found",
         )
 
-    # Check for duplicate place in same trip (by google_place_id)
-    if data.place and data.place.google_place_id:
-        existing_entries = await db.get(
-            "entry",
-            {
-                "trip_id": f"eq.{data.trip_id}",
-                "deleted_at": "is.null",
-                "select": "id, place!inner(google_place_id)",
-            },
-        )
-        if check_duplicate_place_in_entries(
-            existing_entries, data.place.google_place_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This place has already been saved to this trip",
-            )
-
     # Build place data for atomic operation
+    # Note: duplicate detection relies on the unique index (idx_place_unique_google_per_trip)
+    # enforced atomically by the database, caught in the exception handler below
     place_data = None
     if data.place:
         extra_data = {
@@ -303,6 +287,16 @@ async def save_to_trip(
                 "p_place_data": place_data,
             },
         )
+    except HTTPException as e:
+        # Handle unique constraint violation from concurrent inserts
+        detail = str(e.detail).lower() if e.detail else ""
+        if "unique" in detail or "duplicate" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            ) from None
+        # Re-raise other HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(
             "rpc_atomic_create_failed",

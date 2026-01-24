@@ -72,7 +72,11 @@ class SharedGroupPreferences: NSObject {
 
     /// Get a string value from App Group UserDefaults
     @objc
-    func getItem(_ key: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func getItem(
+        _ key: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -84,7 +88,12 @@ class SharedGroupPreferences: NSObject {
 
     /// Set a string value in App Group UserDefaults
     @objc
-    func setItem(_ key: String, value: String?, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func setItem(
+        _ key: String,
+        value: String?,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             reject("ERROR", "Could not access App Group", nil)
             return
@@ -100,7 +109,11 @@ class SharedGroupPreferences: NSObject {
 
     /// Get the timestamp when the shared URL was saved
     @objc
-    func getTimestamp(_ key: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func getTimestamp(
+        _ key: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -116,7 +129,10 @@ class SharedGroupPreferences: NSObject {
 
     /// Clear all shared data
     @objc
-    func clearAll(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func clearAll(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -130,7 +146,10 @@ class SharedGroupPreferences: NSObject {
     /// Get the offline share queue from App Group UserDefaults
     /// Returns JSON string with queue items, or nil if empty/unavailable
     @objc
-    func getOfflineQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func getOfflineQueue(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -185,7 +204,10 @@ class SharedGroupPreferences: NSObject {
 
     /// Clear the offline share queue from App Group UserDefaults
     @objc
-    func clearOfflineQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func clearOfflineQueue(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -200,7 +222,10 @@ class SharedGroupPreferences: NSObject {
     /// Get the analytics queue from App Group UserDefaults
     /// Returns JSON string with analytics events, or nil if empty/unavailable
     @objc
-    func getAnalyticsQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func getAnalyticsQueue(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -257,7 +282,10 @@ class SharedGroupPreferences: NSObject {
 
     /// Clear the analytics queue from App Group UserDefaults
     @objc
-    func clearAnalyticsQueue(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func clearAnalyticsQueue(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(nil)
             return
@@ -272,7 +300,10 @@ class SharedGroupPreferences: NSObject {
     /// Check if user has ever used the share extension successfully
     /// Returns true if they have, false otherwise
     @objc
-    func getHasUsedShareExtension(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    func getHasUsedShareExtension(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
             resolve(false)
             return
