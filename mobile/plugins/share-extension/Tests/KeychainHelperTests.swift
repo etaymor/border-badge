@@ -227,9 +227,9 @@ final class KeychainHelperTests: XCTestCase {
         let queue = DispatchQueue(label: "keychain.test", attributes: .concurrent)
 
         // When: Multiple concurrent writes and reads
-        for i in 0..<10 {
+        for index in 0..<10 {
             queue.async {
-                let token = "concurrent-token-\(i)"
+                let token = "concurrent-token-\(index)"
                 _ = KeychainHelper.write(key: "auth_token", value: token)
                 _ = KeychainHelper.getToken()
                 expectation.fulfill()

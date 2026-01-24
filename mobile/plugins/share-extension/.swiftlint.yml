@@ -1,0 +1,50 @@
+# SwiftLint Configuration for Share Extension
+#
+# Disabled rules that would require major refactoring:
+# - file_length: Test files and view controllers naturally exceed 400 lines
+# - type_body_length: Test classes and complex view controllers exceed 250 lines
+# - function_body_length: Complex setup/teardown functions in tests
+# - cyclomatic_complexity: Search result handling has necessary branching
+
+disabled_rules:
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+
+# Opt-in rules for better code quality
+opt_in_rules:
+  - empty_count
+  - empty_string
+
+# Configure line length to be reasonable
+line_length:
+  warning: 120
+  error: 150
+  ignores_comments: true
+  ignores_urls: true
+
+# Identifier naming - allow standard abbreviations
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 50
+    error: 60
+  excluded:
+    - id
+    - ok
+    - db
+    - to
+    - x
+    - y
+    - i
+    - j
+    - q
+
+# Exclude generated files and build artifacts
+excluded:
+  - Pods
+  - .build
+  - DerivedData

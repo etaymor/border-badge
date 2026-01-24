@@ -38,9 +38,9 @@ enum KeychainHelper {
            !group.isEmpty {
             // Validate the group doesn't contain unresolved build variables
             if group.contains("$(") {
-                NSLog("⚠️ [Atlasi KeychainHelper] CRITICAL: KeychainAccessGroup contains unresolved build variable: %@", group)
-                NSLog("⚠️ [Atlasi KeychainHelper] Shared keychain access is DISABLED - extension cannot read auth tokens!")
-                NSLog("⚠️ [Atlasi KeychainHelper] Verify MAIN_APP_BUNDLE_ID build setting in withShareExtension.js")
+                NSLog("⚠️ [Atlasi KeychainHelper] CRITICAL: Unresolved build variable: %@", group)
+                NSLog("⚠️ [Atlasi KeychainHelper] Shared keychain access DISABLED - no auth tokens!")
+                NSLog("⚠️ [Atlasi KeychainHelper] Verify MAIN_APP_BUNDLE_ID in withShareExtension.js")
                 return nil
             }
             return group
@@ -185,15 +185,15 @@ enum KeychainHelper {
 
         let candidates: [[CFString: Any]] = [
             {
-                var q = dataQueryBase
-                if let group = accessGroup { q[kSecAttrAccessGroup] = group }
-                return q
+                var query = dataQueryBase
+                if let group = accessGroup { query[kSecAttrAccessGroup] = group }
+                return query
             }(),
             dataQueryBase,
             {
-                var q = stringQueryBase
-                if let group = accessGroup { q[kSecAttrAccessGroup] = group }
-                return q
+                var query = stringQueryBase
+                if let group = accessGroup { query[kSecAttrAccessGroup] = group }
+                return query
             }(),
             stringQueryBase
         ]

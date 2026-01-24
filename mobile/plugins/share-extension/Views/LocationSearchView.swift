@@ -9,6 +9,7 @@ struct LocationSearchView: View {
     @Binding var selectedPlace: DetectedPlace?
     let countryCode: String?
     let onPlaceSelected: (DetectedPlace) -> Void
+    let onPlaceCleared: (() -> Void)?
 
     /// Optional injected viewModel for testing. If nil, creates default.
     @ObservedObject private var viewModel: LocationSearchViewModel
@@ -18,11 +19,13 @@ struct LocationSearchView: View {
         selectedPlace: Binding<DetectedPlace?>,
         countryCode: String?,
         onPlaceSelected: @escaping (DetectedPlace) -> Void,
+        onPlaceCleared: (() -> Void)? = nil,
         viewModel: LocationSearchViewModel? = nil
     ) {
         self._selectedPlace = selectedPlace
         self.countryCode = countryCode
         self.onPlaceSelected = onPlaceSelected
+        self.onPlaceCleared = onPlaceCleared
         self._viewModel = ObservedObject(wrappedValue: viewModel ?? LocationSearchViewModel())
     }
 
@@ -31,17 +34,20 @@ struct LocationSearchView: View {
             SectionLabel(text: "Confirm Location")
 
             if let place = selectedPlace, !isEditing {
-                let _ = NSLog("[Atlasi] LocationSearchView: showing SelectedPlaceDisplay for '%@'", place.name)
+                _ = NSLog("[Atlasi] LocationSearchView: showing SelectedPlaceDisplay for '%@'", place.name)
                 // Selected place display
                 SelectedPlaceDisplay(
                     place: place,
                     onChangePlace: {
                         isEditing = true
                         viewModel.searchText = ""
+                        // Notify parent that place was cleared (for country code reset)
+                        onPlaceCleared?()
                     }
                 )
             } else {
-                let _ = NSLog("[Atlasi] LocationSearchView: showing SearchField (isEditing=%d, selectedPlace=%@)", isEditing ? 1 : 0, selectedPlace?.name ?? "nil")
+                _ = NSLog("[Atlasi] LocationSearchView: showing SearchField (editing=%d, place=%@)",
+                          isEditing ? 1 : 0, selectedPlace?.name ?? "nil")
                 // Search field and results
                 VStack(spacing: 8) {
                     SearchField(
@@ -78,7 +84,7 @@ private struct SearchField: View {
     @Binding var text: String
     let placeholder: String
     let isLoading: Bool
-    var errorMessage: String? = nil
+    var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -103,11 +109,11 @@ private struct SearchField: View {
                         .tint(BrandColors.sunsetGold)
                         .scaleEffect(0.8)
                 } else if !text.isEmpty {
-                    Button(action: { text = "" }) {
+                    Button(action: { text = "" }, label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 20))
                             .foregroundColor(BrandColors.stormGray.opacity(0.6))
-                    }
+                    })
                 }
             }
             .padding(.horizontal, 16)
@@ -144,7 +150,7 @@ private struct SearchResultsList: View {
         ScrollView {
             VStack(spacing: 0) {
                 ForEach(predictions) { prediction in
-                    Button(action: { onSelect(prediction) }) {
+                    Button(action: { onSelect(prediction) }, label: {
                         HStack(spacing: 12) {
                             // Location pin icon
                             Image(systemName: "mappin")
@@ -171,7 +177,7 @@ private struct SearchResultsList: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 14)
                         .padding(.horizontal, 16)
-                    }
+                    })
                     .buttonStyle(.plain)
 
                     if prediction.id != predictions.last?.id {

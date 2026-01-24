@@ -39,6 +39,8 @@ class TripSelectorViewModel: ObservableObject {
 
     /// Load trips, countries, and uncategorized trip
     func load() {
+        // Prevent multiple simultaneous loads
+        guard !isLoading else { return }
         isLoading = true
         error = nil
 
@@ -109,5 +111,13 @@ class TripSelectorViewModel: ObservableObject {
     /// Get country by code
     func country(for code: String) -> Country? {
         countries.first { $0.code == code }
+    }
+
+    /// Resolve the uncategorized trip, falling back to a system trip from /trips if needed
+    func resolvedUncategorizedTrip() -> Trip? {
+        if let uncategorizedTrip {
+            return uncategorizedTrip
+        }
+        return trips.first { $0.isSystem == true }
     }
 }

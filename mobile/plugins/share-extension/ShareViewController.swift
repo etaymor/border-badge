@@ -83,8 +83,7 @@ class ShareViewController: UIViewController {
     /// Process shared attachments looking for URLs
     private func processAttachments(_ attachments: [NSItemProvider]) {
         // Try to find a URL attachment first (most reliable)
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+        for attachment in attachments where attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                 attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
                     DispatchQueue.main.async {
                         if let url = item as? URL {
@@ -93,9 +92,8 @@ class ShareViewController: UIViewController {
                             self?.tryTextAttachments(attachments)
                         }
                     }
-                }
-                return
             }
+            return
         }
 
         // Fall back to text attachments (TikTok often shares text with URL embedded)
@@ -104,9 +102,9 @@ class ShareViewController: UIViewController {
 
     /// Try to extract URL from text attachments
     private func tryTextAttachments(_ attachments: [NSItemProvider]) {
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, _ in
+        let plainTextId = UTType.plainText.identifier
+        for attachment in attachments where attachment.hasItemConformingToTypeIdentifier(plainTextId) {
+            attachment.loadItem(forTypeIdentifier: plainTextId, options: nil) { [weak self] item, _ in
                     DispatchQueue.main.async {
                         if let text = item as? String {
                             // Store the full text as potential caption
@@ -120,10 +118,9 @@ class ShareViewController: UIViewController {
                         } else {
                             self?.showFallbackUI(error: "No URL found")
                         }
-                    }
                 }
-                return
             }
+            return
         }
 
         // No usable content found
@@ -508,12 +505,16 @@ class ShareViewController: UIViewController {
         hostingController = nil
 
         // Animate out
-        UIView.animate(withDuration: 0.2, animations: {
-            self.view.subviews.forEach { $0.alpha = 0 }
-            self.view.backgroundColor = UIColor.clear
-        }) { _ in
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-        }
+        UIView.animate(
+            withDuration: 0.2,
+            animations: {
+                self.view.subviews.forEach { $0.alpha = 0 }
+                self.view.backgroundColor = UIColor.clear
+            },
+            completion: { _ in
+                self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
+        )
     }
 
 }

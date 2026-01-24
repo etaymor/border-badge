@@ -14,12 +14,13 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useUncategorizedTrip } from '@hooks/useTrips';
 import { useEntries, EntryWithPlace } from '@hooks/useEntries';
 import { EntryCard } from '@components/entries';
+import { GlassBackButton } from '@components/ui';
 import { MoveToTripSheet } from '@components/trips/MoveToTripSheet';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -41,6 +42,7 @@ function EmptyState() {
 }
 
 export function SavedPlacesScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { data: uncategorizedTrip, isLoading: isLoadingTrip } = useUncategorizedTrip();
   const {
     data: entries,
@@ -53,6 +55,7 @@ export function SavedPlacesScreen({ navigation }: Props) {
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [showMoveSheet, setShowMoveSheet] = useState(false);
+  const [singleEntryToMove, setSingleEntryToMove] = useState<string | null>(null);
 
   const isLoading = isLoadingTrip || isLoadingEntries;
 
@@ -63,6 +66,30 @@ export function SavedPlacesScreen({ navigation }: Props) {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [entries]);
+
+  // Compute country code to filter trips in the move sheet.
+  // For single entry: use that entry's country_code.
+  // For bulk move: only filter if ALL selected entries have the same country_code.
+  const moveSheetCountryCode = useMemo(() => {
+    const entryIdsToMove = singleEntryToMove ? [singleEntryToMove] : Array.from(selectedEntryIds);
+    if (entryIdsToMove.length === 0) return null;
+
+    const entriesToMove = sortedEntries.filter((e) => entryIdsToMove.includes(e.id));
+    if (entriesToMove.length === 0) return null;
+
+    // Get unique country codes from selected entries
+    const countryCodes = new Set(
+      entriesToMove.map((e) => e.place?.country_code?.toUpperCase()).filter(Boolean)
+    );
+
+    // Only filter if all entries have the same country code
+    if (countryCodes.size === 1) {
+      return Array.from(countryCodes)[0] ?? null;
+    }
+
+    // Multiple countries or no country codes - don't filter
+    return null;
+  }, [singleEntryToMove, selectedEntryIds, sortedEntries]);
 
   const handleEntryPress = useCallback(
     (entry: EntryWithPlace) => {
@@ -77,10 +104,12 @@ export function SavedPlacesScreen({ navigation }: Props) {
           return next;
         });
       } else {
-        navigation.navigate('EntryDetail', { entryId: entry.id });
+        // Single tap - open move sheet for this entry directly
+        setSingleEntryToMove(entry.id);
+        setShowMoveSheet(true);
       }
     },
-    [isSelectMode, navigation]
+    [isSelectMode]
   );
 
   const handleEntryLongPress = useCallback((entry: EntryWithPlace) => {
@@ -106,12 +135,14 @@ export function SavedPlacesScreen({ navigation }: Props) {
   const handleMoveComplete = useCallback(() => {
     setShowMoveSheet(false);
     setSelectedEntryIds(new Set());
+    setSingleEntryToMove(null);
     setIsSelectMode(false);
     refetch();
   }, [refetch]);
 
   const handleMoveCancel = useCallback(() => {
     setShowMoveSheet(false);
+    setSingleEntryToMove(null);
   }, []);
 
   const renderItem = useCallback(
@@ -168,8 +199,9 @@ export function SavedPlacesScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <GlassBackButton onPress={() => navigation.goBack()} />
+        <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Saved Places</Text>
           <Text style={styles.headerSubtitle}>
             {hasEntries
@@ -220,9 +252,10 @@ export function SavedPlacesScreen({ navigation }: Props) {
       {/* Move to Trip Sheet */}
       <MoveToTripSheet
         visible={showMoveSheet}
-        entryIds={Array.from(selectedEntryIds)}
+        entryIds={singleEntryToMove ? [singleEntryToMove] : Array.from(selectedEntryIds)}
         onComplete={handleMoveComplete}
         onCancel={handleMoveCancel}
+        countryCode={moveSheetCountryCode}
       />
     </SafeAreaView>
   );
@@ -260,16 +293,15 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    alignItems: 'center',
+    paddingHorizontal: 16,
     paddingBottom: 16,
     backgroundColor: colors.warmCream,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    gap: 12,
   },
-  headerLeft: {
+  headerContent: {
     flex: 1,
   },
   headerTitle: {

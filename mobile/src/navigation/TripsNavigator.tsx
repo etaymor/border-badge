@@ -78,16 +78,7 @@ export function TripsNavigator() {
       <Stack.Screen
         name="SavedPlaces"
         component={SavedPlacesScreen}
-        options={({ navigation }) => ({
-          title: 'Saved Places',
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.warmCream },
-          headerLeft: () => (
-            <View style={styles.headerLeftContainer}>
-              <GlassBackButton onPress={() => navigation.goBack()} />
-            </View>
-          ),
-        })}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

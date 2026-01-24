@@ -71,6 +71,7 @@ export function createMockPlace(overrides?: Partial<Place>): Place {
     longitude: 139.6503,
     address: '123 Test Street, Tokyo',
     google_photo_url: null,
+    country_code: null,
     ...overrides,
   };
 }
@@ -99,6 +100,7 @@ export function createMockEntry(overrides?: Partial<Entry>): Entry {
     link: null,
     entry_date: '2024-01-10',
     created_at: new Date().toISOString(),
+    metadata: null,
     ...overrides,
   };
 }

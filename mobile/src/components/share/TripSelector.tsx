@@ -52,8 +52,9 @@ export function TripSelector({
   const { data: trips = [], isLoading } = useTrips();
   const { data: uncategorizedTrip } = useUncategorizedTrip();
 
-  // Check if "Saved Places" is selected
-  const isSavedPlacesSelected = selectedTripId === SAVED_PLACES_TRIP_ID;
+  // Check if "Saved Places" is selected (either by magic constant or actual trip ID)
+  const isSavedPlacesSelected =
+    selectedTripId === SAVED_PLACES_TRIP_ID || selectedTripId === uncategorizedTrip?.id;
 
   // When countryCode is set, ONLY show trips matching that country
   // Sort by created_at desc (most recent first)
@@ -72,17 +73,11 @@ export function TripSelector({
     return trips.find((t) => t.id === selectedTripId);
   }, [trips, selectedTripId, isSavedPlacesSelected, uncategorizedTrip]);
 
-  // Auto-show create form when modal opens and no matching trips exist
-  const hasNoMatchingTrips = countryCode && filteredTrips.length === 0;
-
   const handleOpenModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Auto-show create form if no matching trips for this country
-    if (hasNoMatchingTrips) {
-      setShowCreateForm(true);
-    }
+    // Always show the trip list first - user can choose Saved Places or create a new trip
     setShowModal(true);
-  }, [hasNoMatchingTrips]);
+  }, []);
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false);

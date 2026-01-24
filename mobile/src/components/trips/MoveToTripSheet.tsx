@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,12 +22,10 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useTrips, useMoveEntry, useBulkMoveEntries, Trip } from '@hooks/useTrips';
-import type { TripsStackParamList } from '@navigation/types';
+import { useTrips, useMoveEntry, useBulkMoveEntries, useCreateTrip, Trip } from '@hooks/useTrips';
+import { InlineTripForm } from '@components/share/InlineTripForm';
 import { Analytics } from '@services/analytics';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -40,8 +40,8 @@ interface MoveToTripSheetProps {
   entryIds: string[];
   onComplete: () => void;
   onCancel: () => void;
-  /** Optional callback when user wants to create a new trip. If not provided, navigates to TripForm. */
-  onCreateNewTrip?: () => void;
+  /** Optional country code to filter trips. Only trips matching this country will be shown. */
+  countryCode?: string | null;
 }
 
 export function MoveToTripSheet({
@@ -49,26 +49,35 @@ export function MoveToTripSheet({
   entryIds,
   onComplete,
   onCancel,
-  onCreateNewTrip,
+  countryCode,
 }: MoveToTripSheetProps) {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<NativeStackNavigationProp<TripsStackParamList>>();
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   const { data: trips = [], isLoading: isLoadingTrips } = useTrips();
   const moveEntry = useMoveEntry();
   const bulkMoveEntries = useBulkMoveEntries();
+  const createTrip = useCreateTrip();
 
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [isMoving, setIsMoving] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [isCreatingTrip, setIsCreatingTrip] = useState(false);
 
   const isBulkMove = entryIds.length > 1;
 
-  // Filter out system trips
+  // Filter out system trips and optionally filter by country code
   const regularTrips = useMemo(() => {
-    return trips.filter((trip) => !trip.is_system);
-  }, [trips]);
+    let filtered = trips.filter((trip) => !trip.is_system);
+    // If countryCode is provided, only show trips matching that country
+    if (countryCode) {
+      filtered = filtered.filter(
+        (trip) => trip.country_code?.toUpperCase() === countryCode.toUpperCase()
+      );
+    }
+    return filtered;
+  }, [trips, countryCode]);
 
   // Group trips by country (most recent first)
   const sortedTrips = useMemo(() => {
@@ -200,35 +209,37 @@ export function MoveToTripSheet({
     setSelectedTripId(trip.id);
   }, []);
 
-  const handleCreateNewTrip = useCallback(() => {
+  const handleShowCreateForm = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    // Close the sheet first
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: SHEET_HEIGHT,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onCancel();
-      // Use callback if provided, otherwise navigate directly
-      if (onCreateNewTrip) {
-        onCreateNewTrip();
-      } else {
-        navigation.navigate('TripForm', {});
+    setShowCreateForm(true);
+  }, []);
+
+  const handleCancelCreate = useCallback(() => {
+    setShowCreateForm(false);
+  }, []);
+
+  const handleCreateTrip = useCallback(
+    async (name: string, code: string): Promise<void> => {
+      setIsCreatingTrip(true);
+      try {
+        const trip = await createTrip.mutateAsync({ name, country_code: code });
+        setSelectedTripId(trip.id);
+        setShowCreateForm(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      } catch {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      } finally {
+        setIsCreatingTrip(false);
       }
-    });
-  }, [translateY, backdropOpacity, onCancel, onCreateNewTrip, navigation]);
+    },
+    [createTrip]
+  );
 
   // Open animation on visible change
   useEffect(() => {
     if (visible) {
       setSelectedTripId(null);
+      setShowCreateForm(false);
       openSheet();
     }
   }, [visible, openSheet]);
@@ -243,131 +254,154 @@ export function MoveToTripSheet({
       onRequestClose={closeSheet}
       statusBarTranslucent
     >
-      {/* Backdrop */}
-      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
-      </Animated.View>
-
-      {/* Bottom Sheet */}
-      <Animated.View
-        style={[
-          styles.sheetContainer,
-          {
-            transform: [{ translateY }],
-          },
-        ]}
-        {...panResponder.panHandlers}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={StyleSheet.absoluteFill}
       >
-        <BlurView intensity={80} tint="light" style={styles.blurContainer}>
-          <View style={[styles.solidBackground, { paddingBottom: insets.bottom }]}>
-            {/* Handle bar */}
-            <View style={styles.handleContainer}>
-              <View style={styles.handle} />
-            </View>
+        {/* Backdrop */}
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
+        </Animated.View>
 
-            {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>Move to Trip</Text>
-              <Text style={styles.headerSubtitle}>
-                {entryIds.length} {entryIds.length === 1 ? 'place' : 'places'} selected
-              </Text>
-            </View>
-
-            {/* Trip List */}
-            {isLoadingTrips ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.sunsetGold} />
+        {/* Bottom Sheet */}
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            {
+              transform: [{ translateY }],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <BlurView intensity={80} tint="light" style={styles.blurContainer}>
+            <View style={[styles.solidBackground, { paddingBottom: insets.bottom }]}>
+              {/* Handle bar */}
+              <View style={styles.handleContainer}>
+                <View style={styles.handle} />
               </View>
-            ) : sortedTrips.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>
-                  No trips available. Create a trip first to organize your saved places.
-                </Text>
-                <TouchableOpacity
-                  style={styles.emptyCreateTripButton}
-                  activeOpacity={0.7}
-                  onPress={handleCreateNewTrip}
-                >
-                  <View style={styles.createTripIcon}>
-                    <Ionicons name="add" size={20} color={colors.white} />
-                  </View>
-                  <Text style={styles.createTripText}>Create New Trip</Text>
-                  <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.content}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-              >
-                {/* Create New Trip Button */}
-                <TouchableOpacity
-                  style={styles.createTripButton}
-                  activeOpacity={0.7}
-                  onPress={handleCreateNewTrip}
-                >
-                  <View style={styles.createTripIcon}>
-                    <Ionicons name="add" size={20} color={colors.white} />
-                  </View>
-                  <Text style={styles.createTripText}>Create New Trip</Text>
-                  <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
-                </TouchableOpacity>
 
-                {/* Recent Trips */}
-                <Text style={styles.sectionTitle}>Your Trips</Text>
-                {sortedTrips.map((trip) => (
-                  <TouchableOpacity
-                    key={trip.id}
-                    style={[styles.tripItem, selectedTripId === trip.id && styles.tripItemSelected]}
-                    onPress={() => handleTripSelect(trip)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.tripItemContent}>
-                      {trip.country_code && (
-                        <Text style={styles.tripFlag}>{getFlagEmoji(trip.country_code)}</Text>
-                      )}
-                      <Text
-                        style={[
-                          styles.tripName,
-                          selectedTripId === trip.id && styles.tripNameSelected,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {trip.name}
-                      </Text>
+              {showCreateForm ? (
+                <View style={styles.formContainer}>
+                  <InlineTripForm
+                    defaultCountryCode={countryCode ?? undefined}
+                    onSubmit={handleCreateTrip}
+                    onCancel={handleCancelCreate}
+                    isSubmitting={isCreatingTrip}
+                  />
+                </View>
+              ) : (
+                <>
+                  {/* Header */}
+                  <View style={styles.header}>
+                    <Text style={styles.headerTitle}>Move to Trip</Text>
+                    <Text style={styles.headerSubtitle}>
+                      {entryIds.length} {entryIds.length === 1 ? 'place' : 'places'} selected
+                    </Text>
+                  </View>
+
+                  {/* Trip List */}
+                  {isLoadingTrips ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="large" color={colors.sunsetGold} />
                     </View>
-                    {selectedTripId === trip.id && (
-                      <Ionicons name="checkmark-circle" size={24} color={colors.mossGreen} />
-                    )}
-                  </TouchableOpacity>
-                ))}
+                  ) : sortedTrips.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>
+                        {countryCode
+                          ? 'No trips for this country yet. Create one to organize this place.'
+                          : 'No trips available. Create a trip first to organize your saved places.'}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.emptyCreateTripButton}
+                        activeOpacity={0.7}
+                        onPress={handleShowCreateForm}
+                      >
+                        <View style={styles.createTripIcon}>
+                          <Ionicons name="add" size={20} color={colors.white} />
+                        </View>
+                        <Text style={styles.createTripText}>Create New Trip</Text>
+                        <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <ScrollView
+                      style={styles.content}
+                      showsVerticalScrollIndicator={false}
+                      bounces={false}
+                    >
+                      {/* Create New Trip Button */}
+                      <TouchableOpacity
+                        style={styles.createTripButton}
+                        activeOpacity={0.7}
+                        onPress={handleShowCreateForm}
+                      >
+                        <View style={styles.createTripIcon}>
+                          <Ionicons name="add" size={20} color={colors.white} />
+                        </View>
+                        <Text style={styles.createTripText}>Create New Trip</Text>
+                        <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
+                      </TouchableOpacity>
 
-                {/* Bottom padding */}
-                <View style={{ height: 80 }} />
-              </ScrollView>
-            )}
+                      {/* Recent Trips */}
+                      <Text style={styles.sectionTitle}>Your Trips</Text>
+                      {sortedTrips.map((trip) => (
+                        <TouchableOpacity
+                          key={trip.id}
+                          style={[
+                            styles.tripItem,
+                            selectedTripId === trip.id && styles.tripItemSelected,
+                          ]}
+                          onPress={() => handleTripSelect(trip)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.tripItemContent}>
+                            {trip.country_code && (
+                              <Text style={styles.tripFlag}>{getFlagEmoji(trip.country_code)}</Text>
+                            )}
+                            <Text
+                              style={[
+                                styles.tripName,
+                                selectedTripId === trip.id && styles.tripNameSelected,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {trip.name}
+                            </Text>
+                          </View>
+                          {selectedTripId === trip.id && (
+                            <Ionicons name="checkmark-circle" size={24} color={colors.mossGreen} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
 
-            {/* Move Button */}
-            <View style={styles.moveButtonContainer}>
-              <TouchableOpacity
-                style={[styles.moveButton, !selectedTripId && styles.moveButtonDisabled]}
-                onPress={handleMove}
-                disabled={!selectedTripId || isMoving}
-                activeOpacity={0.8}
-              >
-                {isMoving ? (
-                  <ActivityIndicator size="small" color={colors.midnightNavy} />
-                ) : (
-                  <Text style={styles.moveButtonText}>
-                    Move {entryIds.length === 1 ? 'Place' : `${entryIds.length} Places`}
-                  </Text>
-                )}
-              </TouchableOpacity>
+                      {/* Bottom padding */}
+                      <View style={{ height: 80 }} />
+                    </ScrollView>
+                  )}
+
+                  {/* Move Button */}
+                  <View style={styles.moveButtonContainer}>
+                    <TouchableOpacity
+                      style={[styles.moveButton, !selectedTripId && styles.moveButtonDisabled]}
+                      onPress={handleMove}
+                      disabled={!selectedTripId || isMoving}
+                      activeOpacity={0.8}
+                    >
+                      {isMoving ? (
+                        <ActivityIndicator size="small" color={colors.midnightNavy} />
+                      ) : (
+                        <Text style={styles.moveButtonText}>
+                          Move {entryIds.length === 1 ? 'Place' : `${entryIds.length} Places`}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
-          </View>
-        </BlurView>
-      </Animated.View>
+          </BlurView>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -410,6 +444,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: colors.stormGray,
     opacity: 0.4,
+  },
+  formContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
   },
   header: {
     paddingHorizontal: 20,

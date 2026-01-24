@@ -29,6 +29,8 @@ export interface Place {
   longitude: number | null;
   address: string | null;
   google_photo_url: string | null;
+  /** ISO 2-letter country code from place detection (stored in extra_data) */
+  country_code: string | null;
 }
 
 // Place create input (for creating entries with places)
@@ -41,6 +43,14 @@ export interface PlaceInput {
   google_photo_url: string | null;
 }
 
+// Entry metadata from social ingest
+export interface EntryMetadata {
+  source_type?: string;
+  provider?: string;
+  author_handle?: string;
+  thumbnail_url?: string;
+}
+
 // Entry interface - frontend format with entry_type and entry_date
 export interface Entry {
   id: string;
@@ -51,6 +61,7 @@ export interface Entry {
   link: string | null;
   entry_date: string | null; // ISO date string
   created_at: string;
+  metadata: EntryMetadata | null;
 }
 
 // Entry with place and media
@@ -87,6 +98,7 @@ const ENTRIES_QUERY_KEY = ['entries'];
 function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
   const place = entry.place as Record<string, unknown> | null;
   const extraData = place?.extra_data as Record<string, unknown> | null;
+  const metadata = entry.metadata as EntryMetadata | null;
   return {
     id: entry.id as string,
     trip_id: entry.trip_id as string,
@@ -96,6 +108,7 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
     link: (entry.link as string) ?? null,
     entry_date: (entry.date as string) ?? null,
     created_at: entry.created_at as string,
+    metadata: metadata,
     place: place
       ? {
           id: place.id as string,
@@ -106,6 +119,7 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
           longitude: (place.lng as number) ?? null,
           address: (place.address as string) ?? null,
           google_photo_url: (extraData?.google_photo_url as string) ?? null,
+          country_code: (extraData?.country_code as string) ?? null,
         }
       : null,
     media_files: entry.media_files as MediaFile[] | undefined,

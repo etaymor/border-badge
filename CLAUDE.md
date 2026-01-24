@@ -304,7 +304,8 @@ The share capture flow has **TWO implementations** that must be kept in sync:
 1. Update React Native code in `mobile/src/screens/share/`
 2. Update Swift code in `mobile/plugins/share-extension/`
 3. Ensure both implementations have the same behavior
-4. Run `npx expo prebuild` to regenerate `mobile/ios/` with your changes
+4. Run `npx expo prebuild --clean` to regenerate `mobile/ios/` with your changes
+5. Rebuild the main app so the updated extension bundle is embedded
 
 **Key parallel files:**
 

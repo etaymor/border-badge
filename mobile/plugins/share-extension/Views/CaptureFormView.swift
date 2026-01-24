@@ -25,9 +25,12 @@ struct CaptureFormView: View {
                 // Location search
                 LocationSearchView(
                     selectedPlace: $viewModel.selectedPlace,
-                    countryCode: viewModel.detectedCountryCode,
+                    countryCode: viewModel.effectiveCountryCode,
                     onPlaceSelected: { place in
                         viewModel.selectPlace(place)
+                    },
+                    onPlaceCleared: {
+                        viewModel.clearPlace()
                     },
                     viewModel: locationViewModel
                 )
@@ -35,7 +38,7 @@ struct CaptureFormView: View {
                 // Trip selector
                 TripSelectorView(
                     selectedTripId: $viewModel.selectedTripId,
-                    countryCode: viewModel.detectedCountryCode,
+                    countryCode: viewModel.effectiveCountryCode,
                     viewModel: tripViewModel,
                     onTripSelected: { tripId in
                         viewModel.selectedTripId = tripId

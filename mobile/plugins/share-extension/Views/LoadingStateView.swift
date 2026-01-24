@@ -6,7 +6,7 @@ import SwiftUI
 
 struct LoadingStateView: View {
     let message: String
-    var providerName: String? = nil
+    var providerName: String?
 
     var body: some View {
         VStack(spacing: 20) {
