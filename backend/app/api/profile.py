@@ -92,7 +92,13 @@ async def delete_account(
 
     This operation is irreversible and will:
     - Delete the user's authentication record from Supabase Auth
-    - Delete all user data (trips, entries, media, etc.) via database CASCADE constraints
+    - Cascade delete all database records via ON DELETE CASCADE constraints:
+      - user_profile, user_countries, trips, entries, places, lists, list_entries
+      - trip_tags, media_files (database records), outbound_links, social_ingest_jobs
+
+    Note: Media files in Supabase Storage buckets are NOT automatically deleted.
+    Supabase Storage cleanup requires a separate process (e.g., scheduled job or
+    storage lifecycle policy) to remove orphaned files.
 
     Rate limited to 5 requests per hour for security.
     """

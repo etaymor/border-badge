@@ -219,15 +219,8 @@ export function useDeleteAccount() {
       await api.delete('/profile');
     },
     onSuccess: async () => {
-      try {
-        // Try to sign out, but don't fail if account already deleted
-        await supabase.auth.signOut();
-      } catch (error) {
-        // Account already deleted, ignore signOut errors
-        console.log('SignOut after account deletion (expected):', error);
-      }
-
-      // Always clear local state regardless of signOut result
+      // No need to call supabase.auth.signOut() - the backend already deleted
+      // the auth record via Admin API. Just clear local state.
       signOut();
       resetOnboarding();
       queryClient.clear();
