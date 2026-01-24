@@ -8,7 +8,7 @@ import { Alert } from 'react-native';
 
 import type { EntryType } from '@navigation/types';
 import { useSocialIngest, useSaveToTrip, SocialIngestResponse } from '@hooks/useSocialIngest';
-import { useCreateTrip, useTrips, Trip } from '@hooks/useTrips';
+import { useCreateTrip, useTrips, useUncategorizedTrip, Trip } from '@hooks/useTrips';
 import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
 import type { SelectedPlace } from '@components/places';
 import { Analytics } from '@services/analytics';
@@ -81,6 +81,7 @@ export function useShareCapture({
 
   // Trips data
   const { data: trips = [] } = useTrips();
+  const { data: uncategorizedTrip } = useUncategorizedTrip();
 
   // State
   const [ingestResult, setIngestResult] = useState<SocialIngestResponse | null>(null);
@@ -136,21 +137,28 @@ export function useShareCapture({
   }, []);
 
   // Auto-select matching trip based on detected place or country hint
+  // Falls back to uncategorized trip ("Saved Places") when no country-specific trips exist
   useEffect(() => {
-    if (selectedTripId || trips.length === 0) return;
+    if (selectedTripId) return;
 
     // Use detected place country first, then fall back to detected country hint
     const countryCode =
       ingestResult?.detected_place?.country_code ?? ingestResult?.detected_country?.country_code;
     const matchingTrips = findMatchingTrips(trips, countryCode);
+
     if (matchingTrips.length > 0) {
+      // Select the most recent trip for the detected country
       setSelectedTripId(matchingTrips[0].id);
+    } else if (uncategorizedTrip?.id) {
+      // Default to "Saved Places" when no matching trips exist
+      setSelectedTripId(uncategorizedTrip.id);
     }
   }, [
     ingestResult?.detected_place?.country_code,
     ingestResult?.detected_country?.country_code,
     trips,
     selectedTripId,
+    uncategorizedTrip?.id,
   ]);
 
   const handleTypeSelect = useCallback(
@@ -169,12 +177,17 @@ export function useShareCapture({
     (place: SelectedPlace | null) => {
       setSelectedPlace(place);
 
-      if (place?.country_code && trips.length > 0) {
+      if (place?.country_code) {
         const matchingTrips = findMatchingTrips(trips, place.country_code);
-        setSelectedTripId(matchingTrips.length > 0 ? matchingTrips[0].id : null);
+        if (matchingTrips.length > 0) {
+          setSelectedTripId(matchingTrips[0].id);
+        } else if (uncategorizedTrip?.id) {
+          // Default to "Saved Places" when no matching trips exist
+          setSelectedTripId(uncategorizedTrip.id);
+        }
       }
     },
-    [trips]
+    [trips, uncategorizedTrip?.id]
   );
 
   const handleCreateTrip = useCallback(

@@ -225,9 +225,9 @@ export function TripSelector({
                                       styles.tripItemNameSelected,
                                   ]}
                                 >
-                                  Save for Later
+                                  Saved Places
                                 </Text>
-                                <Text style={styles.savedPlacesHint}>Organize anytime</Text>
+                                <Text style={styles.savedPlacesHint}>Organize later</Text>
                               </View>
                               {(isSavedPlacesSelected ||
                                 selectedTripId === uncategorizedTrip.id) && (

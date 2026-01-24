@@ -289,6 +289,29 @@ user_profile     - Extended user data
 | `docs/travel-technical-design.md`         | Technical design              |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
 
+## Share Extension Architecture (IMPORTANT)
+
+The share capture flow has **TWO implementations** that must be kept in sync:
+
+| Platform | Location | Language |
+|----------|----------|----------|
+| React Native (in-app) | `mobile/src/screens/share/` | TypeScript |
+| iOS Share Extension | `mobile/ios/ShareExtension/` | Swift |
+
+**When modifying share capture behavior:**
+1. Update React Native code in `mobile/src/screens/share/`
+2. Update Swift code in `mobile/ios/ShareExtension/`
+3. Ensure both implementations have the same behavior
+
+**Key parallel files:**
+
+| React Native | Swift |
+|--------------|-------|
+| `useShareCapture.ts` | `ShareCaptureViewModel.swift` |
+| `TripSelector.tsx` | `TripSelectorView.swift` + `TripSelectorViewModel.swift` |
+| `useTrips.ts` (Trip interface) | `Models/Trip.swift` |
+| `api.ts` | `Services/APIClient.swift` |
+
 ## Authentication System (IMPORTANT)
 
 The app uses **email/password authentication** for all users. Magic links are NOT supported.
