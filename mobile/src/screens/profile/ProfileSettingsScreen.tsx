@@ -194,7 +194,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                 {
                   text: 'Delete Forever',
                   style: 'destructive',
-                  onPress: (value) => {
+                  onPress: (value?: string) => {
                     if (value === 'DELETE') {
                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                       deleteAccount.mutate();
