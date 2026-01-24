@@ -123,7 +123,7 @@ EXPO_PUBLIC_SUPABASE_URL=<supabase-url>
 EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 EXPO_PUBLIC_APP_ENV=development
 EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=<google-places-key>
-EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000
+EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000  # Base URL for public web pages (Terms, Privacy)
 EXPO_PUBLIC_POSTHOG_API_KEY=<posthog-api-key>  # Optional: for production analytics
 EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
 ```
