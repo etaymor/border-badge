@@ -44,12 +44,7 @@ export function DeleteConfirmationModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
@@ -57,9 +52,7 @@ export function DeleteConfirmationModal({
         <Pressable style={styles.backdrop} onPress={handleCancel} />
         <View style={styles.modalContent}>
           <Text style={styles.title}>Confirm Deletion</Text>
-          <Text style={styles.message}>
-            Type DELETE to permanently delete your account:
-          </Text>
+          <Text style={styles.message}>Type DELETE to permanently delete your account:</Text>
           <TextInput
             style={styles.input}
             value={confirmText}
@@ -137,7 +130,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
     fontSize: 16,
     color: colors.midnightNavy,
-    backgroundColor: colors.paleIvory,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.paperBeige,
     borderRadius: 8,
