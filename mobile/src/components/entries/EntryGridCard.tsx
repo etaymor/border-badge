@@ -69,7 +69,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
 
         {/* Top Glass Pane - Entry Title */}
         <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
-          <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
+          <Text style={styles.title} numberOfLines={2}>
             {entry.title}
           </Text>
         </BlurView>

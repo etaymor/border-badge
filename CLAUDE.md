@@ -296,19 +296,22 @@ The share capture flow has **TWO implementations** that must be kept in sync:
 | Platform | Location | Language |
 |----------|----------|----------|
 | React Native (in-app) | `mobile/src/screens/share/` | TypeScript |
-| iOS Share Extension | `mobile/ios/ShareExtension/` | Swift |
+| iOS Share Extension | `mobile/plugins/share-extension/` | Swift |
+
+**CRITICAL:** The iOS Share Extension source files are in `mobile/plugins/share-extension/`, NOT in `mobile/ios/ShareExtension/`. The `mobile/ios/` directory is gitignored and regenerated during builds - any changes there will be lost!
 
 **When modifying share capture behavior:**
 1. Update React Native code in `mobile/src/screens/share/`
-2. Update Swift code in `mobile/ios/ShareExtension/`
+2. Update Swift code in `mobile/plugins/share-extension/`
 3. Ensure both implementations have the same behavior
+4. Run `npx expo prebuild` to regenerate `mobile/ios/` with your changes
 
 **Key parallel files:**
 
-| React Native | Swift |
+| React Native | Swift (in `mobile/plugins/share-extension/`) |
 |--------------|-------|
-| `useShareCapture.ts` | `ShareCaptureViewModel.swift` |
-| `TripSelector.tsx` | `TripSelectorView.swift` + `TripSelectorViewModel.swift` |
+| `useShareCapture.ts` | `ViewModels/ShareCaptureViewModel.swift` |
+| `TripSelector.tsx` | `Views/TripSelectorView.swift` + `ViewModels/TripSelectorViewModel.swift` |
 | `useTrips.ts` (Trip interface) | `Models/Trip.swift` |
 | `api.ts` | `Services/APIClient.swift` |
 

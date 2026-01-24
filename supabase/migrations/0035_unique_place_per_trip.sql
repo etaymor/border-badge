@@ -5,6 +5,25 @@
 -- We use a denormalized trip_id column on place maintained via triggers,
 -- since PostgreSQL doesn't support subqueries in unique index expressions.
 
+-- First, clean up existing duplicate places (keep the oldest entry's place)
+-- This deletes the place record AND the associated entry since they're true duplicates
+DELETE FROM entry
+WHERE id IN (
+  SELECT p.entry_id FROM (
+    SELECT
+      p.id,
+      p.entry_id,
+      ROW_NUMBER() OVER (
+        PARTITION BY p.google_place_id, e.trip_id
+        ORDER BY e.created_at ASC
+      ) as rn
+    FROM place p
+    JOIN entry e ON e.id = p.entry_id
+    WHERE p.google_place_id IS NOT NULL
+  ) p
+  WHERE p.rn > 1
+);
+
 -- Add trip_id column to place (denormalized for constraint enforcement)
 ALTER TABLE place ADD COLUMN IF NOT EXISTS trip_id UUID REFERENCES trip(id) ON DELETE CASCADE;
 

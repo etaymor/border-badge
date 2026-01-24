@@ -2,7 +2,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-navigation/native';
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
-import { ProfileScreen } from '@screens/ProfileScreen';
 
 import { DreamsNavigator } from './DreamsNavigator';
 import { PassportNavigator } from './PassportNavigator';
@@ -87,11 +86,13 @@ export function MainTabNavigator() {
           },
         })}
       />
+      {/* LAUNCH_SIMPLIFICATION: Friends tab hidden for initial launch
       <Tab.Screen
         name="Friends"
         component={ProfileScreen}
         options={{ title: 'Friends', headerShown: true, tabBarAccessibilityLabel: 'friends-tab' }}
       />
+      */}
     </Tab.Navigator>
   );
 }
