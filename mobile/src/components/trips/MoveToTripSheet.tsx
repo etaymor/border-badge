@@ -169,7 +169,12 @@ export function MoveToTripSheet({
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Analytics.moveEntry({ entryCount: entryIds.length, targetTripId: selectedTripId });
+      const targetTrip = trips.find((t) => t.id === selectedTripId);
+      Analytics.moveEntry({
+        entryCount: entryIds.length,
+        targetTripId: selectedTripId,
+        isUncategorizedTrip: targetTrip?.is_system ?? false,
+      });
 
       // Close sheet and notify parent
       Animated.parallel([

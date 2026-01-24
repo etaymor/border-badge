@@ -1,10 +1,11 @@
--- Add composite index for entry(trip_id, deleted_at) queries
--- This optimizes the common pattern of querying entries by trip with soft-delete filter
--- Used frequently by bulk move operations and entry listing
+-- Add partial index for active entries sorted by created_at (descending)
+-- This optimizes the Saved Places "created_at_desc" sort pattern:
+--   WHERE trip_id = X AND deleted_at IS NULL ORDER BY created_at DESC
+-- The partial index excludes soft-deleted entries for better performance.
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entry_trip_deleted
-  ON entry(trip_id, deleted_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entry_trip_created_active
+  ON entry(trip_id, created_at DESC)
+  WHERE deleted_at IS NULL;
 
--- Note: The existing idx_entry_trip_date and idx_entry_trip_type indexes
--- don't include deleted_at, so queries filtering by deleted_at IS NULL
--- benefit from this dedicated composite index.
+-- Note: The existing idx_entry_trip_date covers date-based sorting.
+-- This new index specifically optimizes the created_at DESC sort used by Saved Places.

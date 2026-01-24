@@ -41,7 +41,7 @@ function EmptyState() {
   );
 }
 
-export function SavedPlacesScreen({ navigation }: Props) {
+function SavedPlacesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { data: uncategorizedTrip, isLoading: isLoadingTrip } = useUncategorizedTrip();
   const {
@@ -436,3 +436,5 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
 });
+
+export default SavedPlacesScreen;

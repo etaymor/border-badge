@@ -240,8 +240,24 @@ struct TripSelectorView: View {
         NSLog("[TripSelectorView] autoSelectTripForCountryChange - code: %@, trip: %@, loading: %d",
               code, tripId, viewModel.isLoading ? 1 : 0)
 
+        let resolvedUncategorized = viewModel.resolvedUncategorizedTrip()
+
+        // Check if selectedTripId is stale (no longer exists in available trips)
+        if let currentId = selectedTripId {
+            let isUncategorized = resolvedUncategorized?.id == currentId
+            let existsInTrips = viewModel.trips.contains { $0.id == currentId }
+
+            if !isUncategorized && !existsInTrips && !viewModel.isLoading {
+                // Selected trip no longer exists - reset and re-select
+                NSLog("[TripSelectorView] autoSelectTripForCountryChange - stale trip detected, resetting")
+                selectedTripId = nil
+                selectBestTrip()
+                return
+            }
+        }
+
         // If currently on uncategorized trip (Saved Places), check if there's now a country-specific trip
-        if let uncategorized = viewModel.resolvedUncategorizedTrip(),
+        if let uncategorized = resolvedUncategorized,
            selectedTripId == uncategorized.id,
            let code = countryCode {
             let countryTrips = viewModel.trips.filter { $0.countryCode == code }

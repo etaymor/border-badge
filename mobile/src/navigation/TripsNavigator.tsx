@@ -5,7 +5,7 @@ import { GlassBackButton } from '@components/ui';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
-import { SavedPlacesScreen } from '@screens/trips/SavedPlacesScreen';
+import SavedPlacesScreen from '@screens/trips/SavedPlacesScreen';
 import { EntryListScreen, EntryFormScreen } from '@screens/entries';
 import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
 import { colors } from '@constants/colors';

@@ -152,10 +152,7 @@ export interface EntriesPage {
 export type EntriesSortOrder = 'date_asc' | 'created_at_desc';
 
 // Fetch entries with infinite scroll pagination
-export function useInfiniteEntries(
-  tripId: string,
-  options?: { sort?: EntriesSortOrder }
-) {
+export function useInfiniteEntries(tripId: string, options?: { sort?: EntriesSortOrder }) {
   return useInfiniteQuery({
     queryKey: [...ENTRIES_QUERY_KEY, tripId, 'infinite', options?.sort],
     queryFn: async ({ pageParam = 0 }): Promise<EntriesPage> => {

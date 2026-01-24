@@ -512,11 +512,6 @@ async def move_entry(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This place already exists in the target trip",
             ) from None
-        elif "already exist" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This place already exists in the target trip",
-            ) from None
         raise
 
     if result is None or len(result) == 0:
