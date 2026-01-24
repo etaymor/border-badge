@@ -257,6 +257,9 @@ export function useBulkMoveEntries() {
 
   return useMutation({
     mutationFn: async ({ entryIds, targetTripId }: BulkMoveInput): Promise<BulkMoveResult> => {
+      if (entryIds.length === 0) {
+        throw new Error('No entries selected');
+      }
       const response = await api.post('/entries/bulk-move', {
         entry_ids: entryIds,
         target_trip_id: targetTripId,

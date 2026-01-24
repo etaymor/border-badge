@@ -505,13 +505,12 @@ async def move_entry(
         )
     except HTTPException as e:
         # Handle unique constraint violations from concurrent moves
-        # Using 'from None' for intentional error transformation
         detail = str(e.detail).lower() if e.detail else ""
         if "unique" in detail or "duplicate" in detail:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This place already exists in the target trip",
-            ) from None
+            ) from e
         raise
 
     if result is None or len(result) == 0:
