@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { STALE_TIMES } from '../queryClient';
 import { Analytics } from '@services/analytics';
 
 // Trip tag status enum matching backend
@@ -204,6 +205,10 @@ export function useUncategorizedTrip() {
       const response = await api.get('/trips/uncategorized');
       return response.data;
     },
+    // Trip metadata never changes; only entry_count changes via move mutations
+    // which trigger invalidation. Longer staleTime reduces redundant fetches.
+    staleTime: STALE_TIMES.SYSTEM_TRIP, // 10 minutes
+    gcTime: 1000 * 60 * 60, // 1 hour - keep singleton in cache longer
   });
 }
 

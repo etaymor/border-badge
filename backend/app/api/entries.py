@@ -1,11 +1,12 @@
 """Entry endpoints."""
 
 import logging
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
+from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -61,10 +62,23 @@ async def list_entries(
     user: CurrentUser,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    sort: Literal["date_asc", "created_at_desc"] = Query("date_asc"),
 ) -> list[EntryWithPlace]:
-    """List all entries for a trip with pagination."""
+    """List all entries for a trip with pagination.
+
+    Args:
+        sort: Sort order. "date_asc" (default) sorts by date then created_at.
+              "created_at_desc" sorts by creation time descending (for Saved Places).
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # Determine order clause based on sort parameter
+    order_clause = (
+        "created_at.desc"
+        if sort == "created_at_desc"
+        else "date.asc.nullslast,created_at.asc"
+    )
 
     # Fetch entries with embedded places and media_files in single query
     entries = await db.get(
@@ -72,7 +86,7 @@ async def list_entries(
         {
             "trip_id": f"eq.{trip_id}",
             "select": "*, place(*), media_files(*)",
-            "order": "date.asc.nullslast,created_at.asc",
+            "order": order_clause,
             "limit": limit,
             "offset": offset,
         },
@@ -144,24 +158,6 @@ async def create_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Check for duplicate place in same trip (by google_place_id)
-    if data.place and data.place.google_place_id:
-        existing_entries = await db.get(
-            "entry",
-            {
-                "trip_id": f"eq.{trip_id}",
-                "deleted_at": "is.null",
-                "select": "id, place!inner(google_place_id)",
-            },
-        )
-        if check_duplicate_place_in_entries(
-            existing_entries, data.place.google_place_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This place has already been saved to this trip",
-            )
-
     # Create entry
     entry_data = {
         "trip_id": str(trip_id),
@@ -200,7 +196,29 @@ async def create_entry(
             "address": data.place.address,
             "extra_data": data.place.extra_data,
         }
-        place_rows = await db.post("place", place_data)
+
+        # Try to create the place - rely on unique index for duplicate detection
+        # instead of TOCTOU-vulnerable pre-check
+        try:
+            place_rows = await db.post("place", place_data)
+        except HTTPException as e:
+            # Handle unique constraint violation from concurrent inserts
+            detail = str(e.detail).lower() if e.detail else ""
+            if "unique" in detail or "duplicate" in detail:
+                # Rollback: delete the entry we just created
+                try:
+                    await db.delete("entry", {"id": f"eq.{entry.id}"})
+                except Exception:
+                    logger.warning(
+                        "Failed to rollback entry %s after duplicate place detection",
+                        entry.id,
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This place has already been saved to this trip",
+                ) from None
+            raise
+
         logger.debug(
             "Place created for entry",
             extra={

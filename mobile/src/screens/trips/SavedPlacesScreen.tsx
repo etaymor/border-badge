@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useUncategorizedTrip } from '@hooks/useTrips';
-import { useEntries, EntryWithPlace } from '@hooks/useEntries';
+import { useInfiniteEntries, EntryWithPlace } from '@hooks/useEntries';
 import { EntryCard } from '@components/entries';
 import { GlassBackButton } from '@components/ui';
 import { MoveToTripSheet } from '@components/trips/MoveToTripSheet';
@@ -45,12 +45,15 @@ export function SavedPlacesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { data: uncategorizedTrip, isLoading: isLoadingTrip } = useUncategorizedTrip();
   const {
-    data: entries,
+    data,
     isLoading: isLoadingEntries,
     isRefetching,
     refetch,
     error,
-  } = useEntries(uncategorizedTrip?.id ?? '');
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteEntries(uncategorizedTrip?.id ?? '', { sort: 'created_at_desc' });
 
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
@@ -59,13 +62,29 @@ export function SavedPlacesScreen({ navigation }: Props) {
 
   const isLoading = isLoadingTrip || isLoadingEntries;
 
-  const sortedEntries = useMemo(() => {
-    if (!entries?.length) return [];
-    // Sort by created_at descending (most recent first)
-    return [...entries].sort((a, b) => {
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }, [entries]);
+  // Flatten pages into a single array of entries
+  // Server already sorts by created_at_desc, so no client-side sorting needed
+  const entries = useMemo(() => {
+    if (!data?.pages) return [];
+    return data.pages.flatMap((page) => page.entries);
+  }, [data?.pages]);
+
+  // Handle loading more entries when scrolling near end
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Footer component for loading indicator during pagination
+  const ListFooterComponent = useCallback(() => {
+    if (!isFetchingNextPage) return null;
+    return (
+      <View style={styles.loadingFooter}>
+        <ActivityIndicator size="small" color={colors.sunsetGold} />
+      </View>
+    );
+  }, [isFetchingNextPage]);
 
   // Compute country code to filter trips in the move sheet.
   // For single entry: use that entry's country_code.
@@ -74,7 +93,7 @@ export function SavedPlacesScreen({ navigation }: Props) {
     const entryIdsToMove = singleEntryToMove ? [singleEntryToMove] : Array.from(selectedEntryIds);
     if (entryIdsToMove.length === 0) return null;
 
-    const entriesToMove = sortedEntries.filter((e) => entryIdsToMove.includes(e.id));
+    const entriesToMove = entries.filter((e) => entryIdsToMove.includes(e.id));
     if (entriesToMove.length === 0) return null;
 
     // Get unique country codes from selected entries
@@ -89,7 +108,7 @@ export function SavedPlacesScreen({ navigation }: Props) {
 
     // Multiple countries or no country codes - don't filter
     return null;
-  }, [singleEntryToMove, selectedEntryIds, sortedEntries]);
+  }, [singleEntryToMove, selectedEntryIds, entries]);
 
   const handleEntryPress = useCallback(
     (entry: EntryWithPlace) => {
@@ -194,7 +213,9 @@ export function SavedPlacesScreen({ navigation }: Props) {
     );
   }
 
-  const hasEntries = sortedEntries.length > 0;
+  const hasEntries = entries.length > 0;
+  // Use entry_count from trip for accurate total (includes entries not yet loaded)
+  const totalEntryCount = uncategorizedTrip?.entry_count ?? entries.length;
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -205,7 +226,7 @@ export function SavedPlacesScreen({ navigation }: Props) {
           <Text style={styles.headerTitle}>Saved Places</Text>
           <Text style={styles.headerSubtitle}>
             {hasEntries
-              ? `${sortedEntries.length} ${sortedEntries.length === 1 ? 'place' : 'places'} waiting to be organized`
+              ? `${totalEntryCount} ${totalEntryCount === 1 ? 'place' : 'places'} waiting to be organized`
               : 'No places to organize'}
           </Text>
         </View>
@@ -219,18 +240,21 @@ export function SavedPlacesScreen({ navigation }: Props) {
       {/* Entry List */}
       {hasEntries ? (
         <FlatList
-          data={sortedEntries}
+          data={entries}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
+              refreshing={isRefetching && !isFetchingNextPage}
               onRefresh={refetch}
               tintColor={colors.sunsetGold}
             />
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListFooterComponent={ListFooterComponent}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           testID="saved-places-list"
         />
       ) : (
@@ -332,6 +356,10 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 12,
+  },
+  loadingFooter: {
+    paddingVertical: 16,
+    alignItems: 'center',
   },
   entryItemContainer: {
     flexDirection: 'row',
