@@ -95,27 +95,35 @@ async function convertPhotoUri(
 
   const targetUri = `${cacheDir}upload_${Date.now()}_${photo.filename}`;
 
-  try {
-    const assetId = extractAssetIdFromPhUri(photo.uri);
-    if (!assetId) {
-      console.error('[MultiClusterUpload] Could not extract asset ID from URI:', photo.uri);
-      return null;
-    }
+  const assetId = extractAssetIdFromPhUri(photo.uri);
+  if (!assetId) {
+    console.error('[MultiClusterUpload] Could not extract asset ID from URI:', photo.uri);
+    return null;
+  }
 
-    const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId, {
+  // Get asset info - can fail if permissions change or asset is deleted
+  let assetInfo;
+  try {
+    assetInfo = await MediaLibrary.getAssetInfoAsync(assetId, {
       shouldDownloadFromNetwork: true,
     });
+  } catch (error) {
+    console.error('[MultiClusterUpload] Failed to get asset info:', error);
+    return null;
+  }
 
-    if (signal.aborted) return null;
+  if (signal.aborted) return null;
 
-    const sourceUri = assetInfo.localUri ?? assetInfo.uri;
-    if (!sourceUri) {
-      console.error('[MultiClusterUpload] No URI available after asset info fetch');
-      return null;
-    }
+  const sourceUri = assetInfo.localUri ?? assetInfo.uri;
+  if (!sourceUri) {
+    console.error('[MultiClusterUpload] No URI available after asset info fetch');
+    return null;
+  }
 
+  try {
     await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
 
+    // Check abort immediately after copy - file exists at targetUri now
     if (signal.aborted) {
       try {
         await FileSystem.deleteAsync(targetUri, { idempotent: true });
@@ -128,6 +136,11 @@ async function convertPhotoUri(
     const info = await FileSystem.getInfoAsync(targetUri);
     if (!info.exists || info.size === 0) {
       console.error('[MultiClusterUpload] Copied file is empty or missing');
+      try {
+        await FileSystem.deleteAsync(targetUri, { idempotent: true });
+      } catch {
+        // Ignore cleanup errors
+      }
       return null;
     }
 
@@ -138,6 +151,12 @@ async function convertPhotoUri(
     };
   } catch (error) {
     console.error('[MultiClusterUpload] Failed to prepare photo:', error);
+    // Clean up any partial file that may have been created
+    try {
+      await FileSystem.deleteAsync(targetUri, { idempotent: true });
+    } catch {
+      // Ignore cleanup errors
+    }
     return null;
   }
 }

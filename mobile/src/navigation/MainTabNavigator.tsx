@@ -49,7 +49,10 @@ export function MainTabNavigator() {
             // This preserves stack state when switching between tabs
             const state = navigation.getState();
             const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+
+            // Guard against findIndex returning -1 (route not found)
+            if (targetTabIndex === -1) return;
 
             if (currentTabIndex === targetTabIndex) {
               // Already on this tab - reset to first screen
@@ -72,7 +75,10 @@ export function MainTabNavigator() {
           tabPress: () => {
             const state = navigation.getState();
             const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+
+            // Guard against findIndex returning -1 (route not found)
+            if (targetTabIndex === -1) return;
 
             if (currentTabIndex === targetTabIndex) {
               navigation.dispatch(
@@ -97,7 +103,10 @@ export function MainTabNavigator() {
           tabPress: () => {
             const state = navigation.getState();
             const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+
+            // Guard against findIndex returning -1 (route not found)
+            if (targetTabIndex === -1) return;
 
             if (currentTabIndex === targetTabIndex) {
               navigation.dispatch(

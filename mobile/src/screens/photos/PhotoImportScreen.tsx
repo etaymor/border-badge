@@ -179,7 +179,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
     // Get API results (partial during loading, full when done)
     const apiSuggestions = suggestionsIsPending
-      ? suggestionsPartialResults
+      ? (suggestionsPartialResults ?? [])
       : (suggestionsData?.suggestions ?? []);
 
     // Add cached suggestions first (takes precedence for deduplication)

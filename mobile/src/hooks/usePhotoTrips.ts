@@ -73,9 +73,10 @@ function buildCountryNameMap(countries: Country[]): Map<string, string> {
 function groupByCountry(trips: TripCandidateDisplay[]): Map<string, TripCandidateDisplay[]> {
   const map = new Map<string, TripCandidateDisplay[]>();
   for (const trip of trips) {
-    const existing = map.get(trip.countryCode) ?? [];
-    existing.push(trip);
-    map.set(trip.countryCode, existing);
+    if (!map.has(trip.countryCode)) {
+      map.set(trip.countryCode, []);
+    }
+    map.get(trip.countryCode)!.push(trip);
   }
   return map;
 }
@@ -89,9 +90,10 @@ function groupByYear(trips: TripCandidateDisplay[]): Map<number, TripCandidateDi
 
   for (const trip of trips) {
     const year = trip.dateRange.start.getFullYear();
-    const existing = map.get(year) ?? [];
-    existing.push(trip);
-    map.set(year, existing);
+    if (!map.has(year)) {
+      map.set(year, []);
+    }
+    map.get(year)!.push(trip);
   }
 
   // Sort trips within each year by date (most recent first)

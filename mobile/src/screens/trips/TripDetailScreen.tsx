@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -81,8 +81,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
   } = useInfiniteEntries(tripId);
   const { data: lists } = useTripLists(tripId);
 
-  // Flatten paginated entries for FlatList
-  const entries = entriesData?.pages.flatMap((page) => page.entries) ?? [];
+  // Flatten paginated entries for FlatList (memoized to prevent rebuilding on every render)
+  const entries = useMemo(
+    () => entriesData?.pages.flatMap((page) => page.entries) ?? [],
+    [entriesData]
+  );
   const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
