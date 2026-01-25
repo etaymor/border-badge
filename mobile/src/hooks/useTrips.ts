@@ -67,6 +67,8 @@ export function useTrips() {
       const response = await api.get('/trips');
       return response.data;
     },
+    staleTime: STALE_TIMES.USER_DATA, // 5 minutes - trips rarely change outside mutations
+    gcTime: 1000 * 60 * 30, // 30 minutes - keep in cache for navigation
   });
 }
 
@@ -79,6 +81,8 @@ export function useTripsByCountry(countryId: string) {
       return response.data;
     },
     enabled: !!countryId,
+    staleTime: STALE_TIMES.USER_DATA, // 5 minutes
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -91,6 +95,8 @@ export function useTrip(tripId: string) {
       return response.data;
     },
     enabled: !!tripId,
+    staleTime: STALE_TIMES.USER_DATA, // 5 minutes
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -162,11 +168,21 @@ export function useDeleteTrip() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (tripId: string): Promise<void> => {
+    mutationFn: async (tripId: string): Promise<string | undefined> => {
+      // Get trip data before deletion for scoped invalidation
+      const tripData = queryClient.getQueryData<Trip>([...TRIPS_QUERY_KEY, tripId]);
       await api.delete(`/trips/${tripId}`);
+      return tripData?.country_code;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    onSuccess: (countryCode, tripId) => {
+      // Scope invalidations to affected queries only
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, tripId] });
+      if (countryCode) {
+        queryClient.invalidateQueries({
+          queryKey: [...TRIPS_QUERY_KEY, { countryId: countryCode }],
+        });
+      }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to delete trip';
@@ -184,8 +200,15 @@ export function useRestoreTrip() {
       const response = await api.post(`/trips/${tripId}/restore`);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY });
+    onSuccess: (data) => {
+      // Scope invalidations to affected queries only
+      queryClient.invalidateQueries({ queryKey: TRIPS_QUERY_KEY, exact: true });
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, data.id] });
+      if (data.country_code) {
+        queryClient.invalidateQueries({
+          queryKey: [...TRIPS_QUERY_KEY, { countryId: data.country_code }],
+        });
+      }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to restore trip';
@@ -216,6 +239,7 @@ export function useUncategorizedTrip() {
 export interface MoveEntryInput {
   entryId: string;
   tripId: string;
+  sourceTripId?: string; // Optional: for scoped cache invalidation
 }
 
 export function useMoveEntry() {
@@ -229,10 +253,12 @@ export function useMoveEntry() {
     onSuccess: (_data, variables) => {
       // Invalidate uncategorized trip (entry count changed)
       queryClient.invalidateQueries({ queryKey: UNCATEGORIZED_TRIP_QUERY_KEY });
-      // Invalidate entries for both source and target trips
-      queryClient.invalidateQueries({ queryKey: ['entries'] });
-      // Invalidate specific trip entry list
+      // Invalidate target trip entries
       queryClient.invalidateQueries({ queryKey: ['entries', variables.tripId] });
+      // Invalidate source trip entries if provided (scoped invalidation)
+      if (variables.sourceTripId) {
+        queryClient.invalidateQueries({ queryKey: ['entries', variables.sourceTripId] });
+      }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to move entry';
@@ -245,6 +271,7 @@ export function useMoveEntry() {
 export interface BulkMoveInput {
   entryIds: string[];
   targetTripId: string;
+  sourceTripId?: string; // Optional: for scoped cache invalidation
 }
 
 export interface BulkMoveResult {
@@ -269,10 +296,12 @@ export function useBulkMoveEntries() {
     onSuccess: (_data, variables) => {
       // Invalidate uncategorized trip (entry count changed)
       queryClient.invalidateQueries({ queryKey: UNCATEGORIZED_TRIP_QUERY_KEY });
-      // Invalidate entries for both source and target trips
-      queryClient.invalidateQueries({ queryKey: ['entries'] });
-      // Invalidate specific trip entry list
+      // Invalidate target trip entries
       queryClient.invalidateQueries({ queryKey: ['entries', variables.targetTripId] });
+      // Invalidate source trip entries if provided (scoped invalidation)
+      if (variables.sourceTripId) {
+        queryClient.invalidateQueries({ queryKey: ['entries', variables.sourceTripId] });
+      }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to move entries';

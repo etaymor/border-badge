@@ -133,18 +133,20 @@ class PlaceMatcher:
                 cluster=cluster,
             )
 
-            if ranked_places:
-                logger.info(
-                    f"Cluster {cluster['id']}: returning {len(ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER])} suggestions, "
-                    f"top={ranked_places[0]['name'] if ranked_places else 'none'}"
-                )
-                return {
-                    "cluster_id": cluster["id"],
-                    "photo_ids": [p["asset_id"] for p in cluster.get("photos", [])],
-                    "places": ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER],
-                }
-            logger.info(f"Cluster {cluster['id']}: no places found after ranking")
-            return None
+            # Always return cluster (with or without suggestions)
+            # Empty places array allows UI to show "photo-only" cards for manual entry
+            suggestions = (
+                ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER] if ranked_places else []
+            )
+            logger.info(
+                f"Cluster {cluster['id']}: returning {len(suggestions)} suggestions"
+                + (f", top={suggestions[0]['name']}" if suggestions else "")
+            )
+            return {
+                "cluster_id": cluster["id"],
+                "photo_ids": [p["asset_id"] for p in cluster.get("photos", [])],
+                "places": suggestions,
+            }
 
         # Execute all searches in parallel with bounded concurrency and per-cluster timeout
         results = await asyncio.gather(
@@ -152,8 +154,8 @@ class PlaceMatcher:
             return_exceptions=True,
         )
 
-        # Filter out None results (no places found) and exceptions (partial failures)
-        # Track failed clusters to inform the user
+        # Filter out None results (timeouts) and exceptions (errors)
+        # Note: Clusters with no places return empty places array, not None
         successful = [
             r for r in results if r is not None and not isinstance(r, BaseException)
         ]

@@ -3,7 +3,7 @@
  */
 
 import type { SelectedPlace } from '@components/places';
-import type { ClusterUploadState } from '@hooks/useClusterPhotoUpload';
+import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { useSuggestPlacesChunked } from '@hooks/usePhotoImport';
 import type {
   ScanProgress,
@@ -15,7 +15,13 @@ import type {
 } from '@services/photoImport';
 import type { EntryType } from '@navigation/types';
 
-export type ImportPhase = 'idle' | 'scanning' | 'candidates' | 'trip-selection' | 'suggestions';
+export type ImportPhase =
+  | 'idle'
+  | 'loading'
+  | 'scanning'
+  | 'candidates'
+  | 'trip-selection'
+  | 'suggestions';
 
 export interface PhotoImportWorkflowResult {
   // State
@@ -36,12 +42,14 @@ export interface PhotoImportWorkflowResult {
   /** Cluster IDs that have been dismissed/processed (confirmed entries) */
   dismissedClusterIdsInternal: Set<string>;
 
-  /** Photo upload state for progress UI */
-  uploadState: ClusterUploadState;
-  /** Cluster ID currently being uploaded (for UI state) */
-  uploadingClusterId: string | null;
-  /** Cancel current photo upload */
-  cancelUpload: () => void;
+  /** Photo upload states for all active uploads, keyed by cluster ID */
+  uploadStates: Map<string, ClusterUploadState>;
+  /** Get upload state for a specific cluster */
+  getUploadState: (clusterId: string) => ClusterUploadState | null;
+  /** Cluster IDs currently being uploaded (for UI state) */
+  uploadingClusterIds: Set<string>;
+  /** Cancel upload for a specific cluster */
+  cancelUpload: (clusterId: string) => void;
 
   // Actions
   startScan: (forceRefresh?: boolean) => Promise<void>;

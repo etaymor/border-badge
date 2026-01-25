@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,9 +18,7 @@ import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ListSummary, getPublicListUrl, useDeleteList, useTripLists } from '@hooks/useLists';
-import { useTrip } from '@hooks/useTrips';
-import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
-import type { NavigationProp } from '@react-navigation/native';
+import type { TripsStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
 type Props = TripsStackScreenProps<'TripLists'>;
@@ -32,17 +30,21 @@ interface ListItemProps {
   onDelete: () => void;
 }
 
-function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
+// Memoize date formatting helper
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+  });
+};
+
+const ListItem = memo(function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
   const swipeableRef = useRef<Swipeable>(null);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-    });
-  };
+  // Memoize formatted date
+  const formattedDate = useMemo(() => formatDate(list.created_at), [list.created_at]);
 
   const renderRightActions = () => (
     <Pressable
@@ -70,7 +72,7 @@ function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
                 <Text style={styles.entryCountText}>{list.entry_count}</Text>
               </View>
             </View>
-            <Text style={styles.listDate}>Created {formatDate(list.created_at)}</Text>
+            <Text style={styles.listDate}>Created {formattedDate}</Text>
           </View>
           <View style={styles.listItemActions}>
             <Pressable style={styles.actionButton} onPress={onEdit}>
@@ -84,26 +86,16 @@ function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
       </View>
     </Swipeable>
   );
-}
+});
 
 export function TripListsScreen({ route, navigation }: Props) {
   const { tripId, tripName } = route.params;
   const { data: lists, isLoading, refetch } = useTripLists(tripId);
-  const { data: trip } = useTrip(tripId);
   const deleteList = useDeleteList();
 
   const handleCreateNew = useCallback(() => {
     navigation.navigate('ListCreate', { tripId, tripName });
   }, [navigation, tripId, tripName]);
-
-  const handleImportPhotos = useCallback(() => {
-    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
-    if (parentNav) {
-      parentNav.navigate('PhotoImport', {
-        countryCode: trip?.country_code,
-      });
-    }
-  }, [navigation, trip?.country_code]);
 
   const handleEdit = useCallback(
     (listId: string) => {
@@ -198,13 +190,6 @@ export function TripListsScreen({ route, navigation }: Props) {
                 <Text style={styles.createButtonSubtitle}>Share your favorite spots</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.sunsetGold} />
-            </Pressable>
-
-            {/* Photo Import Callout */}
-            <Pressable style={styles.photoCallout} onPress={handleImportPhotos}>
-              <Ionicons name="images-outline" size={20} color={colors.sunsetGold} />
-              <Text style={styles.photoCalloutText}>Add places from your Camera Roll</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.sunsetGold} />
             </Pressable>
 
             {/* Section Header */}
@@ -431,21 +416,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 22,
     fontFamily: fonts.openSans.regular,
-  },
-  photoCallout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(244, 194, 78, 0.08)',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 24,
-    gap: 10,
-  },
-  photoCalloutText: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    fontFamily: fonts.openSans.semiBold,
   },
 });

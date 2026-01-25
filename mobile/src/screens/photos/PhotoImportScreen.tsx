@@ -103,8 +103,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     isIncremental,
     isSaving,
     dismissedClusterIdsInternal,
-    uploadState,
-    uploadingClusterId,
+    getUploadState,
+    uploadingClusterIds,
     startScan,
     cancelScan,
     selectCandidate,
@@ -172,30 +172,35 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const suggestionsPartialResults = suggestPlacesMutation.partialResults;
   const suggestionsData = suggestPlacesMutation.data;
 
-  // Build combined list of all clusters for the selected candidate
-  // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
-  const clusterItems: ClusterDisplayItem[] = useMemo(() => {
-    if (!selectedCandidate) return [];
+  // Memoize the merged suggestions Map separately to avoid rebuilding on every clusterItems recomputation
+  // This Map only needs to rebuild when the suggestion sources change, not when dismissedClusterIds changes
+  const suggestionsMap = useMemo(() => {
+    const map = new Map<string, ClusterSuggestion>();
 
     // Get API results (partial during loading, full when done)
     const apiSuggestions = suggestionsIsPending
       ? suggestionsPartialResults
       : (suggestionsData?.suggestions ?? []);
 
-    // Merge cached suggestions with API results (cached takes precedence for deduplication)
-    const suggestionsMap = new Map<string, ClusterSuggestion>();
-
-    // Add cached suggestions first
+    // Add cached suggestions first (takes precedence for deduplication)
     for (const suggestion of cachedSuggestions) {
-      suggestionsMap.set(suggestion.cluster_id, suggestion);
+      map.set(suggestion.cluster_id, suggestion);
     }
 
     // Add API suggestions (won't overwrite cached ones)
     for (const suggestion of apiSuggestions) {
-      if (!suggestionsMap.has(suggestion.cluster_id)) {
-        suggestionsMap.set(suggestion.cluster_id, suggestion);
+      if (!map.has(suggestion.cluster_id)) {
+        map.set(suggestion.cluster_id, suggestion);
       }
     }
+
+    return map;
+  }, [suggestionsIsPending, suggestionsPartialResults, suggestionsData, cachedSuggestions]);
+
+  // Build combined list of all clusters for the selected candidate
+  // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
+  const clusterItems: ClusterDisplayItem[] = useMemo(() => {
+    if (!selectedCandidate) return [];
 
     // Build items for all clusters in the candidate (excluding dismissed/processed ones)
     const items: ClusterDisplayItem[] = [];
@@ -207,7 +212,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       if (!cluster) continue;
 
       const suggestion = suggestionsMap.get(clusterId);
-      if (suggestion) {
+      // Only show as suggestion card if there are actual places to suggest
+      // Empty places array (no quality matches) should show as photo-only card
+      if (suggestion && suggestion.places.length > 0) {
         items.push({ type: 'suggestion', data: suggestion, cluster });
       } else {
         items.push({ type: 'photos-only', cluster });
@@ -215,22 +222,13 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     }
 
     return items;
-  }, [
-    selectedCandidate,
-    suggestionsIsPending,
-    suggestionsPartialResults,
-    suggestionsData,
-    cachedSuggestions,
-    clusterDisplays,
-    dismissedClusterIdsInternal,
-  ]);
+  }, [selectedCandidate, suggestionsMap, clusterDisplays, dismissedClusterIdsInternal]);
 
   const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
     ({ item }) => {
-      const isUploadingThisCluster =
-        item.type === 'suggestion'
-          ? uploadingClusterId === item.data.cluster_id
-          : uploadingClusterId === item.cluster.id;
+      const clusterId = item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id;
+      const isUploadingThisCluster = uploadingClusterIds.has(clusterId);
+      const clusterUploadState = getUploadState(clusterId);
 
       if (item.type === 'suggestion') {
         return (
@@ -242,10 +240,10 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             onPhotoPress={setPreviewPhoto}
             onDismiss={handleHideCluster}
             isUploading={isUploadingThisCluster}
-            uploadProgress={uploadState.overallProgress}
-            uploadingPhotoIndex={uploadState.currentPhotoIndex}
-            totalPhotosToUpload={uploadState.totalPhotos}
-            onCancelUpload={cancelUpload}
+            uploadProgress={clusterUploadState?.overallProgress ?? 0}
+            uploadingPhotoIndex={clusterUploadState?.currentPhotoIndex ?? 0}
+            totalPhotosToUpload={clusterUploadState?.totalPhotos ?? 0}
+            onCancelUpload={() => cancelUpload(clusterId)}
           />
         );
       }
@@ -263,8 +261,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       handleRejectPlace,
       handleAddEntryForCluster,
       handleHideCluster,
-      uploadingClusterId,
-      uploadState,
+      uploadingClusterIds,
+      getUploadState,
       cancelUpload,
     ]
   );
@@ -275,7 +273,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       <View style={styles.header}>
         <GlassBackButton
           onPress={() => {
-            if (phase === 'suggestions') {
+            if (phase === 'suggestions' && !skipToSuggestions) {
+              // Only go back to candidates if we didn't skip directly to suggestions
               backToCandidates();
             } else {
               navigation.goBack();
@@ -283,10 +282,18 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           }}
         />
         <Text style={styles.headerTitle}>
-          {phase === 'suggestions' ? 'Trip Suggestions' : 'We Found Trips'}
+          {phase === 'suggestions' || skipToSuggestions ? 'Trip Suggestions' : 'We Found Trips'}
         </Text>
         <View style={styles.headerSpacer} />
       </View>
+
+      {/* Loading State - shown when skipping directly to suggestions */}
+      {phase === 'loading' && (
+        <View style={styles.idleContainer}>
+          <ActivityIndicator size="large" color={colors.sunsetGold} />
+          <Text style={styles.idleTitle}>Loading suggestions...</Text>
+        </View>
+      )}
 
       {/* Idle State */}
       {phase === 'idle' && (
@@ -375,6 +382,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             renderItem={renderCandidateItem}
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) => item.id}
+            estimatedItemSize={120}
           />
         </View>
       )}
@@ -412,25 +420,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Warning banner when some clusters or chunks failed to process */}
-          {!suggestPlacesMutation.isPending &&
-            suggestPlacesMutation.progress &&
-            (suggestPlacesMutation.progress.failedClusters > 0 ||
-              suggestPlacesMutation.progress.failedChunks > 0) && (
-              <View style={styles.warningBanner}>
-                <Ionicons name="warning-outline" size={20} color={colors.sunsetGold} />
-                <Text style={styles.warningText}>
-                  {suggestPlacesMutation.progress.failedChunks > 0
-                    ? `Some suggestions couldn't be loaded due to network issues. `
-                    : ''}
-                  {suggestPlacesMutation.progress.failedClusters > 0
-                    ? `${suggestPlacesMutation.progress.failedClusters} location${suggestPlacesMutation.progress.failedClusters === 1 ? '' : 's'} could not be processed. `
-                    : ''}
-                  You can add places manually using the search button.
-                </Text>
-              </View>
-            )}
-
           {/* Show all clusters - those with suggestions use PlaceSuggestionCard, others use PhotoClusterCard */}
           <FlashList
             data={clusterItems}
@@ -439,6 +428,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             keyExtractor={(item) =>
               item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id
             }
+            estimatedItemSize={200}
+            getItemType={(item) => item.type}
             ListEmptyComponent={
               suggestPlacesMutation.isPending ? (
                 <View style={styles.loadingContainer}>
@@ -490,11 +481,11 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onCreateTrip={handleCreateTrip}
           onCancel={closeManualSearch}
           isSaving={isSaving}
-          isUploading={uploadState.isUploading}
-          uploadProgress={uploadState.overallProgress}
-          uploadingPhotoIndex={uploadState.currentPhotoIndex}
-          totalPhotosToUpload={uploadState.totalPhotos}
-          onCancelUpload={cancelUpload}
+          isUploading={uploadingClusterIds.has(manualSearchCluster.id)}
+          uploadProgress={getUploadState(manualSearchCluster.id)?.overallProgress ?? 0}
+          uploadingPhotoIndex={getUploadState(manualSearchCluster.id)?.currentPhotoIndex ?? 0}
+          totalPhotosToUpload={getUploadState(manualSearchCluster.id)?.totalPhotos ?? 0}
+          onCancelUpload={() => cancelUpload(manualSearchCluster.id)}
         />
       )}
     </View>

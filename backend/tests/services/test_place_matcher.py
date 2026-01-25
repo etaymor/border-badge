@@ -712,9 +712,14 @@ class TestFindPlacesForClustersPartialFailures:
         matcher = PlaceMatcher(http_client=mock_client)
         results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
-        # Should have 4 successful results (5 clusters - 1 HTTP error)
-        assert len(results) == 4
-        assert failed_count == 1
+        # Should have 5 results (HTTP error cluster returns with empty places)
+        # Failed count includes only the HTTP error (not "no places found" clusters)
+        assert len(results) == 5
+        assert failed_count == 0  # HTTP 500 returns empty places, not an exception
+
+        # Verify the failed cluster has empty places
+        failed_cluster = next(r for r in results if r["cluster_id"] == "cluster-2")
+        assert failed_cluster["places"] == []
 
     @pytest.mark.asyncio
     async def test_handles_rate_limit_error_gracefully(
@@ -779,13 +784,13 @@ class TestFindPlacesForClustersPartialFailures:
         assert failed_count == 5
 
     @pytest.mark.asyncio
-    async def test_no_results_for_cluster_returns_none_filtered(
+    async def test_no_results_for_cluster_returns_empty_places(
         self,
         sample_clusters,
         mock_settings,
         clean_cache,
     ) -> None:
-        """Test that clusters with no places are filtered (return None)."""
+        """Test that clusters with no places return with empty places array."""
 
         async def mock_post(*args, **kwargs):
             # Return empty places list
@@ -800,53 +805,53 @@ class TestFindPlacesForClustersPartialFailures:
         matcher = PlaceMatcher(http_client=mock_client)
         results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
-        # All clusters returned no places, so all filtered out
-        # Note: no-place-found results are None, which is counted as "failed"
-        assert results == []
-        assert failed_count == 5
+        # All clusters returned no places - but they're still included in results
+        # This allows the UI to display "photo-only" cards for manual entry
+        assert len(results) == 5
+        assert failed_count == 0
+        # All should have empty places
+        for result in results:
+            assert result["places"] == []
 
     @pytest.mark.asyncio
-    async def test_mixed_success_none_and_exceptions(
+    async def test_mixed_success_empty_and_exceptions(
         self,
         sample_clusters,
         mock_places_response,
         mock_settings,
         clean_cache,
     ) -> None:
-        """Test combination of successes, no-results, and exceptions."""
-        call_count = [0]
+        """Test combination of successes, empty results, and exceptions."""
+        # Use latitudes to identify clusters (more reliable than call count)
+        # Clusters have latitudes: 35.6762, 35.6862, 35.6962, 35.7062, 35.7162
+        # Note: httpx.TimeoutException is the only way to reliably fail a cluster
+        # because httpx.RequestError triggers tenacity retries which may succeed
+        timeout_lat_1 = 35.6962  # Cluster 2: throws timeout
+        timeout_lat_2 = 35.7162  # Cluster 4: throws timeout
+        empty_lat = 35.6862  # Cluster 1: returns empty places
 
         async def mock_post(*args, **kwargs):
-            idx = call_count[0]
-            call_count[0] += 1
+            request_json = kwargs.get("json", {})
+            location = request_json.get("locationRestriction", {}).get("circle", {})
+            center = location.get("center", {})
+            lat = center.get("latitude", 0)
 
-            # Cluster 0: Success
-            if idx == 0:
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = mock_places_response
-                return mock_response
+            # Cluster 2 and 4: Timeout (these reliably fail)
+            if abs(lat - timeout_lat_1) < 0.001 or abs(lat - timeout_lat_2) < 0.001:
+                raise httpx.TimeoutException("Timeout")
 
-            # Cluster 1: No places (returns None after ranking)
-            if idx == 1:
+            # Cluster 1: Empty places (all radii)
+            if abs(lat - empty_lat) < 0.001:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"places": []}
                 return mock_response
 
-            # Cluster 2: Exception
-            if idx == 2:
-                raise httpx.RequestError("Network error")
-
-            # Cluster 3: Success
-            if idx == 3:
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = mock_places_response
-                return mock_response
-
-            # Cluster 4: Timeout
-            raise httpx.TimeoutException("Timeout")
+            # All other clusters: Success
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
 
         mock_client = AsyncMock()
         mock_client.post = mock_post
@@ -854,10 +859,20 @@ class TestFindPlacesForClustersPartialFailures:
         matcher = PlaceMatcher(http_client=mock_client)
         results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
 
-        # Should have 2 results (clusters 0 and 3 succeeded)
-        # Failures: cluster 1 (no places), cluster 2 (exception), cluster 4 (timeout)
-        assert len(results) == 2
-        assert failed_count == 3
+        # Should have 3 results:
+        # - Cluster 0: success with places
+        # - Cluster 1: success with empty places (no longer counted as failed)
+        # - Cluster 3: success with places
+        # Failures: cluster 2 (timeout), cluster 4 (timeout)
+        assert len(results) == 3
+        assert failed_count == 2
+
+        # Verify cluster 1 has empty places
+        empty_cluster = next(
+            (r for r in results if r["cluster_id"] == "cluster-1"), None
+        )
+        assert empty_cluster is not None
+        assert empty_cluster["places"] == []
 
 
 # ============================================================================

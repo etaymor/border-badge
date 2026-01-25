@@ -60,6 +60,7 @@ export type PassportStackParamList = {
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
+  PhotoTrips: undefined;
   PhotoImport: {
     countryCode?: string;
     tripId?: string; // Pre-associate with existing trip

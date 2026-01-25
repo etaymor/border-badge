@@ -43,15 +43,24 @@ export function MainTabNavigator() {
           tabBarAccessibilityLabel: 'passport-tab',
           tabBarStyle: getTabBarStyle(route),
         })}
-        listeners={({ navigation }) => ({
+        listeners={({ navigation, route }) => ({
           tabPress: () => {
-            // Reset to the first screen of the stack when tab is pressed
-            navigation.dispatch(
-              CommonActions.reset({
-                index: 0,
-                routes: [{ name: 'Passport' }],
-              })
-            );
+            // Only reset stack if already on this tab (double-tap to go home pattern)
+            // This preserves stack state when switching between tabs
+            const state = navigation.getState();
+            const currentTabIndex = state?.index ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+
+            if (currentTabIndex === targetTabIndex) {
+              // Already on this tab - reset to first screen
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Passport' }],
+                })
+              );
+            }
+            // Otherwise, let default tab navigation handle it (preserves stack)
           },
         })}
       />
@@ -59,14 +68,20 @@ export function MainTabNavigator() {
         name="Dreams"
         component={DreamsNavigator}
         options={{ title: 'Dreams', tabBarAccessibilityLabel: 'dreams-tab' }}
-        listeners={({ navigation }) => ({
+        listeners={({ navigation, route }) => ({
           tabPress: () => {
-            navigation.dispatch(
-              CommonActions.reset({
-                index: 0,
-                routes: [{ name: 'Dreams' }],
-              })
-            );
+            const state = navigation.getState();
+            const currentTabIndex = state?.index ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+
+            if (currentTabIndex === targetTabIndex) {
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Dreams' }],
+                })
+              );
+            }
           },
         })}
       />
@@ -78,15 +93,20 @@ export function MainTabNavigator() {
           tabBarAccessibilityLabel: 'trips-tab',
           tabBarStyle: getTabBarStyle(route),
         })}
-        listeners={({ navigation }) => ({
+        listeners={({ navigation, route }) => ({
           tabPress: () => {
-            // Reset to TripsList when Trips tab is pressed
-            navigation.dispatch(
-              CommonActions.reset({
-                index: 0,
-                routes: [{ name: 'Trips' }],
-              })
-            );
+            const state = navigation.getState();
+            const currentTabIndex = state?.index ?? 0;
+            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key) ?? 0;
+
+            if (currentTabIndex === targetTabIndex) {
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Trips' }],
+                })
+              );
+            }
           },
         })}
       />

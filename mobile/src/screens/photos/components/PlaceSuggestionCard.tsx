@@ -107,7 +107,13 @@ export function PlaceSuggestionCard({
               onPress={() => onPhotoPress(uri)}
               disabled={isUploading}
             >
-              <Image source={{ uri }} style={styles.suggestionThumbnail} contentFit="cover" />
+              <Image
+                source={{ uri }}
+                style={styles.suggestionThumbnail}
+                contentFit="cover"
+                transition={200}
+                recyclingKey={uri}
+              />
             </TouchableOpacity>
           ))}
         </ScrollView>

@@ -11,7 +11,7 @@ import type { AxiosError } from 'axios';
 import type { SelectedPlace } from '@components/places';
 import { useCreateEntry, PlaceInput, CreateEntryInput } from '@hooks/useEntries';
 import { useCreateTrip } from '@hooks/useTrips';
-import { useClusterPhotoUpload } from '@hooks/useClusterPhotoUpload';
+import { useMultiClusterUpload } from '@hooks/useMultiClusterUpload';
 import {
   getFullCluster,
   markClusterProcessed,
@@ -28,7 +28,8 @@ export interface UseEntryCreationOptions {
   manualSearchCluster: LocationCluster | null;
   setManualSearchCluster: (cluster: LocationCluster | null) => void;
   setDismissedClusterIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  setUploadingClusterId: (id: string | null) => void;
+  addUploadingClusterId: (id: string) => void;
+  removeUploadingClusterId: (id: string) => void;
 }
 
 export function useEntryCreation({
@@ -37,19 +38,21 @@ export function useEntryCreation({
   manualSearchCluster,
   setManualSearchCluster,
   setDismissedClusterIds,
-  setUploadingClusterId,
+  addUploadingClusterId,
+  removeUploadingClusterId,
 }: UseEntryCreationOptions) {
   const createEntry = useCreateEntry();
   const createTrip = useCreateTrip();
   const {
-    state: uploadState,
+    uploads: uploadStates,
+    getUploadState,
     uploadPhotos,
     cancel: cancelUpload,
     reset: resetUpload,
-  } = useClusterPhotoUpload();
+  } = useMultiClusterUpload();
 
-  // Track if we're currently processing to prevent double-submissions
-  const isProcessingRef = useRef(false);
+  // Track which clusters are currently processing to prevent double-submissions per cluster
+  const processingClustersRef = useRef<Set<string>>(new Set());
 
   /**
    * Confirm a place suggestion and create an entry.
@@ -61,13 +64,14 @@ export function useEntryCreation({
         console.log('[EntryCreation] handleConfirmPlace called:', {
           clusterId: suggestion.cluster_id,
           placeId: place.place_id,
-          isProcessing: isProcessingRef.current,
+          isProcessing: processingClustersRef.current.has(suggestion.cluster_id),
         });
       }
 
-      // Prevent double-submissions
-      if (isProcessingRef.current) {
-        if (__DEV__) console.log('[EntryCreation] Already processing, ignoring confirm');
+      // Prevent double-submissions for the same cluster
+      if (processingClustersRef.current.has(suggestion.cluster_id)) {
+        if (__DEV__)
+          console.log('[EntryCreation] Cluster already processing:', suggestion.cluster_id);
         return;
       }
 
@@ -82,16 +86,20 @@ export function useEntryCreation({
         return;
       }
 
-      // Mark as processing to prevent double-submissions
-      isProcessingRef.current = true;
+      // Mark as processing to prevent double-submissions for this cluster
+      processingClustersRef.current.add(suggestion.cluster_id);
 
       // Set uploading state for UI
-      setUploadingClusterId(suggestion.cluster_id);
-      resetUpload();
+      addUploadingClusterId(suggestion.cluster_id);
+      resetUpload(suggestion.cluster_id);
 
       try {
         // Upload photos first
-        const { mediaIds, failedCount } = await uploadPhotos(cluster.photos, selectedTripId);
+        const { mediaIds, failedCount } = await uploadPhotos(
+          suggestion.cluster_id,
+          cluster.photos,
+          selectedTripId
+        );
 
         // Build place input for entry creation
         const placeInput: PlaceInput = {
@@ -152,8 +160,8 @@ export function useEntryCreation({
           Alert.alert('Save Failed', message);
         }
       } finally {
-        isProcessingRef.current = false;
-        setUploadingClusterId(null);
+        processingClustersRef.current.delete(suggestion.cluster_id);
+        removeUploadingClusterId(suggestion.cluster_id);
       }
     },
     [
@@ -163,7 +171,8 @@ export function useEntryCreation({
       uploadPhotos,
       resetUpload,
       setDismissedClusterIds,
-      setUploadingClusterId,
+      addUploadingClusterId,
+      removeUploadingClusterId,
     ]
   );
 
@@ -218,32 +227,35 @@ export function useEntryCreation({
    */
   const handleManualSelect = useCallback(
     async (place: SelectedPlace, category: EntryType, tripIdToUse: string, notes?: string) => {
-      // Prevent double-submissions
-      if (isProcessingRef.current) {
-        if (__DEV__) console.log('[EntryCreation] Already processing, ignoring manual select');
+      const cluster = manualSearchCluster;
+      const clusterId = cluster?.id;
+
+      // Prevent double-submissions for the same cluster
+      if (clusterId && processingClustersRef.current.has(clusterId)) {
+        if (__DEV__) console.log('[EntryCreation] Cluster already processing:', clusterId);
         return undefined;
       }
 
-      const cluster = manualSearchCluster;
-      const clusterId = cluster?.id;
       // Don't close the modal yet - keep it open to show upload progress
       // It will be closed after successful save or kept open on failure
 
-      // Mark as processing to prevent double-submissions
-      isProcessingRef.current = true;
+      // Mark as processing to prevent double-submissions for this cluster
+      if (clusterId) {
+        processingClustersRef.current.add(clusterId);
+      }
 
       // Set uploading state for UI
       if (clusterId) {
-        setUploadingClusterId(clusterId);
-        resetUpload();
+        addUploadingClusterId(clusterId);
+        resetUpload(clusterId);
       }
 
       try {
         // Upload photos first if we have a cluster
         let mediaIds: string[] = [];
         let failedCount = 0;
-        if (cluster) {
-          const uploadResult = await uploadPhotos(cluster.photos, tripIdToUse);
+        if (cluster && clusterId) {
+          const uploadResult = await uploadPhotos(clusterId, cluster.photos, tripIdToUse);
           mediaIds = uploadResult.mediaIds;
           failedCount = uploadResult.failedCount;
         }
@@ -320,8 +332,10 @@ export function useEntryCreation({
           throw err; // Re-throw so caller knows it failed
         }
       } finally {
-        isProcessingRef.current = false;
-        setUploadingClusterId(null);
+        if (clusterId) {
+          processingClustersRef.current.delete(clusterId);
+          removeUploadingClusterId(clusterId);
+        }
       }
     },
     [
@@ -331,7 +345,8 @@ export function useEntryCreation({
       resetUpload,
       setManualSearchCluster,
       setDismissedClusterIds,
-      setUploadingClusterId,
+      addUploadingClusterId,
+      removeUploadingClusterId,
     ]
   );
 
@@ -361,7 +376,8 @@ export function useEntryCreation({
 
   return {
     createEntry,
-    uploadState,
+    uploadStates,
+    getUploadState,
     cancelUpload,
     handleConfirmPlace,
     handleRejectPlace,

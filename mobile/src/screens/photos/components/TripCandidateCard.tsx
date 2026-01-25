@@ -120,6 +120,8 @@ export function TripCandidateCard({
                 index === 3 && photoCount > 4 && styles.candidateThumbnailLast,
               ]}
               contentFit="cover"
+              transition={200}
+              recyclingKey={uri}
             />
           ))}
           {photoCount > 4 && (
