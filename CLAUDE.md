@@ -158,7 +158,9 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 **Data Fetching Hooks:**
 
 - `useTrips()`, `useTripsByCountry()`, `useTrip()` - Trip queries
+- `useUncategorizedTrip()` - Get/create the Saved Places system trip
 - `useEntries()`, `useEntry()` - Entry queries
+- `useMoveEntry()`, `useBulkMoveEntries()` - Move entries between trips
 - `useCountries()`, `useUserCountries()` - Country data
 - `useUploadMedia()` - Media upload with progress
 
@@ -182,7 +184,10 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 | `/countries` | Country reference data |
 | `/user_countries` | User's visited/wishlist countries |
 | `/trips` | Trip CRUD with tagging |
+| `/trips/uncategorized` | Get/create Saved Places system trip |
 | `/trips/{id}/entries` | Entry CRUD |
+| `/entries/{id}/move` | Move entry to different trip |
+| `/entries/bulk-move` | Bulk move entries to a trip |
 | `/media/files` | Media upload URLs, status |
 | `/lists` | Shareable curated lists |
 | `/profile` | User profile |
@@ -205,15 +210,19 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 ```
 country          - Reference data (227 countries/territories)
 user_countries   - User's visited/wishlist status
-trip             - User trips (soft delete supported)
+trip             - User trips (soft delete supported, is_system flag for system trips)
 trip_tags        - Consent workflow for tagged friends
 entry            - Trip entries (place/food/stay/experience)
-place            - Google Places enrichment
+place            - Google Places enrichment (trip_id denormalized for unique constraint)
 media_files      - Uploaded photos
 list             - Shareable curated lists
 list_entries     - List to entry junction
 user_profile     - Extended user data
 ```
+
+**System Trips:**
+
+The `trip` table supports system trips (like "Saved Places") via the `is_system` boolean flag. System trips have nullable `country_id` and are excluded from normal trip listings by default. The uncategorized trip is lazily created per user via the `get_or_create_uncategorized_trip` RPC function.
 
 **RLS Policies:**
 

@@ -141,6 +141,7 @@ List user's trips.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `country_code` | string | Filter by country |
+| `include_system` | boolean | Include system trips like Saved Places (default: false) |
 
 **Response:**
 ```json
@@ -235,6 +236,39 @@ Soft delete a trip.
 **Auth:** Required (owner only)
 
 **Response:** `204 No Content`
+
+#### `GET /trips/uncategorized`
+
+Get or create the user's "Saved Places" system trip. This is a holding area for entries shared via the iOS Share Extension when no specific trip is selected. Users can later organize these entries by moving them to appropriate trips.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "country_id": null,
+  "country_code": null,
+  "name": "Saved Places",
+  "cover_image_url": null,
+  "date_range": null,
+  "is_system": true,
+  "created_at": "2024-01-15T10:30:00Z",
+  "deleted_at": null,
+  "entry_count": 5
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | uuid | Trip ID |
+| `is_system` | boolean | Always `true` for system trips |
+| `entry_count` | integer | Number of entries in the Saved Places trip |
+
+---
 
 #### `POST /trips/{trip_id}/restore`
 
@@ -365,6 +399,106 @@ Soft delete an entry.
 **Auth:** Required
 
 **Response:** `204 No Content`
+
+#### `PATCH /entries/{entry_id}/move`
+
+Move an entry to a different trip. This is useful for organizing entries from the Saved Places (uncategorized) trip into specific country trips.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID to move the entry to |
+
+**Response:** `200 OK`
+
+Returns the updated entry with place data:
+```json
+{
+  "id": "uuid",
+  "trip_id": "uuid",
+  "type": "place",
+  "title": "Senso-ji Temple",
+  "notes": "...",
+  "place": {
+    "id": "uuid",
+    "google_place_id": "ChIJ...",
+    "place_name": "Senso-ji",
+    "lat": 35.7148,
+    "lng": 139.7967
+  }
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 404 | `NotFound` | Entry not found or not authorized |
+| 409 | `Conflict` | This place already exists in the target trip |
+
+---
+
+#### `POST /entries/bulk-move`
+
+Move multiple entries to a target trip in a single atomic operation. All entries must belong to trips owned by the current user. If any entry would create a duplicate in the target trip, the entire operation is rolled back.
+
+**Auth:** Required
+
+**Rate Limit:** 10/minute
+
+**Request:**
+```json
+{
+  "entry_ids": ["uuid-1", "uuid-2", "uuid-3"],
+  "target_trip_id": "uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entry_ids` | array | Yes | List of entry IDs to move (minimum 1) |
+| `target_trip_id` | uuid | Yes | Target trip ID to move entries to |
+
+**Response:** `200 OK`
+```json
+{
+  "moved_count": 3,
+  "entries": [
+    {
+      "id": "uuid-1",
+      "trip_id": "uuid",
+      "type": "place",
+      "title": "Entry 1",
+      "place": { ... }
+    },
+    ...
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moved_count` | integer | Number of entries successfully moved |
+| `entries` | array | List of moved entries with place data |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `InvalidInput` | No entries specified |
+| 403 | `Forbidden` | Not authorized to move one or more entries |
+| 404 | `NotFound` | One or more entries not found |
+| 409 | `Conflict` | One or more places already exist in the target trip |
 
 ---
 

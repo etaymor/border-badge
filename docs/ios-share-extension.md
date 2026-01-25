@@ -8,8 +8,9 @@ The Share Extension enables users to:
 
 1. Share a TikTok or Instagram URL from any app
 2. Select "Atlasi" from the iOS share sheet
-3. See a branded confirmation UI within the extension
-4. Open the main app to complete saving the place to a trip
+3. See a branded capture UI within the extension
+4. Select a trip or choose "Save for Later" to save to the Saved Places holding area
+5. Complete saving the place directly in the extension or open the main app
 
 ## Architecture
 
@@ -91,12 +92,19 @@ The plugin:
 
 ### 2. ShareViewController.swift
 
-The native Swift extension controller provides a branded in-extension UI:
+The native Swift extension controller provides a branded in-extension UI with trip selection:
 
-**Loading State:**
-- Shows activity indicator with "Saving place..." message
-- Extracts URL from attachments (supports both URL type and plain text with embedded URLs)
-- Writes URL to App Group UserDefaults
+**Capture UI:**
+- Shows the shared URL thumbnail and detected place information
+- Trip selector dropdown to choose a destination trip
+- "Save for Later" option saves to the Saved Places holding area (uncategorized trip)
+- Location search for manual place selection if auto-detection fails
+- Category selector for entry type (place, food, stay, experience)
+
+**Trip Selection:**
+- Fetches user's trips via the API
+- Includes "Save for Later" option that uses the uncategorized system trip
+- The uncategorized trip is lazily created via `GET /trips/uncategorized` when first selected
 
 **Success State:**
 - Shows checkmark icon with "Place Saved!" message
