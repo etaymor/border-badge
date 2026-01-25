@@ -796,6 +796,113 @@ The welcome sequence consists of 4 emails sent at the following intervals after 
 
 ---
 
+### Photos
+
+#### `POST /photos/suggest-places`
+
+Get place suggestions for photo GPS clusters using Google Places Nearby Search. This endpoint is used by the mobile app's photo import feature to automatically suggest trip entries based on where photos were taken.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "clusters": [
+    {
+      "id": "cluster-1",
+      "centroid": {
+        "latitude": 35.71478,
+        "longitude": 139.79672
+      },
+      "photos": [
+        {
+          "asset_id": "photo-123",
+          "latitude": 35.71480,
+          "longitude": 139.79670,
+          "timestamp": "2024-03-16T10:30:00Z"
+        }
+      ],
+      "start_time": "2024-03-16T10:30:00Z",
+      "end_time": "2024-03-16T11:00:00Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `clusters` | array | Yes | List of photo clusters (1-100 clusters) |
+| `clusters[].id` | string | Yes | Unique cluster identifier (1-64 chars) |
+| `clusters[].centroid` | object | Yes | Center point of the cluster |
+| `clusters[].centroid.latitude` | float | Yes | Latitude (-90 to 90) |
+| `clusters[].centroid.longitude` | float | Yes | Longitude (-180 to 180) |
+| `clusters[].photos` | array | Yes | Photos in the cluster (1-100 per cluster) |
+| `clusters[].photos[].asset_id` | string | Yes | Device photo asset ID (1-256 chars) |
+| `clusters[].photos[].latitude` | float | Yes | Photo latitude |
+| `clusters[].photos[].longitude` | float | Yes | Photo longitude |
+| `clusters[].photos[].timestamp` | datetime | No | When the photo was taken |
+| `clusters[].start_time` | datetime | No | Earliest photo timestamp in cluster |
+| `clusters[].end_time` | datetime | No | Latest photo timestamp in cluster |
+
+**Limits:**
+- Maximum 100 clusters per request
+- Maximum 100 photos per cluster
+- Maximum 500 total photos per request
+
+**Response:**
+```json
+{
+  "suggestions": [
+    {
+      "cluster_id": "cluster-1",
+      "photo_ids": ["photo-123"],
+      "places": [
+        {
+          "place_id": "ChIJ8T1GpMGOGGARDYGSgpooDWw",
+          "name": "Senso-ji Temple",
+          "address": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+          "location": {
+            "latitude": 35.71478,
+            "longitude": 139.79672
+          },
+          "category": "place",
+          "distance_m": 15.2,
+          "types": ["tourist_attraction", "place_of_worship"]
+        }
+      ]
+    }
+  ],
+  "failed_cluster_count": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `suggestions` | array | Place suggestions for each cluster |
+| `suggestions[].cluster_id` | string | Matching cluster ID from request |
+| `suggestions[].photo_ids` | array | Photo asset IDs in this cluster |
+| `suggestions[].places` | array | Suggested places ranked by distance |
+| `suggestions[].places[].place_id` | string | Google Place ID |
+| `suggestions[].places[].name` | string | Place name |
+| `suggestions[].places[].address` | string | Formatted address |
+| `suggestions[].places[].location` | object | Place coordinates |
+| `suggestions[].places[].category` | string | Entry type: `place`, `food`, `stay`, or `experience` |
+| `suggestions[].places[].distance_m` | float | Distance from cluster centroid in meters |
+| `suggestions[].places[].types` | array | Google Places type categories |
+| `failed_cluster_count` | integer | Number of clusters that failed to process |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) or Google Places rate limit |
+| 503 | `ServiceUnavailable` | Google Places API quota exceeded or service not configured |
+| 504 | `GatewayTimeout` | Google Places API timed out |
+
+---
+
 ### Places
 
 #### `POST /places/autocomplete`

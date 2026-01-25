@@ -163,6 +163,8 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 - `useMoveEntry()`, `useBulkMoveEntries()` - Move entries between trips
 - `useCountries()`, `useUserCountries()` - Country data
 - `useUploadMedia()` - Media upload with progress
+- `usePhotoImport()` - Photo import workflow orchestration
+- `usePhotoPermissions()` - Photo library permission handling
 
 **API Client (`mobile/src/services/api.ts`):**
 
@@ -189,6 +191,7 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 | `/entries/{id}/move` | Move entry to different trip |
 | `/entries/bulk-move` | Bulk move entries to a trip |
 | `/media/files` | Media upload URLs, status |
+| `/photos/suggest-places` | Photo import place suggestions |
 | `/lists` | Shareable curated lists |
 | `/profile` | User profile |
 | `/public` | Public trip/list views |
@@ -416,6 +419,44 @@ All launch simplification changes are marked with:
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
 8. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
 9. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
+
+## Photo Import System
+
+The photo import feature allows users to scan their device photo library and automatically create trip entries based on GPS location clustering.
+
+### Architecture
+
+**Mobile Services (`mobile/src/services/photoImport/`):**
+- `photoImportService.ts` - Photo extraction with permission handling and batch paging
+- `photoClustering.ts` - Geohash-based clustering (precision 7 ~153m) with centroid geocoding
+- `photoCacheDb.ts` - SQLite caching for incremental imports
+
+**Mobile Hooks (`mobile/src/screens/photos/`):**
+- `usePhotoScan.ts` - Scan workflow with progress tracking
+- `usePlaceSuggestions.ts` - Fetch place suggestions with chunking and caching
+- `useEntryCreation.ts` - Create entries from confirmed suggestions
+- `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
+
+**Backend (`backend/app/services/place_matcher/`):**
+- `matcher.py` - PlaceMatcher with tiered radius searches and quality filtering
+- `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
+- `utils.py` - Haversine distance calculation and coordinate utilities
+
+### Workflow Phases
+
+1. **Scan** - Extract photos with GPS data, cluster by location, geocode centroids
+2. **Candidates** - Display trip candidates grouped by country and time
+3. **Suggestions** - Fetch place suggestions from backend for selected trip
+4. **Confirmation** - User confirms/rejects suggestions, creates entries
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `mobile/src/screens/photos/PhotoImportScreen.tsx` | Main photo import UI |
+| `mobile/src/services/photoImport/photoClustering.ts` | Geohash clustering logic |
+| `backend/app/api/photos.py` | `/photos/suggest-places` endpoint |
+| `backend/app/services/place_matcher/matcher.py` | Google Places matching |
 
 ## Pre-Commit Checklist (REQUIRED)
 
