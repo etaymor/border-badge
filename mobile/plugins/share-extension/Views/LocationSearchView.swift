@@ -34,7 +34,6 @@ struct LocationSearchView: View {
             SectionLabel(text: "Confirm Location")
 
             if let place = selectedPlace, !isEditing {
-                _ = NSLog("[Atlasi] LocationSearchView: showing SelectedPlaceDisplay for '%@'", place.name)
                 // Selected place display
                 SelectedPlaceDisplay(
                     place: place,
@@ -46,8 +45,6 @@ struct LocationSearchView: View {
                     }
                 )
             } else {
-                _ = NSLog("[Atlasi] LocationSearchView: showing SearchField (editing=%d, place=%@)",
-                          isEditing ? 1 : 0, selectedPlace?.name ?? "nil")
                 // Search field and results
                 VStack(spacing: 8) {
                     SearchField(

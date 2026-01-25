@@ -126,6 +126,9 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
   };
 }
 
+// Stale time for entries - 5 minutes (entries change only via mutations)
+const ENTRIES_STALE_TIME = 1000 * 60 * 5;
+
 // Fetch all entries for a trip
 export function useEntries(tripId: string) {
   return useQuery({
@@ -136,6 +139,8 @@ export function useEntries(tripId: string) {
       return rawEntries.map(transformEntry);
     },
     enabled: !!tripId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -174,6 +179,8 @@ export function useInfiniteEntries(tripId: string, options?: { sort?: EntriesSor
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     enabled: !!tripId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -186,6 +193,8 @@ export function useEntry(entryId: string) {
       return transformEntry(response.data as Record<string, unknown>);
     },
     enabled: !!entryId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 

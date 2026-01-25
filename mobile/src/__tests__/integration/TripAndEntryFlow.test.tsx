@@ -300,7 +300,7 @@ describe('TripAndEntryFlow Integration', () => {
       expect(mockedApi.delete).toHaveBeenCalledWith('/trips/trip-123');
     });
 
-    it('invalidates trips cache on deletion', async () => {
+    it('invalidates trips cache on deletion (scoped invalidation)', async () => {
       mockedApi.delete.mockResolvedValueOnce({ data: {} });
 
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
@@ -313,7 +313,10 @@ describe('TripAndEntryFlow Integration', () => {
         await result.current.mutateAsync('trip-123');
       });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'] });
+      // Scoped invalidation: uses exact: true for trips list
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips'], exact: true });
+      // Also invalidates the specific trip
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trips', 'trip-123'] });
     });
 
     it('handles deletion failure gracefully', async () => {

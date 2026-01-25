@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -17,15 +17,20 @@ import { TripCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { usePhotoTrips } from '@hooks/usePhotoTrips';
 import { Trip, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
 import type { TripsStackScreenProps } from '@navigation/types';
 
+import { PhotoTripsCallout } from '../lists/components/PhotoTripsCallout';
+
 type Props = TripsStackScreenProps<'TripsList'>;
 
 // Memoized components and helpers for SectionList performance
-const ItemSeparator = () => <View style={styles.separator} />;
+const ItemSeparator = memo(function ItemSeparator() {
+  return <View style={styles.separator} />;
+});
 const keyExtractor = (item: Trip) => item.id;
 
 interface TripSection {
@@ -33,14 +38,14 @@ interface TripSection {
   data: Trip[];
 }
 
-const SectionHeader = ({ title }: { title: string }) => {
+const SectionHeader = memo(function SectionHeader({ title }: { title: string }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionHeaderText}>{title}</Text>
       <View style={styles.sectionHeaderLine} />
     </View>
   );
-};
+});
 
 function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   return (
@@ -60,22 +65,21 @@ function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   );
 }
 
-// Saved Places Card Component
-function SavedPlacesCard({ entryCount, onPress }: { entryCount: number; onPress: () => void }) {
+// Saved Places Header Badge Component
+function SavedPlacesBadge({ entryCount, onPress }: { entryCount: number; onPress: () => void }) {
   if (entryCount === 0) return null;
 
   return (
-    <Pressable style={styles.savedPlacesCard} onPress={onPress}>
-      <View style={styles.savedPlacesIcon}>
-        <Ionicons name="bookmark" size={24} color={colors.sunsetGold} />
+    <Pressable
+      style={styles.savedPlacesBadge}
+      onPress={onPress}
+      hitSlop={8}
+      accessibilityLabel={`${entryCount} saved places to organize`}
+    >
+      <Ionicons name="bookmark" size={22} color={colors.stormGray} />
+      <View style={styles.badgeCount}>
+        <Text style={styles.badgeCountText}>{entryCount > 99 ? '99+' : entryCount}</Text>
       </View>
-      <View style={styles.savedPlacesContent}>
-        <Text style={styles.savedPlacesTitle}>Saved Places</Text>
-        <Text style={styles.savedPlacesSubtitle}>
-          {entryCount} {entryCount === 1 ? 'place' : 'places'} waiting to be organized
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
     </Pressable>
   );
 }
@@ -85,6 +89,12 @@ export function TripsListScreen({ navigation }: Props) {
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
   const { data: uncategorizedTrip } = useUncategorizedTrip();
+  const {
+    trips: photoTrips,
+    previewUris,
+    hasInitialImport,
+    isLoading: isPhotoTripsLoading,
+  } = usePhotoTrips();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Create a set of visited country codes for quick lookup
@@ -144,6 +154,11 @@ export function TripsListScreen({ navigation }: Props) {
     navigation.navigate('SavedPlaces');
   }, [navigation]);
 
+  const handleViewPhotoTrips = useCallback(() => {
+    // Navigate to Passport tab first, then to PhotoTrips screen within it
+    navigation.getParent()?.navigate('Passport', { screen: 'PhotoTrips' });
+  }, [navigation]);
+
   const handleTripPress = useCallback(
     (tripId: string) => {
       navigation.navigate('TripDetail', { tripId });
@@ -169,9 +184,13 @@ export function TripsListScreen({ navigation }: Props) {
   const renderHeader = useMemo(
     () => (
       <>
-        {/* Header Title */}
+        {/* Header Title with Saved Places Badge */}
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle}>My Trips</Text>
+          <SavedPlacesBadge
+            entryCount={uncategorizedTrip?.entry_count ?? 0}
+            onPress={handleSavedPlacesPress}
+          />
         </View>
 
         {/* Search Bar with Liquid Glass */}
@@ -200,16 +219,29 @@ export function TripsListScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Saved Places Card */}
-        <View style={styles.savedPlacesContainer}>
-          <SavedPlacesCard
-            entryCount={uncategorizedTrip?.entry_count ?? 0}
-            onPress={handleSavedPlacesPress}
-          />
-        </View>
+        {/* Photo Trips Callout - only render after loading completes */}
+        {!isPhotoTripsLoading && (
+          <View style={styles.photoTripsContainer}>
+            <PhotoTripsCallout
+              tripCount={photoTrips.length}
+              previewUris={previewUris}
+              hasInitialImport={hasInitialImport}
+              onPress={handleViewPhotoTrips}
+            />
+          </View>
+        )}
       </>
     ),
-    [searchQuery, uncategorizedTrip?.entry_count, handleSavedPlacesPress]
+    [
+      searchQuery,
+      uncategorizedTrip?.entry_count,
+      handleSavedPlacesPress,
+      photoTrips.length,
+      previewUris,
+      hasInitialImport,
+      isPhotoTripsLoading,
+      handleViewPhotoTrips,
+    ]
   );
 
   if (isLoading) {
@@ -272,9 +304,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingTop: 16,
     paddingBottom: 8,
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    position: 'relative',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -282,6 +318,32 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
     fontStyle: 'italic',
     letterSpacing: -0.5,
+  },
+  savedPlacesBadge: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeCount: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    backgroundColor: colors.adobeBrick,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  badgeCountText: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 11,
+    color: '#fff',
   },
   searchRow: {
     paddingTop: 8,
@@ -445,41 +507,7 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
-  savedPlacesContainer: {
+  photoTripsContainer: {
     paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  savedPlacesCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(244, 194, 78, 0.15)',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.3)',
-  },
-  savedPlacesIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(244, 194, 78, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  savedPlacesContent: {
-    flex: 1,
-  },
-  savedPlacesTitle: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.midnightNavy,
-  },
-  savedPlacesSubtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.stormGray,
-    marginTop: 2,
   },
 });

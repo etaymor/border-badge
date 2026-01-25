@@ -74,7 +74,13 @@ export function PhotoClusterCard({
         >
           {cluster.previewUris.slice(0, 5).map((uri, index) => (
             <TouchableOpacity key={`thumb-${index}`} onPress={() => onPhotoPress(uri)}>
-              <Image source={{ uri }} style={styles.suggestionThumbnail} contentFit="cover" />
+              <Image
+                source={{ uri }}
+                style={styles.suggestionThumbnail}
+                contentFit="cover"
+                transition={200}
+                recyclingKey={uri}
+              />
             </TouchableOpacity>
           ))}
           {cluster.photoCount > 5 && (

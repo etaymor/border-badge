@@ -9,12 +9,17 @@ jest.mock(
   'react-native-reanimated',
   () => {
     const mockReact = require('react');
+    // Helper to create animated component wrapper
+    const createAnimatedComponent = (Component) =>
+      mockReact.forwardRef((props, ref) => mockReact.createElement(Component, { ...props, ref }));
     return {
       default: {
         View: mockReact.forwardRef(({ children, style }, ref) =>
           mockReact.createElement('View', { ref, style }, children)
         ),
+        createAnimatedComponent,
       },
+      createAnimatedComponent,
       View: mockReact.forwardRef(({ children, style }, ref) =>
         mockReact.createElement('View', { ref, style }, children)
       ),

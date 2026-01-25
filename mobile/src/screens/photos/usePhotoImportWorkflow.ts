@@ -48,7 +48,8 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Core State
   // ==========================================================================
-  const [phase, setPhase] = useState<ImportPhase>('idle');
+  // Initialize to 'loading' when we'll skip directly to suggestions (avoids flash of idle state)
+  const [phase, setPhase] = useState<ImportPhase>(skipToSuggestions && tripId ? 'loading' : 'idle');
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
@@ -64,13 +65,25 @@ export function usePhotoImportWorkflow({
   // Manual search state
   const [manualSearchCluster, setManualSearchCluster] = useState<LocationCluster | null>(null);
 
-  // Upload state for UI
-  const [uploadingClusterId, setUploadingClusterId] = useState<string | null>(null);
+  // Upload state for UI - track multiple concurrent uploads
+  const [uploadingClusterIds, setUploadingClusterIds] = useState<Set<string>>(new Set());
+
+  const addUploadingClusterId = useCallback((id: string) => {
+    setUploadingClusterIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const removeUploadingClusterId = useCallback((id: string) => {
+    setUploadingClusterIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   // ==========================================================================
   // Data Lookups (can be large: ~5-10MB for 10k photos)
+  // Stored in state for React updates, with refs for cleanup after unmount
   // ==========================================================================
-  const [_photoLookup, setPhotoLookup] = useState<Map<string, PhotoWithLocation>>(new Map());
   const [clusterLookup, setClusterLookup] = useState<Map<string, LocationCluster>>(new Map());
   const [clusterDisplays, setClusterDisplays] = useState<Map<string, LocationClusterDisplay>>(
     new Map()
@@ -125,7 +138,6 @@ export function usePhotoImportWorkflow({
   // Clear large data structures (for navigation/error cleanup)
   // ==========================================================================
   const clearLargeDataStructures = useCallback(() => {
-    setPhotoLookup(new Map());
     setClusterLookup(new Map());
     setClusterDisplays(new Map());
     setTripCandidates([]);
@@ -141,7 +153,6 @@ export function usePhotoImportWorkflow({
   // Photo Scan Hook
   // ==========================================================================
   const onScanComplete = useCallback((result: ScanResult) => {
-    setPhotoLookup(result.photoLookup);
     setClusterLookup(result.clusterLookup);
     setClusterDisplays(result.clusterDisplays);
     photoLookupRef.current = result.photoLookup;
@@ -196,7 +207,8 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   const {
     createEntry,
-    uploadState,
+    uploadStates,
+    getUploadState,
     cancelUpload,
     handleConfirmPlace: handleConfirmPlaceInternal,
     handleRejectPlace: handleRejectPlaceInternal,
@@ -211,7 +223,8 @@ export function usePhotoImportWorkflow({
     manualSearchCluster,
     setManualSearchCluster,
     setDismissedClusterIds: setDismissedClusterIdsInternal,
-    setUploadingClusterId,
+    addUploadingClusterId,
+    removeUploadingClusterId,
   });
 
   // ==========================================================================
@@ -328,8 +341,7 @@ export function usePhotoImportWorkflow({
             return;
           }
 
-          // Set state and jump directly to candidates phase
-          setPhotoLookup(optimizedData.photoLookup);
+          // Set state from cache (photoLookup only stored in ref - not needed for UI updates)
           setClusterLookup(optimizedData.clusterLookup);
           setClusterDisplays(optimizedData.clusterDisplays);
           photoLookupRef.current = optimizedData.photoLookup;
@@ -338,27 +350,32 @@ export function usePhotoImportWorkflow({
           setTripCandidates(candidates);
           setLastImportTimeState(lastImport);
           setIsIncremental(true);
-          setPhase('candidates');
 
-          // Auto-select if single candidate (common case when filtering by country)
-          if (candidates.length === 1) {
+          // If tripId is provided with skipToSuggestions, go directly to suggestions phase
+          if (tripId) {
+            // Use first candidate (we're already filtered to the country)
             const candidate = candidates[0];
             setSelectedCandidate(candidate);
-
-            if (tripId) {
-              // We have a tripId - go directly to suggestions phase
-              setSelectedTripId(tripId);
-              setPhase('suggestions');
-              fetchSuggestions(candidate);
-            } else {
-              // No tripId - stay on candidates phase so TripCandidateCard shows
-              setPhase('candidates');
-            }
+            setSelectedTripId(tripId);
+            setPhase('suggestions');
+            fetchSuggestions(candidate);
 
             Analytics.photoImportCandidateSelected({
               countryCode: candidate.countryCode,
               clusterCount: candidate.locationClusterIds.length,
             });
+          } else {
+            // No tripId - show candidates for user to select
+            setPhase('candidates');
+
+            // Auto-select if single candidate (common case when filtering by country)
+            if (candidates.length === 1) {
+              setSelectedCandidate(candidates[0]);
+              Analytics.photoImportCandidateSelected({
+                countryCode: candidates[0].countryCode,
+                clusterCount: candidates[0].locationClusterIds.length,
+              });
+            }
           }
         } else {
           // Normal incremental scan
@@ -390,15 +407,35 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Workflow Analytics: Track clusters with suggestions for success rate
   // ==========================================================================
+  // Extract stable data reference to avoid recalculating on mutation object changes
+  const apiSuggestionsData = suggestPlacesMutation.data?.suggestions;
+
   useEffect(() => {
     // Count clusters that have at least one suggestion (from API or cache)
-    const allSuggestions = [
-      ...(suggestPlacesMutation.data?.suggestions ?? []),
-      ...cachedSuggestions,
-    ];
-    const clustersWithSuggestions = allSuggestions.filter((s) => s.places.length > 0).length;
+    // Use a Set to deduplicate by cluster_id (cached suggestions take precedence)
+    const seenClusterIds = new Set<string>();
+    let clustersWithSuggestions = 0;
+
+    // Count from cached suggestions first
+    for (const s of cachedSuggestions) {
+      if (!seenClusterIds.has(s.cluster_id)) {
+        seenClusterIds.add(s.cluster_id);
+        if (s.places.length > 0) clustersWithSuggestions++;
+      }
+    }
+
+    // Count from API suggestions (skip duplicates)
+    if (apiSuggestionsData) {
+      for (const s of apiSuggestionsData) {
+        if (!seenClusterIds.has(s.cluster_id)) {
+          seenClusterIds.add(s.cluster_id);
+          if (s.places.length > 0) clustersWithSuggestions++;
+        }
+      }
+    }
+
     workflowClustersWithSuggestionsRef.current = clustersWithSuggestions;
-  }, [suggestPlacesMutation.data, cachedSuggestions]);
+  }, [apiSuggestionsData, cachedSuggestions]);
 
   // ==========================================================================
   // Workflow Analytics: Track completion
@@ -488,8 +525,9 @@ export function usePhotoImportWorkflow({
     isIncremental,
     isSaving: createEntry.isPending,
     dismissedClusterIdsInternal,
-    uploadState,
-    uploadingClusterId,
+    uploadStates,
+    getUploadState,
+    uploadingClusterIds,
 
     // Actions
     startScan,

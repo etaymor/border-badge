@@ -163,7 +163,7 @@ describe('useTrips hooks', () => {
       });
     });
 
-    it('invalidates entries query on success', async () => {
+    it('invalidates target trip entries query on success (scoped invalidation)', async () => {
       const movedEntry = { ...mockEntry, trip_id: 'new-trip-id' };
       mockedApi.patch.mockResolvedValueOnce({ data: movedEntry });
 
@@ -180,8 +180,9 @@ describe('useTrips hooks', () => {
         });
       });
 
+      // Scoped invalidation: only target trip entries are invalidated
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['entries'],
+        queryKey: ['entries', 'new-trip-id'],
       });
     });
 
@@ -284,7 +285,7 @@ describe('useTrips hooks', () => {
       });
     });
 
-    it('invalidates entries query on success', async () => {
+    it('invalidates target trip entries query on success (scoped invalidation)', async () => {
       const bulkMoveResult = { moved_count: 1, entries: [] };
       mockedApi.post.mockResolvedValueOnce({ data: bulkMoveResult });
 
@@ -301,8 +302,9 @@ describe('useTrips hooks', () => {
         });
       });
 
+      // Scoped invalidation: only target trip entries are invalidated
       expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['entries'],
+        queryKey: ['entries', 'target-trip-id'],
       });
     });
 

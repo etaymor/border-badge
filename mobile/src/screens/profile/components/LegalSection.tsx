@@ -39,7 +39,7 @@ export function LegalSection({ isSmallScreen }: LegalSectionProps) {
 
       <Pressable
         onPress={handleOpenPrivacy}
-        style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+        style={({ pressed }) => [styles.linkRowLast, pressed && styles.linkRowPressed]}
         accessibilityRole="link"
         accessibilityLabel="Privacy Policy"
         testID="privacy-link"
@@ -75,6 +75,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.paperBeige,
+  },
+  linkRowLast: {
+    paddingVertical: 12,
   },
   linkRowPressed: {
     opacity: 0.6,

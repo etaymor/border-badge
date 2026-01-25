@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -64,7 +65,7 @@ function formatDateRange(dateRange?: string): string {
   }
 }
 
-export function TripCard({
+export const TripCard = memo(function TripCard({
   trip,
   flagEmoji,
   onPress,
@@ -72,7 +73,8 @@ export function TripCard({
   enableSharedElement = true,
 }: TripCardProps) {
   const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
-  const dateStr = formatDateRange(trip.date_range);
+  // Memoize date formatting to avoid re-parsing on each render
+  const dateStr = useMemo(() => formatDateRange(trip.date_range), [trip.date_range]);
 
   return (
     <Animated.View style={[styles.container, { transform: [{ scale: scaleValue }] }]}>
@@ -136,7 +138,7 @@ export function TripCard({
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

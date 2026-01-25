@@ -44,7 +44,12 @@ export function ShareExtensionCallout({ onLearnMore }: ShareExtensionCalloutProp
   if (!shouldShow) return null;
 
   return (
-    <View style={styles.container}>
+    <Pressable
+      style={styles.container}
+      onPress={handleLearnMore}
+      accessibilityRole="button"
+      accessibilityLabel="Learn how to save from TikTok and Instagram"
+    >
       {/* Dismiss button - on the left */}
       <Pressable
         style={styles.dismissButton}
@@ -66,18 +71,13 @@ export function ShareExtensionCallout({ onLearnMore }: ShareExtensionCalloutProp
         </Text>
       </View>
 
-      {/* Question button - liquid glass style */}
-      <Pressable
-        style={styles.questionButton}
-        onPress={handleLearnMore}
-        accessibilityRole="button"
-        accessibilityLabel="How to save from TikTok and Instagram"
-      >
+      {/* Question icon */}
+      <View style={styles.questionButton}>
         <BlurView intensity={40} tint="light" style={styles.blurContent}>
           <Ionicons name="help" size={20} color={colors.midnightNavy} />
         </BlurView>
-      </Pressable>
-    </View>
+      </View>
+    </Pressable>
   );
 }
 

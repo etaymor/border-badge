@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   FlatList,
   StyleSheet,
   Text,
@@ -44,6 +45,27 @@ interface DreamCountry {
   region: string;
   isWishlisted: boolean;
   hasTrips: boolean;
+}
+
+interface SectionHeader {
+  type: 'section-header';
+  id: string;
+  title: string;
+}
+
+interface EmptyPlaceholder {
+  type: 'placeholder';
+  id: string;
+}
+
+type ListItem = DreamCountry | SectionHeader | EmptyPlaceholder;
+
+function isSectionHeader(item: ListItem): item is SectionHeader {
+  return 'type' in item && item.type === 'section-header';
+}
+
+function isPlaceholder(item: ListItem): item is EmptyPlaceholder {
+  return 'type' in item && item.type === 'placeholder';
 }
 
 interface SnackbarState {
@@ -157,7 +179,7 @@ export function DreamsScreen({ navigation }: Props) {
   }, [searchableCountries, filters]);
 
   // Compute sorted countries: dreams first, then alphabetical, excluding visited
-  const sortedCountries = useMemo((): DreamCountry[] => {
+  const sortedCountries = useMemo((): ListItem[] => {
     if (!filteredCountries.length) return [];
 
     const query = searchQuery.toLowerCase().trim();
@@ -180,13 +202,41 @@ export function DreamsScreen({ navigation }: Props) {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // Dreams first, then rest alphabetically
-    return [...wishlisted, ...notWishlisted].map((c) => ({
+    const wishlistedItems: DreamCountry[] = wishlisted.map((c) => ({
       code: c.code,
       name: c.name,
       region: c.region,
-      isWishlisted: wishlistCodes.has(c.code),
+      isWishlisted: true,
       hasTrips: countriesWithTrips.has(c.code),
     }));
+
+    const notWishlistedItems: DreamCountry[] = notWishlisted.map((c) => ({
+      code: c.code,
+      name: c.name,
+      region: c.region,
+      isWishlisted: false,
+      hasTrips: countriesWithTrips.has(c.code),
+    }));
+
+    // Build the list with section headers
+    // Each section needs to start on a fresh row, so we pad odd sections with placeholders
+    const items: ListItem[] = [...wishlistedItems];
+
+    // If wishlist has odd number, add placeholder to complete the row
+    if (wishlistedItems.length > 0 && wishlistedItems.length % 2 === 1) {
+      items.push({ type: 'placeholder', id: 'wishlist-placeholder' });
+    }
+
+    // Add section header if both sections have items
+    if (wishlistedItems.length > 0 && notWishlistedItems.length > 0) {
+      // Section header takes full width (paired with placeholder)
+      items.push({ type: 'section-header', id: 'section-header', title: 'Rest of the world' });
+      items.push({ type: 'placeholder', id: 'header-placeholder' });
+    }
+
+    items.push(...notWishlistedItems);
+
+    return items;
   }, [filteredCountries, wishlistCountries, visitedCountries, trips, searchQuery]);
 
   const handleCountryPress = useCallback(
@@ -323,7 +373,26 @@ export function DreamsScreen({ navigation }: Props) {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: DreamCountry }) => {
+    ({ item }: { item: ListItem }) => {
+      if (isPlaceholder(item)) {
+        return <View style={styles.placeholder} />;
+      }
+
+      if (isSectionHeader(item)) {
+        // Calculate width to span both columns plus the gap
+        const screenWidth = Dimensions.get('window').width;
+        const horizontalPadding = 32; // 16 * 2 from columnWrapper paddingHorizontal
+        const gap = 12; // gap between columns
+        const cardWidth = (screenWidth - horizontalPadding - gap) / 2;
+        const headerWidth = cardWidth * 2 + gap;
+
+        return (
+          <View style={[styles.sectionHeaderContainer, { width: headerWidth }]}>
+            <Text style={styles.sectionHeaderText}>{item.title}</Text>
+          </View>
+        );
+      }
+
       const { scale, opacity, translateY } = getAnimationValues(item.code);
       const isAnimating = animatingCards.has(item.code);
 
@@ -353,7 +422,10 @@ export function DreamsScreen({ navigation }: Props) {
     [handleCountryPress, handleAddVisited, handleToggleWishlist, animatingCards, getAnimationValues]
   );
 
-  const getItemKey = useCallback((item: DreamCountry) => item.code, []);
+  const getItemKey = useCallback(
+    (item: ListItem) => (isSectionHeader(item) || isPlaceholder(item) ? item.id : item.code),
+    []
+  );
 
   const handleExplorePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -612,6 +684,20 @@ const styles = StyleSheet.create({
   },
   // Country Card Wrapper
   countryCardWrapper: {
+    flex: 1,
+  },
+  // Section Header - spans both columns, matches PassportSectionHeader style
+  sectionHeaderContainer: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  sectionHeaderText: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 32,
+    color: colors.adobeBrick,
+  },
+  // Placeholder for padding odd sections
+  placeholder: {
     flex: 1,
   },
   // Empty State

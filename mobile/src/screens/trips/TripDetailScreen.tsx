@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +29,7 @@ import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
-import { EntryWithPlace, useEntries } from '@hooks/useEntries';
+import { EntryWithPlace, useInfiniteEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
@@ -72,8 +72,20 @@ export function TripDetailScreen({ route, navigation }: Props) {
   const [showTutorialSheet, setShowTutorialSheet] = useState(false);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
-  const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
+  const {
+    data: entriesData,
+    isLoading: entriesLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteEntries(tripId);
   const { data: lists } = useTripLists(tripId);
+
+  // Flatten paginated entries for FlatList (memoized to prevent rebuilding on every render)
+  const entries = useMemo(
+    () => entriesData?.pages.flatMap((page) => page.entries) ?? [],
+    [entriesData]
+  );
   const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
@@ -202,9 +214,25 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [dismissShareExtensionTutorial]);
 
   const renderFooter = useCallback(
-    () => <ShareExtensionCallout onLearnMore={handleOpenTutorial} />,
-    [handleOpenTutorial]
+    () => (
+      <View>
+        {isFetchingNextPage && (
+          <View style={styles.paginationLoader}>
+            <ActivityIndicator size="small" color={colors.sunsetGold} />
+          </View>
+        )}
+        <ShareExtensionCallout onLearnMore={handleOpenTutorial} />
+      </View>
+    ),
+    [handleOpenTutorial, isFetchingNextPage]
   );
+
+  // Handle reaching end of list for infinite scroll
+  const handleEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (tripLoading) {
     return (
@@ -318,7 +346,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.entriesListContent}
-          ListHeaderComponent={entries && entries.length > 0 ? renderHeader : null}
+          ListHeaderComponent={entries.length > 0 ? renderHeader : null}
           ListFooterComponent={renderFooter}
           ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} isVisited={isVisited} />}
           showsVerticalScrollIndicator={false}
@@ -326,11 +354,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
           maxToRenderPerBatch={10}
           windowSize={5}
           initialNumToRender={6}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
         />
       )}
 
       {/* Floating Add Entry Button - only show when there are entries */}
-      {entries && entries.length > 0 && (
+      {entries.length > 0 && (
         <Pressable
           style={styles.fab}
           onPress={handleAddEntry}
@@ -527,6 +557,10 @@ const styles = StyleSheet.create({
   entriesLoading: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationLoader: {
+    paddingVertical: 16,
     alignItems: 'center',
   },
   entriesListContent: {
