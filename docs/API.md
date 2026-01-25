@@ -702,6 +702,35 @@ Update user profile.
 
 **Response:** `200 OK`
 
+#### `DELETE /profile`
+
+Permanently delete the current user's account and all associated data.
+
+**Auth:** Required
+
+**Rate Limit:** 5/hour
+
+This operation is irreversible and will:
+- Delete the user's authentication record from Supabase Auth
+- Cascade delete all database records via ON DELETE CASCADE constraints (user_profile, user_countries, trips, entries, places, lists, list_entries, trip_tags, media_files records, outbound_links, social_ingest_jobs)
+
+Note: Media files in Supabase Storage buckets are NOT automatically deleted and require a separate cleanup process.
+
+**Response:**
+```json
+{
+  "message": "Account deleted successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 429 | `RateLimitExceeded` | Rate limit exceeded (5/hour) |
+| 500 | `InternalError` | Failed to delete account |
+| 503 | `ServiceUnavailable` | Service temporarily unavailable |
+
 ---
 
 ### Welcome Emails
@@ -915,6 +944,7 @@ Rate limits are applied per endpoint:
 
 | Endpoint | Limit |
 |----------|-------|
+| `DELETE /profile` | 5/hour |
 | `POST /welcome/emails` | 3/hour |
 | `GET /profile` | 30/minute |
 | `POST /places/autocomplete` | 30/minute |

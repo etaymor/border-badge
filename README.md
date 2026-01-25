@@ -153,6 +153,7 @@ poetry run ruff format --check .
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `EXPO_PUBLIC_APP_ENV` | Environment (development/staging/production) |
 | `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | Google Places API key |
+| `EXPO_PUBLIC_WEB_BASE_URL` | Base URL for public web pages (Terms, Privacy) |
 
 ### Backend (`backend/.env`)
 
