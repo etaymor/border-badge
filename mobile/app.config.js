@@ -28,6 +28,10 @@ export default {
       },
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        NSPhotoLibraryUsageDescription:
+          'We need access to your photos to help create trip entries from your travel photos.',
+        NSLocationWhenInUseUsageDescription:
+          'We need your location to identify where your photos were taken.',
       },
     },
     android: {
@@ -49,6 +53,15 @@ export default {
       'expo-apple-authentication',
       'expo-secure-store',
       './plugins/withShareExtension',
+      [
+        'expo-media-library',
+        {
+          photosPermission:
+            'Allow Atlasi to access your photos to suggest trip entries based on where they were taken.',
+          savePhotosPermission: 'Allow Atlasi to save photos.',
+          isAccessMediaLocationEnabled: true,
+        },
+      ],
     ],
     updates: {
       url: 'https://u.expo.dev/4b406924-7c4e-4723-87a1-c40ad227d873',

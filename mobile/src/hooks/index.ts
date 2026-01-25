@@ -95,3 +95,11 @@ export type {
 } from './useStaggeredEntrance';
 
 export { useReducedMotion } from './useReducedMotion';
+
+export { useSuggestPlaces } from './usePhotoImport';
+
+export { useClusterPhotoUpload } from './useClusterPhotoUpload';
+export type { ClusterUploadState, UploadPhotosResult } from './useClusterPhotoUpload';
+
+export { useCountryPhotoInfo } from './useCountryPhotoInfo';
+export type { CountryPhotoInfo } from './useCountryPhotoInfo';

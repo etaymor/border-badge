@@ -10,6 +10,7 @@ export { default as ErrorBoundary } from './ErrorBoundary';
 export { ErrorState } from './ErrorState';
 export { ExploreFilterSheet } from './ExploreFilterSheet';
 export { GlassBackButton } from './GlassBackButton';
+export { GlassButton } from './GlassButton';
 export { GlassIconButton } from './GlassIconButton';
 export { GlassInput } from './GlassInput';
 export { Input } from './Input';

@@ -1,0 +1,1133 @@
+"""Tests for the place_matcher service."""
+
+import asyncio
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+import pytest
+
+from app.schemas.entries import EntryType
+from app.services.place_matcher import (
+    INSTITUTIONAL_TYPES,
+    MIN_REVIEW_COUNT,
+    TYPE_TO_CATEGORY,
+    PlaceMatcher,
+    PlacesCache,
+)
+
+
+class TestHaversineDistance:
+    """Tests for haversine distance calculation."""
+
+    def test_same_location_returns_zero(self) -> None:
+        """Test that same coordinates return 0 distance."""
+        distance = PlaceMatcher._haversine(35.6762, 139.6503, 35.6762, 139.6503)
+        assert distance == 0
+
+    def test_known_distance_tokyo_to_kyoto(self) -> None:
+        """Test distance between Tokyo and Kyoto (~370km)."""
+        lat1, lon1 = 35.6812, 139.7671
+        lat2, lon2 = 34.9855, 135.7589
+
+        distance = PlaceMatcher._haversine(lat1, lon1, lat2, lon2)
+
+        # Should be approximately 370km (within 10% margin)
+        assert 330000 < distance < 410000
+
+    def test_short_distance(self) -> None:
+        """Test short distance between nearby points."""
+        lat1, lon1 = 35.6762, 139.6503
+        lat2, lon2 = 35.6772, 139.6503
+
+        distance = PlaceMatcher._haversine(lat1, lon1, lat2, lon2)
+
+        assert 100 < distance < 130
+
+    def test_handles_negative_coordinates(self) -> None:
+        """Test with negative longitude."""
+        lat1, lon1 = 40.7128, -74.0060
+        lat2, lon2 = 40.7128, -74.0050
+
+        distance = PlaceMatcher._haversine(lat1, lon1, lat2, lon2)
+
+        assert 0 < distance < 100
+
+
+class TestTypeToCategoryMapping:
+    """Tests for Google Places type to category mapping."""
+
+    def test_restaurant_maps_to_food(self) -> None:
+        """Test that restaurant types map to food category."""
+        assert TYPE_TO_CATEGORY.get("restaurant") == "food"
+        assert TYPE_TO_CATEGORY.get("cafe") == "food"
+        assert TYPE_TO_CATEGORY.get("bakery") == "food"
+
+    def test_lodging_maps_to_stay(self) -> None:
+        """Test that lodging types map to stay category."""
+        assert TYPE_TO_CATEGORY.get("lodging") == "stay"
+        assert TYPE_TO_CATEGORY.get("hotel") == "stay"
+
+    def test_attraction_maps_to_experience(self) -> None:
+        """Test that attraction types map to experience category."""
+        assert TYPE_TO_CATEGORY.get("tourist_attraction") == "experience"
+        assert TYPE_TO_CATEGORY.get("museum") == "experience"
+        assert TYPE_TO_CATEGORY.get("amusement_park") == "experience"
+
+    def test_default_is_none_for_unknown(self) -> None:
+        """Test that unknown types return None."""
+        assert TYPE_TO_CATEGORY.get("unknown_type") is None
+
+    def test_all_categories_are_valid_entry_types(self) -> None:
+        """Test that all TYPE_TO_CATEGORY values are valid EntryType enum values.
+
+        This prevents runtime errors if someone adds a mapping to a category
+        that doesn't exist in EntryType.
+        """
+        valid_values = {e.value for e in EntryType}
+        for google_type, category in TYPE_TO_CATEGORY.items():
+            assert category in valid_values, (
+                f"TYPE_TO_CATEGORY['{google_type}'] = '{category}' "
+                f"is not a valid EntryType. Valid values: {valid_values}"
+            )
+
+
+# ============================================================================
+# PlacesCache TTL Tests
+# ============================================================================
+
+
+class TestPlacesCacheTTL:
+    """Tests for PlacesCache TTL-based expiration."""
+
+    @pytest.mark.asyncio
+    async def test_cache_returns_none_for_expired_entry(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Test that expired cache entries return None."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        # Create cache with 1-hour TTL
+        cache = PlacesCache(ttl_hours=1, max_size=100)
+
+        # Cache a value at T0
+        await cache.set("key1", [{"place": "data"}])
+
+        # Verify it's retrievable within TTL
+        result = await cache.get("key1")
+        assert result == [{"place": "data"}]
+
+        # Advance time past TTL (3601 seconds > 3600)
+        mock_time["advance"](3601)
+
+        # Should return None for expired entry
+        result = await cache.get("key1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_cache_returns_value_within_ttl(self, mock_time, monkeypatch) -> None:
+        """Test that cache entries within TTL are returned."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=1, max_size=100)
+
+        # Cache a value at T0
+        await cache.set("key1", [{"place": "data"}])
+
+        # Advance time but stay within TTL (3599 seconds < 3600)
+        mock_time["advance"](3599)
+
+        # Should still return the cached value
+        result = await cache.get("key1")
+        assert result == [{"place": "data"}]
+
+    @pytest.mark.asyncio
+    async def test_expired_entry_is_removed_on_get(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Test that expired entries are removed from cache on access."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=1, max_size=100)
+
+        # Cache a value
+        await cache.set("key1", [{"place": "data"}])
+        assert cache.size == 1
+
+        # Advance time past TTL
+        mock_time["advance"](3601)
+
+        # Access the expired entry
+        result = await cache.get("key1")
+        assert result is None
+
+        # Entry should be removed from cache
+        assert cache.size == 0
+
+
+# ============================================================================
+# PlacesCache LRU Tests
+# ============================================================================
+
+
+class TestPlacesCacheLRU:
+    """Tests for PlacesCache LRU eviction."""
+
+    @pytest.mark.asyncio
+    async def test_lru_eviction_at_capacity(self, mock_time, monkeypatch) -> None:
+        """Test that oldest entry is evicted when cache reaches max_size."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=3)
+
+        # Add 3 entries (at capacity)
+        await cache.set("key1", [{"place": "data1"}])
+        await cache.set("key2", [{"place": "data2"}])
+        await cache.set("key3", [{"place": "data3"}])
+        assert cache.size == 3
+
+        # Add 4th entry - should evict key1 (oldest)
+        await cache.set("key4", [{"place": "data4"}])
+        assert cache.size == 3
+
+        # key1 should be evicted
+        assert await cache.get("key1") is None
+
+        # Other keys should still exist
+        assert await cache.get("key2") == [{"place": "data2"}]
+        assert await cache.get("key3") == [{"place": "data3"}]
+        assert await cache.get("key4") == [{"place": "data4"}]
+
+    @pytest.mark.asyncio
+    async def test_lru_access_moves_to_end(self, mock_time, monkeypatch) -> None:
+        """Test that accessing an entry moves it to most-recently-used."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=3)
+
+        # Add 3 entries
+        await cache.set("key1", [{"place": "data1"}])
+        await cache.set("key2", [{"place": "data2"}])
+        await cache.set("key3", [{"place": "data3"}])
+
+        # Access key1 (moves it to end/most recently used)
+        _ = await cache.get("key1")
+
+        # Add key4 - should evict key2 (now oldest), not key1
+        await cache.set("key4", [{"place": "data4"}])
+
+        # key2 should be evicted (was oldest after key1 was accessed)
+        assert await cache.get("key2") is None
+
+        # key1 should still exist (was moved to end by access)
+        assert await cache.get("key1") == [{"place": "data1"}]
+        assert await cache.get("key3") == [{"place": "data3"}]
+        assert await cache.get("key4") == [{"place": "data4"}]
+
+    @pytest.mark.asyncio
+    async def test_updating_existing_key_refreshes_position(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Test that setting an existing key moves it to end."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=3)
+
+        # Add 3 entries
+        await cache.set("key1", [{"place": "data1"}])
+        await cache.set("key2", [{"place": "data2"}])
+        await cache.set("key3", [{"place": "data3"}])
+
+        # Update key1 (should move to end)
+        await cache.set("key1", [{"place": "updated1"}])
+
+        # Add key4 - should evict key2 (oldest after key1 was updated)
+        await cache.set("key4", [{"place": "data4"}])
+
+        # key2 should be evicted
+        assert await cache.get("key2") is None
+
+        # key1 should exist with updated value
+        assert await cache.get("key1") == [{"place": "updated1"}]
+
+    @pytest.mark.asyncio
+    async def test_clear_removes_all_entries(self) -> None:
+        """Test that clear() empties the cache."""
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        # Use synchronous internal access for this simple test
+        cache._cache["key1"] = ([{"place": "data1"}], 1000000.0)
+        cache._cache["key2"] = ([{"place": "data2"}], 1000000.0)
+        assert cache.size == 2
+
+        await cache.clear()
+
+        assert cache.size == 0
+
+    def test_size_property_returns_entry_count(self) -> None:
+        """Test that size property reflects cache state."""
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        assert cache.size == 0
+
+        cache._cache["key1"] = ([{"place": "data1"}], 1000000.0)
+        assert cache.size == 1
+
+        cache._cache["key2"] = ([{"place": "data2"}], 1000000.0)
+        assert cache.size == 2
+
+
+# ============================================================================
+# PlacesCache Concurrency and Key Generation Tests
+# ============================================================================
+
+
+class TestPlacesCacheConcurrency:
+    """Tests for PlacesCache thread safety."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_access_is_safe(self, mock_time, monkeypatch) -> None:
+        """Test that concurrent get/set operations don't corrupt cache."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def write_task(key: str, value: list[dict]) -> None:
+            await cache.set(key, value)
+
+        async def read_task(key: str) -> list[dict] | None:
+            return await cache.get(key)
+
+        # Run multiple concurrent writes
+        write_tasks = [
+            write_task(f"key{i}", [{"place": f"data{i}"}]) for i in range(20)
+        ]
+        await asyncio.gather(*write_tasks)
+
+        # All writes should have succeeded (up to max_size)
+        assert cache.size <= 100
+
+        # Run concurrent reads and writes
+        mixed_tasks = [
+            write_task(f"mixed{i}", [{"place": f"mixed{i}"}]) for i in range(10)
+        ] + [read_task(f"key{i}") for i in range(20)]
+
+        results = await asyncio.gather(*mixed_tasks, return_exceptions=True)
+
+        # No exceptions should have occurred
+        exceptions = [r for r in results if isinstance(r, Exception)]
+        assert len(exceptions) == 0
+
+
+class TestPlacesCacheCacheKeyGeneration:
+    """Tests for cache key generation."""
+
+    def test_get_cache_key_truncates_coordinates(self) -> None:
+        """Test that coordinates are truncated to 5 decimal places (~1.1m precision)."""
+        cache = PlacesCache()
+
+        key1 = cache.get_cache_key(35.6789123456, 139.6503245678, 30)
+        key2 = cache.get_cache_key(35.67891, 139.65032, 30)
+
+        # Both should produce same key due to truncation to 5 decimal places
+        assert key1 == key2
+        assert key1 == "35.67891_139.65032_30"
+
+    def test_get_cache_key_includes_radius(self) -> None:
+        """Test that different radii produce different keys."""
+        cache = PlacesCache()
+
+        key1 = cache.get_cache_key(35.67912, 139.65034, 30)
+        key2 = cache.get_cache_key(35.67912, 139.65034, 75)
+
+        assert key1 != key2
+        assert "30" in key1
+        assert "75" in key2
+
+    def test_get_cache_key_handles_negative_coordinates(self) -> None:
+        """Test that negative coordinates are handled correctly."""
+        cache = PlacesCache()
+
+        key = cache.get_cache_key(-33.86881, 151.20934, 30)
+
+        assert "-33.86881" in key
+        assert "151.20934" in key
+
+
+# ============================================================================
+# PlacesCache Single-Flight Pattern Tests
+# ============================================================================
+
+
+class TestPlacesCacheSingleFlight:
+    """Tests for single-flight pattern in get_or_fetch()."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_make_single_api_call(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Multiple concurrent requests for same key should only call fetch once."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+        call_count = [0]
+
+        async def slow_fetch() -> list[dict]:
+            call_count[0] += 1
+            await asyncio.sleep(0.1)  # Simulate API latency
+            return [{"place": "data"}]
+
+        # Launch 10 concurrent requests for the same key
+        tasks = [cache.get_or_fetch("same_key", slow_fetch) for _ in range(10)]
+        results = await asyncio.gather(*tasks)
+
+        # All results should be identical
+        assert all(r == [{"place": "data"}] for r in results)
+        # Only one API call should have been made
+        assert call_count[0] == 1
+
+    @pytest.mark.asyncio
+    async def test_error_propagates_to_all_waiting_callers(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """When fetch fails, all waiting callers receive the same exception."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def failing_fetch() -> list[dict]:
+            await asyncio.sleep(0.1)
+            raise ValueError("API error")
+
+        # Launch 5 concurrent requests for the same key
+        tasks = [cache.get_or_fetch("error_key", failing_fetch) for _ in range(5)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All callers should receive the same exception type
+        assert all(isinstance(r, ValueError) for r in results)
+        assert all(str(r) == "API error" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_in_flight_cleanup_on_success(self, mock_time, monkeypatch) -> None:
+        """In-flight tracking is cleaned up after successful fetch."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def fetch() -> list[dict]:
+            return [{"place": "data"}]
+
+        # Verify in-flight is empty before
+        assert len(cache._in_flight) == 0
+
+        await cache.get_or_fetch("key1", fetch)
+
+        # In-flight should be cleaned up after success
+        assert len(cache._in_flight) == 0
+        # But cache should have the entry
+        assert cache.size == 1
+
+    @pytest.mark.asyncio
+    async def test_in_flight_cleanup_on_failure(self, mock_time, monkeypatch) -> None:
+        """In-flight tracking is cleaned up after failed fetch."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def failing_fetch() -> list[dict]:
+            raise ValueError("API error")
+
+        # Verify in-flight is empty before
+        assert len(cache._in_flight) == 0
+
+        with pytest.raises(ValueError):
+            await cache.get_or_fetch("key1", failing_fetch)
+
+        # In-flight should be cleaned up after failure
+        assert len(cache._in_flight) == 0
+        # Cache should remain empty
+        assert cache.size == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_expiry_during_concurrent_reads(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """When cache expires during concurrent reads, only one refetch occurs."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=1, max_size=100)
+        call_count = [0]
+
+        async def fetch() -> list[dict]:
+            call_count[0] += 1
+            await asyncio.sleep(0.05)
+            return [{"place": f"data-{call_count[0]}"}]
+
+        # Pre-populate cache
+        await cache.set("key1", [{"place": "old-data"}])
+        assert call_count[0] == 0  # fetch wasn't called
+
+        # Advance time past TTL
+        mock_time["advance"](3601)
+
+        # Launch concurrent requests - cache is expired, should trigger refetch
+        tasks = [cache.get_or_fetch("key1", fetch) for _ in range(5)]
+        results = await asyncio.gather(*tasks)
+
+        # Only one refetch should have occurred
+        assert call_count[0] == 1
+        # All results should be from the refetch
+        assert all(r == [{"place": "data-1"}] for r in results)
+
+    @pytest.mark.asyncio
+    async def test_different_keys_fetch_independently(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """Different keys should fetch independently, not share in-flight."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+        call_count = {"key1": 0, "key2": 0}
+
+        async def fetch_for_key(key: str) -> list[dict]:
+            call_count[key] += 1
+            await asyncio.sleep(0.05)
+            return [{"place": f"data-{key}"}]
+
+        # Launch concurrent requests for two different keys
+        tasks = [
+            cache.get_or_fetch("key1", lambda: fetch_for_key("key1")),
+            cache.get_or_fetch("key1", lambda: fetch_for_key("key1")),
+            cache.get_or_fetch("key2", lambda: fetch_for_key("key2")),
+            cache.get_or_fetch("key2", lambda: fetch_for_key("key2")),
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # Each key should be fetched exactly once
+        assert call_count["key1"] == 1
+        assert call_count["key2"] == 1
+        # Results should match their keys
+        assert results[0] == results[1] == [{"place": "data-key1"}]
+        assert results[2] == results[3] == [{"place": "data-key2"}]
+
+
+# ============================================================================
+# Partial Cluster Failure Tests
+# ============================================================================
+
+
+class TestFindPlacesForClustersPartialFailures:
+    """Tests for partial failure handling in find_places_for_clusters."""
+
+    @pytest.fixture
+    def sample_clusters(self) -> list[dict[str, Any]]:
+        """Generate test clusters."""
+        return [
+            {
+                "id": f"cluster-{i}",
+                "centroid": {"latitude": 35.6762 + i * 0.01, "longitude": 139.6503},
+                "photos": [{"asset_id": f"photo-{i}-1"}],
+            }
+            for i in range(5)
+        ]
+
+    @pytest.fixture
+    def mock_places_response(self) -> dict[str, Any]:
+        """Sample Places API response with quality fields."""
+        return {
+            "places": [
+                {
+                    "id": "place-123",
+                    "displayName": {"text": "Test Restaurant"},
+                    "formattedAddress": "123 Test St",
+                    "location": {"latitude": 35.6762, "longitude": 139.6503},
+                    "primaryType": "restaurant",
+                    "types": ["restaurant", "food"],
+                    "rating": 4.5,
+                    "userRatingCount": 100,
+                    "businessStatus": "OPERATIONAL",
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def mock_settings(self, monkeypatch):
+        """Mock settings for PlaceMatcher tests."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return settings
+
+    @pytest.fixture
+    async def clean_cache(self):
+        """Clear the module-level places cache before each test."""
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+        yield
+        await places_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_returns_successful_results_when_some_clusters_fail(
+        self,
+        sample_clusters,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test that successful cluster results are returned despite failures."""
+        # Track which clusters should fail by their latitude (unique per cluster)
+        fail_latitudes = {35.6862, 35.7062}  # Clusters 1 and 3
+
+        async def mock_post(*args, **kwargs):
+            # Extract latitude from request to identify the cluster
+            request_json = kwargs.get("json", {})
+            location = request_json.get("locationRestriction", {}).get("circle", {})
+            center = location.get("center", {})
+            lat = center.get("latitude", 0)
+
+            # Fail if this latitude matches a cluster that should fail
+            if any(abs(lat - fail_lat) < 0.001 for fail_lat in fail_latitudes):
+                raise httpx.TimeoutException("Simulated timeout")
+
+            # Success response for others
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # Should have 3 successful results (5 clusters - 2 failures)
+        assert len(results) == 3
+        assert failed_count == 2
+        # All results should have valid structure
+        for result in results:
+            assert "cluster_id" in result
+            assert "places" in result
+
+    @pytest.mark.asyncio
+    async def test_handles_timeout_for_individual_cluster(
+        self,
+        sample_clusters,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+        monkeypatch,
+    ) -> None:
+        """Test that per-cluster timeout is handled gracefully."""
+        # Use a very short cluster timeout
+        mock_settings.places_cluster_timeout_seconds = 0.01
+
+        async def slow_post(*args, **kwargs):
+            await asyncio.sleep(1)  # Will exceed the 0.01s timeout
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = slow_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+
+        # All clusters should timeout, but no exception should be raised
+        results, failed_count = await matcher.find_places_for_clusters(
+            sample_clusters[:2]
+        )
+
+        # All clusters timed out, so empty results
+        assert len(results) == 0
+        assert failed_count == 2
+
+    @pytest.mark.asyncio
+    async def test_handles_http_error_for_individual_cluster(
+        self,
+        sample_clusters,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test that HTTP errors for one cluster don't affect others."""
+        # Cluster 2 has latitude 35.6962 - fail HTTP for that one
+        fail_latitude = 35.6962
+
+        async def mock_post(*args, **kwargs):
+            # Extract latitude from request to identify the cluster
+            request_json = kwargs.get("json", {})
+            location = request_json.get("locationRestriction", {}).get("circle", {})
+            center = location.get("center", {})
+            lat = center.get("latitude", 0)
+
+            # Return HTTP 500 for the target cluster
+            if abs(lat - fail_latitude) < 0.001:
+                mock_response = MagicMock()
+                mock_response.status_code = 500
+                mock_response.text = "Internal Server Error"
+                return mock_response
+
+            # Success response for others
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # Should have 4 successful results (5 clusters - 1 HTTP error)
+        assert len(results) == 4
+        assert failed_count == 1
+
+    @pytest.mark.asyncio
+    async def test_handles_rate_limit_error_gracefully(
+        self,
+        sample_clusters,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test that RateLimitError is filtered as exception."""
+        call_count = [0]
+
+        async def mock_post(*args, **kwargs):
+            idx = call_count[0]
+            call_count[0] += 1
+
+            # Cluster 3 raises rate limit (429)
+            if idx == 3:
+                mock_response = MagicMock()
+                mock_response.status_code = 429
+                mock_response.json.return_value = {
+                    "error": {"status": "RESOURCE_EXHAUSTED"}
+                }
+                return mock_response
+
+            # Success response for others
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # RateLimitError gets raised and filtered, other clusters succeed
+        assert len(results) == 4
+        assert failed_count == 1
+
+    @pytest.mark.asyncio
+    async def test_all_clusters_fail_returns_empty_list(
+        self,
+        sample_clusters,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test that if all clusters fail, empty list is returned."""
+
+        async def mock_post(*args, **kwargs):
+            raise httpx.TimeoutException("All fail")
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # All clusters failed, return empty list
+        assert results == []
+        assert failed_count == 5
+
+    @pytest.mark.asyncio
+    async def test_no_results_for_cluster_returns_none_filtered(
+        self,
+        sample_clusters,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test that clusters with no places are filtered (return None)."""
+
+        async def mock_post(*args, **kwargs):
+            # Return empty places list
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"places": []}
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # All clusters returned no places, so all filtered out
+        # Note: no-place-found results are None, which is counted as "failed"
+        assert results == []
+        assert failed_count == 5
+
+    @pytest.mark.asyncio
+    async def test_mixed_success_none_and_exceptions(
+        self,
+        sample_clusters,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+    ) -> None:
+        """Test combination of successes, no-results, and exceptions."""
+        call_count = [0]
+
+        async def mock_post(*args, **kwargs):
+            idx = call_count[0]
+            call_count[0] += 1
+
+            # Cluster 0: Success
+            if idx == 0:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.json.return_value = mock_places_response
+                return mock_response
+
+            # Cluster 1: No places (returns None after ranking)
+            if idx == 1:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.json.return_value = {"places": []}
+                return mock_response
+
+            # Cluster 2: Exception
+            if idx == 2:
+                raise httpx.RequestError("Network error")
+
+            # Cluster 3: Success
+            if idx == 3:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.json.return_value = mock_places_response
+                return mock_response
+
+            # Cluster 4: Timeout
+            raise httpx.TimeoutException("Timeout")
+
+        mock_client = AsyncMock()
+        mock_client.post = mock_post
+
+        matcher = PlaceMatcher(http_client=mock_client)
+        results, failed_count = await matcher.find_places_for_clusters(sample_clusters)
+
+        # Should have 2 results (clusters 0 and 3 succeeded)
+        # Failures: cluster 1 (no places), cluster 2 (exception), cluster 4 (timeout)
+        assert len(results) == 2
+        assert failed_count == 3
+
+
+# ============================================================================
+# Quality Filtering Tests
+# ============================================================================
+
+
+class TestQualityFiltering:
+    """Tests for the _filter_low_quality_places method."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        """Create a PlaceMatcher with mocked settings."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_filters_places_with_no_name(self, matcher) -> None:
+        """Test that places with empty display name are filtered out."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": ""},
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {},
+                "userRatingCount": 50,
+                "primaryType": "cafe",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Good Restaurant"},
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-3"
+
+    def test_filters_permanently_closed_places(self, matcher) -> None:
+        """Test that permanently closed places are filtered out."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Closed Restaurant"},
+                "businessStatus": "CLOSED_PERMANENTLY",
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Open Restaurant"},
+                "businessStatus": "OPERATIONAL",
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-2"
+
+    def test_filters_places_with_few_reviews(self, matcher) -> None:
+        """Test that places with fewer than MIN_REVIEW_COUNT reviews are filtered."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Few Reviews"},
+                "userRatingCount": MIN_REVIEW_COUNT - 1,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Enough Reviews"},
+                "userRatingCount": MIN_REVIEW_COUNT,
+                "primaryType": "restaurant",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Many Reviews"},
+                "userRatingCount": 100,
+                "primaryType": "cafe",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert len(filtered) == 2
+        assert {p["id"] for p in filtered} == {"place-2", "place-3"}
+
+    def test_institutional_types_pass_without_reviews(self, matcher) -> None:
+        """Test that institutional types pass even without reviews."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Local Museum"},
+                "userRatingCount": 0,
+                "primaryType": "museum",
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "National Park"},
+                "userRatingCount": 2,
+                "primaryType": "national_park",
+            },
+            {
+                "id": "place-3",
+                "displayName": {"text": "Random Cafe"},
+                "userRatingCount": 2,
+                "primaryType": "cafe",
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        # Museum and national_park pass (institutional), cafe filtered (not enough reviews)
+        assert len(filtered) == 2
+        assert {p["id"] for p in filtered} == {"place-1", "place-2"}
+
+    def test_all_institutional_types_are_recognized(self, matcher) -> None:
+        """Test that all defined institutional types pass the filter."""
+        for inst_type in INSTITUTIONAL_TYPES:
+            places = [
+                {
+                    "id": f"place-{inst_type}",
+                    "displayName": {"text": f"Test {inst_type}"},
+                    "userRatingCount": 0,  # No reviews
+                    "primaryType": inst_type,
+                }
+            ]
+
+            filtered = matcher._filter_low_quality_places(places)
+
+            assert len(filtered) == 1, f"Institutional type '{inst_type}' should pass"
+
+    def test_handles_missing_fields_gracefully(self, matcher) -> None:
+        """Test that places with missing optional fields are handled."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Good Place"},
+                # Missing userRatingCount, businessStatus, primaryType
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Place with Museum Type"},
+                "primaryType": "museum",
+                # Missing userRatingCount
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        # place-1: No reviews (0) and not institutional -> filtered out
+        # place-2: No reviews but institutional type -> passes
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "place-2"
+
+
+class TestQualityRanking:
+    """Tests for quality-based tie-breaking in ranking."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        """Create a PlaceMatcher with mocked settings."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_ranks_by_distance_primarily(self, matcher) -> None:
+        """Test that distance is the primary ranking factor."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        # Place 1: far but many reviews
+        # Place 2: close but few reviews
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Far Place"},
+                "location": {"latitude": 35.6862, "longitude": 139.6503},  # ~1km away
+                "userRatingCount": 1000,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Close Place"},
+                "location": {"latitude": 35.6763, "longitude": 139.6503},  # ~11m away
+                "userRatingCount": 5,
+                "primaryType": "cafe",
+                "types": ["cafe"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        # Close place should be first despite fewer reviews
+        assert ranked[0]["place_id"] == "place-2"
+        assert ranked[1]["place_id"] == "place-1"
+
+    def test_uses_review_count_for_tie_breaking(self, matcher) -> None:
+        """Test that review count breaks ties for places at similar distances."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        # Both places are within same 5m bucket (2m vs 3m)
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Few Reviews"},
+                "location": {"latitude": 35.67622, "longitude": 139.6503},  # ~2m
+                "userRatingCount": 10,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Many Reviews"},
+                "location": {"latitude": 35.67623, "longitude": 139.6503},  # ~3m
+                "userRatingCount": 500,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        # Many reviews should come first (same distance bucket, higher quality)
+        assert ranked[0]["place_id"] == "place-2"
+        assert ranked[1]["place_id"] == "place-1"
+
+    def test_rating_count_not_in_response(self, matcher) -> None:
+        """Test that internal _rating_count field is not in the response."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Test Place"},
+                "location": {"latitude": 35.6763, "longitude": 139.6503},
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+
+        ranked = matcher._rank_by_distance(places, cluster)
+
+        assert "_rating_count" not in ranked[0]
+        assert "place_id" in ranked[0]
+        assert "name" in ranked[0]
+        assert "distance_m" in ranked[0]

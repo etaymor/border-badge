@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
-import { Button, GlassBackButton, TripCard } from '@components/ui';
+import { Button, GlassBackButton, GlassButton, TripCard } from '@components/ui';
 import {
   CountryHero,
   CountryActionBar,
@@ -25,6 +25,7 @@ import {
 } from '@components/country';
 import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
+import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -60,6 +61,9 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const { data: userCountries } = useUserCountries();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
+
+  // Photo import state
+  const { hasPhotos, tripCount, hasInitialImport } = useCountryPhotoInfo(code);
 
   const flagEmoji = getFlagEmoji(code);
   const countryImage = getCountryImage(code);
@@ -104,6 +108,23 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       },
     });
   }, [countryId, displayName, navigation]);
+
+  const handleImportPhotos = useCallback(() => {
+    navigation.navigate('PhotoImport', {
+      countryCode: code,
+      autoStart: true,
+      skipToSuggestions: hasPhotos && hasInitialImport,
+    });
+  }, [code, hasPhotos, hasInitialImport, navigation]);
+
+  // Show photo button only when:
+  // 1. Country is visited AND
+  // 2. Either no import has happened yet OR this country has photos
+  const showPhotoButton = useMemo(() => {
+    if (!isVisited) return false;
+    if (!hasInitialImport) return true; // First time - show to enable initial scan
+    return hasPhotos; // After import, only show if photos exist for this country
+  }, [isVisited, hasInitialImport, hasPhotos]);
 
   const handleTripPress = useCallback(
     (trip: Trip) => {
@@ -314,10 +335,25 @@ export function CountryDetailScreen({ navigation, route }: Props) {
           {/* CTA Section */}
           <View style={styles.ctaSection}>
             <Button
-              title={hasTrips ? 'Add Another Trip' : isVisited ? 'Log a Trip' : 'Plan a Trip'}
+              title={isVisited ? 'Add Trip' : 'Plan a Trip'}
               onPress={handleAddTrip}
               variant="primary"
+              style={styles.ctaButton}
             />
+            {showPhotoButton && (
+              <GlassButton
+                title={
+                  hasPhotos
+                    ? tripCount === 1
+                      ? '1 Trip Found'
+                      : `${tripCount} Trips Found`
+                    : 'Find via Photos'
+                }
+                onPress={handleImportPhotos}
+                icon={hasPhotos ? 'images' : 'camera-outline'}
+                style={styles.ctaButton}
+              />
+            )}
           </View>
 
           <TripsSectionHeader tripCount={trips?.length ?? 0} />
@@ -340,6 +376,10 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       hasTrips,
       trips?.length,
       handleAddTrip,
+      handleImportPhotos,
+      showPhotoButton,
+      hasPhotos,
+      tripCount,
       loadingTrips,
       flagEmoji,
       displayName,
@@ -460,7 +500,12 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   ctaSection: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 16,
+  },
+  ctaButton: {
+    flex: 1,
   },
   tripCardWrapper: {
     marginBottom: 16,

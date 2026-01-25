@@ -11,6 +11,11 @@ export const logger = {
       console.log(...args);
     }
   },
+  info: (...args: LogArgs): void => {
+    if (__DEV__) {
+      console.info(...args);
+    }
+  },
   warn: (...args: LogArgs): void => {
     if (__DEV__) {
       console.warn(...args);

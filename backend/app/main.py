@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
+import jwt
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -53,8 +54,31 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
 templates.env.filters["safe_external_url"] = safe_external_url
 templates.env.globals["is_production"] = settings.is_production
 
+
+def get_rate_limit_key(request: Request) -> str:
+    """Get rate limit key - user ID if authenticated, IP otherwise.
+
+    For authenticated requests, rate limits are tracked per-user.
+    For unauthenticated requests, rate limits fall back to IP-based tracking.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            token = auth_header[7:]
+            # Decode without verification to extract subject
+            # Full verification happens in the security middleware
+            payload = jwt.decode(token, options={"verify_signature": False})
+            user_id = payload.get("sub")
+            if user_id:
+                return f"user:{user_id}"
+        except Exception:
+            # If token parsing fails, fall back to IP-based limiting
+            pass
+    return f"ip:{get_remote_address(request)}"
+
+
 # Rate limiter instance (shared across the application)
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_rate_limit_key)
 
 # Import API router after limiter is defined so other modules can safely
 # import the shared limiter from this module without circular import issues.
@@ -73,6 +97,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "AUTH_MISCONFIGURATION: SUPABASE_JWT_SECRET is set but "
             "SUPABASE_URL is missing. Token validation will fail. "
             "Set SUPABASE_URL to your Supabase project URL."
+        )
+
+    # Startup validation - warn if Google Places API key is missing
+    if not settings.google_places_api_key:
+        logger.warning(
+            "PHOTOS_FEATURE_UNAVAILABLE: GOOGLE_PLACES_API_KEY is not set. "
+            "Photo import place suggestions will fail. "
+            "Set this env var or disable the feature."
         )
     yield
     # Shutdown - close shared HTTP client

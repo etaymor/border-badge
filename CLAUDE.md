@@ -406,6 +406,7 @@ All launch simplification changes are marked with:
 6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
 8. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
+9. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
 
 ## Pre-Commit Checklist (REQUIRED)
 

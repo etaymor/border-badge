@@ -66,6 +66,20 @@ class Settings(BaseSettings):
         description="Minimum confidence score (0.0-1.0) for place extraction",
     )
 
+    # Google Places API settings
+    places_api_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=30.0,
+        description="Timeout for Google Places API requests in seconds",
+    )
+    places_cluster_timeout_seconds: float = Field(
+        default=15.0,
+        gt=0.0,
+        le=60.0,
+        description="Timeout for processing a single cluster (includes retries)",
+    )
+
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)
     welcome_email_from: str = "hello@atlasi.app"

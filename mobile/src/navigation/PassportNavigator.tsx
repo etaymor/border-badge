@@ -5,6 +5,7 @@ import { View, StyleSheet } from 'react-native';
 import { ClipboardBannerOverlay } from '@components/share';
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
 import { PassportScreen } from '@screens/passport/PassportScreen';
+import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
@@ -40,6 +41,15 @@ function PassportNavigatorContent() {
         <Stack.Screen
           name="ShareCapture"
           component={ShareCaptureScreen}
+          options={{
+            ...Transition.Presets.SlideFromBottom(),
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
+          }}
+        />
+        <Stack.Screen
+          name="PhotoImport"
+          component={PhotoImportScreen}
           options={{
             ...Transition.Presets.SlideFromBottom(),
             gestureEnabled: true,

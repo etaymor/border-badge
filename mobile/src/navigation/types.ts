@@ -60,16 +60,46 @@ export type PassportStackParamList = {
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
+  PhotoImport: {
+    countryCode?: string;
+    tripId?: string; // Pre-associate with existing trip
+    autoStart?: boolean; // Auto-start scan when cache exists
+    skipToSuggestions?: boolean; // Skip scanning and go directly to candidates when cache exists
+  };
+};
+
+// Prefill place data for TripForm (from photo import)
+export type PrefillPlace = {
+  placeId: string;
+  name: string;
+  address: string;
+  category: EntryType;
 };
 
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
-  TripDetail: { tripId: string };
-  TripForm: { tripId?: string; countryId?: string; countryName?: string }; // undefined tripId = create, string = edit
+  TripDetail: {
+    tripId: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  }; // undefined tripId = create, string = edit
   EntryList: { tripId: string; tripName?: string };
   EntryDetail: { entryId: string };
-  EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };
+  EntryForm: {
+    tripId: string;
+    entryId?: string;
+    entryType?: EntryType;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };

@@ -18,7 +18,9 @@ import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ListSummary, getPublicListUrl, useDeleteList, useTripLists } from '@hooks/useLists';
-import type { TripsStackScreenProps } from '@navigation/types';
+import { useTrip } from '@hooks/useTrips';
+import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
+import type { NavigationProp } from '@react-navigation/native';
 import { Analytics } from '@services/analytics';
 
 type Props = TripsStackScreenProps<'TripLists'>;
@@ -87,11 +89,21 @@ function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
 export function TripListsScreen({ route, navigation }: Props) {
   const { tripId, tripName } = route.params;
   const { data: lists, isLoading, refetch } = useTripLists(tripId);
+  const { data: trip } = useTrip(tripId);
   const deleteList = useDeleteList();
 
   const handleCreateNew = useCallback(() => {
     navigation.navigate('ListCreate', { tripId, tripName });
   }, [navigation, tripId, tripName]);
+
+  const handleImportPhotos = useCallback(() => {
+    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
+    if (parentNav) {
+      parentNav.navigate('PhotoImport', {
+        countryCode: trip?.country_code,
+      });
+    }
+  }, [navigation, trip?.country_code]);
 
   const handleEdit = useCallback(
     (listId: string) => {
@@ -186,6 +198,13 @@ export function TripListsScreen({ route, navigation }: Props) {
                 <Text style={styles.createButtonSubtitle}>Share your favorite spots</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.sunsetGold} />
+            </Pressable>
+
+            {/* Photo Import Callout */}
+            <Pressable style={styles.photoCallout} onPress={handleImportPhotos}>
+              <Ionicons name="images-outline" size={20} color={colors.sunsetGold} />
+              <Text style={styles.photoCalloutText}>Add places from your Camera Roll</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.sunsetGold} />
             </Pressable>
 
             {/* Section Header */}
@@ -412,5 +431,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 22,
     fontFamily: fonts.openSans.regular,
+  },
+  photoCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 194, 78, 0.08)',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    gap: 10,
+  },
+  photoCalloutText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    fontFamily: fonts.openSans.semiBold,
   },
 });

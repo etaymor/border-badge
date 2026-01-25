@@ -1,0 +1,171 @@
+/**
+ * Photo import service - extracts GPS/timestamp metadata from photo library.
+ *
+ * Uses expo-media-library with isAccessMediaLocationEnabled for GPS access.
+ * Processes in batches to handle large libraries (10,000+ photos) without crash.
+ */
+
+import * as MediaLibrary from 'expo-media-library';
+
+import { PermissionDeniedError, ScanCancelledError } from './errors';
+import type { PhotoWithLocation, ScanProgress } from './types';
+
+// Configuration constants (extracted for testability)
+export const SCAN_CONFIG = {
+  BATCH_SIZE: 50, // Process 50 photos per batch
+  YIELD_INTERVAL_MS: 16, // Yield to UI (~1 frame at 60fps)
+} as const;
+
+/**
+ * Yield to UI thread between batches to prevent freezing.
+ */
+function yieldToUI(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, SCAN_CONFIG.YIELD_INTERVAL_MS));
+}
+
+/**
+ * Request photo library permissions with location access.
+ *
+ * @returns Permission status and access privileges
+ */
+export async function requestPhotoPermissions(): Promise<{
+  granted: boolean;
+  limited: boolean;
+}> {
+  const { status, accessPrivileges } = await MediaLibrary.requestPermissionsAsync();
+
+  return {
+    granted: status === 'granted',
+    limited: accessPrivileges === 'limited',
+  };
+}
+
+/**
+ * Present the iOS 14+ limited photo picker to allow user to select more photos.
+ * Only works when accessPrivileges is 'limited'.
+ */
+export async function presentLimitedPhotoPicker(): Promise<void> {
+  await MediaLibrary.presentPermissionsPickerAsync();
+}
+
+/**
+ * Extract photos with GPS location from the user's photo library.
+ *
+ * @param onProgress - Callback for progress updates
+ * @param signal - Optional AbortSignal for cancellation
+ * @param since - Optional date to only extract photos created after this time (for incremental imports)
+ * @returns Array of photos with location data
+ */
+export async function extractPhotosWithLocation(
+  onProgress: (progress: ScanProgress) => void,
+  signal?: AbortSignal,
+  since?: Date
+): Promise<PhotoWithLocation[]> {
+  // 1. Request permissions with location access
+  const { granted, limited } = await requestPhotoPermissions();
+
+  if (!granted) {
+    throw new PermissionDeniedError('mediaLibrary');
+  }
+
+  // Handle iOS 14+ limited access - user can still proceed with selected photos
+  if (limited && __DEV__) {
+    console.log('[PhotoImport] Limited photo access - processing selected photos only');
+  }
+
+  // 2. Count total for progress reporting
+  // When doing incremental import, only count photos after the 'since' date
+  const countOptions: MediaLibrary.AssetsOptions = {
+    first: 1,
+    mediaType: MediaLibrary.MediaType.photo,
+  };
+  if (since) {
+    countOptions.createdAfter = since;
+  }
+  const countResult = await MediaLibrary.getAssetsAsync(countOptions);
+  const totalAssets = countResult.totalCount;
+
+  onProgress({ phase: 'counting', current: 0, total: totalAssets, percentage: 0 });
+
+  // 3. Paginate through photo library in batches
+  const photos: PhotoWithLocation[] = [];
+  let cursor: string | undefined;
+  let processedCount = 0;
+  let hasMorePages = true;
+
+  while (hasMorePages) {
+    // Check for cancellation
+    if (signal?.aborted) {
+      throw new ScanCancelledError();
+    }
+
+    const fetchOptions: MediaLibrary.AssetsOptions = {
+      mediaType: MediaLibrary.MediaType.photo,
+      first: SCAN_CONFIG.BATCH_SIZE,
+      after: cursor,
+      sortBy: [MediaLibrary.SortBy.creationTime],
+    };
+    if (since) {
+      fetchOptions.createdAfter = since;
+    }
+    const result = await MediaLibrary.getAssetsAsync(fetchOptions);
+
+    // Process batch in parallel (bounded by batch size)
+    const batchPromises = result.assets.map(async (asset) => {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(asset.id, {
+          // CRITICAL: Don't download iCloud photos during scan
+          shouldDownloadFromNetwork: false,
+        });
+
+        if (info.location?.latitude && info.location?.longitude) {
+          // Prefer localUri (file://) over uri (ph://) for reliable file access
+          // ph:// URIs are volatile and fail ~75% of the time with FileSystem.copyAsync
+          const photoUri = info.localUri ?? info.uri ?? asset.uri;
+          return {
+            id: asset.id,
+            uri: photoUri,
+            filename: asset.filename,
+            creationTime: new Date(asset.creationTime),
+            location: {
+              latitude: info.location.latitude,
+              longitude: info.location.longitude,
+            },
+          };
+        }
+        return null;
+      } catch {
+        // Skip photos that fail to load metadata
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    photos.push(...batchResults.filter((p): p is PhotoWithLocation => p !== null));
+
+    processedCount += result.assets.length;
+    onProgress({
+      phase: 'scanning',
+      current: processedCount,
+      total: totalAssets,
+      percentage: Math.round((processedCount / totalAssets) * 100),
+      gpsPhotoCount: photos.length,
+    });
+
+    // Yield to UI thread between batches
+    await yieldToUI();
+
+    hasMorePages = result.hasNextPage;
+    cursor = result.endCursor;
+  }
+
+  onProgress({ phase: 'complete', current: totalAssets, total: totalAssets, percentage: 100 });
+
+  if (__DEV__) {
+    const scanType = since ? 'incremental' : 'full';
+    console.log(
+      `[PhotoImport] ${scanType} scan: Found ${photos.length} photos with location out of ${totalAssets}`
+    );
+  }
+  return photos;
+}
