@@ -157,14 +157,17 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 
 **Data Fetching Hooks:**
 
-- `useTrips()`, `useTripsByCountry()`, `useTrip()` - Trip queries
+- `useTrips()`, `useTripsByCountry()`, `useTrip()` - Trip queries (5min staleTime, 30min gcTime)
 - `useUncategorizedTrip()` - Get/create the Saved Places system trip
-- `useEntries()`, `useEntry()` - Entry queries
-- `useMoveEntry()`, `useBulkMoveEntries()` - Move entries between trips
+- `useEntries()`, `useEntry()` - Entry queries (5min staleTime, 30min gcTime)
+- `useInfiniteEntries()` - Paginated entry fetching with infinite scroll (20 entries per page)
+- `useMoveEntry()`, `useBulkMoveEntries()` - Move entries between trips (scoped cache invalidation)
 - `useCountries()`, `useUserCountries()` - Country data
 - `useUploadMedia()` - Media upload with progress
 - `usePhotoImport()` - Photo import workflow orchestration
 - `usePhotoPermissions()` - Photo library permission handling
+- `usePhotoTrips()` - Access photo-discovered trips from SQLite cache with search/filter
+- `useMultiClusterUpload()` - Concurrent photo uploads from multiple location clusters
 
 **API Client (`mobile/src/services/api.ts`):**
 
@@ -177,6 +180,7 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 - React Navigation with native-stack and bottom-tabs
 - Conditional rendering: OnboardingNavigator vs MainTabNavigator
 - Type-safe navigation params
+- Tab press preserves per-tab stack; double-tap returns to home (prevents unnecessary remounts)
 
 ### Backend
 
@@ -419,6 +423,8 @@ All launch simplification changes are marked with:
 7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
 8. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
 9. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
+10. **Query Caching:** Trips and entries queries use `staleTime` (5min) and `gcTime` (30min) to reduce redundant fetches. Mutations use scoped cache invalidation targeting only affected query keys.
+11. **Scoped Invalidation:** Trip and entry mutations invalidate only the specific trip/entry queries affected, not the entire cache. This prevents unnecessary refetches during navigation.
 
 ## Photo Import System
 
@@ -437,8 +443,12 @@ The photo import feature allows users to scan their device photo library and aut
 - `useEntryCreation.ts` - Create entries from confirmed suggestions
 - `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
 
+**Mobile Hooks (`mobile/src/hooks/`):**
+- `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
+- `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters with per-cluster progress, cancellation, and state tracking
+
 **Backend (`backend/app/services/place_matcher/`):**
-- `matcher.py` - PlaceMatcher with tiered radius searches and quality filtering
+- `matcher.py` - PlaceMatcher with tiered radius searches and quality filtering; returns cluster objects with `places` array (empty when no matches found)
 - `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
 - `utils.py` - Haversine distance calculation and coordinate utilities
 
@@ -449,11 +459,34 @@ The photo import feature allows users to scan their device photo library and aut
 3. **Suggestions** - Fetch place suggestions from backend for selected trip
 4. **Confirmation** - User confirms/rejects suggestions, creates entries
 
+### Photo Trips Feature
+
+The Photo Trips screen (`PhotoTripsScreen.tsx`) displays all photo-discovered trips from the SQLite cache, allowing users to browse and select trips for import without re-scanning their photo library.
+
+**Key Features:**
+- FlashList for performant rendering with year-based section headers
+- Animated search bar for country filtering
+- Pull-to-refresh for cache reload
+- Grouped by year (most recent first) with trips sorted by date within each year
+
+**Navigation:** Accessible via `PhotoTrips` route in PassportNavigator, typically reached from the PhotoTripsCallout component.
+
+### Multi-Cluster Upload
+
+The `useMultiClusterUpload` hook enables concurrent photo uploads from multiple location clusters:
+- Per-cluster upload state with progress tracking
+- AbortController support for per-cluster cancellation
+- Automatic URI conversion from `ph://` to `file://` for upload
+- Temp file cleanup after upload completion or cancellation
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
 | `mobile/src/screens/photos/PhotoImportScreen.tsx` | Main photo import UI |
+| `mobile/src/screens/photos/PhotoTripsScreen.tsx` | Browse photo-discovered trips |
+| `mobile/src/hooks/usePhotoTrips.ts` | SQLite cache access for photo trips |
+| `mobile/src/hooks/useMultiClusterUpload.ts` | Concurrent cluster uploads |
 | `mobile/src/services/photoImport/photoClustering.ts` | Geohash clustering logic |
 | `backend/app/api/photos.py` | `/photos/suggest-places` endpoint |
 | `backend/app/services/place_matcher/matcher.py` | Google Places matching |

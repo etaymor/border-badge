@@ -89,11 +89,13 @@ mobile/src/
 ├── hooks/                # Custom React hooks
 │   ├── useAuth.ts        # Authentication
 │   ├── useTrips.ts       # Trip data
-│   ├── useEntries.ts     # Entry data
+│   ├── useEntries.ts     # Entry data (includes useInfiniteEntries for pagination)
 │   ├── useCountries.ts   # Country data
 │   ├── useMedia.ts       # Media handling
 │   ├── useLists.ts       # Lists data
-│   └── useProfile.ts     # User profile
+│   ├── useProfile.ts     # User profile
+│   ├── usePhotoTrips.ts  # Photo-discovered trips from SQLite cache
+│   └── useMultiClusterUpload.ts  # Concurrent cluster photo uploads
 ├── services/             # External services
 │   ├── api.ts            # Axios API client
 │   ├── supabase.ts       # Supabase client
@@ -171,12 +173,13 @@ React Navigation with:
 - Native stack navigator for performance
 - Bottom tab navigator for main screens
 - Conditional rendering based on auth state
+- Tab press preserves per-tab stack; double-tap returns to home
 
 ```
 RootNavigator
 ├── OnboardingNavigator (if !hasCompletedOnboarding)
 └── MainTabNavigator (if authenticated)
-    ├── PassportTab
+    ├── PassportTab (includes PhotoTrips route)
     ├── DreamsTab
     ├── TripsTab
     └── ProfileTab
