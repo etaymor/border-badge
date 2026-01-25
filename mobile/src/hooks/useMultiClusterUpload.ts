@@ -311,7 +311,9 @@ export function useMultiClusterUpload() {
           }
         }
       } finally {
+        // Always clean up temp files and abort controller, even if an error bubbles up
         await Promise.all(tempFilesToCleanup.map(cleanupTempFile));
+        abortControllersRef.current.delete(clusterId);
       }
 
       // Final state update
@@ -321,7 +323,6 @@ export function useMultiClusterUpload() {
         overallProgress: 100,
       }));
 
-      abortControllersRef.current.delete(clusterId);
       return { mediaIds, failedCount };
     },
     [uploadMedia, updateClusterState]

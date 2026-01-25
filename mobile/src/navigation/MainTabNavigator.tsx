@@ -48,8 +48,10 @@ export function MainTabNavigator() {
             // Only reset stack if already on this tab (double-tap to go home pattern)
             // This preserves stack state when switching between tabs
             const state = navigation.getState();
-            const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+            if (!state?.routes) return;
+
+            const currentTabIndex = state.index ?? 0;
+            const targetTabIndex = state.routes.findIndex((r) => r.key === route.key);
 
             // Guard against findIndex returning -1 (route not found)
             if (targetTabIndex === -1) return;
@@ -74,8 +76,10 @@ export function MainTabNavigator() {
         listeners={({ navigation, route }) => ({
           tabPress: () => {
             const state = navigation.getState();
-            const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+            if (!state?.routes) return;
+
+            const currentTabIndex = state.index ?? 0;
+            const targetTabIndex = state.routes.findIndex((r) => r.key === route.key);
 
             // Guard against findIndex returning -1 (route not found)
             if (targetTabIndex === -1) return;
@@ -102,8 +106,10 @@ export function MainTabNavigator() {
         listeners={({ navigation, route }) => ({
           tabPress: () => {
             const state = navigation.getState();
-            const currentTabIndex = state?.index ?? 0;
-            const targetTabIndex = state?.routes.findIndex((r) => r.key === route.key);
+            if (!state?.routes) return;
+
+            const currentTabIndex = state.index ?? 0;
+            const targetTabIndex = state.routes.findIndex((r) => r.key === route.key);
 
             // Guard against findIndex returning -1 (route not found)
             if (targetTabIndex === -1) return;
