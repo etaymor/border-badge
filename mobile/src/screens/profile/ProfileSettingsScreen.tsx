@@ -2,15 +2,20 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Keyboard,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
@@ -18,6 +23,7 @@ import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
 import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
+import { env } from '@config/env';
 import { useResponsive } from '@hooks/useResponsive';
 import { useDeleteAccount, useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
@@ -35,7 +41,6 @@ import { ProfileAvatar } from './components/ProfileAvatar';
 import { ProfileNameSection } from './components/ProfileNameSection';
 import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
-import { LegalSection } from './components/LegalSection';
 import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
@@ -305,6 +310,48 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setDeleteConfirmModalVisible(false);
   }, []);
 
+  const handleOpenTerms = useCallback(() => {
+    Linking.openURL(`${env.webBaseUrl}/terms`);
+  }, []);
+
+  const handleOpenPrivacy = useCallback(() => {
+    Linking.openURL(`${env.webBaseUrl}/privacy`);
+  }, []);
+
+  const showOptionsMenu = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const options = ['Terms of Service', 'Privacy Policy', 'Delete Account', 'Cancel'];
+    const destructiveButtonIndex = 2;
+    const cancelButtonIndex = 3;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          destructiveButtonIndex,
+          cancelButtonIndex,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleOpenTerms();
+          } else if (buttonIndex === 1) {
+            handleOpenPrivacy();
+          } else if (buttonIndex === 2) {
+            handleDeleteAccount();
+          }
+        }
+      );
+    } else {
+      Alert.alert('Options', undefined, [
+        { text: 'Terms of Service', onPress: handleOpenTerms },
+        { text: 'Privacy Policy', onPress: handleOpenPrivacy },
+        { text: 'Delete Account', style: 'destructive', onPress: handleDeleteAccount },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [handleDeleteAccount, handleOpenTerms, handleOpenPrivacy]);
+
   // Memoized values
   const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
   const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
@@ -432,13 +479,24 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with back button */}
+        {/* Header with back button and menu */}
         <View style={styles.header}>
           <GlassBackButton onPress={handleGoBack} testID="profile-back-button" />
           <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>
             Profile
           </Text>
-          <View style={styles.headerSpacer} />
+          <TouchableOpacity
+            onPress={showOptionsMenu}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.8}
+            style={styles.headerMenuButton}
+            accessibilityLabel="More options"
+            testID="profile-menu-button"
+          >
+            <BlurView intensity={30} tint="light" style={styles.headerMenuGlass}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.midnightNavy} />
+            </BlurView>
+          </TouchableOpacity>
         </View>
 
         <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
@@ -472,18 +530,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
         />
 
-        <View style={styles.divider} />
-
-        <LegalSection isSmallScreen={isSmallScreen} />
-
-        <View style={styles.divider} />
-
         <SignOutSection
           onSignOut={handleSignOut}
           isPending={signOut.isPending}
           isSmallScreen={isSmallScreen}
-          onDeleteAccount={handleDeleteAccount}
-          isDeleting={deleteAccount.isPending}
         />
       </ScrollView>
 
@@ -537,7 +587,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 120, // Extra padding to clear tab bar
   },
   header: {
     flexDirection: 'row',
@@ -557,8 +607,19 @@ const styles = StyleSheet.create({
   headerTitleSmall: {
     fontSize: 24,
   },
-  headerSpacer: {
-    width: 44, // Match back button width for centering
+  headerMenuButton: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  headerMenuGlass: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   divider: {
     height: 1,
