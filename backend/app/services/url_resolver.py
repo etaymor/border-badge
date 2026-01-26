@@ -167,8 +167,9 @@ INSTAGRAM_PATTERNS = [
 
 # Instagram profile URL pattern: /username (no special path segments)
 # Username rules: 1-30 characters, alphanumeric, periods, underscores
+# Must start with alphanumeric or underscore (not a period)
 INSTAGRAM_PROFILE_PATTERN = re.compile(
-    r"^(?:www\.)?instagram\.com/([a-zA-Z0-9_.]{1,30})/?$",
+    r"^(?:www\.)?instagram\.com/([a-zA-Z0-9_][a-zA-Z0-9_.]{0,29})/?$",
     re.IGNORECASE,
 )
 
