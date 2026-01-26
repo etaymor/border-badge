@@ -397,7 +397,7 @@ export function usePhotoImportWorkflow({
           setIsIncremental(true);
 
           // If tripId is provided with skipToSuggestions, go directly to suggestions phase
-          if (tripId) {
+          if (tripId && candidates.length > 0) {
             // Check for a previously selected candidate for this destination trip
             const lastCandidateId = await getLastSelectedCandidateId(tripId);
             let candidate = candidates[0]; // Default to first

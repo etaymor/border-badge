@@ -111,8 +111,8 @@ async def ingest_social_url(
         )
 
     # Step 1.5: Check if this is a profile URL (needs different processing)
-    is_profile = (
-        provider == SocialProvider.INSTAGRAM and is_instagram_profile(canonical_url)
+    is_profile = provider == SocialProvider.INSTAGRAM and is_instagram_profile(
+        canonical_url
     )
 
     logger.info(

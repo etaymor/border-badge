@@ -14,15 +14,11 @@ class TestCleanInstagramProfileName:
     """Tests for clean_instagram_profile_name function."""
 
     def test_removes_username_suffix(self):
-        result = clean_instagram_profile_name(
-            "Commander's Palace (@commanderspalace)"
-        )
+        result = clean_instagram_profile_name("Commander's Palace (@commanderspalace)")
         assert result == "Commander's Palace"
 
     def test_removes_username_suffix_with_trailing_space(self):
-        result = clean_instagram_profile_name(
-            "Joe's Cafe (@joescafe) "
-        )
+        result = clean_instagram_profile_name("Joe's Cafe (@joescafe) ")
         assert result == "Joe's Cafe"
 
     def test_removes_on_instagram_suffix(self):
@@ -63,9 +59,7 @@ class TestCleanInstagramProfileName:
 
     def test_handles_multiple_patterns(self):
         # This tests that patterns are applied correctly even if multiple could match
-        result = clean_instagram_profile_name(
-            "My Restaurant (@myrest)"
-        )
+        result = clean_instagram_profile_name("My Restaurant (@myrest)")
         assert result == "My Restaurant"
 
 

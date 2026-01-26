@@ -304,6 +304,10 @@ def clean_instagram_profile_name(og_title: str) -> str:
     if not og_title:
         return ""
 
+    # Guard against malformed responses with excessive text (Instagram max bio is 2200 chars)
+    if len(og_title) > 2200:
+        og_title = og_title[:2200]
+
     result = og_title.strip()
 
     for pattern, replacement in _COMPILED_PROFILE_PATTERNS:

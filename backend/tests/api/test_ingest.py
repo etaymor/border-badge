@@ -511,7 +511,9 @@ class TestIngestInstagramProfile:
                                 data["canonical_url"]
                                 == "https://www.instagram.com/commanderspalace"
                             )
-                            assert data["detected_place"]["name"] == "Commander's Palace"
+                            assert (
+                                data["detected_place"]["name"] == "Commander's Palace"
+                            )
                             assert data["detected_place"]["country_code"] == "US"
 
                             # Verify fetch_oembed was called with is_profile=True
@@ -597,9 +599,7 @@ class TestIngestInstagramProfile:
 
                             response = client.post(
                                 "/ingest/social",
-                                json={
-                                    "url": "https://www.instagram.com/trattoriaroma"
-                                },
+                                json={"url": "https://www.instagram.com/trattoriaroma"},
                                 headers={"Authorization": "Bearer test-token"},
                             )
 
