@@ -205,6 +205,7 @@ export function usePhotoImportWorkflow({
   const { suggestPlacesMutation, cachedSuggestions, fetchSuggestions, clearFetchedCache } =
     usePlaceSuggestions({
       clusterLookupRef,
+      currentCandidateIdRef,
     });
 
   // ==========================================================================
@@ -299,6 +300,10 @@ export function usePhotoImportWorkflow({
         if (__DEV__) console.warn('[PhotoImport] selectTrip called without candidate');
         return;
       }
+
+      // Track current candidate for race condition detection
+      currentCandidateIdRef.current = candidateToUse.id;
+
       setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
 
@@ -421,6 +426,9 @@ export function usePhotoImportWorkflow({
                 candidate = rememberedCandidate;
               }
             }
+
+            // Track current candidate for race condition detection
+            currentCandidateIdRef.current = candidate.id;
 
             setSelectedCandidate(candidate);
             setSelectedTripId(tripId);
