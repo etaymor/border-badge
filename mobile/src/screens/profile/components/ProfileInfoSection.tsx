@@ -16,11 +16,13 @@ interface ProfileInfoSectionProps {
   formattedEmail: string;
   homeCountryDisplay: { flag: string; name: string } | null;
   memberSince: string;
-  trackingPreferenceDisplay: { name: string; count: number };
+  // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas
+  // trackingPreferenceDisplay: { name: string; count: number };
   visitedCount: number;
   clipboardDetectionEnabled: boolean;
   isSmallScreen?: boolean;
-  onOpenTrackingModal: () => void;
+  // LAUNCH_SIMPLIFICATION: Tracking modal hidden
+  // onOpenTrackingModal: () => void;
   onOpenExportModal: () => void;
   onToggleClipboardDetection: (enabled: boolean) => void;
   onOpenClipboardPermissionModal?: () => void;
@@ -30,11 +32,13 @@ export function ProfileInfoSection({
   formattedEmail,
   homeCountryDisplay,
   memberSince,
-  trackingPreferenceDisplay,
+  // LAUNCH_SIMPLIFICATION: Tracking preference hidden
+  // trackingPreferenceDisplay,
   visitedCount,
   clipboardDetectionEnabled,
   isSmallScreen,
-  onOpenTrackingModal,
+  // LAUNCH_SIMPLIFICATION: Tracking modal hidden
+  // onOpenTrackingModal,
   onOpenExportModal,
   onToggleClipboardDetection,
   onOpenClipboardPermissionModal,
@@ -89,6 +93,8 @@ export function ProfileInfoSection({
           PREFERENCES & DATA
         </Text>
         <View style={styles.card}>
+          {/* LAUNCH_SIMPLIFICATION: Country tracking preference hidden - all users get full_atlas */}
+          {/* TODO: Uncomment when re-enabling tracking preference selection
           <Pressable
             onPress={onOpenTrackingModal}
             style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressableActive]}
@@ -114,6 +120,7 @@ export function ProfileInfoSection({
           </Pressable>
 
           <View style={styles.divider} />
+          */}
 
           {visitedCount > 0 && (
             <>

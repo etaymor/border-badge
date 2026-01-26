@@ -21,13 +21,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
-import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
+// LAUNCH_SIMPLIFICATION: Tracking preference imports hidden
+// import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { fonts } from '@constants/typography';
 import { env } from '@config/env';
 import { useResponsive } from '@hooks/useResponsive';
 import { useDeleteAccount, useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
-import { useProfile, useUpdateProfile } from '@hooks/useProfile';
+// LAUNCH_SIMPLIFICATION: useUpdateProfile only used for tracking preference
+import { useProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
@@ -41,7 +43,8 @@ import { ProfileAvatar } from './components/ProfileAvatar';
 import { ProfileNameSection } from './components/ProfileNameSection';
 import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
-import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
+// LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas
+// import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
 import { ClipboardEnableModal } from './components/ClipboardEnableModal';
@@ -86,7 +89,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const { data: userCountries } = useUserCountries();
   const { data: allCountries } = useCountries();
   const updateDisplayName = useUpdateDisplayName();
-  const updateProfile = useUpdateProfile();
+  // LAUNCH_SIMPLIFICATION: updateProfile only used for tracking preference
+  // const updateProfile = useUpdateProfile();
   const signOut = useSignOut();
   const deleteAccount = useDeleteAccount();
 
@@ -95,8 +99,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const [editedName, setEditedName] = useState('');
   const [nameError, setNameError] = useState<string | undefined>();
 
-  // Tracking preference modal state
-  const [trackingModalVisible, setTrackingModalVisible] = useState(false);
+  // LAUNCH_SIMPLIFICATION: Tracking preference modal hidden
+  // const [trackingModalVisible, setTrackingModalVisible] = useState(false);
 
   // Export modal state
   const [exportModalVisible, setExportModalVisible] = useState(false);
@@ -231,32 +235,33 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     );
   }, [deleteAccount]);
 
-  const handleOpenTrackingModal = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setTrackingModalVisible(true);
-  }, []);
+  // LAUNCH_SIMPLIFICATION: Tracking preference modal handlers hidden
+  // const handleOpenTrackingModal = useCallback(() => {
+  //   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  //   setTrackingModalVisible(true);
+  // }, []);
 
-  const handleCloseTrackingModal = useCallback(() => {
-    setTrackingModalVisible(false);
-  }, []);
+  // const handleCloseTrackingModal = useCallback(() => {
+  //   setTrackingModalVisible(false);
+  // }, []);
 
-  const handleSelectTrackingPreference = useCallback(
-    async (preset: TrackingPreset) => {
-      if (preset === profile?.tracking_preference) {
-        setTrackingModalVisible(false);
-        return;
-      }
+  // const handleSelectTrackingPreference = useCallback(
+  //   async (preset: TrackingPreset) => {
+  //     if (preset === profile?.tracking_preference) {
+  //       setTrackingModalVisible(false);
+  //       return;
+  //     }
 
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      try {
-        await updateProfile.mutateAsync({ tracking_preference: preset });
-        setTrackingModalVisible(false);
-      } catch {
-        // Error is handled by mutation's onError
-      }
-    },
-    [profile?.tracking_preference, updateProfile]
-  );
+  //     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  //     try {
+  //       await updateProfile.mutateAsync({ tracking_preference: preset });
+  //       setTrackingModalVisible(false);
+  //     } catch {
+  //       // Error is handled by mutation's onError
+  //     }
+  //   },
+  //   [profile?.tracking_preference, updateProfile]
+  // );
 
   // Export modal handlers
   const handleOpenExportModal = useCallback(() => {
@@ -364,14 +369,15 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     };
   }, [homeCountry]);
 
-  const trackingPreferenceDisplay = useMemo(() => {
-    const preset = profile?.tracking_preference ?? 'full_atlas';
-    const presetData = TRACKING_PRESETS[preset];
-    return {
-      name: presetData.name,
-      count: presetData.count,
-    };
-  }, [profile?.tracking_preference]);
+  // LAUNCH_SIMPLIFICATION: Tracking preference display hidden
+  // const trackingPreferenceDisplay = useMemo(() => {
+  //   const preset = profile?.tracking_preference ?? 'full_atlas';
+  //   const presetData = TRACKING_PRESETS[preset];
+  //   return {
+  //     name: presetData.name,
+  //     count: presetData.count,
+  //   };
+  // }, [profile?.tracking_preference]);
 
   // Build export text for country list
   const exportText = useMemo(() => {
@@ -520,11 +526,13 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           formattedEmail={formattedEmail}
           homeCountryDisplay={homeCountryDisplay}
           memberSince={memberSince}
-          trackingPreferenceDisplay={trackingPreferenceDisplay}
+          // LAUNCH_SIMPLIFICATION: Tracking preference hidden
+          // trackingPreferenceDisplay={trackingPreferenceDisplay}
           visitedCount={visitedCount}
           clipboardDetectionEnabled={clipboardDetectionEnabled}
           isSmallScreen={isSmallScreen}
-          onOpenTrackingModal={handleOpenTrackingModal}
+          // LAUNCH_SIMPLIFICATION: Tracking modal hidden
+          // onOpenTrackingModal={handleOpenTrackingModal}
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
           onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
@@ -537,12 +545,13 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         />
       </ScrollView>
 
-      <TrackingPreferenceModal
+      {/* LAUNCH_SIMPLIFICATION: Tracking preference modal hidden */}
+      {/* <TrackingPreferenceModal
         visible={trackingModalVisible}
         onClose={handleCloseTrackingModal}
         onSelect={handleSelectTrackingPreference}
         currentPreference={profile?.tracking_preference}
-      />
+      /> */}
 
       <ExportCountriesModal
         visible={exportModalVisible}
