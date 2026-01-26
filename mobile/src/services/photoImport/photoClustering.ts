@@ -435,9 +435,13 @@ export function photoToCachedPhoto(photo: PhotoWithLocation): CachedPhoto {
  * from the cache, avoiding recomputation.
  *
  * @param cachedPhotos - Photos loaded from cache
+ * @param idPrefix - Optional prefix for cluster IDs (e.g., trip timestamp) to ensure uniqueness across trips
  * @returns Location clusters with country codes already set
  */
-export function clusterFromCachedPhotos(cachedPhotos: CachedPhoto[]): LocationCluster[] {
+export function clusterFromCachedPhotos(
+  cachedPhotos: CachedPhoto[],
+  idPrefix?: string
+): LocationCluster[] {
   // Group by precomputed geohash
   const groups = new Map<string, CachedPhoto[]>();
 
@@ -459,8 +463,11 @@ export function clusterFromCachedPhotos(cachedPhotos: CachedPhoto[]): LocationCl
     // Use the country code from the first photo (all photos in cluster should have same country)
     const countryCode = clusterPhotos[0].countryCode ?? undefined;
 
+    // Use prefixed ID if provided to ensure uniqueness across trips
+    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+
     return {
-      id: hash,
+      id: clusterId,
       geohash: hash,
       centroid: { latitude: avgLat, longitude: avgLng },
       photos,

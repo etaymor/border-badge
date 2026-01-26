@@ -79,7 +79,12 @@ export interface PhotoImportWorkflowResult {
   cancelScan: () => void;
   selectCandidate: (candidate: TripCandidateDisplay) => void;
   selectTrip: (tripId: string, candidate?: TripCandidateDisplay) => Promise<void>;
-  handleConfirmPlace: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => Promise<void>;
+  handleConfirmPlace: (
+    suggestion: ClusterSuggestion,
+    place: PlaceSuggestion,
+    wasFromCache?: boolean,
+    additionalClusterIds?: string[]
+  ) => Promise<void>;
   handleRejectPlace: (suggestion: ClusterSuggestion) => void;
   handleHideCluster: (clusterId: string) => Promise<void>;
   handleHideMultipleClusters: (clusterIds: string[]) => Promise<void>;

@@ -379,6 +379,8 @@ export async function clearPhotoCache(): Promise<void> {
     await database.runAsync(
       "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
     );
+    // Clear last_candidate_* metadata keys to avoid stale selections
+    await database.runAsync("DELETE FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'");
   });
 }
 

@@ -84,7 +84,7 @@ function createMergedSuggestion(
     { suggestion: ClusterSuggestion; cluster: LocationClusterDisplay }
   >,
   clusterDisplays: Map<string, LocationClusterDisplay>
-): MergedSuggestion {
+): MergedSuggestion | null {
   const allPhotoIds: string[] = [];
   const allPreviewUris: string[] = [];
   let minStart: Date | null = null;
@@ -105,7 +105,11 @@ function createMergedSuggestion(
     }
   }
 
-  const primaryEntry = clusterSuggestionMap.get(clusterIds[0])!;
+  const primaryEntry = clusterSuggestionMap.get(clusterIds[0]);
+  if (!primaryEntry) {
+    console.error('[PhotoImport] Primary cluster not found in suggestion map:', clusterIds[0]);
+    return null;
+  }
 
   return {
     primaryClusterId: clusterIds[0],
@@ -340,7 +344,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           clusterSuggestionMap,
           clusterDisplays
         );
-        items.push({ type: 'merged-suggestion', data: mergedSuggestion });
+        if (mergedSuggestion) {
+          items.push({ type: 'merged-suggestion', data: mergedSuggestion });
+        }
       }
     }
 
