@@ -466,16 +466,21 @@ async def fetch_oembed(
     url: str,
     provider: SocialProvider,
     use_cache: bool = True,
+    is_profile: bool = False,
 ) -> OEmbedResponse | None:
     """Fetch oEmbed data for a URL with caching.
 
     Checks cache first, then calls the appropriate provider API,
     then falls back to OpenGraph if needed.
 
+    For Instagram profile URLs (is_profile=True), skips the oEmbed API
+    and goes directly to OpenGraph since oEmbed only works for posts.
+
     Args:
         url: The canonical URL
         provider: The detected social provider
         use_cache: Whether to use caching (default True)
+        is_profile: Whether this is a profile URL (default False)
 
     Returns:
         OEmbedResponse or None on failure
@@ -494,10 +499,15 @@ async def fetch_oembed(
     if provider == SocialProvider.TIKTOK:
         oembed = await fetch_tiktok_oembed(url)
     elif provider == SocialProvider.INSTAGRAM:
-        oembed = await fetch_instagram_oembed(url)
-        # Fall back to OpenGraph if Instagram oEmbed not configured or fails
-        if not oembed:
+        if is_profile:
+            # Profile URLs don't support oEmbed - go directly to OpenGraph
+            logger.debug(f"instagram_profile_fetch: url={url[:50]}")
             oembed = await fetch_opengraph_fallback(url)
+        else:
+            oembed = await fetch_instagram_oembed(url)
+            # Fall back to OpenGraph if Instagram oEmbed not configured or fails
+            if not oembed:
+                oembed = await fetch_opengraph_fallback(url)
 
     # Cache the result if successful
     if oembed and use_cache:

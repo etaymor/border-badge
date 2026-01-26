@@ -76,6 +76,15 @@ export function PhotoTripsScreen({ navigation }: Props) {
 
   const createTripMutation = useCreateTrip();
 
+  const handleBack = useCallback(() => {
+    const parent = navigation.getParent();
+    if (parent) {
+      parent.navigate('Trips', { screen: 'TripsList' });
+      return;
+    }
+    navigation.navigate('Trips', { screen: 'TripsList' });
+  }, [navigation]);
+
   // Search bar state
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const searchHeight = useSharedValue(0);
@@ -244,7 +253,7 @@ export function PhotoTripsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
-        <GlassBackButton onPress={() => navigation.goBack()} />
+        <GlassBackButton onPress={handleBack} />
         <Text style={styles.headerTitle}>Trips from Photos</Text>
         <GlassIconButton
           icon={isSearchExpanded ? 'close' : 'search'}

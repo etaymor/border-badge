@@ -6,6 +6,7 @@ candidate extraction, location hints, API calls, and scoring.
 
 import asyncio
 import logging
+import re as _re
 
 from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
@@ -250,6 +251,181 @@ async def extract_place(
             extra={
                 "event": "place_extraction",
                 "result": "timeout",
+                "timeout_seconds": PLACE_EXTRACTION_TIMEOUT,
+            },
+        )
+        return None
+
+
+# =============================================================================
+# Instagram Profile Place Extraction
+# =============================================================================
+
+# Patterns to clean from Instagram profile og:title
+_INSTAGRAM_PROFILE_TITLE_PATTERNS = [
+    # Pattern: "Business Name (@username)" or "Business Name (@username) "
+    (r"\s*\(@[\w.]+\)\s*$", ""),
+    # Pattern: "Business Name on Instagram"
+    (r"\s+on Instagram\s*$", ""),
+    # Pattern: "Business Name * Instagram photos and videos"
+    (r"\s*[•*]\s*Instagram photos and videos\s*$", ""),
+    # Pattern: "Business Name | Instagram"
+    (r"\s*\|\s*Instagram\s*$", ""),
+    # Pattern: "Instagram - Business Name" (less common, at start)
+    (r"^Instagram\s*[-–—]\s*", ""),
+]
+
+_COMPILED_PROFILE_PATTERNS = [
+    (_re.compile(pattern, _re.IGNORECASE), replacement)
+    for pattern, replacement in _INSTAGRAM_PROFILE_TITLE_PATTERNS
+]
+
+
+def clean_instagram_profile_name(og_title: str) -> str:
+    """Clean an Instagram profile og:title to extract the business name.
+
+    Removes common Instagram-specific suffixes and patterns:
+    - " (@username)" suffix
+    - " on Instagram" suffix
+    - " * Instagram photos and videos" suffix
+    - " | Instagram" suffix
+
+    Args:
+        og_title: The og:title from an Instagram profile page
+
+    Returns:
+        Cleaned business name
+
+    Examples:
+        "Commander's Palace (@commanderspalace)" -> "Commander's Palace"
+        "Joe's Cafe on Instagram" -> "Joe's Cafe"
+        "Cafe Central • Instagram photos and videos" -> "Cafe Central"
+    """
+    if not og_title:
+        return ""
+
+    result = og_title.strip()
+
+    for pattern, replacement in _COMPILED_PROFILE_PATTERNS:
+        result = pattern.sub(replacement, result)
+
+    return result.strip()
+
+
+async def extract_place_from_profile(
+    profile_name: str,
+    bio: str | None = None,
+) -> DetectedPlace | None:
+    """Extract a place from an Instagram business profile.
+
+    For business profiles (e.g., restaurant Instagram pages), the profile name
+    is the business name. This function searches Google Places using the
+    profile name directly, with optional location biasing from the bio.
+
+    Compared to extract_place(), this function:
+    - Uses the profile name as the primary search query (no candidate extraction)
+    - Gives higher base confidence since user explicitly shared a business profile
+    - Extracts location hints from bio for geographic biasing
+
+    Args:
+        profile_name: The cleaned business name from the profile
+        bio: Optional profile bio (may contain location hints like address)
+
+    Returns:
+        DetectedPlace if a matching business was found, None otherwise
+    """
+    if not profile_name:
+        logger.info(
+            "profile_place_extraction_skipped",
+            extra={
+                "event": "place_extraction",
+                "result": "no_profile_name",
+                "source": "profile",
+            },
+        )
+        return None
+
+    if not is_configured():
+        logger.debug("profile_place_extraction_skipped: google_places_not_configured")
+        return None
+
+    # Extract location hints from bio for geographic biasing
+    location_bias: LocationHint | None = None
+    if bio:
+        hints = extract_location_hints(bio)
+        if hints:
+            location_bias = hints[0]
+            logger.debug(
+                f"profile_place_extraction: bio_location_hint={location_bias.name}"
+            )
+
+    logger.info(
+        "profile_place_extraction_started",
+        extra={
+            "event": "place_extraction",
+            "source": "profile",
+            "profile_name_len": len(profile_name),
+            "has_bio": bool(bio),
+            "location_bias": location_bias.name if location_bias else None,
+        },
+    )
+
+    try:
+        detected = await asyncio.wait_for(
+            _try_candidate(profile_name, location_bias=location_bias),
+            timeout=PLACE_EXTRACTION_TIMEOUT,
+        )
+
+        if detected:
+            # Boost confidence for profile-based extraction
+            # Users intentionally shared a business profile, so matches are more likely correct
+            boosted_confidence = min(detected.confidence + 0.1, 1.0)
+            detected = DetectedPlace(
+                google_place_id=detected.google_place_id,
+                name=detected.name,
+                address=detected.address,
+                latitude=detected.latitude,
+                longitude=detected.longitude,
+                city=detected.city,
+                country=detected.country,
+                country_code=detected.country_code,
+                confidence=boosted_confidence,
+                primary_type=detected.primary_type,
+                types=detected.types,
+            )
+
+            logger.info(
+                "profile_place_extraction_success",
+                extra={
+                    "event": "place_extraction",
+                    "result": "found",
+                    "source": "profile",
+                    "profile_name": profile_name[:50],
+                    "place_name": detected.name[:50] if detected.name else None,
+                    "country_code": detected.country_code,
+                    "confidence": detected.confidence,
+                },
+            )
+        else:
+            logger.info(
+                "profile_place_extraction_no_match",
+                extra={
+                    "event": "place_extraction",
+                    "result": "no_match",
+                    "source": "profile",
+                    "profile_name": profile_name[:50],
+                },
+            )
+
+        return detected
+
+    except TimeoutError:
+        logger.warning(
+            "profile_place_extraction_timeout",
+            extra={
+                "event": "place_extraction",
+                "result": "timeout",
+                "source": "profile",
                 "timeout_seconds": PLACE_EXTRACTION_TIMEOUT,
             },
         )
