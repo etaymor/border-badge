@@ -5,6 +5,7 @@ candidate extraction, location hints, API calls, and scoring.
 """
 
 import asyncio
+import html
 import logging
 import re as _re
 
@@ -239,6 +240,12 @@ async def extract_place(
 
     Returns:
         DetectedPlace if a place was found, None otherwise
+
+    Note:
+        The timeout wrapper does not cancel underlying HTTP requests to Google
+        Places. This is acceptable because: (1) httpx has its own request timeouts,
+        (2) abandoned coroutines are garbage collected, and (3) this prevents
+        the caller from waiting indefinitely without needing explicit cancellation.
     """
     try:
         return await asyncio.wait_for(
@@ -304,11 +311,15 @@ def clean_instagram_profile_name(og_title: str) -> str:
     if not og_title:
         return ""
 
-    # Guard against malformed responses with excessive text (Instagram max bio is 2200 chars)
-    if len(og_title) > 2200:
-        og_title = og_title[:2200]
+    # Guard against malformed responses with excessive text.
+    # Instagram profile names are limited to 30 chars, but og:title includes
+    # additional text like " (@username) • Instagram photos and videos".
+    # 500 chars is more than sufficient for any valid og:title.
+    if len(og_title) > 500:
+        og_title = og_title[:500]
 
-    result = og_title.strip()
+    # Unescape HTML entities that may be present in og:title
+    result = html.unescape(og_title.strip())
 
     for pattern, replacement in _COMPILED_PROFILE_PATTERNS:
         result = pattern.sub(replacement, result)
