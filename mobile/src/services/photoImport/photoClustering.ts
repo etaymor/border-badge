@@ -28,9 +28,13 @@ const MAX_PREVIEW_URIS = 5; // Limit preview URIs stored per candidate/cluster
  * Group photos into location clusters using geohash.
  *
  * @param photos - Photos with location data
+ * @param idPrefix - Optional prefix for cluster IDs (e.g., trip timestamp) to ensure uniqueness across trips
  * @returns Location clusters grouped by geohash
  */
-export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[] {
+export function clusterByLocation(
+  photos: PhotoWithLocation[],
+  idPrefix?: string
+): LocationCluster[] {
   // Group by geohash
   const groups = new Map<string, PhotoWithLocation[]>();
 
@@ -55,8 +59,11 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
       (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
     );
 
+    // Use prefixed ID if provided to ensure uniqueness across trips
+    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+
     return {
-      id: hash,
+      id: clusterId,
       geohash: hash,
       centroid: { latitude: avgLat, longitude: avgLng },
       photos: clusterPhotos,
@@ -201,7 +208,10 @@ export function segmentTripsByTimeGap(
  */
 function createTripCandidate(countryCode: string, photos: PhotoWithLocation[]): TripCandidate {
   const sorted = photos.sort((a, b) => a.creationTime.getTime() - b.creationTime.getTime());
-  const locationClusters = clusterByLocation(photos);
+  // Use trip start timestamp as prefix to ensure cluster IDs are unique per trip
+  // This prevents cluster ID collisions when multiple trips visit the same location
+  const tripPrefix = `${sorted[0].creationTime.getTime()}`;
+  const locationClusters = clusterByLocation(photos, tripPrefix);
 
   return {
     id: `trip_${countryCode}_${sorted[0].creationTime.getTime()}`,

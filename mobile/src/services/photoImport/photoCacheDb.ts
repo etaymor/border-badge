@@ -437,6 +437,29 @@ export async function closeDb(): Promise<void> {
 }
 
 // =============================================================================
+// Last Selected Photo Trip Candidate (remembers user's photo trip choice per destination)
+// =============================================================================
+
+/**
+ * Get the last selected photo trip candidate ID for a destination trip.
+ * Returns null if no previous selection exists.
+ */
+export async function getLastSelectedCandidateId(tripId: string): Promise<string | null> {
+  return getMetadata(`last_candidate_${tripId}`);
+}
+
+/**
+ * Set the last selected photo trip candidate ID for a destination trip.
+ * Called when user switches between photo trips in the switcher sheet.
+ */
+export async function setLastSelectedCandidateId(
+  tripId: string,
+  candidateId: string
+): Promise<void> {
+  await setMetadata(`last_candidate_${tripId}`, candidateId);
+}
+
+// =============================================================================
 // Place Suggestions Cache (prevents redundant Google Places API calls)
 // =============================================================================
 

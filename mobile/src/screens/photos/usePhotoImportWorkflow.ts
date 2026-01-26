@@ -11,8 +11,10 @@ import {
   abortBackgroundSync,
   getAllCachedPhotos,
   getLastImportTime,
+  getLastSelectedCandidateId,
   getProcessedClusterIds,
   segmentTripsFromCache,
+  setLastSelectedCandidateId,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -213,6 +215,7 @@ export function usePhotoImportWorkflow({
     handleConfirmPlace: handleConfirmPlaceInternal,
     handleRejectPlace: handleRejectPlaceInternal,
     handleHideCluster: handleHideClusterInternal,
+    handleHideMultipleClusters: handleHideMultipleClustersInternal,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
@@ -256,6 +259,14 @@ export function usePhotoImportWorkflow({
     [handleHideClusterInternal]
   );
 
+  const handleHideMultipleClusters = useCallback(
+    async (clusterIds: string[]) => {
+      await handleHideMultipleClustersInternal(clusterIds);
+      workflowHiddenCountRef.current += clusterIds.length;
+    },
+    [handleHideMultipleClustersInternal]
+  );
+
   // ==========================================================================
   // Navigation Actions
   // ==========================================================================
@@ -276,6 +287,7 @@ export function usePhotoImportWorkflow({
    * Select a trip and proceed to suggestions phase.
    * Accepts optional candidate parameter to use when called in the same
    * render cycle as selectCandidate (avoids stale closure).
+   * Persists the candidate selection so it's remembered next time.
    */
   const selectTrip = useCallback(
     async (tripIdToSelect: string, candidate?: TripCandidateDisplay) => {
@@ -286,6 +298,12 @@ export function usePhotoImportWorkflow({
       }
       setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
+
+      // Persist the candidate selection for this destination trip
+      setLastSelectedCandidateId(tripIdToSelect, candidateToUse.id).catch(() => {
+        // Swallow persistence errors - not critical
+      });
+
       await fetchSuggestions(candidateToUse);
     },
     [fetchSuggestions, selectedCandidate]
@@ -303,6 +321,33 @@ export function usePhotoImportWorkflow({
     setPhase('trip-selection');
     suggestPlacesMutation.reset();
   }, [suggestPlacesMutation]);
+
+  /**
+   * Switch to a different photo trip candidate (for same country).
+   * Keeps the destination trip the same, just refetches suggestions for new candidate.
+   * Persists the selection so it's remembered next time.
+   */
+  const switchCandidate = useCallback(
+    async (newCandidate: TripCandidateDisplay) => {
+      if (!selectedTripId) return;
+
+      // Reset existing suggestions (both API mutation and cached)
+      suggestPlacesMutation.reset();
+      clearFetchedCache();
+
+      // Update selected candidate
+      setSelectedCandidate(newCandidate);
+
+      // Persist the selection for this destination trip
+      setLastSelectedCandidateId(selectedTripId, newCandidate.id).catch(() => {
+        // Swallow persistence errors - not critical
+      });
+
+      // Fetch suggestions for new candidate
+      await fetchSuggestions(newCandidate);
+    },
+    [selectedTripId, suggestPlacesMutation, clearFetchedCache, fetchSuggestions]
+  );
 
   // ==========================================================================
   // Auto-start effect
@@ -353,8 +398,17 @@ export function usePhotoImportWorkflow({
 
           // If tripId is provided with skipToSuggestions, go directly to suggestions phase
           if (tripId) {
-            // Use first candidate (we're already filtered to the country)
-            const candidate = candidates[0];
+            // Check for a previously selected candidate for this destination trip
+            const lastCandidateId = await getLastSelectedCandidateId(tripId);
+            let candidate = candidates[0]; // Default to first
+
+            if (lastCandidateId) {
+              const rememberedCandidate = candidates.find((c) => c.id === lastCandidateId);
+              if (rememberedCandidate) {
+                candidate = rememberedCandidate;
+              }
+            }
+
             setSelectedCandidate(candidate);
             setSelectedTripId(tripId);
             setPhase('suggestions');
@@ -537,11 +591,13 @@ export function usePhotoImportWorkflow({
     handleConfirmPlace,
     handleRejectPlace,
     handleHideCluster,
+    handleHideMultipleClusters,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
     backToTripSelection,
+    switchCandidate,
     closeManualSearch,
     cancelUpload,
   };

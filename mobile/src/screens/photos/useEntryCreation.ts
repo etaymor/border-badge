@@ -57,9 +57,15 @@ export function useEntryCreation({
   /**
    * Confirm a place suggestion and create an entry.
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
+   * @param additionalClusterIds - Additional cluster IDs to mark as processed (for merged suggestions)
    */
   const handleConfirmPlace = useCallback(
-    async (suggestion: ClusterSuggestion, place: PlaceSuggestion, wasFromCache = false) => {
+    async (
+      suggestion: ClusterSuggestion,
+      place: PlaceSuggestion,
+      wasFromCache = false,
+      additionalClusterIds: string[] = []
+    ) => {
       if (__DEV__) {
         console.log('[EntryCreation] handleConfirmPlace called:', {
           clusterId: suggestion.cluster_id,
@@ -137,6 +143,12 @@ export function useEntryCreation({
         setDismissedClusterIds((prev) => new Set(prev).add(suggestion.cluster_id));
         await markClusterProcessed(suggestion.cluster_id, 'confirmed');
 
+        // Also mark additional cluster IDs as processed (for merged suggestions)
+        for (const additionalId of additionalClusterIds) {
+          setDismissedClusterIds((prev) => new Set(prev).add(additionalId));
+          await markClusterProcessed(additionalId, 'confirmed');
+        }
+
         // Show alert if some photos failed to upload
         if (failedCount > 0) {
           Alert.alert(
@@ -204,6 +216,20 @@ export function useEntryCreation({
       Analytics.photoImportClusterHidden();
       setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
       await markClusterProcessed(clusterId, 'hidden');
+    },
+    [setDismissedClusterIds]
+  );
+
+  /**
+   * Hide multiple clusters without creating entries (for merged suggestions).
+   */
+  const handleHideMultipleClusters = useCallback(
+    async (clusterIds: string[]) => {
+      for (const clusterId of clusterIds) {
+        Analytics.photoImportClusterHidden();
+        setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
+        await markClusterProcessed(clusterId, 'hidden');
+      }
     },
     [setDismissedClusterIds]
   );
@@ -382,6 +408,7 @@ export function useEntryCreation({
     handleConfirmPlace,
     handleRejectPlace,
     handleHideCluster,
+    handleHideMultipleClusters,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,

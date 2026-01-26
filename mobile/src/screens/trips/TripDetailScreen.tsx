@@ -33,8 +33,7 @@ import { EntryWithPlace, useInfiniteEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
-import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
-import type { NavigationProp } from '@react-navigation/native';
+import type { TripsStackScreenProps } from '@navigation/types';
 import { useSettingsStore } from '@stores/settingsStore';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
@@ -134,15 +133,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [tripId, trip?.name, navigation, lists]);
 
   const handleImportPhotos = useCallback(() => {
-    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
-    if (parentNav) {
-      parentNav.navigate('PhotoImport', {
-        countryCode: trip?.country_code,
-        tripId,
-        autoStart: true,
-        skipToSuggestions: hasPhotos && hasInitialImport,
-      });
-    }
+    // PhotoImport is now in TripsNavigator, so navigate directly
+    navigation.navigate('PhotoImport', {
+      countryCode: trip?.country_code,
+      tripId,
+      autoStart: true,
+      skipToSuggestions: hasPhotos && hasInitialImport,
+    });
   }, [navigation, trip?.country_code, tripId, hasPhotos, hasInitialImport]);
 
   const handleEntryPress = useCallback(
