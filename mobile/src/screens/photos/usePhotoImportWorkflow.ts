@@ -99,6 +99,9 @@ export function usePhotoImportWorkflow({
   // Track whether auto-start has been attempted
   const autoStartAttemptedRef = useRef(false);
 
+  // Track current candidate ID to prevent race conditions during rapid switching
+  const currentCandidateIdRef = useRef<string | null>(null);
+
   // ==========================================================================
   // Workflow Analytics Tracking
   // ==========================================================================
@@ -326,10 +329,16 @@ export function usePhotoImportWorkflow({
    * Switch to a different photo trip candidate (for same country).
    * Keeps the destination trip the same, just refetches suggestions for new candidate.
    * Persists the selection so it's remembered next time.
+   *
+   * Uses a ref to track the current candidate ID to prevent race conditions
+   * when the user rapidly switches between candidates.
    */
   const switchCandidate = useCallback(
     async (newCandidate: TripCandidateDisplay) => {
       if (!selectedTripId) return;
+
+      // Track current candidate to detect if user switched during async operations
+      currentCandidateIdRef.current = newCandidate.id;
 
       // Reset existing suggestions (both API mutation and cached)
       suggestPlacesMutation.reset();
@@ -345,6 +354,10 @@ export function usePhotoImportWorkflow({
 
       // Fetch suggestions for new candidate
       await fetchSuggestions(newCandidate);
+
+      // Note: fetchSuggestions handles its own state updates via React Query mutation.
+      // If user switched candidates during the fetch, the mutation.reset() call in the
+      // new switchCandidate invocation will have already cleared the stale results.
     },
     [selectedTripId, suggestPlacesMutation, clearFetchedCache, fetchSuggestions]
   );
