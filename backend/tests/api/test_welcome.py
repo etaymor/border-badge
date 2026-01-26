@@ -171,8 +171,8 @@ class TestTriggerWelcomeEmails:
 
             assert response.status_code == 200
             mock_schedule.assert_called_once()
-            # Second arg should be display_name
-            assert mock_schedule.call_args[0][1] == "Alice"
+            # Check display_name keyword argument
+            assert mock_schedule.call_args.kwargs["display_name"] == "Alice"
             app.dependency_overrides.clear()
 
     def test_uses_fallback_display_name(
@@ -204,7 +204,7 @@ class TestTriggerWelcomeEmails:
             )
 
             assert response.status_code == 200
-            assert mock_schedule.call_args[0][1] == "there"
+            assert mock_schedule.call_args.kwargs["display_name"] == "there"
             app.dependency_overrides.clear()
 
     def test_uses_fallback_for_null_display_name(
@@ -236,7 +236,7 @@ class TestTriggerWelcomeEmails:
             )
 
             assert response.status_code == 200
-            assert mock_schedule.call_args[0][1] == "there"
+            assert mock_schedule.call_args.kwargs["display_name"] == "there"
             app.dependency_overrides.clear()
 
     def test_sanitizes_display_name_newlines(
@@ -269,7 +269,7 @@ class TestTriggerWelcomeEmails:
 
             assert response.status_code == 200
             # Newlines should be stripped
-            assert mock_schedule.call_args[0][1] == "EvilNameHere"
+            assert mock_schedule.call_args.kwargs["display_name"] == "EvilNameHere"
             app.dependency_overrides.clear()
 
     def test_strips_whitespace_from_display_name(
@@ -301,7 +301,7 @@ class TestTriggerWelcomeEmails:
             )
 
             assert response.status_code == 200
-            assert mock_schedule.call_args[0][1] == "Alice"
+            assert mock_schedule.call_args.kwargs["display_name"] == "Alice"
             app.dependency_overrides.clear()
 
     def test_rejects_too_long_display_name(
@@ -358,8 +358,8 @@ class TestTriggerWelcomeEmails:
             )
 
             assert response.status_code == 200
-            # First arg is email
-            assert mock_schedule.call_args[0][0] == mock_user.email
+            # Check email keyword argument
+            assert mock_schedule.call_args.kwargs["email"] == mock_user.email
             app.dependency_overrides.clear()
 
     def test_marks_profile_as_scheduled(
