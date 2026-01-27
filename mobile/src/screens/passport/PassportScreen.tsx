@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Animated, FlatList, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { useQueryClient } from '@tanstack/react-query';
 
 import {
   CountryRow,
@@ -27,8 +26,6 @@ import type { CountryDisplayItem, ListItem, UnvisitedCountry } from './passportT
 type Props = PassportStackScreenProps<'PassportHome'>;
 
 export function PassportScreen({ navigation }: Props) {
-  const queryClient = useQueryClient();
-
   // Data hook
   const data = usePassportData();
   const {
@@ -133,10 +130,8 @@ export function PassportScreen({ navigation }: Props) {
 
   const handlePassportShare = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Refresh user countries to ensure stamps shown are up-to-date
-    queryClient.invalidateQueries({ queryKey: ['user-countries'] });
     setPassportShareVisible(true);
-  }, [queryClient]);
+  }, []);
 
   const handlePassportShareDismiss = useCallback(() => {
     setPassportShareVisible(false);
