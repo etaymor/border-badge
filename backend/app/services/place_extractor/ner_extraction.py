@@ -18,6 +18,13 @@ _nlp: Language | None = None
 # Dedicated thread pool for CPU-intensive NER (not shared with I/O)
 _ner_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ner")
 
+
+def shutdown_executor() -> None:
+    """Shut down the NER thread pool executor gracefully."""
+    _ner_executor.shutdown(wait=True)
+    logger.info("NER thread pool executor shut down")
+
+
 PLACE_LABELS = frozenset({"FAC", "LOC", "GPE", "ORG"})
 
 # Module-level constant (avoid dict recreation per call)
@@ -49,7 +56,7 @@ _TYPE_KEYWORDS: dict[str, list[str]] = {
     "park": ["park", "garden", "botanical"],
 }
 
-# Pre-compile word boundary patterns to avoid "Bar Harbor" → bar false positives
+# Pre-compile word-boundary patterns for type inference
 _TYPE_PATTERNS: dict[str, re.Pattern[str]] = {
     place_type: re.compile(
         r"\b(?:" + "|".join(re.escape(kw) for kw in keywords) + r")\b",
@@ -57,6 +64,11 @@ _TYPE_PATTERNS: dict[str, re.Pattern[str]] = {
     )
     for place_type, keywords in _TYPE_KEYWORDS.items()
 }
+
+# Short keywords (e.g. "bar") that cause false positives like "Bar Harbor"
+# must appear at the start of the entity name to count.
+# "bar" is ambiguous (e.g. "Bar Harbor") — only match at start of entity
+_SHORT_KEYWORDS = {"bar"}
 
 
 @dataclass(frozen=True)
@@ -96,7 +108,8 @@ async def extract_ner_entities(text: str) -> list[NEREntity]:
 
 def _extract_sync(text: str) -> list[NEREntity]:
     """Synchronous NER extraction (runs in thread pool)."""
-    assert _nlp is not None
+    if _nlp is None:
+        raise RuntimeError("spaCy model not loaded — call load_model() first")
     doc = _nlp(text)
     entities = []
     for ent in doc.ents:
@@ -120,7 +133,12 @@ def _infer_place_type(text: str, label: str) -> str | None:
     if len(text) > 100:
         text = text[:100]
     for place_type, pattern in _TYPE_PATTERNS.items():
-        if pattern.search(text):
+        match = pattern.search(text)
+        if match:
+            matched_word = match.group(0).lower()
+            # Short ambiguous words (e.g. "bar") only count at position 0
+            if matched_word in _SHORT_KEYWORDS and match.start() != 0:
+                continue
             return place_type
     if label == "FAC":
         return "tourist_attraction"

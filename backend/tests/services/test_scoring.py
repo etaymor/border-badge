@@ -234,13 +234,13 @@ class TestScorePlaceResult:
         assert score == 0.5 + 0.25
 
     def test_country_mismatch_penalty(self):
-        """Mismatching country applies -0.15 penalty (reduced from -0.5)."""
+        """Mismatching country applies -0.25 penalty."""
         place = _make_place(confidence=0.8, country_code="SD")
         bias = LocationHint(
             name="Oman", country_code="OM", latitude=23.6, longitude=58.5
         )
         score = score_place_result(place, location_bias=bias, candidate_idx=0)
-        assert score == 0.8 - 0.15
+        assert score == 0.8 - 0.25
 
     def test_country_mismatch_doesnt_kill_strong_match(self):
         """A high-confidence match should survive country mismatch."""

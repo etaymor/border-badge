@@ -21,7 +21,6 @@ Package Structure:
 """
 
 from app.services.place_extractor.candidate_extraction import (
-    LOCATION_INDICATORS,
     extract_place_candidates,
 )
 from app.services.place_extractor.data import COUNTRIES, MAJOR_CITIES
@@ -31,7 +30,6 @@ from app.services.place_extractor.extractor import (
     extract_place_from_profile,
 )
 from app.services.place_extractor.google_places_client import (
-    get_place_details,
     is_configured,
     search_places,
 )
@@ -41,10 +39,8 @@ from app.services.place_extractor.location_hints import (
     filter_conflicting_hints,
 )
 from app.services.place_extractor.scoring import (
-    HIGH_CONFIDENCE_THRESHOLD,
     HIGH_VALUE_PLACE_TYPES,
     LOW_VALUE_PLACE_TYPES,
-    MEDIUM_CONFIDENCE_THRESHOLD,
     calculate_confidence,
     score_place_result,
 )
@@ -67,19 +63,15 @@ __all__ = [
     "LocationHint",
     # Candidate extraction
     "extract_place_candidates",
-    "LOCATION_INDICATORS",
     # Location hints
     "extract_location_hints",
     "filter_conflicting_hints",
     # Google Places client
     "search_places",
-    "get_place_details",
     "is_configured",
     # Scoring
     "calculate_confidence",
     "score_place_result",
-    "HIGH_CONFIDENCE_THRESHOLD",
-    "MEDIUM_CONFIDENCE_THRESHOLD",
     "HIGH_VALUE_PLACE_TYPES",
     "LOW_VALUE_PLACE_TYPES",
     # Text utilities

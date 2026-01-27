@@ -166,10 +166,6 @@ def _normalized_words(text: str) -> set[str]:
     return words - STOPWORDS
 
 
-# Confidence thresholds
-HIGH_CONFIDENCE_THRESHOLD: float = 0.8
-MEDIUM_CONFIDENCE_THRESHOLD: float = 0.5
-
 # Place types that are often false matches (e.g., tour agencies matching place names)
 LOW_VALUE_PLACE_TYPES = {
     "travel_agency",
@@ -290,7 +286,7 @@ def score_place_result(
         if place.country_code == location_bias.country_code:
             score += 0.25  # Boost for matching expected country
         else:
-            score -= 0.15  # Moderate penalty — don't override strong text matches
+            score -= 0.25  # Moderate penalty — don't override strong text matches
 
     # Penalize low-value place types (tour agencies, etc.)
     if place.primary_type and place.primary_type in LOW_VALUE_PLACE_TYPES:

@@ -23,6 +23,9 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
 from app.db.session import close_http_client
+from app.services.place_extractor.google_places_client import (
+    close_http_client as close_places_http_client,
+)
 
 # ContextVar for accessing request in rate limit functions
 _request_ctx_var: ContextVar[Request | None] = ContextVar(
@@ -117,12 +120,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, load_ner_model)
-    except Exception:
-        logger.error("spaCy model failed to load — NER extraction disabled")
+    except ImportError as e:
+        logger.warning(f"spaCy not installed: {e} — NER disabled")
+    except Exception as e:
+        logger.error(f"spaCy model load failed: {e} — NER disabled", exc_info=True)
 
     yield
-    # Shutdown - close shared HTTP client
+    # Shutdown - close shared HTTP clients
     await close_http_client()
+    await close_places_http_client()
+
+    # Shutdown NER thread pool executor
+    from app.services.place_extractor.ner_extraction import shutdown_executor
+
+    shutdown_executor()
 
 
 def generate_csp_nonce() -> str:
