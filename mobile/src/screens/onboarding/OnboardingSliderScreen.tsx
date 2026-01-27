@@ -25,21 +25,18 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 const SLIDES = [
   {
     id: '1',
-    video: require('../../../assets/country-images/wonders-world/gardens-babylon.mp4'),
+    video: require('../../../assets/onboarding-videos/onboarding1-share.mp4'),
     text: 'Stamp your passport for every country you visit.',
-    showCTA: false,
   },
   {
     id: '2',
-    video: require('../../../assets/country-images/wonders-world/lighthouse-alexandria.mp4'),
+    video: require('../../../assets/onboarding-videos/onboarding2-country-track.mp4'),
     text: 'Save your favorite spots. Remember the magic.',
-    showCTA: false,
   },
   {
     id: '3',
-    video: require('../../../assets/country-images/wonders-world/mausoleum-halicarnassus.mp4'),
+    video: require('../../../assets/onboarding-videos/onboarding3-trips.mp4'),
     text: 'Share lists. Swap recs. Inspire your friends.',
-    showCTA: true,
   },
 ];
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -48,18 +45,101 @@ interface Slide {
   id: string;
   video: number;
   text: string;
-  showCTA: boolean;
+}
+
+// Video dimensions from screen recordings
+const VIDEO_WIDTH = 820;
+const VIDEO_HEIGHT = 1280;
+
+// Responsive layout configuration per screen size
+interface LayoutConfig {
+  framePadding: number;
+  textMarginTop: number;
+  textPaddingHorizontal: number;
+  paginationMarginTop: number;
+  reservedHeight: number;
+  borderRadius: number;
+  videoBorderRadius: number;
+}
+
+const LAYOUT_CONFIGS: Record<'small' | 'medium' | 'large', Omit<LayoutConfig, 'reservedHeight'>> = {
+  small: {
+    framePadding: 8,
+    textMarginTop: 12,
+    textPaddingHorizontal: 24,
+    paginationMarginTop: 8,
+    borderRadius: 12,
+    videoBorderRadius: 8,
+  },
+  medium: {
+    framePadding: 10,
+    textMarginTop: 16,
+    textPaddingHorizontal: 32,
+    paginationMarginTop: 12,
+    borderRadius: 16,
+    videoBorderRadius: 12,
+  },
+  large: {
+    framePadding: 10,
+    textMarginTop: 20,
+    textPaddingHorizontal: 40,
+    paginationMarginTop: 14,
+    borderRadius: 16,
+    videoBorderRadius: 12,
+  },
+};
+
+function getLayoutConfig(
+  screenSize: 'small' | 'medium' | 'large',
+  screenWidth: number,
+  screenHeight: number
+) {
+  const config = LAYOUT_CONFIGS[screenSize];
+
+  // Reserve space for: header (~52), text (~80), pagination (~30), bottom button area (~100)
+  const reservedHeight = screenSize === 'small' ? 270 : screenSize === 'medium' ? 260 : 250;
+
+  // Available height for the video frame
+  const availableHeight = screenHeight - reservedHeight;
+
+  // Derive frame dimensions from available height, maintaining video aspect ratio
+  // Video is 820x1080, so width = height * (820/1080)
+  const frameHeight = availableHeight;
+  let frameWidth = frameHeight * (VIDEO_WIDTH / VIDEO_HEIGHT);
+
+  // Clamp frame width so it doesn't exceed screen width minus minimum margins
+  const maxFrameWidth = screenWidth - 40;
+  if (frameWidth > maxFrameWidth) {
+    frameWidth = maxFrameWidth;
+  }
+
+  // Video fills the frame minus padding
+  const videoWidth = frameWidth - config.framePadding * 2;
+  const videoHeight = frameHeight - config.framePadding * 2;
+
+  return {
+    ...config,
+    reservedHeight,
+    videoWidth,
+    videoHeight,
+    frameWidth,
+    frameHeight,
+  };
 }
 
 type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 
 export function OnboardingSliderScreen({ navigation }: Props) {
-  const { screenWidth, screenHeight, isSmallScreen } = useResponsive();
+  const { screenWidth, screenHeight, screenSize } = useResponsive();
 
-  // Responsive dimensions for layout
-  const postcardWidth = screenWidth - (isSmallScreen ? 100 : 80);
-  const postcardHeight = postcardWidth * (isSmallScreen ? 1.0 : 1.1);
-  const slideHeight = screenHeight - (isSmallScreen ? 180 : 220);
+  // Get responsive layout configuration
+  const layout = useMemo(
+    () => getLayoutConfig(screenSize, screenWidth, screenHeight),
+    [screenSize, screenWidth, screenHeight]
+  );
+
+  // Slide height: full screen minus header and bottom button area
+  const slideHeight = screenHeight - 160;
 
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
@@ -146,33 +226,42 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       testID={`carousel-slide-${item.id}`}
     >
       <View style={styles.slideContent}>
-        {/* Postcard frame container */}
+        {/* Video frame - simplified, no shadow layer */}
         <View
           style={[
-            styles.postcardContainer,
-            { width: postcardWidth + 16, height: postcardHeight + 16 },
+            styles.videoFrame,
+            {
+              width: layout.frameWidth,
+              height: layout.frameHeight,
+              padding: layout.framePadding,
+              borderRadius: layout.borderRadius,
+            },
           ]}
         >
-          {/* Shadow layer behind for stacked effect */}
-          <View style={[styles.postcardShadow, { width: postcardWidth, height: postcardHeight }]} />
-          {/* Main postcard frame */}
-          <View style={[styles.postcardFrame, { width: postcardWidth, height: postcardHeight }]}>
-            <VideoView
-              player={players[index]}
-              style={styles.video}
-              contentFit="cover"
-              nativeControls={false}
-            />
-          </View>
+          <VideoView
+            player={players[index]}
+            style={[styles.video, { borderRadius: layout.videoBorderRadius }]}
+            contentFit="contain"
+            nativeControls={false}
+          />
         </View>
 
-        {/* Text below postcard - Text component handles responsive sizing */}
-        <Text variant="title" style={styles.slideText}>
+        {/* Text below video */}
+        <Text
+          variant="title"
+          style={[
+            styles.slideText,
+            {
+              marginTop: layout.textMarginTop,
+              paddingHorizontal: layout.textPaddingHorizontal,
+            },
+          ]}
+        >
           {item.text}
         </Text>
 
-        {/* Pagination dots - inside slide content */}
-        <View style={styles.pagination}>
+        {/* Pagination dots */}
+        <View style={[styles.pagination, { marginTop: layout.paginationMarginTop }]}>
           {SLIDES.map((_, dotIndex) => (
             <View
               key={dotIndex}
@@ -273,43 +362,25 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   slideContent: {
+    flex: 1,
     alignItems: 'center',
-    paddingTop: 8,
+    justifyContent: 'center',
   },
-  postcardContainer: {
-    position: 'relative',
-  },
-  postcardShadow: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: colors.stormGray,
-    borderRadius: 16,
-    opacity: 0.3,
-  },
-  postcardFrame: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
+  videoFrame: {
     backgroundColor: colors.paperBeige,
-    borderRadius: 16,
-    padding: 12,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
   },
   video: {
     flex: 1,
-    borderRadius: 8,
     overflow: 'hidden',
   },
   slideText: {
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginTop: 16,
-    paddingHorizontal: 32,
   },
   bottomSection: {
     position: 'absolute',
@@ -325,7 +396,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
     gap: 8,
   },
   dot: {

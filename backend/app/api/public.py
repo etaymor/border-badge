@@ -5,6 +5,7 @@ import html
 import logging
 import re
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -453,7 +454,7 @@ UNSUBSCRIBE_ERROR_CODES = {"invalid_token", "server_error"}
 @limiter.limit("30/minute")
 async def unsubscribe_email(
     request: Request,
-    token: str = Path(..., min_length=36, max_length=36),
+    token: UUID = Path(..., description="Unsubscribe token (UUID format)"),
 ) -> HTMLResponse:
     """Handle email unsubscribe via token.
 
