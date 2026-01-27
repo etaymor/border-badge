@@ -26,6 +26,7 @@ from app.db.session import close_http_client
 from app.services.place_extractor.google_places_client import (
     close_http_client as close_places_http_client,
 )
+from app.services.place_extractor.ner_extraction import is_loaded as ner_is_loaded
 
 # ContextVar for accessing request in rate limit functions
 _request_ctx_var: ContextVar[Request | None] = ContextVar(
@@ -244,8 +245,6 @@ async def health_check() -> dict[str, str]:
 
     Returns a simple status to verify the API is running.
     """
-    from app.services.place_extractor.ner_extraction import is_loaded as ner_is_loaded
-
     return {"status": "ok", "ner": "loaded" if ner_is_loaded() else "unavailable"}
 
 

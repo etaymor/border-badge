@@ -16,13 +16,21 @@ logger = logging.getLogger(__name__)
 _nlp: Language | None = None
 
 # Dedicated thread pool for CPU-intensive NER (not shared with I/O)
-_ner_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ner")
+_ner_executor: ThreadPoolExecutor | None = None
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    global _ner_executor
+    if _ner_executor is None:
+        _ner_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ner")
+    return _ner_executor
 
 
 def shutdown_executor() -> None:
     """Shut down the NER thread pool executor gracefully."""
-    _ner_executor.shutdown(wait=True)
-    logger.info("NER thread pool executor shut down")
+    if _ner_executor is not None:
+        _ner_executor.shutdown(wait=True)
+        logger.info("NER thread pool executor shut down")
 
 
 PLACE_LABELS = frozenset({"FAC", "LOC", "GPE", "ORG"})
@@ -103,7 +111,7 @@ async def extract_ner_entities(text: str) -> list[NEREntity]:
         return []
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_ner_executor, _extract_sync, text[:2000])
+    return await loop.run_in_executor(_get_executor(), _extract_sync, text[:2000])
 
 
 def _extract_sync(text: str) -> list[NEREntity]:
@@ -136,9 +144,14 @@ def _infer_place_type(text: str, label: str) -> str | None:
         match = pattern.search(text)
         if match:
             matched_word = match.group(0).lower()
-            # Short ambiguous words (e.g. "bar") only count at position 0
-            if matched_word in _SHORT_KEYWORDS and match.start() != 0:
-                continue
+            # Short ambiguous words (e.g. "bar") require position 0 AND
+            # must not be followed by another capitalized word (proper noun)
+            if matched_word in _SHORT_KEYWORDS:
+                if match.start() != 0:
+                    continue
+                rest = text[match.end() :].lstrip()
+                if rest and rest[0].isupper():
+                    continue
             return place_type
     if label == "FAC":
         return "tourist_attraction"
