@@ -53,15 +53,13 @@ class TestInferPlaceType:
         assert _infer_place_type("Mount Everest", "LOC") is None
 
     def test_bar_harbor_not_bar(self) -> None:
-        """'Bar Harbor' should NOT match 'bar' — word boundary check."""
-        # "Bar" is a standalone word here, but "Bar Harbor" as a whole
-        # actually does contain the word "bar" at a word boundary.
-        # This IS expected to match since "bar" appears as a full word.
-        # The word boundary protection is for cases like "Barista" not matching "bar".
+        """'Bar Harbor' should NOT match 'bar' — proper noun detection."""
         result = _infer_place_type("Bar Harbor", "GPE")
-        # "Bar" at word boundary WILL match — this is correct behavior.
-        # The protection is against substring matches like "Barcel" → "bar".
-        assert result == "bar"
+        assert result is None
+
+    def test_bar_standalone_still_matches(self) -> None:
+        """A standalone 'bar' at position 0 without a following proper noun matches."""
+        assert _infer_place_type("bar on main street", "ORG") == "bar"
 
     def test_barista_not_bar(self) -> None:
         """'Barista' should NOT match 'bar' — no word boundary."""

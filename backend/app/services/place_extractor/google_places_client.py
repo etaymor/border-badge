@@ -15,6 +15,9 @@ from app.services.place_extractor.location_hints import LocationHint
 
 logger = logging.getLogger(__name__)
 
+# API timeouts
+API_TIMEOUT_SECONDS = 5.0
+
 # Module-level shared httpx client for connection pooling
 _http_client: httpx.AsyncClient | None = None
 _http_client_lock = asyncio.Lock()
@@ -46,9 +49,6 @@ async def close_http_client() -> None:
 # Google Places API endpoints (New API v1)
 PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
 PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
-
-# API timeouts
-API_TIMEOUT_SECONDS = 5.0
 
 
 def is_configured() -> bool:
