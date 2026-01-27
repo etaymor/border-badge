@@ -79,3 +79,7 @@ coverage/
 
 # Claude Code local config
 .claude/
+
+# Task/plan documentation (local only)
+docs/plans/
+todos/

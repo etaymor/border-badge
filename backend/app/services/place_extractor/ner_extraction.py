@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -17,12 +18,15 @@ _nlp: Language | None = None
 
 # Dedicated thread pool for CPU-intensive NER (not shared with I/O)
 _ner_executor: ThreadPoolExecutor | None = None
+_ner_executor_lock = threading.Lock()
 
 
 def _get_executor() -> ThreadPoolExecutor:
     global _ner_executor
     if _ner_executor is None:
-        _ner_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ner")
+        with _ner_executor_lock:
+            if _ner_executor is None:
+                _ner_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ner")
     return _ner_executor
 
 

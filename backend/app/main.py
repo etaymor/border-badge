@@ -111,7 +111,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Set this env var or disable the feature."
         )
 
-    # Load spaCy NER model in thread pool (CPU-intensive, ~1-3s)
+    # Load spaCy NER model in thread pool (CPU-intensive, ~1-3s).
+    # Uses default executor — dedicated NER executor isn't created until first request.
     try:
         import asyncio
 
@@ -128,6 +129,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.env == "production":
             raise RuntimeError(f"spaCy model required in production: {e}") from e
         logger.error(f"spaCy model load failed: {e} — NER disabled", exc_info=True)
+    except Exception as e:
+        logger.error(f"Unexpected error loading spaCy: {e}", exc_info=True)
+        if settings.env == "production":
+            raise
 
     yield
     # Shutdown - close shared HTTP clients
