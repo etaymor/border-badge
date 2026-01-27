@@ -356,11 +356,12 @@ def extract_landmark_patterns(text: str) -> list[str]:
     if len(text) > MAX_TEXT_LENGTH:
         text = text[:MAX_TEXT_LENGTH]
 
-    # Pattern: ProperNoun(s) + landmark_type (case-insensitive for landmark type)
+    # Pattern: ProperNoun(s) + landmark_type (case-insensitive only for landmark type)
+    # The [A-Z] must remain case-sensitive to require a capital letter at the start
     pattern = (
-        r"([A-Z][A-Za-z''\-]+(?:\s+[A-Za-z''\-]+)*\s+" + LANDMARK_TYPES_PATTERN + r")"
+        r"([A-Z][A-Za-z''\-]+(?:\s+[A-Za-z''\-]+)*\s+(?i:" + LANDMARK_TYPES_PATTERN + r"))"
     )
-    matches = re.findall(pattern, text, re.IGNORECASE)
+    matches = re.findall(pattern, text)
 
     # Articles to exclude - these are handled by extract_the_landmark_pattern
     articles = {"the", "a", "an", "this", "that"}

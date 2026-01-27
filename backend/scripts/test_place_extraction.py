@@ -24,7 +24,7 @@ from app.services.place_extractor.extractor import (
 from app.services.place_extractor.location_hints import extract_location_hints
 from app.services.place_extractor.scoring import score_place_result
 
-TEST_URLS = [
+TEST_URLS: list[tuple[str, str]] = [
     # Temple of Poseidon - mentioned multiple times in caption
     ("Temple of Poseidon", "https://www.instagram.com/reel/DM7qu6BNxey/"),
     # Karnak temple - clearly stated
@@ -113,7 +113,7 @@ async def test_url(expected: str, url: str) -> None:
         print("\n❌ NO PLACE DETECTED")
 
 
-async def main():
+async def main() -> None:
     print("Testing Place Extraction with Updated Patterns")
     print("=" * 80)
 
