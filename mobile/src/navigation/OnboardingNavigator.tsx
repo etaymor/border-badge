@@ -12,7 +12,8 @@ import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScre
 // LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
 // import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
-import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
+// LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries)
+// import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
 import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
 import {
   SlideWithScalePreset,
@@ -73,8 +74,8 @@ export function OnboardingNavigator() {
         options={SlideWithLeadPreset}
       />
 
-      {/* TrackingPreference: Default onboarding slide */}
-      <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} />
+      {/* LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries) */}
+      {/* <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} /> */}
 
       {/* DreamDestination: Default onboarding slide */}
       <Stack.Screen name="DreamDestination" component={DreamDestinationScreen} />

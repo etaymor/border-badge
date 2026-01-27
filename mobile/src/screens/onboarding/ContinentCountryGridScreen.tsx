@@ -227,7 +227,7 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<TextInput>(null);
 
-  // Dismiss keyboard and close search when navigating away
+  // Dismiss keyboard, close search, and hide tooltip when navigating away
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       Keyboard.dismiss();
@@ -236,6 +236,9 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       Keyboard.dismiss();
       setSearchVisible(false);
       setSearchQuery('');
+      // Hide tooltip when screen loses focus to prevent it from appearing
+      // over other screens (Modal renders at root level)
+      setShowTooltip(false);
     });
     return () => {
       unsubscribeFocus();

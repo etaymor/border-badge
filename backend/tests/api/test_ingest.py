@@ -450,3 +450,165 @@ class TestSaveToTrip:
                     assert data["place"] is None
         finally:
             app.dependency_overrides.clear()
+
+
+class TestIngestInstagramProfile:
+    """Tests for ingesting Instagram profile URLs."""
+
+    def test_ingests_instagram_profile_url(self, client, auth_override):
+        """Test that Instagram profile URLs are processed correctly."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Commander's Palace (@commanderspalace)",
+            thumbnail_url="https://instagram.com/profile.jpg",
+            raw={
+                "og:title": "Commander's Palace (@commanderspalace)",
+                "og:description": "Historic New Orleans restaurant since 1893",
+                "og:image": "https://instagram.com/profile.jpg",
+            },
+        )
+
+        mock_place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Commander's Palace",
+            address="1403 Washington Ave, New Orleans, LA",
+            country="United States",
+            country_code="US",
+            confidence=0.9,
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.instagram.com/commanderspalace",
+                    SocialProvider.INSTAGRAM,
+                )
+
+                with patch("app.api.ingest.is_instagram_profile") as mock_is_profile:
+                    mock_is_profile.return_value = True
+
+                    with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                        mock_fetch.return_value = mock_oembed
+
+                        with patch(
+                            "app.api.ingest.extract_place_from_profile"
+                        ) as mock_extract:
+                            mock_extract.return_value = mock_place
+
+                            response = client.post(
+                                "/ingest/social",
+                                json={
+                                    "url": "https://www.instagram.com/commanderspalace"
+                                },
+                                headers={"Authorization": "Bearer test-token"},
+                            )
+
+                            assert response.status_code == 200
+                            data = response.json()
+                            assert data["provider"] == "instagram"
+                            assert (
+                                data["canonical_url"]
+                                == "https://www.instagram.com/commanderspalace"
+                            )
+                            assert (
+                                data["detected_place"]["name"] == "Commander's Palace"
+                            )
+                            assert data["detected_place"]["country_code"] == "US"
+
+                            # Verify fetch_oembed was called with is_profile=True
+                            mock_fetch.assert_called_once()
+                            call_kwargs = mock_fetch.call_args
+                            assert call_kwargs.kwargs.get("is_profile") is True
+
+                            # Verify extract_place_from_profile was called
+                            mock_extract.assert_called_once()
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_profile_uses_clean_name_for_place_extraction(self, client, auth_override):
+        """Test that the profile name is cleaned before place extraction."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Joe's Cafe on Instagram",
+            thumbnail_url="https://instagram.com/profile.jpg",
+            raw={
+                "og:title": "Joe's Cafe on Instagram",
+                "og:description": "Best coffee in Vienna",
+            },
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.instagram.com/joescafe",
+                    SocialProvider.INSTAGRAM,
+                )
+
+                with patch("app.api.ingest.is_instagram_profile", return_value=True):
+                    with patch("app.api.ingest.fetch_oembed", return_value=mock_oembed):
+                        with patch(
+                            "app.api.ingest.extract_place_from_profile"
+                        ) as mock_extract:
+                            mock_extract.return_value = None
+
+                            response = client.post(
+                                "/ingest/social",
+                                json={"url": "https://www.instagram.com/joescafe"},
+                                headers={"Authorization": "Bearer test-token"},
+                            )
+
+                            assert response.status_code == 200
+
+                            # Verify the cleaned name was passed
+                            # (should be "Joe's Cafe", not "Joe's Cafe on Instagram")
+                            mock_extract.assert_called_once()
+                            call_args = mock_extract.call_args
+                            profile_name = call_args.args[0]
+                            assert profile_name == "Joe's Cafe"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_profile_passes_bio_for_location_hints(self, client, auth_override):
+        """Test that profile bio is passed for location hint extraction."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Trattoria Roma",
+            thumbnail_url="https://instagram.com/profile.jpg",
+            raw={
+                "og:title": "Trattoria Roma",
+                "og:description": "Authentic Italian cuisine in Rome, Italy",
+            },
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.instagram.com/trattoriaroma",
+                    SocialProvider.INSTAGRAM,
+                )
+
+                with patch("app.api.ingest.is_instagram_profile", return_value=True):
+                    with patch("app.api.ingest.fetch_oembed", return_value=mock_oembed):
+                        with patch(
+                            "app.api.ingest.extract_place_from_profile"
+                        ) as mock_extract:
+                            mock_extract.return_value = None
+
+                            response = client.post(
+                                "/ingest/social",
+                                json={"url": "https://www.instagram.com/trattoriaroma"},
+                                headers={"Authorization": "Bearer test-token"},
+                            )
+
+                            assert response.status_code == 200
+
+                            # Verify bio was passed as second argument
+                            mock_extract.assert_called_once()
+                            call_args = mock_extract.call_args
+                            bio = call_args.args[1]
+                            assert bio == "Authentic Italian cuisine in Rome, Italy"
+        finally:
+            app.dependency_overrides.clear()

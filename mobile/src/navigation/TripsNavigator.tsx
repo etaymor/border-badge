@@ -2,12 +2,13 @@ import { StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { GlassBackButton } from '@components/ui';
+import { EntryListScreen, EntryFormScreen } from '@screens/entries';
+import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
+import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
 import SavedPlacesScreen from '@screens/trips/SavedPlacesScreen';
-import { EntryListScreen, EntryFormScreen } from '@screens/entries';
-import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
 import { colors } from '@constants/colors';
 
 import type { TripsStackParamList } from './types';
@@ -78,6 +79,11 @@ export function TripsNavigator() {
       <Stack.Screen
         name="SavedPlaces"
         component={SavedPlacesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PhotoImport"
+        component={PhotoImportScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

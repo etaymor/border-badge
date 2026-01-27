@@ -16,4 +16,6 @@ export {
   performBackgroundPhotoSync,
   isBackgroundSyncInProgress,
   abortBackgroundSync,
+  getLastSelectedCandidateId,
+  setLastSelectedCandidateId,
 } from './photoCacheDb';

@@ -26,9 +26,14 @@ import { truncateCoordinate } from './photoImportUtils';
 
 export interface UsePlaceSuggestionsOptions {
   clusterLookupRef: React.RefObject<Map<string, LocationCluster>>;
+  /** Ref tracking current candidate ID to detect stale responses during rapid switching */
+  currentCandidateIdRef?: React.RefObject<string | null>;
 }
 
-export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOptions) {
+export function usePlaceSuggestions({
+  clusterLookupRef,
+  currentCandidateIdRef,
+}: UsePlaceSuggestionsOptions) {
   const suggestPlacesMutation = useSuggestPlacesChunked();
 
   // Session cache for fetched candidates - prevents re-running cache logic within same session
@@ -40,9 +45,22 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
   /**
    * Fetch place suggestions for a candidate.
    * Checks SQLite cache first, only fetching uncached clusters from API.
+   *
+   * When currentCandidateIdRef is provided, this function checks for stale
+   * responses caused by rapid candidate switching. If the candidate ID changes
+   * during an async operation, results are discarded to prevent race conditions.
    */
   const fetchSuggestions = useCallback(
     async (candidate: TripCandidateDisplay) => {
+      // Capture the candidate ID at the start to detect stale responses
+      const requestCandidateId = candidate.id;
+
+      // Helper to check if this request is still valid (user hasn't switched candidates)
+      const isStaleRequest = () => {
+        if (!currentCandidateIdRef) return false;
+        return currentCandidateIdRef.current !== requestCandidateId;
+      };
+
       // Skip if we've already processed this candidate in this session
       if (fetchedCandidatesRef.current.has(candidate.id)) {
         if (__DEV__) {
@@ -95,6 +113,14 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
         }
       }
 
+      // Check for stale request before applying cached results
+      if (isStaleRequest()) {
+        if (__DEV__) {
+          console.log('[PhotoImport] Discarding stale cached results for:', requestCandidateId);
+        }
+        return;
+      }
+
       // Store cached results for the UI to merge with API results
       setCachedSuggestions(cachedResults);
 
@@ -110,18 +136,20 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
         if (__DEV__) {
           console.log('[PhotoImport] All clusters cached - no API call needed');
         }
-        // Reset mutation state and mark as fetched
-        suggestPlacesMutation.reset();
-        fetchedCandidatesRef.current.add(candidate.id);
+        // Reset mutation state and mark as fetched (only if still current)
+        if (!isStaleRequest()) {
+          suggestPlacesMutation.reset();
+          fetchedCandidatesRef.current.add(candidate.id);
 
-        // Track analytics for cache hits (100% cache hit rate, no API times)
-        Analytics.photoImportSuggestionsCompleted({
-          suggestionCount: cachedResults.length,
-          failedChunks: 0,
-          cachedClusters: cachedClusterCount,
-          uncachedClusters: 0,
-          cacheHitRate: 100,
-        });
+          // Track analytics for cache hits (100% cache hit rate, no API times)
+          Analytics.photoImportSuggestionsCompleted({
+            suggestionCount: cachedResults.length,
+            failedChunks: 0,
+            cachedClusters: cachedClusterCount,
+            uncachedClusters: 0,
+            cacheHitRate: 100,
+          });
+        }
         return;
       }
 
@@ -178,6 +206,16 @@ export function usePlaceSuggestions({ clusterLookupRef }: UsePlaceSuggestionsOpt
             withPlaces: suggestionsToCache.filter((s) => s.places.length > 0).length,
             empty: suggestionsToCache.filter((s) => s.places.length === 0).length,
           });
+        }
+
+        // Check for stale request before applying API results
+        if (isStaleRequest()) {
+          if (__DEV__) {
+            console.log('[PhotoImport] Discarding stale API results for:', requestCandidateId);
+          }
+          // Note: We still cached the results above, which is fine - they'll be used
+          // if the user switches back to this candidate
+          return;
         }
 
         // Mark candidate as processed

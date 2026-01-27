@@ -13,12 +13,13 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, GlassBackButton } from '@components/ui';
+import { Button, GlassBackButton, GlassIconButton } from '@components/ui';
 import type {
   TripCandidateDisplay,
   ClusterSuggestion,
   LocationClusterDisplay,
 } from '@services/photoImport';
+import type { MergedSuggestion } from './photoImportTypes';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
@@ -29,12 +30,14 @@ import {
   TripCandidateCard,
   PlaceSuggestionCard,
   PhotoClusterCard,
+  PhotoTripSwitcherSheet,
 } from './components';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
 import { styles } from './photoImportStyles';
 
-/** Display item that can be either a cluster with suggestions or a photo-only cluster */
+/** Display item that can be a merged suggestion, single suggestion, or photo-only cluster */
 type ClusterDisplayItem =
+  | { type: 'merged-suggestion'; data: MergedSuggestion }
   | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
   | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
@@ -70,6 +73,69 @@ const formatLastScanTime = (timestamp: number): string => {
   if (diffDays < 7) return `${diffDays} days ago`;
   return new Date(timestamp).toLocaleDateString();
 };
+
+/**
+ * Create a MergedSuggestion from multiple clusters that share the same top place.
+ */
+function createMergedSuggestion(
+  clusterIds: string[],
+  clusterSuggestionMap: Map<
+    string,
+    { suggestion: ClusterSuggestion; cluster: LocationClusterDisplay }
+  >,
+  clusterDisplays: Map<string, LocationClusterDisplay>
+): MergedSuggestion | null {
+  const allPhotoIds: string[] = [];
+  const allPreviewUris: string[] = [];
+  let minStart: Date | null = null;
+  let maxEnd: Date | null = null;
+
+  for (const clusterId of clusterIds) {
+    const cluster = clusterDisplays.get(clusterId);
+    if (!cluster) continue;
+
+    allPhotoIds.push(...cluster.photoIds);
+    allPreviewUris.push(...cluster.previewUris);
+
+    if (!minStart || cluster.timeRange.start < minStart) {
+      minStart = cluster.timeRange.start;
+    }
+    if (!maxEnd || cluster.timeRange.end > maxEnd) {
+      maxEnd = cluster.timeRange.end;
+    }
+  }
+
+  const primaryEntry = clusterSuggestionMap.get(clusterIds[0]);
+  if (!primaryEntry) {
+    console.error('[PhotoImport] Primary cluster not found in suggestion map:', clusterIds[0]);
+    return null;
+  }
+
+  return {
+    primaryClusterId: clusterIds[0],
+    clusterIds,
+    photoIds: allPhotoIds,
+    previewUris: allPreviewUris.slice(0, 5),
+    photoCount: allPhotoIds.length,
+    place: primaryEntry.suggestion.places[0],
+    allPlaces: primaryEntry.suggestion.places,
+    timeRange: {
+      start: minStart!,
+      end: maxEnd!,
+    },
+  };
+}
+
+/**
+ * Convert a MergedSuggestion back to ClusterSuggestion format for PlaceSuggestionCard.
+ */
+function buildSuggestionFromMerged(merged: MergedSuggestion): ClusterSuggestion {
+  return {
+    cluster_id: merged.primaryClusterId,
+    photo_ids: merged.photoIds,
+    places: merged.allPlaces,
+  };
+}
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -112,10 +178,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleConfirmPlace,
     handleRejectPlace,
     handleHideCluster,
+    handleHideMultipleClusters,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
+    switchCandidate,
     closeManualSearch,
     cancelUpload,
   } = usePhotoImportWorkflow({
@@ -135,6 +203,24 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   // Track selected trip ID for auto-proceed on subsequent candidate selections
   const [rememberedTripId, setRememberedTripId] = useState<string | null>(tripId ?? null);
+
+  // Photo trip switcher state
+  const [showTripSwitcher, setShowTripSwitcher] = useState(false);
+
+  // Filter candidates to only those matching the selected country (for switching)
+  const candidatesForCountry = useMemo(() => {
+    if (!selectedCandidate) return [];
+    return tripCandidates.filter((c) => c.countryCode === selectedCandidate.countryCode);
+  }, [tripCandidates, selectedCandidate]);
+
+  // Handle switching to a different photo trip
+  const handleSwitchCandidate = useCallback(
+    async (candidate: TripCandidateDisplay) => {
+      setShowTripSwitcher(false);
+      await switchCandidate(candidate);
+    },
+    [switchCandidate]
+  );
 
   // Handle trip selection from candidate card (either first time or auto-proceed)
   const handleSelectTripForCandidate = useCallback(
@@ -198,27 +284,75 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   }, [suggestionsIsPending, suggestionsPartialResults, suggestionsData, cachedSuggestions]);
 
   // Build combined list of all clusters for the selected candidate
-  // Clusters with suggestions get PlaceSuggestionCard, others get PhotoClusterCard
+  // Clusters with the same top place are merged into a single card
   const clusterItems: ClusterDisplayItem[] = useMemo(() => {
     if (!selectedCandidate) return [];
 
-    // Build items for all clusters in the candidate (excluding dismissed/processed ones)
-    const items: ClusterDisplayItem[] = [];
+    // Phase 1: Group clusters by their top place's place_id
+    const placeIdToClusterIds = new Map<string, string[]>();
+    const clusterSuggestionMap = new Map<
+      string,
+      { suggestion: ClusterSuggestion; cluster: LocationClusterDisplay }
+    >();
+    const photosOnlyClusters: LocationClusterDisplay[] = [];
+
     for (const clusterId of selectedCandidate.locationClusterIds) {
-      // Skip clusters that have been confirmed or hidden (persisted in SQLite)
       if (dismissedClusterIdsInternal.has(clusterId)) continue;
 
       const cluster = clusterDisplays.get(clusterId);
       if (!cluster) continue;
 
       const suggestion = suggestionsMap.get(clusterId);
-      // Only show as suggestion card if there are actual places to suggest
-      // Empty places array (no quality matches) should show as photo-only card
       if (suggestion && suggestion.places.length > 0) {
-        items.push({ type: 'suggestion', data: suggestion, cluster });
+        const topPlaceId = suggestion.places[0].place_id;
+
+        // Track this cluster for the place_id
+        if (!placeIdToClusterIds.has(topPlaceId)) {
+          placeIdToClusterIds.set(topPlaceId, []);
+        }
+        placeIdToClusterIds.get(topPlaceId)!.push(clusterId);
+        clusterSuggestionMap.set(clusterId, { suggestion, cluster });
       } else {
-        items.push({ type: 'photos-only', cluster });
+        photosOnlyClusters.push(cluster);
       }
+    }
+
+    // Phase 2: Build display items, merging clusters with same top place
+    const items: ClusterDisplayItem[] = [];
+    const processedPlaceIds = new Set<string>();
+
+    // Process in order of original cluster sequence for consistent ordering
+    for (const clusterId of selectedCandidate.locationClusterIds) {
+      if (dismissedClusterIdsInternal.has(clusterId)) continue;
+
+      const entry = clusterSuggestionMap.get(clusterId);
+      if (!entry) continue; // Will be handled in photos-only pass
+
+      const topPlaceId = entry.suggestion.places[0].place_id;
+      if (processedPlaceIds.has(topPlaceId)) continue;
+      processedPlaceIds.add(topPlaceId);
+
+      const clusterIdsForPlace = placeIdToClusterIds.get(topPlaceId)!;
+
+      if (clusterIdsForPlace.length === 1) {
+        // Single cluster - use original format
+        items.push({ type: 'suggestion', data: entry.suggestion, cluster: entry.cluster });
+      } else {
+        // Multiple clusters - create merged suggestion
+        const mergedSuggestion = createMergedSuggestion(
+          clusterIdsForPlace,
+          clusterSuggestionMap,
+          clusterDisplays
+        );
+        if (mergedSuggestion) {
+          items.push({ type: 'merged-suggestion', data: mergedSuggestion });
+        }
+      }
+    }
+
+    // Add photos-only clusters at the end
+    for (const cluster of photosOnlyClusters) {
+      items.push({ type: 'photos-only', cluster });
     }
 
     return items;
@@ -226,11 +360,41 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
     ({ item }) => {
-      const clusterId = item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id;
-      const isUploadingThisCluster = uploadingClusterIds.has(clusterId);
-      const clusterUploadState = getUploadState(clusterId);
+      if (item.type === 'merged-suggestion') {
+        // Merged suggestion - multiple clusters resolved to the same place
+        const merged = item.data;
+        const isUploadingAny = merged.clusterIds.some((id) => uploadingClusterIds.has(id));
+        const primaryUploadState = getUploadState(merged.primaryClusterId);
+
+        // Get additional cluster IDs (all except primary) for marking as processed
+        const additionalClusterIds = merged.clusterIds.filter(
+          (id) => id !== merged.primaryClusterId
+        );
+
+        return (
+          <PlaceSuggestionCard
+            suggestion={buildSuggestionFromMerged(merged)}
+            previewUris={merged.previewUris}
+            onConfirm={(suggestion, place) =>
+              handleConfirmPlace(suggestion, place, false, additionalClusterIds)
+            }
+            onReject={handleRejectPlace}
+            onPhotoPress={setPreviewPhoto}
+            onDismiss={() => handleHideMultipleClusters(merged.clusterIds)}
+            isUploading={isUploadingAny}
+            uploadProgress={primaryUploadState?.overallProgress ?? 0}
+            uploadingPhotoIndex={primaryUploadState?.currentPhotoIndex ?? 0}
+            totalPhotosToUpload={primaryUploadState?.totalPhotos ?? 0}
+            onCancelUpload={() => cancelUpload(merged.primaryClusterId)}
+          />
+        );
+      }
 
       if (item.type === 'suggestion') {
+        const clusterId = item.data.cluster_id;
+        const isUploadingThisCluster = uploadingClusterIds.has(clusterId);
+        const clusterUploadState = getUploadState(clusterId);
+
         return (
           <PlaceSuggestionCard
             suggestion={item.data}
@@ -247,6 +411,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           />
         );
       }
+
+      // photos-only type
       return (
         <PhotoClusterCard
           cluster={item.cluster}
@@ -261,6 +427,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       handleRejectPlace,
       handleAddEntryForCluster,
       handleHideCluster,
+      handleHideMultipleClusters,
       uploadingClusterIds,
       getUploadState,
       cancelUpload,
@@ -284,7 +451,16 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <Text style={styles.headerTitle}>
           {phase === 'suggestions' || skipToSuggestions ? 'Trip Suggestions' : 'We Found Trips'}
         </Text>
-        <View style={styles.headerSpacer} />
+        {/* Show swap button only if multiple photo trips exist for this country */}
+        {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
+          <GlassIconButton
+            icon="swap-horizontal-outline"
+            onPress={() => setShowTripSwitcher(true)}
+            accessibilityLabel="Switch photo trip"
+          />
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
       </View>
 
       {/* Loading State - shown when skipping directly to suggestions */}
@@ -425,7 +601,11 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             renderItem={renderClusterItem}
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) =>
-              item.type === 'suggestion' ? item.data.cluster_id : item.cluster.id
+              item.type === 'merged-suggestion'
+                ? item.data.primaryClusterId
+                : item.type === 'suggestion'
+                  ? item.data.cluster_id
+                  : item.cluster.id
             }
             getItemType={(item) => item.type}
             ListEmptyComponent={
@@ -486,6 +666,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onCancelUpload={() => cancelUpload(manualSearchCluster.id)}
         />
       )}
+
+      {/* Photo Trip Switcher Sheet */}
+      <PhotoTripSwitcherSheet
+        visible={showTripSwitcher}
+        candidates={candidatesForCountry}
+        selectedCandidate={selectedCandidate}
+        onSelectCandidate={handleSwitchCandidate}
+        onClose={() => setShowTripSwitcher(false)}
+      />
     </View>
   );
 }

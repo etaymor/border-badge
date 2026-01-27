@@ -165,6 +165,39 @@ INSTAGRAM_PATTERNS = [
     re.compile(r"^(?:www\.)?instagram\.com/tv/[\w-]+", re.IGNORECASE),
 ]
 
+# Instagram profile URL pattern: /username (no special path segments)
+# Username rules: 1-30 characters, alphanumeric, periods, underscores
+# Must start with alphanumeric or underscore (not a period)
+INSTAGRAM_PROFILE_PATTERN = re.compile(
+    r"^(?:www\.)?instagram\.com/([a-zA-Z0-9_][a-zA-Z0-9_.]{0,29})/?$",
+    re.IGNORECASE,
+)
+
+# Reserved Instagram paths that should NOT be treated as profile usernames
+INSTAGRAM_RESERVED_PATHS = {
+    "explore",
+    "direct",
+    "stories",
+    "accounts",
+    "emails",
+    "challenge",
+    "about",
+    "legal",
+    "contact",
+    "p",
+    "reel",
+    "reels",
+    "tv",
+    "live",
+    "api",
+    "developer",
+    "privacy",
+    "terms",
+    "help",
+    "session",
+    "nametag",
+}
+
 # Tracking parameters to strip from URLs
 TRACKING_PARAMS = {
     # TikTok
@@ -203,6 +236,10 @@ TRACKING_PARAMS = {
 def detect_provider(url: str) -> SocialProvider | None:
     """Detect the social media provider from a URL.
 
+    Recognizes TikTok and Instagram URLs including:
+    - Post/video URLs (tiktok.com/@user/video/123, instagram.com/p/ABC)
+    - Profile URLs (instagram.com/username)
+
     Args:
         url: The URL to analyze
 
@@ -219,6 +256,10 @@ def detect_provider(url: str) -> SocialProvider | None:
     for pattern in INSTAGRAM_PATTERNS:
         if pattern.match(host_path):
             return SocialProvider.INSTAGRAM
+
+    # Check for Instagram profile URLs (instagram.com/username)
+    if is_instagram_profile(url):
+        return SocialProvider.INSTAGRAM
 
     return None
 
@@ -475,6 +516,55 @@ def extract_instagram_shortcode(url: str) -> str | None:
 
     # Match /p/ABC123 or /reel/ABC123 or /reels/ABC123 or /tv/ABC123
     match = re.search(r"/(?:p|reel|reels|tv)/([\w-]+)", path)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def is_instagram_profile(url: str) -> bool:
+    """Check if a URL is an Instagram profile page (not a post/reel/story).
+
+    Profile URLs follow the pattern: instagram.com/username
+    where username is 1-30 characters and doesn't match reserved paths.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL is an Instagram profile page
+    """
+    parsed = urlparse(url)
+    host_path = f"{parsed.netloc}{parsed.path}"
+
+    match = INSTAGRAM_PROFILE_PATTERN.match(host_path)
+    if not match:
+        return False
+
+    # Extract the potential username and check against reserved paths
+    username = match.group(1).lower()
+    if username in INSTAGRAM_RESERVED_PATHS:
+        return False
+
+    return True
+
+
+def extract_instagram_username(url: str) -> str | None:
+    """Extract the username from an Instagram profile URL.
+
+    Args:
+        url: Instagram profile URL
+
+    Returns:
+        Username string, or None if not a profile URL
+    """
+    if not is_instagram_profile(url):
+        return None
+
+    parsed = urlparse(url)
+    host_path = f"{parsed.netloc}{parsed.path}"
+
+    match = INSTAGRAM_PROFILE_PATTERN.match(host_path)
     if match:
         return match.group(1)
 

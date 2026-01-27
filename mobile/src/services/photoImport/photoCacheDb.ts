@@ -32,7 +32,12 @@ let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 /**
  * Validate photo ID format for defense-in-depth.
  * expo-media-library returns UUIDs on iOS and numeric strings on Android.
- * Allows alphanumeric characters, hyphens, and forward slashes.
+ * Allows alphanumeric characters, hyphens, and forward slashes (Android uses
+ * content:// URIs which contain forward slashes when accessed via certain APIs).
+ *
+ * Note: This validation is defense-in-depth. The primary SQL injection protection
+ * comes from parameterized queries (using ? placeholders with batch arrays).
+ * This pattern matching provides an additional layer of safety.
  */
 const VALID_PHOTO_ID_PATTERN = /^[a-zA-Z0-9/-]+$/;
 
@@ -379,6 +384,10 @@ export async function clearPhotoCache(): Promise<void> {
     await database.runAsync(
       "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
     );
+    // Clear last_candidate_* metadata keys to avoid stale selections.
+    // Note: The LIKE pattern is a hardcoded string literal, not user input,
+    // so there is no SQL injection risk here.
+    await database.runAsync("DELETE FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'");
   });
 }
 
@@ -434,6 +443,29 @@ export async function closeDb(): Promise<void> {
     db = null;
   }
   dbInitPromise = null;
+}
+
+// =============================================================================
+// Last Selected Photo Trip Candidate (remembers user's photo trip choice per destination)
+// =============================================================================
+
+/**
+ * Get the last selected photo trip candidate ID for a destination trip.
+ * Returns null if no previous selection exists.
+ */
+export async function getLastSelectedCandidateId(tripId: string): Promise<string | null> {
+  return getMetadata(`last_candidate_${tripId}`);
+}
+
+/**
+ * Set the last selected photo trip candidate ID for a destination trip.
+ * Called when user switches between photo trips in the switcher sheet.
+ */
+export async function setLastSelectedCandidateId(
+  tripId: string,
+  candidateId: string
+): Promise<void> {
+  await setMetadata(`last_candidate_${tripId}`, candidateId);
 }
 
 // =============================================================================
@@ -634,6 +666,9 @@ export async function performBackgroundPhotoSync(
   // Atomically check and acquire lock before any async operations to prevent race conditions.
   // In JavaScript's single-threaded event loop, synchronous code runs to completion,
   // so this check-and-set is atomic as long as it happens before any `await`.
+  // This is sufficient for our use case: preventing duplicate background syncs from
+  // concurrent UI events (e.g., rapid button presses). True thread-safety is not needed
+  // since React Native runs on a single JS thread.
   if (backgroundSyncInProgress) {
     return null;
   }

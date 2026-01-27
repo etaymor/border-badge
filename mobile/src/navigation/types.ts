@@ -61,12 +61,7 @@ export type PassportStackParamList = {
   Trips: NavigatorScreenParams<TripsStackParamList>;
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
   PhotoTrips: undefined;
-  PhotoImport: {
-    countryCode?: string;
-    tripId?: string; // Pre-associate with existing trip
-    autoStart?: boolean; // Auto-start scan when cache exists
-    skipToSuggestions?: boolean; // Skip scanning and go directly to candidates when cache exists
-  };
+  PhotoImport: PhotoImportParams;
 };
 
 // Prefill place data for TripForm (from photo import)
@@ -77,6 +72,14 @@ export type PrefillPlace = {
   category: EntryType;
 };
 
+// Photo import params (shared between navigators)
+export type PhotoImportParams = {
+  countryCode?: string;
+  tripId?: string; // Pre-associate with existing trip
+  autoStart?: boolean; // Auto-start scan when cache exists
+  skipToSuggestions?: boolean; // Skip scanning and go directly to candidates when cache exists
+};
+
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
@@ -85,6 +88,7 @@ export type TripsStackParamList = {
     prefillPlace?: PrefillPlace; // Pre-filled place from photo import
     prefillPhotos?: string[]; // Photo URIs from photo import
   };
+  PhotoImport: PhotoImportParams;
   TripForm: {
     tripId?: string;
     countryId?: string;

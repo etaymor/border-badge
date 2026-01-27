@@ -57,9 +57,15 @@ export function useEntryCreation({
   /**
    * Confirm a place suggestion and create an entry.
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
+   * @param additionalClusterIds - Additional cluster IDs to mark as processed (for merged suggestions)
    */
   const handleConfirmPlace = useCallback(
-    async (suggestion: ClusterSuggestion, place: PlaceSuggestion, wasFromCache = false) => {
+    async (
+      suggestion: ClusterSuggestion,
+      place: PlaceSuggestion,
+      wasFromCache = false,
+      additionalClusterIds: string[] = []
+    ) => {
       if (__DEV__) {
         console.log('[EntryCreation] handleConfirmPlace called:', {
           clusterId: suggestion.cluster_id,
@@ -134,8 +140,21 @@ export function useEntryCreation({
         });
 
         // Mark cluster as processed in memory and persist to SQLite
-        setDismissedClusterIds((prev) => new Set(prev).add(suggestion.cluster_id));
+        // Batch all cluster IDs (primary + additional) into a single state update
+        const allClusterIds = [suggestion.cluster_id, ...additionalClusterIds];
+        setDismissedClusterIds((prev) => {
+          const next = new Set(prev);
+          for (const id of allClusterIds) {
+            next.add(id);
+          }
+          return next;
+        });
+
+        // Persist all cluster IDs to SQLite
         await markClusterProcessed(suggestion.cluster_id, 'confirmed');
+        for (const additionalId of additionalClusterIds) {
+          await markClusterProcessed(additionalId, 'confirmed');
+        }
 
         // Show alert if some photos failed to upload
         if (failedCount > 0) {
@@ -204,6 +223,33 @@ export function useEntryCreation({
       Analytics.photoImportClusterHidden();
       setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
       await markClusterProcessed(clusterId, 'hidden');
+    },
+    [setDismissedClusterIds]
+  );
+
+  /**
+   * Hide multiple clusters without creating entries (for merged suggestions).
+   */
+  const handleHideMultipleClusters = useCallback(
+    async (clusterIds: string[]) => {
+      // Track analytics for each cluster
+      for (let i = 0; i < clusterIds.length; i++) {
+        Analytics.photoImportClusterHidden();
+      }
+
+      // Batch all cluster IDs into a single state update to avoid N recalculations
+      setDismissedClusterIds((prev) => {
+        const next = new Set(prev);
+        for (const id of clusterIds) {
+          next.add(id);
+        }
+        return next;
+      });
+
+      // Persist each cluster to SQLite
+      for (const clusterId of clusterIds) {
+        await markClusterProcessed(clusterId, 'hidden');
+      }
     },
     [setDismissedClusterIds]
   );
@@ -382,6 +428,7 @@ export function useEntryCreation({
     handleConfirmPlace,
     handleRejectPlace,
     handleHideCluster,
+    handleHideMultipleClusters,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,

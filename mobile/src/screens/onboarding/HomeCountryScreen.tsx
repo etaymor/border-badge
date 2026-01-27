@@ -42,7 +42,9 @@ export function HomeCountryScreen({ navigation }: Props) {
     showBackButton: false,
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
-    onNavigateNext: () => navigation.navigate('TrackingPreference'),
+    // LAUNCH_SIMPLIFICATION: Skip TrackingPreference, go directly to DreamDestination
+    // TODO: Restore to 'TrackingPreference' when re-enabling tracking preference selection
+    onNavigateNext: () => navigation.navigate('DreamDestination'),
     onNavigateLogin: () => {
       Analytics.skipToLogin('HomeCountry');
       navigation.navigate('Auth', { screen: 'Login' });

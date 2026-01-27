@@ -5,6 +5,7 @@ import html
 import logging
 import re
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -23,7 +24,7 @@ from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
 )
-from app.services.email import send_contact_email
+from app.services.email import cancel_scheduled_emails, send_contact_email
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,128 @@ async def terms_conditions(request: Request) -> HTMLResponse:
     )
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response
+
+
+# Valid error codes for unsubscribe page (whitelist for security)
+UNSUBSCRIBE_ERROR_CODES = {"invalid_token", "server_error"}
+
+
+@router.get("/unsubscribe/{token}", response_class=HTMLResponse)
+@limiter.limit("30/minute")
+async def unsubscribe_email(
+    request: Request,
+    token: UUID = Path(..., description="Unsubscribe token (UUID format)"),
+) -> HTMLResponse:
+    """Handle email unsubscribe via token.
+
+    This is a single-click unsubscribe per CAN-SPAM requirements.
+    No confirmation needed - visiting the URL unsubscribes the user.
+    """
+    settings = get_settings()
+    db = get_supabase_client()  # Service role for profile lookup
+
+    # Look up user by unsubscribe_token
+    try:
+        profiles = await db.get(
+            "user_profile",
+            params={
+                "unsubscribe_token": f"eq.{token}",
+                "select": "user_id, email_unsubscribed_at",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to lookup unsubscribe token: {e}")
+        return templates.TemplateResponse(
+            request=request,
+            name="unsubscribe.html",
+            context={
+                "success": False,
+                "error": "server_error",
+                "app_store_url": settings.app_store_url,
+                "google_analytics_id": settings.google_analytics_id,
+                "current_year": get_current_year(),
+            },
+        )
+
+    if not profiles:
+        # Invalid token - show error page
+        return templates.TemplateResponse(
+            request=request,
+            name="unsubscribe.html",
+            context={
+                "success": False,
+                "error": "invalid_token",
+                "app_store_url": settings.app_store_url,
+                "google_analytics_id": settings.google_analytics_id,
+                "current_year": get_current_year(),
+            },
+        )
+
+    profile = profiles[0]
+    user_id = profile["user_id"]
+
+    # Check if already unsubscribed
+    if profile.get("email_unsubscribed_at"):
+        return templates.TemplateResponse(
+            request=request,
+            name="unsubscribe.html",
+            context={
+                "success": True,
+                "already_unsubscribed": True,
+                "cancelled_count": 0,
+                "app_store_url": settings.app_store_url,
+                "google_analytics_id": settings.google_analytics_id,
+                "current_year": get_current_year(),
+            },
+        )
+
+    # Mark as unsubscribed
+    try:
+        await db.patch(
+            "user_profile",
+            data={
+                "email_unsubscribed_at": datetime.datetime.now(datetime.UTC).isoformat()
+            },
+            params={"user_id": f"eq.{user_id}"},
+        )
+    except Exception as e:
+        logger.error(f"Failed to mark user as unsubscribed: {e}")
+        return templates.TemplateResponse(
+            request=request,
+            name="unsubscribe.html",
+            context={
+                "success": False,
+                "error": "server_error",
+                "app_store_url": settings.app_store_url,
+                "google_analytics_id": settings.google_analytics_id,
+                "current_year": get_current_year(),
+            },
+        )
+
+    # Cancel pending scheduled emails
+    cancelled_count = await cancel_scheduled_emails(user_id)
+
+    logger.info(
+        "User unsubscribed from emails",
+        extra={
+            "user_id": user_id,
+            "cancelled_emails": cancelled_count,
+        },
+    )
+
+    # Show success page
+    return templates.TemplateResponse(
+        request=request,
+        name="unsubscribe.html",
+        context={
+            "success": True,
+            "already_unsubscribed": False,
+            "cancelled_count": cancelled_count,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+        },
+    )
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)

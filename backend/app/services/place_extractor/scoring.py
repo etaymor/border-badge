@@ -285,11 +285,12 @@ def score_place_result(
     score = place.confidence
 
     # Country match with location hint: bonus if match, penalty if mismatch
+    # Strong penalty for wrong country to prevent matches like "Oman" → place in Sudan
     if location_bias and location_bias.country_code and place.country_code:
         if place.country_code == location_bias.country_code:
-            score += 0.2  # Boost for matching expected country
+            score += 0.25  # Boost for matching expected country
         else:
-            score -= 0.3  # Strong penalty for wrong country
+            score -= 0.5  # Strong penalty for wrong country
 
     # Penalize low-value place types (tour agencies, etc.)
     if place.primary_type and place.primary_type in LOW_VALUE_PLACE_TYPES:

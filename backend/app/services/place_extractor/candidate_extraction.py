@@ -7,6 +7,7 @@ social media titles, captions, and author information.
 import logging
 import re
 
+from app.services.place_extractor.data import COUNTRIES, MAJOR_CITIES
 from app.services.place_extractor.text_utils import (
     MAX_TEXT_LENGTH,
     clean_instagram_title,
@@ -82,14 +83,33 @@ def extract_emoji_locations(text: str) -> list[str]:
             # Clean up the match
             cleaned = match.strip()
 
+            # Strip common prefixes like "Location:" BEFORE other processing
+            # This handles patterns like "📍 Location: Temple of Poseidon"
+            cleaned = re.sub(r"^[Ll]ocation\s*[:：]\s*", "", cleaned)
+            cleaned = re.sub(r"^[Pp]lace\s*[:：]\s*", "", cleaned)
+            cleaned = re.sub(r"^[Aa]t\s+", "", cleaned)
+
             # Remove trailing punctuation except apostrophes (for names like "Tirana's")
             cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+
+            # Truncate at common delimiters that indicate additional info
+            # e.g., "Saint Simon monastery or Cave Church in the Coptic district"
+            # → "Saint Simon monastery" (the primary name before "or"/"in")
+            # But preserve "Temple of Poseidon" (the "of" is part of the name)
+            for delimiter in [" or ", " in the ", " near ", " and "]:
+                if delimiter in cleaned.lower():
+                    parts = re.split(
+                        delimiter, cleaned, flags=re.IGNORECASE, maxsplit=1
+                    )
+                    if parts[0].strip() and len(parts[0].strip()) >= 5:
+                        cleaned = parts[0].strip()
+                        break
 
             # Skip if too short after cleaning
             if len(cleaned) < 3:
                 continue
 
-            # Skip if it's just common words/noise
+            # Skip if it's just common words/noise (checked AFTER stripping prefixes)
             lower_cleaned = cleaned.lower()
             if lower_cleaned in {"here", "location", "place", "spot", "check", "this"}:
                 continue
@@ -107,33 +127,321 @@ def extract_emoji_locations(text: str) -> list[str]:
 
 # Common location indicator words to help identify place names in text
 LOCATION_INDICATORS = {
+    # Action words
     "at",
     "in",
     "visit",
     "visiting",
     "visited",
+    # Commercial venues
     "restaurant",
     "cafe",
     "coffee",
     "hotel",
-    "beach",
     "bar",
     "club",
-    "museum",
-    "park",
     "market",
     "shop",
     "store",
+    # Religious/Historic landmarks
     "temple",
     "church",
     "mosque",
+    "monastery",
+    "cathedral",
+    "shrine",
+    "basilica",
+    "chapel",
+    "abbey",
+    # Historic structures
+    "palace",
+    "castle",
+    "fortress",
+    "citadel",
+    "ruins",
+    "pyramid",
+    "tomb",
+    "mausoleum",
+    "monument",
+    "memorial",
+    # Urban features
     "plaza",
     "square",
     "street",
     "avenue",
     "road",
+    # Natural features
+    "beach",
     "island",
+    "waterfall",
+    "falls",
+    "canyon",
+    "cave",
+    "gorge",
+    "valley",
+    "viewpoint",
+    "peak",
+    "summit",
+    "glacier",
+    "oasis",
+    "spring",
+    "lake",
+    "mountain",
+    # Other POIs
+    "museum",
+    "park",
+    "tower",
+    "bridge",
+    "gate",
+    "wall",
+    "garden",
+    "zoo",
+    "aquarium",
 }
+
+# Landmark type words that can follow a proper noun (e.g., "Karnak temple")
+# Used to match "ProperNoun + landmark_type" patterns
+LANDMARK_TYPES_PATTERN: str = (
+    r"(?:temple|monastery|church|cathedral|mosque|palace|castle|ruins|tower|"
+    r"museum|park|beach|shrine|basilica|abbey|fort|fortress|tomb|pyramid|"
+    r"falls|waterfall|canyon|cave|bridge|memorial|monument|garden)s?"
+)
+
+# Pre-compile flag emoji pattern for efficiency
+# Flag emojis are two regional indicator symbols (U+1F1E6 to U+1F1FF)
+_FLAG_EMOJI_REGEX: re.Pattern[str] = re.compile(
+    r"([\U0001F1E6-\U0001F1FF]{2})\s*([A-Za-z][A-Za-z\s''\-,]{2,50})?"
+)
+
+# Pre-compile "Location:" prefix pattern
+_LOCATION_PREFIX_REGEX: re.Pattern[str] = re.compile(
+    r"[Ll]ocation\s*[:：]\s*([A-Za-z][A-Za-z\s&''\-,]{2,50})"
+)
+
+# Pre-compile country prefix patterns for efficiency (performance optimization)
+# Built once at module load instead of compiling regex for each country on every call
+_COUNTRY_PREFIX_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"\b" + re.escape(country_name) + r"\s*[-:–]\s*([A-Za-z][A-Za-z\s''\-]{2,40})",
+        re.IGNORECASE,
+    )
+    for country_name in COUNTRIES.keys()
+]
+
+
+def extract_location_prefix_places(text: str) -> list[str]:
+    """Extract place names following 'Location:' prefix pattern.
+
+    Handles patterns like:
+    - "Location: Temple of Poseidon"
+    - "location: Karnak Temple"
+
+    Args:
+        text: Caption or title text to search
+
+    Returns:
+        List of location strings found after Location: prefix
+    """
+    if not text:
+        return []
+
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    locations: list[str] = []
+    matches = _LOCATION_PREFIX_REGEX.findall(text)
+
+    for match in matches:
+        cleaned = match.strip()
+        # Remove trailing punctuation
+        cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+
+        if len(cleaned) >= 3:
+            locations.append(cleaned)
+
+    return locations
+
+
+def extract_flag_emoji_locations(text: str) -> tuple[list[str], str | None]:
+    """Extract locations following flag emojis and detect country from flag.
+
+    Flag emojis are two regional indicator letters (U+1F1E6-U+1F1FF).
+    For example: 🇴🇲 = "O" + "M" = OM (Oman)
+
+    Note: City names are filtered out as they're better used for location biasing
+    rather than as search candidates. For example, "🇪🇬 Luxor | Tours" should
+    use Luxor for biasing, not as a place candidate.
+
+    Args:
+        text: Caption or title text to search
+
+    Returns:
+        Tuple of (place_names, country_code) where country_code is derived from the flag
+    """
+    if not text:
+        return [], None
+
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    places: list[str] = []
+    country_code: str | None = None
+
+    matches = _FLAG_EMOJI_REGEX.findall(text)
+    for flag, place_text in matches:
+        # Decode flag to country code
+        # Each flag char is 0x1F1E6 + letter_index (A=0, B=1, ...)
+        letter1 = chr(ord(flag[0]) - 0x1F1E6 + ord("A"))
+        letter2 = chr(ord(flag[1]) - 0x1F1E6 + ord("A"))
+        detected_code = letter1 + letter2
+
+        # Use first detected flag as country code
+        if country_code is None:
+            country_code = detected_code
+
+        # Extract place text after flag (but filter out city names)
+        if place_text:
+            cleaned = re.sub(r"[,.:;!?\-]+$", "", place_text).strip()
+            # Skip city names - they're used for location biasing, not as candidates
+            # This avoids "🇪🇬 Luxor | Tours" extracting "Luxor" as a place
+            if len(cleaned) >= 3 and cleaned.lower() not in MAJOR_CITIES:
+                places.append(cleaned)
+
+    return places, country_code
+
+
+def extract_country_prefixed_places(text: str) -> list[str]:
+    """Extract place names that follow a country name.
+
+    Patterns: "Oman - Wadi Shab", "Egypt: Karnak Temple"
+    Uses pre-compiled patterns from _COUNTRY_PREFIX_PATTERNS for efficiency.
+
+    Args:
+        text: Caption or title text to search
+
+    Returns:
+        List of place names found after country names
+    """
+    if not text:
+        return []
+
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    places: list[str] = []
+
+    # Use pre-compiled patterns (built at module load) instead of
+    # compiling regex for each country on every function call
+    for pattern in _COUNTRY_PREFIX_PATTERNS:
+        matches = pattern.findall(text)
+        for match in matches:
+            cleaned = re.sub(r"[,.:;!?\-]+$", "", match).strip()
+            if len(cleaned) >= 3:
+                places.append(cleaned)
+
+    return places
+
+
+def extract_landmark_patterns(text: str) -> list[str]:
+    """Extract 'ProperNoun + landmark_type' patterns.
+
+    Matches patterns like "Karnak temple", "Notre Dame cathedral".
+    Handles lowercase landmark type words that follow capitalized proper nouns.
+    Excludes patterns starting with articles (the, a, an) - those are handled
+    by extract_the_landmark_pattern.
+
+    Args:
+        text: Title or caption text to search
+
+    Returns:
+        List of landmark names found
+    """
+    if not text:
+        return []
+
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    # Pattern: ProperNoun(s) + landmark_type (case-insensitive only for landmark type)
+    # The [A-Z] must remain case-sensitive to require a capital letter at the start
+    pattern = (
+        r"([A-Z][A-Za-z''\-]+(?:\s+[A-Za-z''\-]+)*\s+(?i:"
+        + LANDMARK_TYPES_PATTERN
+        + r"))"
+    )
+    matches = re.findall(pattern, text)
+
+    # Articles to exclude - these are handled by extract_the_landmark_pattern
+    articles = {"the", "a", "an", "this", "that"}
+
+    landmarks = []
+    for match in matches:
+        cleaned = match.strip()
+        # Skip if starts with an article (e.g., "The Temple" should be handled by the_landmark_pattern)
+        first_word = cleaned.split()[0].lower() if cleaned else ""
+        if first_word in articles:
+            continue
+        if len(cleaned) >= 5:  # Minimum "X temple" = 7 chars, but be lenient
+            landmarks.append(cleaned)
+
+    return landmarks
+
+
+def extract_the_landmark_pattern(text: str) -> list[str]:
+    """Extract 'the [Landmark]' patterns.
+
+    Many landmarks are referenced as "the Temple of Poseidon", "the Colosseum".
+
+    Args:
+        text: Title or caption text to search
+
+    Returns:
+        List of landmark names found (without "the" prefix)
+    """
+    if not text:
+        return []
+
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    # Pattern: "the" followed by capitalized phrase
+    # Note: We require at least 2 words or 8+ chars to avoid nicknames like "the Tanner"
+    pattern = r"\b[Tt]he\s+([A-Z][A-Za-z\s''\-]{2,40})"
+    matches = re.findall(pattern, text)
+
+    # Single words that are likely nicknames/titles, not places
+    nickname_words = {
+        "tanner",
+        "baker",
+        "builder",
+        "maker",
+        "hunter",
+        "smith",
+        "great",
+        "wise",
+        "elder",
+        "younger",
+        "baptist",
+        "apostle",
+    }
+
+    landmarks = []
+    for match in matches:
+        cleaned = match.strip()
+        # Remove trailing punctuation
+        cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+
+        # Skip short single-word matches - likely nicknames like "the Tanner"
+        # Landmarks are typically multi-word ("Temple of Poseidon") or long ("Colosseum")
+        words = cleaned.split()
+        if len(words) == 1:
+            if len(cleaned) < 8 or cleaned.lower() in nickname_words:
+                continue
+
+        if len(cleaned) >= 3:
+            landmarks.append(cleaned)
+
+    return landmarks
 
 
 def extract_place_candidates(
@@ -150,10 +458,14 @@ def extract_place_candidates(
 
     Extraction priority:
     1. Emoji-marked locations (📍) - highest confidence, users explicitly mark places
-    2. Quoted/parenthetical text
-    3. Location indicator patterns ("at X", "in Y")
-    4. Proper noun phrases
-    5. Hashtags and mentions
+    1b. Flag emoji locations (🇴🇲) - country flag + place name
+    2. "Location:" prefix patterns - explicit user labeling
+    3. Country-prefixed places ("Oman - Wadi Shab")
+    4. Landmark patterns ("Karnak temple", "the Temple of Poseidon")
+    5. Quoted/parenthetical text
+    6. Location indicator patterns ("at X", "in Y")
+    7. Proper noun phrases
+    8. Hashtags and mentions
 
     Input is truncated to prevent ReDoS attacks.
 
@@ -179,6 +491,9 @@ def extract_place_candidates(
     if title:
         title = clean_instagram_title(title)
 
+    # Combine text for patterns that work on both
+    combined_text = " ".join(filter(None, [title, caption]))
+
     # PRIORITY 1: Extract locations marked with 📍 or other location emojis
     # This is the most reliable signal as users explicitly mark places this way
     # Check caption first (user's own text), then title
@@ -189,6 +504,43 @@ def extract_place_candidates(
     if title:
         emoji_locations = extract_emoji_locations(title)
         candidates.extend(emoji_locations)
+
+    # PRIORITY 1b: Extract flag emoji locations (e.g., "🇴🇲 Wadi Shab")
+    if caption:
+        flag_places, _ = extract_flag_emoji_locations(caption)
+        candidates.extend(flag_places)
+    if title:
+        flag_places, _ = extract_flag_emoji_locations(title)
+        candidates.extend(flag_places)
+
+    # PRIORITY 2: Extract "Location:" prefix patterns (explicit user labeling)
+    if caption:
+        location_prefix_places = extract_location_prefix_places(caption)
+        candidates.extend(location_prefix_places)
+    if title:
+        location_prefix_places = extract_location_prefix_places(title)
+        candidates.extend(location_prefix_places)
+
+    # PRIORITY 3: Extract country-prefixed places ("Oman - Wadi Shab", "Egypt: Karnak")
+    country_prefixed = extract_country_prefixed_places(combined_text)
+    candidates.extend(country_prefixed)
+
+    # PRIORITY 4a: Extract "the [Landmark]" patterns (e.g., "the Temple of Poseidon")
+    # These are high-value because "the" typically precedes famous landmarks
+    if title:
+        the_landmarks = extract_the_landmark_pattern(title)
+        candidates.extend(the_landmarks)
+    if caption:
+        the_landmarks = extract_the_landmark_pattern(caption)
+        candidates.extend(the_landmarks)
+
+    # PRIORITY 4b: Extract "ProperNoun + landmark_type" patterns (e.g., "Karnak temple")
+    if title:
+        landmark_matches = extract_landmark_patterns(title)
+        candidates.extend(landmark_matches)
+    if caption:
+        landmark_matches = extract_landmark_patterns(caption)
+        candidates.extend(landmark_matches)
 
     # Process title - often contains the best place info
     if title:

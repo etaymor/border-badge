@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
 from app.main import limiter
@@ -75,18 +76,33 @@ async def trigger_welcome_emails(
     # Use service role client for profile lookup/update (bypasses RLS)
     supabase = get_supabase_client()
 
-    # Idempotency check: see if user already has welcome_emails_scheduled flag
+    # Fetch profile with unsubscribe status and token
     profiles = await supabase.get(
         "user_profile",
-        params={"user_id": f"eq.{user.id}", "select": "welcome_emails_scheduled"},
+        params={
+            "user_id": f"eq.{user.id}",
+            "select": "welcome_emails_scheduled, email_unsubscribed_at, unsubscribe_token",
+        },
     )
 
+    # Check if user has unsubscribed
+    if profiles and profiles[0].get("email_unsubscribed_at"):
+        logger.info(
+            "User has unsubscribed, skipping welcome emails",
+            extra={"user_id": user.id, "recipient_hash": redacted_email},
+        )
+        return WelcomeEmailResponse(status="unsubscribed")
+
+    # Idempotency check: see if user already has welcome_emails_scheduled flag
     if profiles and profiles[0].get("welcome_emails_scheduled"):
         logger.info(
             "Welcome emails already scheduled, skipping",
             extra={"user_id": user.id, "recipient_hash": redacted_email},
         )
         return WelcomeEmailResponse(status="already_scheduled")
+
+    # Get unsubscribe token for email links
+    unsubscribe_token = profiles[0].get("unsubscribe_token") if profiles else None
 
     logger.info(
         "Triggering welcome emails",
@@ -98,7 +114,14 @@ async def trigger_welcome_emails(
     )
 
     # Schedule emails (async, no blocking)
-    result = await schedule_welcome_emails(user_email, display_name)
+    settings = get_settings()
+    result = await schedule_welcome_emails(
+        email=user_email,
+        display_name=display_name,
+        user_id=str(user.id),
+        unsubscribe_token=unsubscribe_token,
+        base_url=settings.base_url,
+    )
 
     # Handle different outcomes
     if result.skipped:

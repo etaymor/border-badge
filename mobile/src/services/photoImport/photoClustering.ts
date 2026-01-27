@@ -28,9 +28,13 @@ const MAX_PREVIEW_URIS = 5; // Limit preview URIs stored per candidate/cluster
  * Group photos into location clusters using geohash.
  *
  * @param photos - Photos with location data
+ * @param idPrefix - Optional prefix for cluster IDs (e.g., trip timestamp) to ensure uniqueness across trips
  * @returns Location clusters grouped by geohash
  */
-export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[] {
+export function clusterByLocation(
+  photos: PhotoWithLocation[],
+  idPrefix?: string
+): LocationCluster[] {
   // Group by geohash
   const groups = new Map<string, PhotoWithLocation[]>();
 
@@ -55,8 +59,11 @@ export function clusterByLocation(photos: PhotoWithLocation[]): LocationCluster[
       (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
     );
 
+    // Use prefixed ID if provided to ensure uniqueness across trips
+    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+
     return {
-      id: hash,
+      id: clusterId,
       geohash: hash,
       centroid: { latitude: avgLat, longitude: avgLng },
       photos: clusterPhotos,
@@ -197,14 +204,35 @@ export function segmentTripsByTimeGap(
 }
 
 /**
+ * Generate a stable trip prefix from country code and start date.
+ *
+ * Uses year-month-day granularity to create an identifier that remains stable
+ * even if the oldest photo in the trip is deleted. This prevents cluster IDs
+ * from changing when photos are added/removed from the cache.
+ *
+ * Format: {countryCode}_{YYYYMMDD}
+ * Example: "JP_20240315" for a Japan trip starting March 15, 2024
+ */
+function generateStableTripPrefix(countryCode: string, startDate: Date): string {
+  const year = startDate.getFullYear();
+  const month = String(startDate.getMonth() + 1).padStart(2, '0');
+  const day = String(startDate.getDate()).padStart(2, '0');
+  return `${countryCode}_${year}${month}${day}`;
+}
+
+/**
  * Create a trip candidate from a group of photos.
  */
 function createTripCandidate(countryCode: string, photos: PhotoWithLocation[]): TripCandidate {
   const sorted = photos.sort((a, b) => a.creationTime.getTime() - b.creationTime.getTime());
-  const locationClusters = clusterByLocation(photos);
+  // Use stable prefix based on country and start date to ensure cluster IDs
+  // remain consistent even if the oldest photo is deleted from the device.
+  // This prevents orphaned entries in processed_clusters and cached_place_suggestions.
+  const tripPrefix = generateStableTripPrefix(countryCode, sorted[0].creationTime);
+  const locationClusters = clusterByLocation(photos, tripPrefix);
 
   return {
-    id: `trip_${countryCode}_${sorted[0].creationTime.getTime()}`,
+    id: `trip_${tripPrefix}`,
     countryCode,
     dateRange: {
       start: sorted[0].creationTime,
@@ -425,9 +453,13 @@ export function photoToCachedPhoto(photo: PhotoWithLocation): CachedPhoto {
  * from the cache, avoiding recomputation.
  *
  * @param cachedPhotos - Photos loaded from cache
+ * @param idPrefix - Optional prefix for cluster IDs (e.g., trip timestamp) to ensure uniqueness across trips
  * @returns Location clusters with country codes already set
  */
-export function clusterFromCachedPhotos(cachedPhotos: CachedPhoto[]): LocationCluster[] {
+export function clusterFromCachedPhotos(
+  cachedPhotos: CachedPhoto[],
+  idPrefix?: string
+): LocationCluster[] {
   // Group by precomputed geohash
   const groups = new Map<string, CachedPhoto[]>();
 
@@ -449,8 +481,11 @@ export function clusterFromCachedPhotos(cachedPhotos: CachedPhoto[]): LocationCl
     // Use the country code from the first photo (all photos in cluster should have same country)
     const countryCode = clusterPhotos[0].countryCode ?? undefined;
 
+    // Use prefixed ID if provided to ensure uniqueness across trips
+    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+
     return {
-      id: hash,
+      id: clusterId,
       geohash: hash,
       centroid: { latitude: avgLat, longitude: avgLng },
       photos,

@@ -17,10 +17,20 @@ from app.schemas.social_ingest import (
     SaveToTripRequest,
     SocialIngestRequest,
     SocialIngestResponse,
+    SocialProvider,
 )
 from app.services.oembed_adapters import fetch_oembed
-from app.services.place_extractor import extract_location_hints, extract_place
-from app.services.url_resolver import canonicalize_url, detect_provider
+from app.services.place_extractor import (
+    clean_instagram_profile_name,
+    extract_location_hints,
+    extract_place,
+    extract_place_from_profile,
+)
+from app.services.url_resolver import (
+    canonicalize_url,
+    detect_provider,
+    is_instagram_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +91,9 @@ async def ingest_social_url(
     Receives a TikTok or Instagram URL, canonicalizes it, fetches oEmbed
     metadata (using cache if available), and attempts to extract a place.
 
+    Supports both post URLs (e.g., instagram.com/p/ABC123) and profile URLs
+    (e.g., instagram.com/commanderspalace) for business accounts.
+
     Returns the metadata directly without persisting to saved_source.
     The client should pass this data to /ingest/save-to-trip when saving.
     """
@@ -97,12 +110,18 @@ async def ingest_social_url(
             detail="URL is not from a supported provider (TikTok or Instagram)",
         )
 
+    # Step 1.5: Check if this is a profile URL (needs different processing)
+    is_profile = provider == SocialProvider.INSTAGRAM and is_instagram_profile(
+        canonical_url
+    )
+
     logger.info(
         "ingest_social_started",
         extra={
             "event": "ingest_start",
             "provider": provider.value,
             "user_id": str(user.id),
+            "is_profile": is_profile,
             # Sanitize URLs to remove query params that may contain tokens/PII
             "original_url": _sanitize_url_for_logging(data.url),
             "canonical_url": _sanitize_url_for_logging(canonical_url),
@@ -110,7 +129,8 @@ async def ingest_social_url(
     )
 
     # Step 2: Fetch oEmbed metadata (uses oembed_cache for deduplication)
-    oembed = await fetch_oembed(canonical_url, provider)
+    # For profile URLs, this goes directly to OpenGraph since oEmbed doesn't work
+    oembed = await fetch_oembed(canonical_url, provider, is_profile=is_profile)
 
     thumbnail_url = oembed.thumbnail_url if oembed else None
     author_handle = oembed.author_name if oembed else None
@@ -120,16 +140,26 @@ async def ingest_social_url(
     logger.info(
         f"INGEST oEmbed result: title_len={len(title) if title else 0}, "
         f"author={author_handle!r}, has_thumbnail={bool(thumbnail_url)}, "
-        f"caption_len={len(data.caption) if data.caption else 0}"
+        f"caption_len={len(data.caption) if data.caption else 0}, is_profile={is_profile}"
     )
 
     # Step 3: Extract place from content
-    detected_place = await extract_place(oembed, data.caption)
+    # Profile URLs use a different extraction path that uses the profile name directly
+    if is_profile and oembed:
+        # For profiles, use the profile name (business name) as the search query
+        profile_name = clean_instagram_profile_name(oembed.title or "")
+        # Bio may contain location hints (address, city)
+        bio = oembed.raw.get("og:description") if oembed.raw else None
+        detected_place = await extract_place_from_profile(profile_name, bio)
+    else:
+        # Standard extraction from post title/caption
+        detected_place = await extract_place(oembed, data.caption)
 
     logger.info(
         f"INGEST place extraction result: "
         f"detected={detected_place.name if detected_place else None}, "
-        f"confidence={detected_place.confidence if detected_place else None}"
+        f"confidence={detected_place.confidence if detected_place else None}, "
+        f"source={'profile' if is_profile else 'post'}"
     )
 
     # Step 4: Extract country hint even if place detection failed
