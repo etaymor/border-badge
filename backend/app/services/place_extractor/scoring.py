@@ -107,8 +107,8 @@ def _calculate_word_overlap(query_words: set[str], name_words: set[str]) -> int:
             },
         )
         # Truncate to reasonable size before processing
-        query_words = set(sorted(query_words)[:MAX_INPUT_WORD_SIZE])
-        name_words = set(sorted(name_words)[:MAX_INPUT_WORD_SIZE])
+        query_words = set(list(query_words)[:MAX_INPUT_WORD_SIZE])
+        name_words = set(list(name_words)[:MAX_INPUT_WORD_SIZE])
 
     # Fast path: count exact matches via set intersection
     exact_matches = query_words & name_words

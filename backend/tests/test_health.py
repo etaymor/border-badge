@@ -8,7 +8,9 @@ def test_health_check_returns_ok(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["ner"] in ("loaded", "unavailable")
 
 
 def test_health_check_returns_json(client: TestClient) -> None:

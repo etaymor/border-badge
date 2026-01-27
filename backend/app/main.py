@@ -122,7 +122,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await loop.run_in_executor(None, load_ner_model)
     except ImportError as e:
         logger.warning(f"spaCy not installed: {e} — NER disabled")
-    except Exception as e:
+    except OSError as e:
+        # OSError covers missing/corrupt model files
+        if settings.env == "production":
+            raise RuntimeError(f"spaCy model required in production: {e}") from e
         logger.error(f"spaCy model load failed: {e} — NER disabled", exc_info=True)
 
     yield
@@ -241,7 +244,9 @@ async def health_check() -> dict[str, str]:
 
     Returns a simple status to verify the API is running.
     """
-    return {"status": "ok"}
+    from app.services.place_extractor.ner_extraction import is_loaded as ner_is_loaded
+
+    return {"status": "ok", "ner": "loaded" if ner_is_loaded() else "unavailable"}
 
 
 @app.get("/.well-known/apple-app-site-association", tags=["apple"])

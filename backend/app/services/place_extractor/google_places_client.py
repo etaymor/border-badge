@@ -3,6 +3,7 @@
 This module provides async functions for interacting with the Google Places API (v1).
 """
 
+import asyncio
 import logging
 import time
 
@@ -16,13 +17,21 @@ logger = logging.getLogger(__name__)
 
 # Module-level shared httpx client for connection pooling
 _http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
 
 
-def get_http_client() -> httpx.AsyncClient:
+async def get_http_client() -> httpx.AsyncClient:
     """Return the shared httpx.AsyncClient, creating it lazily if needed."""
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS)
+        async with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                _http_client = httpx.AsyncClient(
+                    timeout=API_TIMEOUT_SECONDS,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20, max_connections=50
+                    ),
+                )
     return _http_client
 
 
@@ -106,7 +115,7 @@ async def search_places(
     start_time = time.monotonic()
 
     try:
-        client = get_http_client()
+        client = await get_http_client()
         response = await client.post(
             PLACES_AUTOCOMPLETE_URL,
             json=body,
@@ -301,7 +310,7 @@ async def text_search_place(
     start_time = time.monotonic()
 
     try:
-        client = get_http_client()
+        client = await get_http_client()
         response = await client.post(
             PLACES_TEXT_SEARCH_URL,
             json=body,

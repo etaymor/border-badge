@@ -179,7 +179,10 @@ class TestFollowRedirect:
 
     @pytest.mark.asyncio
     async def test_follows_redirect(self):
-        with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
+        with (
+            patch("app.services.url_resolver._is_private_ip", return_value=False),
+            patch("app.services.url_resolver.httpx.AsyncClient") as mock_client,
+        ):
             mock_response = AsyncMock()
             mock_response.status_code = 302
             mock_response.headers = {
@@ -195,7 +198,10 @@ class TestFollowRedirect:
 
     @pytest.mark.asyncio
     async def test_returns_original_if_no_redirect(self):
-        with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
+        with (
+            patch("app.services.url_resolver._is_private_ip", return_value=False),
+            patch("app.services.url_resolver.httpx.AsyncClient") as mock_client,
+        ):
             mock_response = AsyncMock()
             mock_response.status_code = 200
             mock_response.headers = {}
@@ -210,7 +216,10 @@ class TestFollowRedirect:
 
     @pytest.mark.asyncio
     async def test_handles_relative_redirect(self):
-        with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
+        with (
+            patch("app.services.url_resolver._is_private_ip", return_value=False),
+            patch("app.services.url_resolver.httpx.AsyncClient") as mock_client,
+        ):
             mock_response = AsyncMock()
             mock_response.status_code = 301
             mock_response.headers = {"location": "/@user/video/123"}
@@ -226,7 +235,10 @@ class TestFollowRedirect:
     async def test_returns_original_on_timeout(self):
         import httpx
 
-        with patch("app.services.url_resolver.httpx.AsyncClient") as mock_client:
+        with (
+            patch("app.services.url_resolver._is_private_ip", return_value=False),
+            patch("app.services.url_resolver.httpx.AsyncClient") as mock_client,
+        ):
             mock_client_instance = AsyncMock()
             mock_client_instance.head = AsyncMock(
                 side_effect=httpx.TimeoutException("timeout")
