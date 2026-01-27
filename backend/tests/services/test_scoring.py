@@ -1,9 +1,12 @@
 """Tests for place extraction scoring module."""
 
+from app.schemas.social_ingest import DetectedPlace
+from app.services.place_extractor.location_hints import LocationHint
 from app.services.place_extractor.scoring import (
     _calculate_word_overlap,
     _words_similar,
     calculate_confidence,
+    score_place_result,
 )
 
 
@@ -199,3 +202,80 @@ class TestRealWorldCases:
         # "Restaurant" fuzzy matches "Restoran" (77.8%)
         # 1/1 match -> 0.2 + 0.55 + 0.1 = 0.85
         assert confidence >= 0.8
+
+
+def _make_place(**kwargs) -> DetectedPlace:
+    """Helper to create a DetectedPlace with defaults."""
+    defaults = {
+        "google_place_id": "test_id",
+        "name": "Test Place",
+        "confidence": 0.8,
+    }
+    defaults.update(kwargs)
+    return DetectedPlace(**defaults)
+
+
+class TestScorePlaceResult:
+    """Tests for score_place_result ranking function."""
+
+    def test_base_confidence_used(self):
+        """Score starts from the place's confidence value."""
+        place = _make_place(confidence=0.75)
+        score = score_place_result(place, location_bias=None, candidate_idx=0)
+        assert score == 0.75
+
+    def test_country_match_bonus(self):
+        """Matching country adds +0.25 bonus."""
+        place = _make_place(confidence=0.5, country_code="JP")
+        bias = LocationHint(
+            name="Tokyo", country_code="JP", latitude=35.6, longitude=139.7
+        )
+        score = score_place_result(place, location_bias=bias, candidate_idx=0)
+        assert score == 0.5 + 0.25
+
+    def test_country_mismatch_penalty(self):
+        """Mismatching country applies -0.15 penalty (reduced from -0.5)."""
+        place = _make_place(confidence=0.8, country_code="SD")
+        bias = LocationHint(
+            name="Oman", country_code="OM", latitude=23.6, longitude=58.5
+        )
+        score = score_place_result(place, location_bias=bias, candidate_idx=0)
+        assert score == 0.8 - 0.15
+
+    def test_country_mismatch_doesnt_kill_strong_match(self):
+        """A high-confidence match should survive country mismatch."""
+        place = _make_place(confidence=0.95, country_code="SD")
+        bias = LocationHint(
+            name="Oman", country_code="OM", latitude=23.6, longitude=58.5
+        )
+        score = score_place_result(place, location_bias=bias, candidate_idx=0)
+        assert score > 0.5  # With old -0.5 penalty this would be 0.45
+
+    def test_low_value_type_penalty(self):
+        """Tour agencies and similar types get penalized."""
+        place = _make_place(confidence=0.7, primary_type="travel_agency")
+        score = score_place_result(place, location_bias=None, candidate_idx=0)
+        assert score == 0.7 - 0.25
+
+    def test_high_value_type_bonus(self):
+        """Restaurants, landmarks etc. get a bonus."""
+        place = _make_place(confidence=0.7, primary_type="restaurant")
+        score = score_place_result(place, location_bias=None, candidate_idx=0)
+        assert score == 0.7 + 0.1
+
+    def test_candidate_position_penalty(self):
+        """Later candidates get slightly penalized."""
+        place = _make_place(confidence=0.7)
+        score_0 = score_place_result(place, location_bias=None, candidate_idx=0)
+        score_2 = score_place_result(place, location_bias=None, candidate_idx=2)
+        assert score_0 > score_2
+        assert abs((score_0 - score_2) - 2 * 0.02) < 1e-9
+
+    def test_no_country_codes_no_bonus_or_penalty(self):
+        """When country codes are missing, no country adjustment is applied."""
+        place = _make_place(confidence=0.7, country_code=None)
+        bias = LocationHint(
+            name="Tokyo", country_code="JP", latitude=35.6, longitude=139.7
+        )
+        score = score_place_result(place, location_bias=bias, candidate_idx=0)
+        assert score == 0.7

@@ -27,7 +27,7 @@ class TestCleanInstagramProfileName:
 
     def test_removes_photos_and_videos_suffix_bullet(self):
         result = clean_instagram_profile_name(
-            "Cafe Central • Instagram photos and videos"
+            "Cafe Central \u2022 Instagram photos and videos"
         )
         assert result == "Cafe Central"
 
@@ -100,22 +100,16 @@ class TestExtractPlaceFromProfile:
             return_value=True,
         ):
             with patch(
-                "app.services.place_extractor.extractor.search_places",
-                return_value=[{"place_id": "ChIJ123"}],
+                "app.services.place_extractor.extractor.text_search_place",
+                return_value=[mock_place],
             ):
-                with patch(
-                    "app.services.place_extractor.extractor.get_place_details",
-                    return_value=mock_place,
-                ):
-                    result = await extract_place_from_profile(
-                        "Commander's Palace", None
-                    )
+                result = await extract_place_from_profile("Commander's Palace", None)
 
-                    assert result is not None
-                    assert result.name == "Commander's Palace"
-                    assert result.country_code == "US"
-                    # Confidence should be boosted for profile-based extraction
-                    assert result.confidence > 0
+                assert result is not None
+                assert result.name == "Commander's Palace"
+                assert result.country_code == "US"
+                # Confidence should be boosted for profile-based extraction
+                assert result.confidence > 0
 
     @pytest.mark.asyncio
     async def test_uses_bio_for_location_hints(self):
@@ -137,22 +131,18 @@ class TestExtractPlaceFromProfile:
             return_value=True,
         ):
             with patch(
-                "app.services.place_extractor.extractor.search_places",
-                return_value=[{"place_id": "ChIJ456"}],
+                "app.services.place_extractor.extractor.text_search_place",
+                return_value=[mock_place],
             ) as mock_search:
-                with patch(
-                    "app.services.place_extractor.extractor.get_place_details",
-                    return_value=mock_place,
-                ):
-                    result = await extract_place_from_profile(
-                        "Cafe Central",
-                        bio="Historic coffeehouse in Vienna, Austria since 1876",
-                    )
+                result = await extract_place_from_profile(
+                    "Cafe Central",
+                    bio="Historic coffeehouse in Vienna, Austria since 1876",
+                )
 
-                    assert result is not None
-                    assert result.name == "Cafe Central"
-                    # Verify search was called (location hints would bias the search)
-                    assert mock_search.called
+                assert result is not None
+                assert result.name == "Cafe Central"
+                # Verify search was called (location hints would bias the search)
+                assert mock_search.called
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_place_found(self):
@@ -161,7 +151,7 @@ class TestExtractPlaceFromProfile:
             return_value=True,
         ):
             with patch(
-                "app.services.place_extractor.extractor.search_places",
+                "app.services.place_extractor.extractor.text_search_place",
                 return_value=[],  # No results
             ):
                 result = await extract_place_from_profile(
@@ -189,24 +179,18 @@ class TestExtractPlaceFromProfile:
             return_value=True,
         ):
             with patch(
-                "app.services.place_extractor.extractor.search_places",
-                return_value=[{"place_id": "ChIJ789"}],
+                "app.services.place_extractor.extractor.text_search_place",
+                return_value=[mock_place],
             ):
                 with patch(
-                    "app.services.place_extractor.extractor.get_place_details",
-                    return_value=mock_place,
+                    "app.services.place_extractor.extractor.calculate_confidence",
+                    return_value=0.7,  # Base confidence
                 ):
-                    with patch(
-                        "app.services.place_extractor.extractor.calculate_confidence",
-                        return_value=0.7,  # Base confidence
-                    ):
-                        result = await extract_place_from_profile(
-                            "Test Restaurant", None
-                        )
+                    result = await extract_place_from_profile("Test Restaurant", None)
 
-                        assert result is not None
-                        # Should be boosted by 0.1 (to ~0.8)
-                        assert abs(result.confidence - 0.8) < 0.001
+                    assert result is not None
+                    # Should be boosted by 0.1 (to ~0.8)
+                    assert abs(result.confidence - 0.8) < 0.001
 
     @pytest.mark.asyncio
     async def test_confidence_caps_at_1_0(self):
@@ -228,21 +212,17 @@ class TestExtractPlaceFromProfile:
             return_value=True,
         ):
             with patch(
-                "app.services.place_extractor.extractor.search_places",
-                return_value=[{"place_id": "ChIJabc"}],
+                "app.services.place_extractor.extractor.text_search_place",
+                return_value=[mock_place],
             ):
                 with patch(
-                    "app.services.place_extractor.extractor.get_place_details",
-                    return_value=mock_place,
+                    "app.services.place_extractor.extractor.calculate_confidence",
+                    return_value=0.95,  # High base confidence
                 ):
-                    with patch(
-                        "app.services.place_extractor.extractor.calculate_confidence",
-                        return_value=0.95,  # High base confidence
-                    ):
-                        result = await extract_place_from_profile(
-                            "Perfect Match Restaurant", None
-                        )
+                    result = await extract_place_from_profile(
+                        "Perfect Match Restaurant", None
+                    )
 
-                        assert result is not None
-                        # Should be capped at 1.0 (not 1.05)
-                        assert result.confidence == 1.0
+                    assert result is not None
+                    # Should be capped at 1.0 (not 1.05)
+                    assert result.confidence == 1.0

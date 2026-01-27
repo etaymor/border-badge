@@ -14,9 +14,8 @@ from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
 from app.services.place_extractor.candidate_extraction import extract_place_candidates
 from app.services.place_extractor.data import COUNTRIES
 from app.services.place_extractor.google_places_client import (
-    get_place_details,
     is_configured,
-    search_places,
+    text_search_place,
 )
 from app.services.place_extractor.location_hints import (
     LocationHint,
@@ -39,73 +38,77 @@ PLACE_EXTRACTION_TIMEOUT = 5.0
 async def _try_candidate(
     candidate: str,
     location_bias: LocationHint | None = None,
+    included_type: str | None = None,
 ) -> DetectedPlace | None:
-    """Try to resolve a single place candidate.
+    """Try to resolve a single place candidate via Text Search API.
+
+    Evaluates the top 3 results and returns the one with highest confidence.
+    Text Search returns full details in a single call (no separate Details call).
 
     Args:
         candidate: Place name candidate to search
         location_bias: Optional location hint to bias search results
+        included_type: Optional Google Places type to filter results
 
     Returns:
         DetectedPlace if found, None otherwise
     """
-    results = await search_places(candidate, location_bias=location_bias)
+    results = await text_search_place(
+        candidate,
+        included_type=included_type,
+        location_bias=location_bias,
+    )
 
     if not results:
         logger.info(f"_try_candidate: no results for {candidate!r}")
         return None
 
-    # Take the first result
-    first_result = results[0]
-    place_id = first_result.get("place_id")
-    logger.debug(f"_try_candidate: first_result place_id={place_id!r}")
+    # Score top 3 results and return the best
+    best_detected: DetectedPlace | None = None
+    best_confidence = -1.0
 
-    if not place_id:
-        logger.info(f"_try_candidate: no place_id in result for {candidate!r}")
-        return None
+    for i, details in enumerate(results[:3]):
+        place_id = details.get("place_id")
+        if not place_id:
+            continue
 
-    # Fetch full details
-    details = await get_place_details(place_id)
-    logger.debug(f"_try_candidate: got details for place_id={place_id!r}")
+        confidence = calculate_confidence(
+            query=candidate,
+            place_name=details.get("name", ""),
+            is_first_result=(i == 0),
+        )
 
-    if not details:
-        logger.info(f"_try_candidate: get_place_details failed for {place_id!r}")
-        return None
+        if confidence > best_confidence:
+            best_confidence = confidence
+            best_detected = DetectedPlace(
+                google_place_id=place_id,
+                name=details.get("name", candidate),
+                address=details.get("address"),
+                latitude=details.get("latitude"),
+                longitude=details.get("longitude"),
+                city=details.get("city"),
+                country=details.get("country"),
+                country_code=details.get("country_code"),
+                confidence=confidence,
+                primary_type=details.get("primary_type"),
+                types=details.get("types", []),
+            )
 
-    # Calculate confidence
-    confidence = calculate_confidence(
-        query=candidate,
-        place_name=details.get("name", ""),
-        is_first_result=True,
-    )
+    if best_detected:
+        logger.info(
+            "place_extraction_success",
+            extra={
+                "event": "place_extraction",
+                "result": "found",
+                "query": candidate[:50],
+                "place_name": best_detected.name[:50] if best_detected.name else None,
+                "country_code": best_detected.country_code,
+                "confidence": best_detected.confidence,
+                "results_evaluated": min(len(results), 3),
+            },
+        )
 
-    detected = DetectedPlace(
-        google_place_id=details.get("place_id"),
-        name=details.get("name", candidate),
-        address=details.get("address"),
-        latitude=details.get("latitude"),
-        longitude=details.get("longitude"),
-        city=details.get("city"),
-        country=details.get("country"),
-        country_code=details.get("country_code"),
-        confidence=confidence,
-        primary_type=details.get("primary_type"),
-        types=details.get("types", []),
-    )
-
-    logger.info(
-        "place_extraction_success",
-        extra={
-            "event": "place_extraction",
-            "result": "found",
-            "query": candidate[:50],
-            "place_name": detected.name[:50] if detected.name else None,
-            "country_code": detected.country_code,
-            "confidence": confidence,
-        },
-    )
-
-    return detected
+    return best_detected
 
 
 async def _extract_place_impl(
@@ -129,7 +132,7 @@ async def _extract_place_impl(
     title = oembed.title if oembed else None
     author_name = oembed.author_name if oembed else None
 
-    candidates = extract_place_candidates(title, caption, author_name)
+    candidates = await extract_place_candidates(title, caption, author_name)
 
     if not candidates:
         logger.info(
@@ -158,18 +161,24 @@ async def _extract_place_impl(
     )
     # Log first candidate only (truncated) for debugging
     if candidates:
-        first_cand = (
-            candidates[0][:30] + "..." if len(candidates[0]) > 30 else candidates[0]
-        )
+        first_text = candidates[0].text
+        first_cand = first_text[:30] + "..." if len(first_text) > 30 else first_text
         logger.debug(f"PLACE EXTRACTION first candidate: {first_cand!r}")
 
     # Filter out country names - they're used for location biasing, not as search targets
     # (Google Places API returns errors for geopolitical queries like "Kyrgyzstan")
-    filtered_candidates = [c for c in candidates if c.lower() not in COUNTRIES]
+    filtered_candidates = [c for c in candidates if c.text.lower() not in COUNTRIES]
 
     # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
     top_candidates = filtered_candidates[:MAX_PARALLEL_CANDIDATES]
-    tasks = [_try_candidate(c, location_bias=location_bias) for c in top_candidates]
+    tasks = [
+        _try_candidate(
+            c.text,
+            location_bias=location_bias,
+            included_type=c.place_type,
+        )
+        for c in top_candidates
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Collect all valid results with scores (best-match selection, not first-wins)

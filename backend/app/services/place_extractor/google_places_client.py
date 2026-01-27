@@ -165,6 +165,185 @@ async def search_places(
         return []
 
 
+# Allowed place types for Text Search includedType parameter
+ALLOWED_INCLUDED_TYPES = frozenset(
+    {
+        "restaurant",
+        "cafe",
+        "bar",
+        "lodging",
+        "museum",
+        "tourist_attraction",
+        "park",
+    }
+)
+
+
+def _normalize_text_search_result(place: dict) -> dict:
+    """Normalize a Text Search (New) API result to match get_place_details() shape.
+
+    Text Search returns: {"id": "places/...", "displayName": {"text": "..."}}
+    Normalized to: {"place_id": "...", "name": "...", "address": "..."}
+    """
+    # Extract city and country from address components
+    city = None
+    country = None
+    country_code = None
+
+    for component in place.get("addressComponents", []):
+        types = component.get("types", [])
+        if "locality" in types:
+            city = component.get("longText")
+        elif "country" in types:
+            country = component.get("longText")
+            country_code = component.get("shortText")
+
+    location = place.get("location", {})
+
+    return {
+        "place_id": place.get("id"),
+        "name": place.get("displayName", {}).get("text", ""),
+        "address": place.get("formattedAddress"),
+        "latitude": location.get("latitude"),
+        "longitude": location.get("longitude"),
+        "city": city,
+        "country": country,
+        "country_code": country_code,
+        "primary_type": place.get("primaryType"),
+        "types": place.get("types", []),
+    }
+
+
+async def text_search_place(
+    query: str,
+    included_type: str | None = None,
+    location_bias: LocationHint | None = None,
+    page_size: int = 3,
+) -> list[dict]:
+    """Search via Text Search (New) — semantic matching, returns full details.
+
+    Advantages over Autocomplete:
+    - Semantic matching (better for captions vs typeahead)
+    - Returns full place data (no second Details call needed)
+    - Supports includedType for category filtering
+
+    Cost: Pro SKU $0.032/call (displayName and primaryType require Pro tier).
+
+    Args:
+        query: Search query string
+        included_type: Optional Google Places type to filter results
+        location_bias: Optional location hint to bias results
+        page_size: Number of results to return (default 3)
+
+    Returns:
+        List of normalized place dicts matching get_place_details() shape
+    """
+    if not is_configured():
+        logger.debug("google_places_not_configured: skipping text search")
+        return []
+
+    if not query or not query.strip():
+        return []
+
+    query = query.strip()[:200]  # Google practical limit
+
+    # Validate included_type against allowlist
+    if included_type and included_type not in ALLOWED_INCLUDED_TYPES:
+        included_type = None
+
+    settings = get_settings()
+
+    body: dict = {
+        "textQuery": query,
+        "pageSize": page_size,
+        "languageCode": "en",
+    }
+
+    if included_type:
+        body["includedType"] = included_type
+
+    if location_bias and location_bias.latitude and location_bias.longitude:
+        radius = 25000 if location_bias.name in MAJOR_CITIES else 50000
+        body["locationBias"] = {
+            "circle": {
+                "center": {
+                    "latitude": location_bias.latitude,
+                    "longitude": location_bias.longitude,
+                },
+                "radius": radius,
+            }
+        }
+
+    # Pro SKU fields (displayName, primaryType trigger Pro tier at $0.032/call)
+    field_mask = (
+        "places.id,places.displayName,places.formattedAddress,"
+        "places.location,places.addressComponents,"
+        "places.primaryType,places.types"
+    )
+
+    start_time = time.monotonic()
+
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                PLACES_TEXT_SEARCH_URL,
+                json=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": settings.google_places_api_key,
+                    "X-Goog-FieldMask": field_mask,
+                },
+            )
+
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"places_text_search_error: status={response.status_code} "
+                    f"query={query[:50]!r}"
+                )
+                return []
+
+            data = response.json()
+            places = data.get("places", [])
+            results = [_normalize_text_search_result(p) for p in places]
+
+            result_names = [r.get("name", "?") for r in results[:3]]
+            logger.info(
+                f"PLACES TEXT SEARCH query={query!r} -> "
+                f"{len(results)} results: {result_names} ({elapsed_ms:.0f}ms)"
+            )
+
+            return results
+
+    except httpx.TimeoutException:
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.warning(
+            "places_text_search_timeout",
+            extra={
+                "event": "places_error",
+                "error_type": "timeout",
+                "query": query[:50],
+                "elapsed_ms": round(elapsed_ms, 2),
+            },
+        )
+        return []
+
+    except (httpx.RequestError, ValueError) as e:
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.error(
+            "places_text_search_error",
+            extra={
+                "event": "places_error",
+                "error_type": type(e).__name__,
+                "query": query[:50],
+                "error": str(e)[:200],
+                "elapsed_ms": round(elapsed_ms, 2),
+            },
+        )
+        return []
+
+
 async def get_place_details(place_id: str) -> dict | None:
     """Get detailed information about a place.
 

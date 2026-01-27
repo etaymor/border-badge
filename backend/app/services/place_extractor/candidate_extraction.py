@@ -6,6 +6,7 @@ social media titles, captions, and author information.
 
 import logging
 import re
+from dataclasses import dataclass
 
 from app.services.place_extractor.data import COUNTRIES, MAJOR_CITIES
 from app.services.place_extractor.text_utils import (
@@ -14,6 +15,16 @@ from app.services.place_extractor.text_utils import (
     clean_text_for_search,
     run_with_timeout,
 )
+
+
+@dataclass(frozen=True)
+class PlaceCandidate:
+    """A candidate place name extracted from text."""
+
+    text: str
+    place_type: str | None = None
+    source: str = "regex"  # "emoji" | "flag" | "prefix" | "pattern" | "ner"
+
 
 logger = logging.getLogger(__name__)
 
@@ -444,14 +455,14 @@ def extract_the_landmark_pattern(text: str) -> list[str]:
     return landmarks
 
 
-def extract_place_candidates(
+async def extract_place_candidates(
     title: str | None,
     caption: str | None,
     author_name: str | None,
-) -> list[str]:
+) -> list[PlaceCandidate]:
     """Extract potential place name candidates from social media content.
 
-    Uses heuristics to identify likely place names from:
+    Uses heuristics and NER to identify likely place names from:
     - Video/post title
     - User caption
     - Author name (sometimes contains location)
@@ -462,10 +473,11 @@ def extract_place_candidates(
     2. "Location:" prefix patterns - explicit user labeling
     3. Country-prefixed places ("Oman - Wadi Shab")
     4. Landmark patterns ("Karnak temple", "the Temple of Poseidon")
-    5. Quoted/parenthetical text
-    6. Location indicator patterns ("at X", "in Y")
-    7. Proper noun phrases
-    8. Hashtags and mentions
+    5. NER entities (spaCy FAC, LOC, GPE, ORG)
+    6. Quoted/parenthetical text
+    7. Location indicator patterns ("at X", "in Y")
+    8. Proper noun phrases
+    9. Hashtags and mentions
 
     Input is truncated to prevent ReDoS attacks.
 
@@ -475,9 +487,13 @@ def extract_place_candidates(
         author_name: Content creator's name/handle
 
     Returns:
-        List of potential place name candidates, ordered by likelihood
+        List of PlaceCandidate objects, ordered by likelihood
     """
-    candidates: list[str] = []
+    candidates: list[PlaceCandidate] = []
+
+    def _add(texts: list[str], source: str = "regex") -> None:
+        for t in texts:
+            candidates.append(PlaceCandidate(text=t, source=source))
 
     # Truncate inputs to prevent ReDoS attacks
     if title and len(title) > MAX_TEXT_LENGTH:
@@ -495,96 +511,85 @@ def extract_place_candidates(
     combined_text = " ".join(filter(None, [title, caption]))
 
     # PRIORITY 1: Extract locations marked with 📍 or other location emojis
-    # This is the most reliable signal as users explicitly mark places this way
-    # Check caption first (user's own text), then title
     if caption:
-        emoji_locations = extract_emoji_locations(caption)
-        candidates.extend(emoji_locations)
-
+        _add(extract_emoji_locations(caption), "emoji")
     if title:
-        emoji_locations = extract_emoji_locations(title)
-        candidates.extend(emoji_locations)
+        _add(extract_emoji_locations(title), "emoji")
 
     # PRIORITY 1b: Extract flag emoji locations (e.g., "🇴🇲 Wadi Shab")
     if caption:
         flag_places, _ = extract_flag_emoji_locations(caption)
-        candidates.extend(flag_places)
+        _add(flag_places, "flag")
     if title:
         flag_places, _ = extract_flag_emoji_locations(title)
-        candidates.extend(flag_places)
+        _add(flag_places, "flag")
 
     # PRIORITY 2: Extract "Location:" prefix patterns (explicit user labeling)
     if caption:
-        location_prefix_places = extract_location_prefix_places(caption)
-        candidates.extend(location_prefix_places)
+        _add(extract_location_prefix_places(caption), "prefix")
     if title:
-        location_prefix_places = extract_location_prefix_places(title)
-        candidates.extend(location_prefix_places)
+        _add(extract_location_prefix_places(title), "prefix")
 
-    # PRIORITY 3: Extract country-prefixed places ("Oman - Wadi Shab", "Egypt: Karnak")
-    country_prefixed = extract_country_prefixed_places(combined_text)
-    candidates.extend(country_prefixed)
+    # PRIORITY 3: Extract country-prefixed places
+    _add(extract_country_prefixed_places(combined_text), "prefix")
 
-    # PRIORITY 4a: Extract "the [Landmark]" patterns (e.g., "the Temple of Poseidon")
-    # These are high-value because "the" typically precedes famous landmarks
+    # PRIORITY 4a: Extract "the [Landmark]" patterns
     if title:
-        the_landmarks = extract_the_landmark_pattern(title)
-        candidates.extend(the_landmarks)
+        _add(extract_the_landmark_pattern(title), "pattern")
     if caption:
-        the_landmarks = extract_the_landmark_pattern(caption)
-        candidates.extend(the_landmarks)
+        _add(extract_the_landmark_pattern(caption), "pattern")
 
-    # PRIORITY 4b: Extract "ProperNoun + landmark_type" patterns (e.g., "Karnak temple")
+    # PRIORITY 4b: Extract "ProperNoun + landmark_type" patterns
     if title:
-        landmark_matches = extract_landmark_patterns(title)
-        candidates.extend(landmark_matches)
+        _add(extract_landmark_patterns(title), "pattern")
     if caption:
-        landmark_matches = extract_landmark_patterns(caption)
-        candidates.extend(landmark_matches)
+        _add(extract_landmark_patterns(caption), "pattern")
+
+    # PRIORITY 5: NER extraction (spaCy) — runs in thread pool
+    from app.services.place_extractor.ner_extraction import extract_ner_entities
+
+    ner_entities = await extract_ner_entities(combined_text)
+    for entity in ner_entities:
+        candidates.append(
+            PlaceCandidate(
+                text=entity.text,
+                place_type=entity.place_type,
+                source="ner",
+            )
+        )
 
     # Process title - often contains the best place info
     if title:
-        # Look for quoted place names (handles straight and smart quotes)
-        # Includes: " " " ' ' ' (straight double, smart double, straight single, smart single)
         quoted = re.findall(
             r'[""\u201c\u201d\'\u2018\u2019]([^""\u201c\u201d\'\u2018\u2019]{3,50})[""\u201c\u201d\'\u2018\u2019]',
             title,
         )
-        candidates.extend(quoted)
+        _add(quoted, "pattern")
 
-        # Look for parenthetical place names like "(Tirana's Rock)"
         parenthetical = re.findall(r"\(([A-Za-z][A-Za-z\s''-]{2,40})\)", title)
-        candidates.extend(parenthetical)
+        _add(parenthetical, "pattern")
 
-        # Look for location patterns like "at Place Name" or "in City"
         location_matches = re.findall(
             r"\b(?:at|in|visit(?:ing)?)\s+([A-Z][A-Za-z\s&''-]{2,40})", title
         )
-        candidates.extend(location_matches)
+        _add(location_matches, "pattern")
 
-        # Look for capitalized multi-word phrases (likely proper nouns/place names)
-        # Handles apostrophes in names like "Tirana's Rock"
         proper_nouns = re.findall(
             r"([A-Z][a-z]+(?:[''][a-z]+)?(?:\s+[A-Z][a-z]+(?:[''][a-z]+)?)+)", title
         )
-        candidates.extend(proper_nouns)
+        _add(proper_nouns, "pattern")
 
-        # Add the full title as a fallback candidate (cleaned up)
         cleaned_title = clean_text_for_search(title)
         if cleaned_title and len(cleaned_title) > 3:
-            candidates.append(cleaned_title)
+            candidates.append(PlaceCandidate(text=cleaned_title, source="pattern"))
 
     # Process caption
     if caption:
-        # Look for hashtag locations (common pattern: #PlaceName)
         hashtag_locations = re.findall(r"#([A-Z][A-Za-z]{2,30})", caption)
-        candidates.extend(hashtag_locations)
+        _add(hashtag_locations, "pattern")
 
-        # Look for @ mentions that might be place handles
         at_mentions = re.findall(r"@([A-Za-z][A-Za-z0-9_]{2,30})", caption)
-        # Filter to likely business names (not personal accounts)
         for mention in at_mentions:
-            # Business handles often contain keywords
             lower_mention = mention.lower()
             if any(
                 word in lower_mention
@@ -598,15 +603,23 @@ def extract_place_candidates(
                     "club",
                 ]
             ):
-                candidates.append(mention.replace("_", " "))
+                candidates.append(
+                    PlaceCandidate(text=mention.replace("_", " "), source="pattern")
+                )
 
     # Deduplicate while preserving order
     seen: set[str] = set()
-    unique_candidates: list[str] = []
+    unique_candidates: list[PlaceCandidate] = []
     for candidate in candidates:
-        normalized = candidate.strip().lower()
+        normalized = candidate.text.strip().lower()
         if normalized and normalized not in seen and len(normalized) > 2:
             seen.add(normalized)
-            unique_candidates.append(candidate.strip())
+            unique_candidates.append(
+                PlaceCandidate(
+                    text=candidate.text.strip(),
+                    place_type=candidate.place_type,
+                    source=candidate.source,
+                )
+            )
 
-    return unique_candidates[:10]  # Limit to top 10 candidates
+    return unique_candidates[:10]

@@ -290,7 +290,7 @@ def score_place_result(
         if place.country_code == location_bias.country_code:
             score += 0.25  # Boost for matching expected country
         else:
-            score -= 0.5  # Strong penalty for wrong country
+            score -= 0.15  # Moderate penalty — don't override strong text matches
 
     # Penalize low-value place types (tour agencies, etc.)
     if place.primary_type and place.primary_type in LOW_VALUE_PLACE_TYPES:

@@ -106,6 +106,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Photo import place suggestions will fail. "
             "Set this env var or disable the feature."
         )
+
+    # Load spaCy NER model in thread pool (CPU-intensive, ~1-3s)
+    try:
+        import asyncio
+
+        from app.services.place_extractor.ner_extraction import (
+            load_model as load_ner_model,
+        )
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, load_ner_model)
+    except Exception:
+        logger.error("spaCy model failed to load — NER extraction disabled")
+
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
