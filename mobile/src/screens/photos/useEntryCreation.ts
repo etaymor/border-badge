@@ -140,12 +140,19 @@ export function useEntryCreation({
         });
 
         // Mark cluster as processed in memory and persist to SQLite
-        setDismissedClusterIds((prev) => new Set(prev).add(suggestion.cluster_id));
-        await markClusterProcessed(suggestion.cluster_id, 'confirmed');
+        // Batch all cluster IDs (primary + additional) into a single state update
+        const allClusterIds = [suggestion.cluster_id, ...additionalClusterIds];
+        setDismissedClusterIds((prev) => {
+          const next = new Set(prev);
+          for (const id of allClusterIds) {
+            next.add(id);
+          }
+          return next;
+        });
 
-        // Also mark additional cluster IDs as processed (for merged suggestions)
+        // Persist all cluster IDs to SQLite
+        await markClusterProcessed(suggestion.cluster_id, 'confirmed');
         for (const additionalId of additionalClusterIds) {
-          setDismissedClusterIds((prev) => new Set(prev).add(additionalId));
           await markClusterProcessed(additionalId, 'confirmed');
         }
 
@@ -225,9 +232,22 @@ export function useEntryCreation({
    */
   const handleHideMultipleClusters = useCallback(
     async (clusterIds: string[]) => {
-      for (const clusterId of clusterIds) {
+      // Track analytics for each cluster
+      for (let i = 0; i < clusterIds.length; i++) {
         Analytics.photoImportClusterHidden();
-        setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
+      }
+
+      // Batch all cluster IDs into a single state update to avoid N recalculations
+      setDismissedClusterIds((prev) => {
+        const next = new Set(prev);
+        for (const id of clusterIds) {
+          next.add(id);
+        }
+        return next;
+      });
+
+      // Persist each cluster to SQLite
+      for (const clusterId of clusterIds) {
         await markClusterProcessed(clusterId, 'hidden');
       }
     },

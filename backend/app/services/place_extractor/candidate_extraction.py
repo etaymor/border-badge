@@ -201,7 +201,7 @@ LOCATION_INDICATORS = {
 
 # Landmark type words that can follow a proper noun (e.g., "Karnak temple")
 # Used to match "ProperNoun + landmark_type" patterns
-LANDMARK_TYPES_PATTERN = (
+LANDMARK_TYPES_PATTERN: str = (
     r"(?:temple|monastery|church|cathedral|mosque|palace|castle|ruins|tower|"
     r"museum|park|beach|shrine|basilica|abbey|fort|fortress|tomb|pyramid|"
     r"falls|waterfall|canyon|cave|bridge|memorial|monument|garden)s?"
@@ -209,14 +209,24 @@ LANDMARK_TYPES_PATTERN = (
 
 # Pre-compile flag emoji pattern for efficiency
 # Flag emojis are two regional indicator symbols (U+1F1E6 to U+1F1FF)
-_FLAG_EMOJI_REGEX = re.compile(
+_FLAG_EMOJI_REGEX: re.Pattern[str] = re.compile(
     r"([\U0001F1E6-\U0001F1FF]{2})\s*([A-Za-z][A-Za-z\s''\-,]{2,50})?"
 )
 
 # Pre-compile "Location:" prefix pattern
-_LOCATION_PREFIX_REGEX = re.compile(
+_LOCATION_PREFIX_REGEX: re.Pattern[str] = re.compile(
     r"[Ll]ocation\s*[:：]\s*([A-Za-z][A-Za-z\s&''\-,]{2,50})"
 )
+
+# Pre-compile country prefix patterns for efficiency (performance optimization)
+# Built once at module load instead of compiling regex for each country on every call
+_COUNTRY_PREFIX_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"\b" + re.escape(country_name) + r"\s*[-:–]\s*([A-Za-z][A-Za-z\s''\-]{2,40})",
+        re.IGNORECASE,
+    )
+    for country_name in COUNTRIES.keys()
+]
 
 
 def extract_location_prefix_places(text: str) -> list[str]:
@@ -238,7 +248,7 @@ def extract_location_prefix_places(text: str) -> list[str]:
     if len(text) > MAX_TEXT_LENGTH:
         text = text[:MAX_TEXT_LENGTH]
 
-    locations = []
+    locations: list[str] = []
     matches = _LOCATION_PREFIX_REGEX.findall(text)
 
     for match in matches:
@@ -304,7 +314,7 @@ def extract_country_prefixed_places(text: str) -> list[str]:
     """Extract place names that follow a country name.
 
     Patterns: "Oman - Wadi Shab", "Egypt: Karnak Temple"
-    Uses the existing COUNTRIES dictionary (150+ countries with aliases).
+    Uses pre-compiled patterns from _COUNTRY_PREFIX_PATTERNS for efficiency.
 
     Args:
         text: Caption or title text to search
@@ -320,14 +330,10 @@ def extract_country_prefixed_places(text: str) -> list[str]:
 
     places: list[str] = []
 
-    for country_name in COUNTRIES.keys():
-        # Pattern: "Country - Place" or "Country: Place" or "Country – Place"
-        pattern = (
-            r"\b"
-            + re.escape(country_name)
-            + r"\s*[-:–]\s*([A-Za-z][A-Za-z\s''\-]{2,40})"
-        )
-        matches = re.findall(pattern, text, re.IGNORECASE)
+    # Use pre-compiled patterns (built at module load) instead of
+    # compiling regex for each country on every function call
+    for pattern in _COUNTRY_PREFIX_PATTERNS:
+        matches = pattern.findall(text)
         for match in matches:
             cleaned = re.sub(r"[,.:;!?\-]+$", "", match).strip()
             if len(cleaned) >= 3:
@@ -359,7 +365,9 @@ def extract_landmark_patterns(text: str) -> list[str]:
     # Pattern: ProperNoun(s) + landmark_type (case-insensitive only for landmark type)
     # The [A-Z] must remain case-sensitive to require a capital letter at the start
     pattern = (
-        r"([A-Z][A-Za-z''\-]+(?:\s+[A-Za-z''\-]+)*\s+(?i:" + LANDMARK_TYPES_PATTERN + r"))"
+        r"([A-Z][A-Za-z''\-]+(?:\s+[A-Za-z''\-]+)*\s+(?i:"
+        + LANDMARK_TYPES_PATTERN
+        + r"))"
     )
     matches = re.findall(pattern, text)
 

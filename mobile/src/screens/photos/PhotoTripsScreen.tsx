@@ -77,12 +77,7 @@ export function PhotoTripsScreen({ navigation }: Props) {
   const createTripMutation = useCreateTrip();
 
   const handleBack = useCallback(() => {
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.navigate('Trips', { screen: 'TripsList' });
-      return;
-    }
-    navigation.navigate('Trips', { screen: 'TripsList' });
+    navigation.goBack();
   }, [navigation]);
 
   // Search bar state
