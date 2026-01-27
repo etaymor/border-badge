@@ -39,11 +39,12 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
     ENTRY_TYPE_CONFIG[entry.entry_type as keyof typeof ENTRY_TYPE_CONFIG] ??
     ENTRY_TYPE_CONFIG.place;
 
-  // Use user-uploaded media first, fall back to Google Places photo
+  // Use user-uploaded media first, fall back to Google Places photo, then social media thumbnail
   const firstMedia = entry.media_files?.[0];
   const userMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
   const googlePhotoUrl = entry.place?.google_photo_url;
-  const firstMediaUrl = userMediaUrl ?? googlePhotoUrl;
+  const socialThumbnailUrl = entry.metadata?.thumbnail_url;
+  const firstMediaUrl = userMediaUrl ?? googlePhotoUrl ?? socialThumbnailUrl;
   const hasValidImage = firstMediaUrl && !imageError;
 
   return (
