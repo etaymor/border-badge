@@ -47,7 +47,7 @@ interface Slide {
   text: string;
 }
 
-// Video dimensions from screen recordings
+// Video dimensions (820x1280 aspect ratio)
 const VIDEO_WIDTH = 820;
 const VIDEO_HEIGHT = 1280;
 
@@ -97,14 +97,14 @@ function getLayoutConfig(
   const config = LAYOUT_CONFIGS[screenSize];
 
   // Reserve space for: header (~52), text (~80), pagination (~30), bottom button area (~100)
-  const reservedHeight = screenSize === 'small' ? 270 : screenSize === 'medium' ? 260 : 250;
+  // Reserve space for header, text, pagination dots, and bottom button
+  const reservedHeight = screenSize === 'small' ? 300 : screenSize === 'medium' ? 280 : 260;
 
   // Available height for the video frame
   const availableHeight = screenHeight - reservedHeight;
 
-  // Derive frame dimensions from available height, maintaining video aspect ratio
-  // Video is 820x1080, so width = height * (820/1080)
-  const frameHeight = availableHeight;
+  // Derive frame dimensions from available height, scaled down to fit with text/dots/button
+  const frameHeight = availableHeight * 0.75;
   let frameWidth = frameHeight * (VIDEO_WIDTH / VIDEO_HEIGHT);
 
   // Clamp frame width so it doesn't exceed screen width minus minimum margins
@@ -138,8 +138,8 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     [screenSize, screenWidth, screenHeight]
   );
 
-  // Slide height: full screen minus header and bottom button area
-  const slideHeight = screenHeight - 160;
+  // Slide height: just enough for video frame + text + dots + spacing
+  const slideHeight = layout.frameHeight + 120;
 
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
@@ -355,16 +355,15 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   carouselContent: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   slide: {
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
   slideContent: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingTop: 16,
   },
   videoFrame: {
     backgroundColor: colors.paperBeige,
