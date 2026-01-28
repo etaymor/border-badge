@@ -116,6 +116,13 @@ struct DetectedCountry: Codable, Equatable {
 struct SocialIngestRequest: Codable {
     let url: String
     let caption: String?
+    let extractionMethod: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case caption
+        case extractionMethod = "extraction_method"
+    }
 }
 
 // MARK: - Social Ingest Response
@@ -128,6 +135,9 @@ struct SocialIngestResponse: Codable, Equatable {
     let title: String?
     let detectedPlace: DetectedPlace?
     let detectedCountry: DetectedCountry?
+    // Extraction metrics
+    let extractionMethodUsed: String?
+    let extractionLatencyMs: Int?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -137,6 +147,8 @@ struct SocialIngestResponse: Codable, Equatable {
         case title
         case detectedPlace = "detected_place"
         case detectedCountry = "detected_country"
+        case extractionMethodUsed = "extraction_method_used"
+        case extractionLatencyMs = "extraction_latency_ms"
     }
 }
 

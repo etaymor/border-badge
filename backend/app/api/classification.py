@@ -3,13 +3,17 @@
 import json
 import logging
 import random
-import re
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.core.config import get_settings
+from app.core.llm_utils import (
+    OPENROUTER_API_URL,
+    fix_trailing_commas,
+    strip_code_fence,
+)
 from app.core.security import OptionalUser
 from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
@@ -21,15 +25,6 @@ from app.schemas.classification import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# OpenRouter API endpoint
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-# Regex to strip markdown code fences (handles ```json, ```javascript, etc.)
-CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
-
-# Regex to strip trailing commas before closing braces/brackets (common LLM JSON error)
-TRAILING_COMMA_PATTERN = re.compile(r",\s*([}\]])")
 
 
 def _classification_rate_limit() -> str:
@@ -391,14 +386,9 @@ async def call_openrouter_llm(
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         # Parse JSON from the response content
-        # Strip markdown code fences if present (handles ```json, ``` etc.)
-        content = content.strip()
-        fence_match = CODE_FENCE_PATTERN.match(content)
-        if fence_match:
-            content = fence_match.group(1).strip()
-
-        # Fix trailing commas (common LLM JSON error: {"key": "value",})
-        content = TRAILING_COMMA_PATTERN.sub(r"\1", content)
+        # Strip code fences and fix trailing commas (common LLM JSON issues)
+        content = strip_code_fence(content)
+        content = fix_trailing_commas(content)
 
         return json.loads(content)
 

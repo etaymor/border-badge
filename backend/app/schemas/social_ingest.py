@@ -132,5 +132,5 @@ class SaveToTripRequest(BaseModel):
     title: str | None = Field(None, max_length=2200)
     # User-provided data
     place: DetectedPlace | None = None
-    entry_type: str = Field("place", max_length=50)
+    entry_type: Literal["place", "food", "stay", "experience"] = Field("place")
     notes: str | None = Field(None, max_length=2000)
