@@ -186,26 +186,22 @@ async def _extract_place_impl(
             ):
                 logger.debug("place_extraction_method", extra={"method": "llm"})
                 return ExtractionResult(llm_result, "llm")
+        except asyncio.CancelledError:
+            raise  # Don't catch cancellation - propagate it
         except TimeoutError:
             logger.debug("llm_extraction_timed_out")
-            # Cancel the LLM task to prevent resource leak from lingering coroutine
             llm_task.cancel()
-            try:
-                await llm_task
-            except asyncio.CancelledError:
-                pass
-        except Exception as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                raise
+        except Exception:
             logger.exception("llm_extraction_failed")
             if not llm_task.done():
                 llm_task.cancel()
-            try:
-                await llm_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("llm_extraction_cleanup_failed")
+        finally:
+            # Ensure task cleanup regardless of path
+            if llm_task and not llm_task.done():
+                try:
+                    await llm_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     # If method was "llm" only and it failed, return no result
     if extraction_method == "llm":

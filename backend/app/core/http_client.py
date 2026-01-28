@@ -29,7 +29,7 @@ def get_http_client() -> httpx.AsyncClient:
         - Max 20 keep-alive connections
     """
     global _http_client
-    if _http_client is None:
+    if _http_client is None or _http_client.is_closed:
         _http_client = httpx.AsyncClient(
             timeout=30.0,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
