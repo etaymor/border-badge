@@ -26,9 +26,11 @@ from app.services.place_extractor.candidate_extraction import (
 )
 from app.services.place_extractor.data import COUNTRIES, MAJOR_CITIES
 from app.services.place_extractor.extractor import (
+    ExtractionResult,
     clean_instagram_profile_name,
     extract_place,
     extract_place_from_profile,
+    extract_place_with_method,
 )
 from app.services.place_extractor.google_places_client import (
     get_place_details,
@@ -59,8 +61,10 @@ from app.services.place_extractor.text_utils import (
 __all__ = [
     # Main extraction functions
     "extract_place",
+    "extract_place_with_method",
     "extract_place_from_profile",
     "clean_instagram_profile_name",
+    "ExtractionResult",
     # Location data
     "MAJOR_CITIES",
     "COUNTRIES",

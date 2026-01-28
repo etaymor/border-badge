@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -21,6 +21,8 @@ class SocialIngestRequest(BaseModel):
 
     url: str = Field(..., min_length=10, max_length=2048)
     caption: str | None = Field(None, max_length=2000)
+    # Extraction method preference for agent-native control
+    extraction_method: Literal["auto", "llm", "regex"] = "auto"
 
     @field_validator("url")
     @classmethod
@@ -50,6 +52,8 @@ class DetectedPlace(BaseModel):
     primary_type: str | None = None  # e.g., "restaurant", "hotel", "tourist_attraction"
     types: list[str] = Field(default_factory=list)  # All place types
     google_photo_url: str | None = None
+    # LLM-predicted entry type for automatic categorization (Place|Stay|Food|Experience)
+    llm_entry_type: str | None = None
 
 
 class DetectedCountry(BaseModel):
@@ -80,6 +84,10 @@ class SocialIngestResponse(BaseModel):
     detected_place: DetectedPlace | None = None
     # Country hint even when place detection fails (for trip defaulting & autocomplete bias)
     detected_country: DetectedCountry | None = None
+    # Extraction method used (llm, regex, or none if no place detected)
+    extraction_method_used: Literal["llm", "regex", "none"] | None = None
+    # Extraction latency in milliseconds
+    extraction_latency_ms: int | None = None
 
 
 class OEmbedCacheEntry(BaseModel):

@@ -12,6 +12,7 @@ from app.schemas.social_ingest import (
     OEmbedResponse,
     SocialProvider,
 )
+from app.services.place_extractor import ExtractionResult
 
 # Test constants
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -105,8 +106,13 @@ class TestIngestSocialUrl:
                 with patch("app.api.ingest.fetch_oembed") as mock_fetch:
                     mock_fetch.return_value = mock_oembed
 
-                    with patch("app.api.ingest.extract_place") as mock_extract:
-                        mock_extract.return_value = mock_place
+                    with patch(
+                        "app.api.ingest.extract_place_with_method"
+                    ) as mock_extract:
+                        # Return ExtractionResult wrapping the mock_place
+                        mock_extract.return_value = ExtractionResult(
+                            mock_place, "regex"
+                        )
 
                         response = client.post(
                             "/ingest/social",
@@ -127,6 +133,7 @@ class TestIngestSocialUrl:
                         )
                         assert data["detected_place"]["name"] == "Beach Restaurant"
                         assert data["detected_place"]["country_code"] == "ID"
+                        assert data["extraction_method_used"] == "regex"
         finally:
             app.dependency_overrides.clear()
 
@@ -150,8 +157,11 @@ class TestIngestSocialUrl:
                 with patch("app.api.ingest.fetch_oembed") as mock_fetch:
                     mock_fetch.return_value = mock_oembed
 
-                    with patch("app.api.ingest.extract_place") as mock_extract:
-                        mock_extract.return_value = None  # No place detected
+                    with patch(
+                        "app.api.ingest.extract_place_with_method"
+                    ) as mock_extract:
+                        # Return ExtractionResult with no place detected
+                        mock_extract.return_value = ExtractionResult(None, "none")
 
                         response = client.post(
                             "/ingest/social",
@@ -162,6 +172,7 @@ class TestIngestSocialUrl:
                         assert response.status_code == 200
                         data = response.json()
                         assert data["detected_place"] is None
+                        assert data["extraction_method_used"] == "none"
         finally:
             app.dependency_overrides.clear()
 
@@ -185,8 +196,11 @@ class TestIngestSocialUrl:
                 with patch("app.api.ingest.fetch_oembed") as mock_fetch:
                     mock_fetch.return_value = mock_oembed
 
-                    with patch("app.api.ingest.extract_place") as mock_extract:
-                        mock_extract.return_value = None
+                    with patch(
+                        "app.api.ingest.extract_place_with_method"
+                    ) as mock_extract:
+                        # Return ExtractionResult with no place detected
+                        mock_extract.return_value = ExtractionResult(None, "none")
 
                         response = client.post(
                             "/ingest/social",

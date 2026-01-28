@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     # Feature flags
     enable_social_features: bool = False
 
+    # LLM Place Extraction (reuses existing openrouter_api_key and openrouter_model)
+    llm_place_extraction_enabled: bool = Field(
+        default=False,
+        description="Enable LLM-first place extraction (experimental)",
+    )
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:
