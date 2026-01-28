@@ -79,3 +79,6 @@ coverage/
 
 # Claude Code local config
 .claude/
+
+# Claude Code todos (local task tracking)
+todos/
