@@ -28,6 +28,8 @@ export interface DetectedPlace {
   primary_type: string | null;
   types: string[];
   google_photo_url?: string | null;
+  // LLM-predicted entry type: "place", "food", "stay", "experience"
+  llm_entry_type?: string | null;
 }
 
 // Request to ingest a social URL
