@@ -4,12 +4,109 @@ This document describes how Border Badge extracts place information from social 
 
 ## Overview
 
-When a user shares a social media URL, we attempt to:
+When a user shares a social media URL, we use an **LLM-first approach** with regex fallback to extract place information. The system attempts to:
+
 1. Fetch metadata (title, caption, location tags) via oEmbed
-2. Extract candidate place names from the text
-3. Search Google Places API for each candidate
-4. Score and rank results to find the best match
-5. Return the place if confidence exceeds threshold
+2. Run LLM and regex extraction in parallel for optimal latency
+3. Use LLM results if available (better semantic understanding)
+4. Fall back to regex extraction if LLM fails or times out
+5. Resolve the best candidate via Google Places API
+6. Return the place with confidence score and entry type classification
+
+## Extraction Methods
+
+The system supports three extraction methods, controlled via the `extraction_method` request parameter:
+
+| Method | Description |
+|--------|-------------|
+| `auto` | LLM-first with regex fallback (default) |
+| `llm` | LLM extraction only |
+| `regex` | Regex extraction only (legacy behavior) |
+
+## LLM-First Architecture
+
+The extraction pipeline is cost-optimized to minimize Google Places API calls:
+
+```
+Social Media Content (title, caption, profile_name)
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Parallel Candidate Extraction                     │
+│  ┌─────────────────────────┐     ┌─────────────────────────────┐    │
+│  │   LLM Extraction        │     │   Regex Extraction          │    │
+│  │   (Primary, async)      │     │   (Prepared fallback)       │    │
+│  │   3s timeout            │     │   CPU-only, NO API calls    │    │
+│  └─────────────────────────┘     └─────────────────────────────┘    │
+│           │                               │                          │
+│           └───────────┬───────────────────┘                          │
+│                       │ Regex candidates held in reserve             │
+└─────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              Google Places Resolution (ONLY when needed)             │
+│                                                                      │
+│  If LLM succeeds → resolve LLM candidate via Google Places ($)       │
+│  If LLM fails → THEN resolve regex candidates via Google Places ($)  │
+│                                                                      │
+│  (Avoids duplicate Google API calls when LLM succeeds)               │
+└─────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+DetectedPlace result with entry_type (Place|Stay|Food|Experience)
+```
+
+**Cost Optimization:** Google Places API costs money. We run regex candidate extraction in parallel (CPU-only, free), but SKIP the Google Places resolution until we know the LLM has failed. This avoids paying for duplicate API calls when LLM succeeds.
+
+## LLM Extraction
+
+The LLM extraction uses Gemini 2.5 Flash-Lite via OpenRouter to extract structured place data from social media content.
+
+### Features
+
+- **Semantic understanding** of natural language captions
+- **Structured output** with city/country context for tighter location biasing
+- **Entry type classification** (Place, Stay, Food, Experience) for automatic categorization
+- **Security hardening** with input sanitization and prompt injection protection
+
+### Entry Type Classification
+
+The LLM automatically classifies places into one of four entry types:
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| `Place` | Landmark, attraction, museum, park, beach, monument | Eiffel Tower, Central Park |
+| `Stay` | Hotel, Airbnb, hostel, resort, accommodation | Four Seasons, Marriott |
+| `Food` | Restaurant, cafe, bar, bakery | Cafe Lomi, Ichiran Ramen |
+| `Experience` | Tour, activity, class, event | Cooking class, City tour |
+
+### Security
+
+User-controlled social media content requires aggressive sanitization before LLM processing:
+
+- Delimiter injection patterns are stripped
+- System role injection attempts are blocked
+- Code block injection is removed
+- Input length is limited (title: 500 chars, caption: 2000 chars)
+
+### Configuration
+
+LLM extraction is controlled by a feature flag (disabled by default):
+
+```bash
+LLM_PLACE_EXTRACTION_ENABLED=true  # Enable LLM-first extraction
+```
+
+When disabled, the system uses regex extraction only (legacy behavior).
+
+**File:** `app/core/config.py`
+
+---
+
+## Regex Extraction (Fallback)
+
+The regex extraction system serves as the fallback when LLM extraction is disabled or fails. It uses 8 layers of regex patterns to identify place candidates.
 
 ## Pipeline Steps
 
@@ -173,8 +270,10 @@ Common words like "Beach" or "Cafe" may match wrong locations without strong loc
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `LLM_PLACE_EXTRACTION_ENABLED` | `false` | Enable LLM-first extraction (opt-in) |
 | `PLACE_EXTRACTION_MIN_CONFIDENCE` | 0.5 | Minimum confidence to accept a match |
 | `GOOGLE_PLACES_API_KEY` | required | API key for Places API |
+| `OPENROUTER_API_KEY` | required for LLM | API key for OpenRouter (reused from classification) |
 
 ## Debugging
 
@@ -194,8 +293,21 @@ Enable debug logging to trace extraction:
 ```
 backend/app/services/place_extractor/
 ├── __init__.py
-├── extractor.py           # Main extraction orchestration
+├── extractor.py           # Main extraction orchestration + LLM extraction
+├── llm_client.py          # OpenRouter API client for LLM calls
 ├── google_places_client.py # Google Places API client
 ├── location_hints.py      # Location hint extraction
 └── scoring.py             # Confidence and ranking logic
 ```
+
+## API Response Fields
+
+When using the `/ingest/social` endpoint, the response includes extraction metadata:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `extraction_method_used` | `"llm"` \| `"regex"` \| `"none"` | Which extraction method succeeded |
+| `extraction_latency_ms` | integer | Time taken for extraction in milliseconds |
+| `detected_place.llm_entry_type` | `"place"` \| `"food"` \| `"stay"` \| `"experience"` | LLM-predicted entry type (when LLM extraction succeeds) |
+
+See [API Reference](./API.md#social-ingest) for complete endpoint documentation.

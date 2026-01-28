@@ -210,6 +210,8 @@ Settings are managed via Pydantic Settings (`app/core/config.py`):
 | `supabase_anon_key` | - | Supabase anonymous key |
 | `supabase_service_role_key` | - | Supabase service role key |
 | `supabase_jwt_secret` | - | JWT secret for validation |
+| `llm_place_extraction_enabled` | `false` | Enable LLM-first place extraction (opt-in) |
+| `openrouter_api_key` | - | OpenRouter API key (required for LLM extraction) |
 
 ## Media Upload Flow
 

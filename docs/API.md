@@ -796,6 +796,155 @@ The welcome sequence consists of 4 emails sent at the following intervals after 
 
 ---
 
+### Social Ingest
+
+#### `POST /ingest/social`
+
+Process a social media URL (TikTok or Instagram) and extract metadata including place information. This endpoint uses LLM-first extraction with regex fallback to identify places mentioned in the content.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "url": "https://www.instagram.com/p/ABC123/",
+  "caption": "Optional additional caption text",
+  "extraction_method": "auto"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string | Yes | TikTok or Instagram URL (10-2048 characters) |
+| `caption` | string | No | Additional caption text (max 2000 characters) |
+| `extraction_method` | string | No | Extraction method: `auto` (default), `llm`, or `regex` |
+
+**Extraction Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `auto` | LLM-first with regex fallback (default, recommended) |
+| `llm` | LLM extraction only (requires `LLM_PLACE_EXTRACTION_ENABLED=true`) |
+| `regex` | Regex extraction only (legacy behavior) |
+
+**Response:**
+```json
+{
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Amazing dinner at Cafe Lomi in Paris!",
+  "detected_place": {
+    "google_place_id": "ChIJ...",
+    "name": "Cafe Lomi",
+    "address": "3 Rue Marcadet, 75018 Paris, France",
+    "latitude": 48.8912,
+    "longitude": 2.3522,
+    "city": "Paris",
+    "country": "France",
+    "country_code": "FR",
+    "confidence": 0.85,
+    "primary_type": "cafe",
+    "types": ["cafe", "restaurant"],
+    "google_photo_url": "https://...",
+    "llm_entry_type": "food"
+  },
+  "detected_country": {
+    "country_code": "FR",
+    "country_name": "France",
+    "latitude": 48.8566,
+    "longitude": 2.3522
+  },
+  "extraction_method_used": "llm",
+  "extraction_latency_ms": 450
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider` | string | Social media provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Canonicalized URL |
+| `thumbnail_url` | string | Post thumbnail URL (if available) |
+| `author_handle` | string | Author's username/handle |
+| `title` | string | Post title or caption |
+| `detected_place` | object | Detected place information (if found) |
+| `detected_place.llm_entry_type` | string | LLM-predicted entry type: `place`, `food`, `stay`, or `experience` |
+| `detected_country` | object | Country hint (even when place detection fails) |
+| `extraction_method_used` | string | Method that succeeded: `llm`, `regex`, or `none` |
+| `extraction_latency_ms` | integer | Extraction time in milliseconds |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `InvalidInput` | URL is not from a supported provider |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
+#### `POST /ingest/save-to-trip`
+
+Save social ingest data to a trip as an entry. Takes the metadata from `/ingest/social` and creates an entry in the specified trip.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid",
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Amazing dinner at Cafe Lomi!",
+  "place": {
+    "google_place_id": "ChIJ...",
+    "name": "Cafe Lomi",
+    "address": "3 Rue Marcadet, 75018 Paris, France",
+    "latitude": 48.8912,
+    "longitude": 2.3522,
+    "city": "Paris",
+    "country": "France",
+    "country_code": "FR",
+    "confidence": 0.85
+  },
+  "entry_type": "food",
+  "notes": "Best coffee in Paris!"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID |
+| `provider` | string | Yes | Social provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Yes | Canonical URL (max 2048 chars) |
+| `thumbnail_url` | string | No | Thumbnail URL |
+| `author_handle` | string | No | Author handle (max 200 chars) |
+| `title` | string | No | Post title (max 2200 chars) |
+| `place` | object | No | Place data to save |
+| `entry_type` | string | No | Entry type: `place`, `food`, `stay`, `experience` (default: `place`) |
+| `notes` | string | No | User notes (max 2000 chars) |
+
+**Response:** `201 Created`
+
+Returns the created entry with place data (same format as `POST /trips/{trip_id}/entries`).
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 403 | `Forbidden` | Not authorized to add entries to this trip |
+| 404 | `NotFound` | Trip not found |
+| 409 | `Conflict` | This place has already been saved to this trip |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
 ### Photos
 
 #### `POST /photos/suggest-places`
