@@ -21,6 +21,7 @@ import {
   detectedPlaceToSelectedPlace,
   selectedPlaceToDetectedPlace,
 } from './shareCaptureUtils';
+import { useSubscriptionStore, useIsPremium, useCanUseShareExtension } from '@stores/subscriptionStore';
 
 interface UseShareCaptureParams {
   url: string;
@@ -42,6 +43,9 @@ export interface ShareCaptureState {
   isLoading: boolean;
   isSaving: boolean;
   userClearedPlace: boolean; // True when user explicitly cleared the place selection
+  // Premium gating
+  isPremium: boolean;
+  canSave: boolean; // True if user has remaining saves or is premium
 }
 
 export interface ShareCaptureHandlers {
@@ -55,6 +59,8 @@ export interface ShareCaptureHandlers {
   handleSaveForLater: () => Promise<void>;
   setNotes: (notes: string) => void;
   setSelectedTripId: (id: string | null) => void;
+  // Premium gating - returns false if paywall should be shown
+  checkCanSave: () => boolean;
 }
 
 /**
@@ -96,6 +102,11 @@ export function useShareCapture({
   const [error, setError] = useState<string | null>(null);
   const [saveCompleted, setSaveCompleted] = useState(false);
   const [userClearedPlace, setUserClearedPlace] = useState(false);
+
+  // Premium subscription state
+  const isPremium = useIsPremium();
+  const canSave = useCanUseShareExtension();
+  const incrementShareUsage = useSubscriptionStore((s) => s.incrementShareExtensionUsage);
 
   // Clean up on unmount if save was not completed
   // This handles cases where user navigates away or cancels
@@ -286,6 +297,10 @@ export function useShareCapture({
               entryType,
               tripId: selectedTripId,
             });
+            // Increment share extension usage for free users
+            if (!isPremium) {
+              incrementShareUsage();
+            }
             // Clear App Group storage after successful save to prevent data loss
             // if app had crashed before this point
             if (source === 'share_extension') {
@@ -332,6 +347,10 @@ export function useShareCapture({
             entryType,
             tripId: selectedTripId,
           });
+          // Increment share extension usage for free users
+          if (!isPremium) {
+            incrementShareUsage();
+          }
           // Clear App Group storage after successful save to prevent data loss
           // if app had crashed before this point
           if (source === 'share_extension') {
@@ -366,6 +385,8 @@ export function useShareCapture({
     onComplete,
     ingestResult,
     saveToTrip,
+    isPremium,
+    incrementShareUsage,
   ]);
 
   const handleRetry = useCallback(() => {
@@ -426,6 +447,9 @@ export function useShareCapture({
     ]);
   }, [url, source, error, onComplete]);
 
+  // Check if user can save (for gating UI)
+  const checkCanSave = useCallback(() => canSave, [canSave]);
+
   return {
     // State
     ingestResult,
@@ -440,6 +464,8 @@ export function useShareCapture({
     isLoading: socialIngest.isPending && !ingestResult,
     isSaving: saveToTrip.isPending || createEntry.isPending,
     userClearedPlace,
+    isPremium,
+    canSave,
 
     // Handlers
     handleTypeSelect,
@@ -452,5 +478,6 @@ export function useShareCapture({
     handleSaveForLater,
     setNotes,
     setSelectedTripId,
+    checkCanSave,
   };
 }

@@ -38,6 +38,10 @@ export const env = {
     process.env.EXPO_PUBLIC_WEB_BASE_URL ||
     process.env.EXPO_PUBLIC_API_URL ||
     'http://localhost:8000',
+
+  // RevenueCat Configuration
+  revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || '',
+  revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || '',
 } as const;
 
 // Helper to check if we're in development

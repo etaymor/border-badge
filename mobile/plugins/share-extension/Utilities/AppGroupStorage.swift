@@ -205,4 +205,48 @@ enum AppGroupStorage {
     static func hasUsedShareExtension() -> Bool {
         return userDefaults?.bool(forKey: hasUsedShareExtensionKey) ?? false
     }
+
+    // MARK: - Subscription Status (read from main app)
+
+    /// Keys matching those in appGroupSync.ts
+    private static let subscriptionStatusKey = "subscription_status"
+    private static let usageShareExtensionKey = "usage_share_extension"
+
+    /// Free tier limit for share extension uses
+    static let freeShareExtensionLimit = 5
+
+    /// Get subscription status (premium, trial, or free)
+    static func getSubscriptionStatus() -> String {
+        return userDefaults?.string(forKey: subscriptionStatusKey) ?? "free"
+    }
+
+    /// Get current share extension usage count
+    static func getShareExtensionUsage() -> Int {
+        guard let usageString = userDefaults?.string(forKey: usageShareExtensionKey),
+              let usage = Int(usageString) else {
+            return 0
+        }
+        return usage
+    }
+
+    /// Check if user can save (premium or has remaining free saves)
+    static func canUseShareExtension() -> Bool {
+        let status = getSubscriptionStatus()
+        // Premium and trial users have unlimited access
+        if status == "premium" || status == "trial" {
+            return true
+        }
+        // Free users: check usage limit
+        return getShareExtensionUsage() < freeShareExtensionLimit
+    }
+
+    /// Get remaining free saves (returns -1 for unlimited/premium)
+    static func getRemainingFreeSaves() -> Int {
+        let status = getSubscriptionStatus()
+        if status == "premium" || status == "trial" {
+            return -1  // Unlimited
+        }
+        let usage = getShareExtensionUsage()
+        return max(0, freeShareExtensionLimit - usage)
+    }
 }

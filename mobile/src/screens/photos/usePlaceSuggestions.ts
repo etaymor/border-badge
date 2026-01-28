@@ -3,6 +3,9 @@
  *
  * Handles chunked API calls, persistent SQLite caching, and error handling.
  * Checks SQLite cache before API calls to minimize Google Places API costs.
+ *
+ * Premium gating: Free users get 1 photo trip import. The usage is counted
+ * when successfully fetching suggestions that require API calls.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -22,6 +25,7 @@ import {
   type ClusterSuggestion,
 } from '@services/photoImport';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
+import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { truncateCoordinate } from './photoImportUtils';
 
 export interface UsePlaceSuggestionsOptions {
@@ -35,6 +39,15 @@ export function usePlaceSuggestions({
   currentCandidateIdRef,
 }: UsePlaceSuggestionsOptions) {
   const suggestPlacesMutation = useSuggestPlacesChunked();
+
+  // Premium subscription state
+  const isPremium = useIsPremium();
+  const canImportPhotos = useCanImportPhotos();
+  const incrementPhotoImportUsage = useSubscriptionStore((s) => s.incrementPhotoImportUsage);
+
+  // Track if we've already counted usage for this session
+  // (to prevent double-counting if user switches between candidates)
+  const hasCountedUsageRef = useRef(false);
 
   // Session cache for fetched candidates - prevents re-running cache logic within same session
   const fetchedCandidatesRef = useRef<Set<string>>(new Set());
@@ -153,6 +166,17 @@ export function usePlaceSuggestions({
         return;
       }
 
+      // Check premium gating before making API calls
+      // Free users get 1 photo trip import (counted when API calls are made, not cached results)
+      if (!isPremium && !canImportPhotos && !hasCountedUsageRef.current) {
+        // User has exhausted their free photo trip import
+        // Return the cached results only - they need to upgrade for API calls
+        if (__DEV__) {
+          console.log('[PhotoImport] Premium gate: User has used free photo trip import');
+        }
+        return { gatedByPremium: true };
+      }
+
       // Fetch uncached clusters from API
       if (__DEV__) {
         console.log('[PhotoImport] Fetching uncached clusters from API:', {
@@ -221,6 +245,15 @@ export function usePlaceSuggestions({
         // Mark candidate as processed
         fetchedCandidatesRef.current.add(candidate.id);
 
+        // Count usage for free users (only count once per session, not per candidate switch)
+        if (!isPremium && !hasCountedUsageRef.current) {
+          incrementPhotoImportUsage();
+          hasCountedUsageRef.current = true;
+          if (__DEV__) {
+            console.log('[PhotoImport] Incremented photo import usage for free user');
+          }
+        }
+
         // Track analytics with cache metrics and API timing
         const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
         const apiTimes = result.chunkResponseTimes ?? [];
@@ -261,7 +294,7 @@ export function usePlaceSuggestions({
         }
       }
     },
-    [suggestPlacesMutation, clusterLookupRef]
+    [suggestPlacesMutation, clusterLookupRef, isPremium, canImportPhotos, incrementPhotoImportUsage]
   );
 
   /**
@@ -279,5 +312,8 @@ export function usePlaceSuggestions({
     fetchSuggestions,
     clearFetchedCache,
     fetchedCandidatesRef,
+    // Premium gating state
+    isPremium,
+    canImportPhotos,
   };
 }

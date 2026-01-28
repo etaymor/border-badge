@@ -74,6 +74,12 @@ export interface PhotoImportWorkflowResult {
   /** Cancel upload for a specific cluster */
   cancelUpload: (clusterId: string) => void;
 
+  // Premium gating
+  /** Whether user has premium access (subscribed or trialing) */
+  isPremium: boolean;
+  /** Whether user can import photos (premium or has remaining free imports) */
+  canImportPhotos: boolean;
+
   // Actions
   startScan: (forceRefresh?: boolean) => Promise<void>;
   cancelScan: () => void;

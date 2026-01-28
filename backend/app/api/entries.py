@@ -143,6 +143,9 @@ async def list_entries(
     return results
 
 
+FREE_TIER_ENTRIES_PER_TRIP = 10
+
+
 @router.post(
     "/trips/{trip_id}/entries",
     response_model=EntryWithPlace,
@@ -158,6 +161,43 @@ async def create_entry(
     """Create a new entry for a trip."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # BACKEND ENFORCEMENT: Check subscription and entry limit for free users
+    profile_result = await db.get(
+        "user_profile",
+        {
+            "id": f"eq.{user.id}",
+            "select": "subscription_status",
+        },
+    )
+    subscription_status = (
+        profile_result[0].get("subscription_status", "free")
+        if profile_result
+        else "free"
+    )
+
+    if subscription_status not in ("premium", "trial"):
+        # Count existing non-deleted entries for this trip
+        entry_count_result = await db.get(
+            "entry",
+            {
+                "trip_id": f"eq.{trip_id}",
+                "deleted_at": "is.null",
+                "select": "id",
+            },
+        )
+        entry_count = len(entry_count_result) if entry_count_result else 0
+
+        if entry_count >= FREE_TIER_ENTRIES_PER_TRIP:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "LIMIT_EXCEEDED",
+                    "message": f"Free tier allows {FREE_TIER_ENTRIES_PER_TRIP} entries per trip. Upgrade to premium for unlimited entries.",
+                    "limit": FREE_TIER_ENTRIES_PER_TRIP,
+                    "current_count": entry_count,
+                },
+            )
 
     # Create entry
     entry_data = {

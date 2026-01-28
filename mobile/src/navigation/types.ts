@@ -6,11 +6,15 @@ import type { EntryType } from '../types/shared';
 
 export type { EntryType };
 
+// Gated feature types for paywall modal
+export type GatedFeature = 'shareExtension' | 'photoImport' | 'entries';
+
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
+  PaywallModal: { feature?: GatedFeature };
 };
 
 // Auth stack screens

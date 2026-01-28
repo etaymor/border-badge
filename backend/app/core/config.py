@@ -98,6 +98,16 @@ class Settings(BaseSettings):
         description="Enable LLM-first place extraction (experimental)",
     )
 
+    # RevenueCat Configuration
+    revenuecat_webhook_auth_header: str = Field(
+        default="", repr=False, description="Shared secret for RevenueCat webhook auth"
+    )
+    revenuecat_api_key: str = Field(
+        default="",
+        repr=False,
+        description="RevenueCat API key for subscription verification",
+    )
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

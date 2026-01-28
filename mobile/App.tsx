@@ -41,6 +41,7 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
+import { initializeRevenueCat, identifyUser as identifyRevenueCatUser, logOutUser as logOutRevenueCatUser } from '@services/revenueCat';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
@@ -148,11 +149,15 @@ export default function App() {
     }
   }, [syncState.error]);
 
-  // Initialize analytics and sync API URL to App Group for Share Extension
+  // Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
   // Note: The share extension has a production URL fallback if this hasn't completed yet,
   // but we sync eagerly on app start to ensure development builds hit the correct server.
   useEffect(() => {
     void initAnalytics();
+    // Initialize RevenueCat SDK (must be called before any purchases)
+    initializeRevenueCat().catch((error) => {
+      console.error('Failed to initialize RevenueCat:', error);
+    });
     // Sync API URL to App Group so Share Extension can use it
     // This is awaited internally but we don't block app initialization on it
     // since the Share Extension has a fallback to production URL if not set
@@ -404,6 +409,10 @@ export default function App() {
           await storeTokens(session.access_token, session.refresh_token ?? '');
           // Identify user in analytics
           identifyUser(session.user.id);
+          // Identify user in RevenueCat (links purchases to account)
+          identifyRevenueCatUser(session.user.id).catch((error) => {
+            console.error('Failed to identify RevenueCat user:', error);
+          });
           // Restore onboarding state for returning users
           const onboardingComplete = await getOnboardingComplete();
           if (onboardingComplete) {
@@ -433,12 +442,20 @@ export default function App() {
           await storeTokens(session.access_token, session.refresh_token ?? '');
           // Identify user in analytics
           identifyUser(session.user.id);
+          // Identify user in RevenueCat (links purchases to account)
+          identifyRevenueCatUser(session.user.id).catch((error) => {
+            console.error('Failed to identify RevenueCat user:', error);
+          });
         } else {
           // User signed out - clear tokens first, then reset onboarding state
           await clearTokens();
           setHasCompletedOnboarding(false);
           // Reset analytics user
           resetUser();
+          // Log out RevenueCat user (resets to anonymous)
+          logOutRevenueCatUser().catch((error) => {
+            console.error('Failed to log out RevenueCat user:', error);
+          });
         }
       });
       subscription = sub;

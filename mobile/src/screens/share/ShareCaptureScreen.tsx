@@ -13,13 +13,16 @@ import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { PassportStackScreenProps } from '@navigation/types';
+import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PlacesAutocomplete } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { TripSelector } from '@components/share/TripSelector';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { FREE_LIMITS, useShareExtensionRemaining } from '@stores/subscriptionStore';
 
 import { ShareCaptureLoadingState, ShareCaptureErrorState } from './ShareCaptureStates';
 import { ThumbnailCard, ManualEntryBanner } from './ShareCaptureThumbnail';
@@ -31,6 +34,10 @@ type Props = PassportStackScreenProps<'ShareCapture'>;
 export function ShareCaptureScreen({ route, navigation }: Props) {
   const { url, caption, source } = route.params;
   const insets = useSafeAreaInsets();
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  // Premium gating
+  const remainingSaves = useShareExtensionRemaining();
 
   // Refs for scroll behavior
   const scrollViewRef = useRef<ScrollView>(null);
@@ -51,6 +58,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     isLoading,
     isSaving,
     userClearedPlace,
+    canSave,
     handleTypeSelect,
     handleChangeType,
     handlePlaceSelect,
@@ -83,6 +91,16 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     : (selectedPlace?.country_code ??
       ingestResult?.detected_place?.country_code ??
       ingestResult?.detected_country?.country_code);
+
+  // Handle save with premium gating
+  const handleSaveWithGate = () => {
+    if (!canSave) {
+      // Show paywall modal
+      rootNavigation.navigate('PaywallModal', { feature: 'shareExtension' });
+      return;
+    }
+    handleSave();
+  };
 
   // Loading state
   if (isLoading) {
@@ -185,9 +203,20 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           </View>
 
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+            {/* Show remaining saves for free users */}
+            {remainingSaves !== Infinity && remainingSaves > 0 && (
+              <Text style={styles.remainingText}>
+                {remainingSaves} of {FREE_LIMITS.shareExtension} free saves remaining
+              </Text>
+            )}
+            {!canSave && (
+              <Text style={styles.limitReachedText}>
+                Free limit reached. Upgrade to save unlimited places.
+              </Text>
+            )}
             <Button
-              title="Save to Trip"
-              onPress={handleSave}
+              title={canSave ? 'Save to Trip' : 'Upgrade to Save'}
+              onPress={handleSaveWithGate}
               loading={isSaving}
               disabled={isSaving || !selectedPlace || !selectedTripId}
             />
@@ -246,6 +275,20 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingTop: 16,
+  },
+  remainingText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  limitReachedText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 13,
+    color: colors.sunsetGold,
+    textAlign: 'center',
+    marginBottom: 12,
   },
 });
 

@@ -98,6 +98,15 @@ struct ShareCaptureError: Equatable {
             canSaveForLater: true
         )
     }
+
+    static func freeLimitReached() -> ShareCaptureError {
+        ShareCaptureError(
+            message: "You've used all 5 free saves. Open Atlasi to upgrade and save unlimited places.",
+            canRetry: false,
+            canManualEntry: false,
+            canSaveForLater: false
+        )
+    }
 }
 
 // MARK: - ViewModel
@@ -116,6 +125,15 @@ class ShareCaptureViewModel: ObservableObject {
     @Published var isManualEntryMode: Bool = false
     @Published var userClearedPlace: Bool = false  // True when user explicitly cleared the place selection
 
+    // MARK: - Subscription State
+
+    /// Whether user has premium access (premium or trial)
+    @Published private(set) var isPremium: Bool = false
+    /// Whether user can save (premium or has remaining free saves)
+    @Published private(set) var canUseShareExtension: Bool = true
+    /// Remaining free saves (-1 for unlimited)
+    @Published private(set) var remainingFreeSaves: Int = AppGroupStorage.freeShareExtensionLimit
+
     // MARK: - Private State
 
     private let apiClient = APIClient()
@@ -126,8 +144,25 @@ class ShareCaptureViewModel: ObservableObject {
 
     // MARK: - Lifecycle
 
+    init() {
+        // Load subscription status from App Group on init
+        refreshSubscriptionStatus()
+    }
+
     deinit {
         currentTask?.cancel()
+    }
+
+    /// Refresh subscription status from App Group storage
+    func refreshSubscriptionStatus() {
+        let status = AppGroupStorage.getSubscriptionStatus()
+        isPremium = status == "premium" || status == "trial"
+        canUseShareExtension = AppGroupStorage.canUseShareExtension()
+        remainingFreeSaves = AppGroupStorage.getRemainingFreeSaves()
+
+        let canUse = canUseShareExtension
+        let remaining = remainingFreeSaves
+        NSLog("[Atlasi ShareCapture] status: \(status), canUse: \(canUse), remaining: \(remaining)")
     }
 
     // MARK: - Computed Properties
@@ -149,7 +184,7 @@ class ShareCaptureViewModel: ObservableObject {
     }
 
     var canSave: Bool {
-        selectedPlace != nil && selectedTripId != nil
+        selectedPlace != nil && selectedTripId != nil && canUseShareExtension
     }
 
     var providerName: String {
@@ -253,6 +288,15 @@ class ShareCaptureViewModel: ObservableObject {
     func save() {
         guard let place = selectedPlace,
               let tripId = selectedTripId else {
+            return
+        }
+
+        // Check subscription status before saving
+        refreshSubscriptionStatus()
+        if !canUseShareExtension {
+            // Track limit reached
+            AnalyticsQueue.track("share_extension_limit_reached", properties: [:])
+            state = .error(.freeLimitReached())
             return
         }
 

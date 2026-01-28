@@ -24,7 +24,9 @@ import { useCountryByCode } from '@hooks/useCountries';
 import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
-import type { PassportStackScreenProps } from '@navigation/types';
+import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ManualPlaceSearch,
   TripCandidateCard,
@@ -139,6 +141,7 @@ function buildSuggestionFromMerged(merged: MergedSuggestion): ClusterSuggestion 
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     countryCode: filterCountryCode,
     tripId,
@@ -171,6 +174,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     dismissedClusterIdsInternal,
     getUploadState,
     uploadingClusterIds,
+    isPremium,
+    canImportPhotos,
     startScan,
     cancelScan,
     selectCandidate,
@@ -573,6 +578,21 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <Text style={styles.tripDates}>
             {formatDateRange(selectedCandidate.dateRange.start, selectedCandidate.dateRange.end)}
           </Text>
+
+          {/* Premium gating banner - show when user has used their free import */}
+          {!isPremium && !canImportPhotos && (
+            <View style={styles.premiumGateBanner}>
+              <Text style={styles.premiumGateTitle}>Free Limit Reached</Text>
+              <Text style={styles.premiumGateText}>
+                {"You've already imported one trip from photos. Upgrade to import unlimited trips."}
+              </Text>
+              <Button
+                title="Upgrade to Premium"
+                onPress={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
+                style={styles.premiumGateButton}
+              />
+            </View>
+          )}
 
           {/* Progress indicator during loading */}
           {suggestPlacesMutation.isPending && suggestPlacesMutation.progress && (

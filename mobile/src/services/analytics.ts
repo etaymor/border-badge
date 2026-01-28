@@ -407,4 +407,40 @@ export const Analytics = {
       is_bulk: props.entryCount > 1,
       is_uncategorized_trip: props.isUncategorizedTrip,
     }),
+
+  // Subscription & Paywall Events
+  viewPaywall: (props: { location: 'onboarding' | 'modal'; feature?: string }) =>
+    track('view_paywall', { location: props.location, feature: props.feature ?? null }),
+
+  paywallDismissed: (props: { location: 'onboarding' | 'modal'; feature?: string }) =>
+    track('paywall_dismissed', { location: props.location, feature: props.feature ?? null }),
+
+  purchaseCompleted: (props: { plan: string | null; location: 'onboarding' | 'modal' | 'settings' }) =>
+    track('purchase_completed', { plan: props.plan, location: props.location }),
+
+  purchaseFailed: (props: {
+    plan: string | null;
+    error: string;
+    location: 'onboarding' | 'modal' | 'settings';
+  }) => track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
+
+  purchaseCancelled: (props: { location: 'onboarding' | 'modal' | 'settings' }) =>
+    track('purchase_cancelled', { location: props.location }),
+
+  restoreInitiated: () => track('restore_initiated'),
+
+  restoreCompleted: (props: { foundSubscription: boolean }) =>
+    track('restore_completed', { found_subscription: props.foundSubscription }),
+
+  restoreFailed: (props: { error: string }) => track('restore_failed', { error: props.error }),
+
+  featureLimitHit: (props: { feature: 'entries' | 'shareExtension' | 'photoImport'; remaining: number }) =>
+    track('feature_limit_hit', { feature: props.feature, remaining: props.remaining }),
+
+  subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
+    track('subscription_status_changed', {
+      from_status: props.from,
+      to_status: props.to,
+      plan: props.plan ?? null,
+    }),
 };

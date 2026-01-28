@@ -562,4 +562,30 @@ export const styles = StyleSheet.create({
     marginTop: 'auto',
     paddingBottom: 40,
   },
+
+  // Premium gate banner
+  premiumGateBanner: {
+    backgroundColor: colors.sunsetGold + '15',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  premiumGateTitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+    marginBottom: 8,
+  },
+  premiumGateText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  premiumGateButton: {
+    minWidth: 200,
+  },
 });

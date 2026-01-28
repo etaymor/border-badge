@@ -202,11 +202,17 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Place Suggestions Hook
   // ==========================================================================
-  const { suggestPlacesMutation, cachedSuggestions, fetchSuggestions, clearFetchedCache } =
-    usePlaceSuggestions({
-      clusterLookupRef,
-      currentCandidateIdRef,
-    });
+  const {
+    suggestPlacesMutation,
+    cachedSuggestions,
+    fetchSuggestions,
+    clearFetchedCache,
+    isPremium,
+    canImportPhotos,
+  } = usePlaceSuggestions({
+    clusterLookupRef,
+    currentCandidateIdRef,
+  });
 
   // ==========================================================================
   // Entry Creation Hook
@@ -603,6 +609,9 @@ export function usePhotoImportWorkflow({
     uploadStates,
     getUploadState,
     uploadingClusterIds,
+    // Premium gating
+    isPremium,
+    canImportPhotos,
 
     // Actions
     startScan,
