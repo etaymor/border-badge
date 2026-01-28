@@ -49,6 +49,7 @@ struct DetectedPlace: Codable, Equatable {
     let primaryType: String?
     let types: [String]
     let googlePhotoUrl: String?
+    let llmEntryType: String?  // LLM-predicted entry type: "place", "food", "stay", "experience"
 
     enum CodingKeys: String, CodingKey {
         case googlePlaceId = "google_place_id"
@@ -63,6 +64,7 @@ struct DetectedPlace: Codable, Equatable {
         case primaryType = "primary_type"
         case types
         case googlePhotoUrl = "google_photo_url"
+        case llmEntryType = "llm_entry_type"
     }
 }
 
@@ -85,6 +87,9 @@ struct SocialIngestResponse: Codable, Equatable {
     let title: String?
     let detectedPlace: DetectedPlace?
     let detectedCountry: DetectedCountry?
+    // Extraction metrics
+    let extractionMethodUsed: String?
+    let extractionLatencyMs: Int?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -94,6 +99,8 @@ struct SocialIngestResponse: Codable, Equatable {
         case title
         case detectedPlace = "detected_place"
         case detectedCountry = "detected_country"
+        case extractionMethodUsed = "extraction_method_used"
+        case extractionLatencyMs = "extraction_latency_ms"
     }
 }
 
