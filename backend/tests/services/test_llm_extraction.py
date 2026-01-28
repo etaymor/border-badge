@@ -373,18 +373,17 @@ class TestTryLlmExtraction:
 
         mock_try_candidate = AsyncMock(return_value=mock_detected_place)
 
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_place_response
+
         with patch(
             "app.services.place_extractor.llm_client.get_settings",
             return_value=mock_settings,
         ):
             with patch(
-                "app.services.place_extractor.llm_client.httpx.AsyncClient"
-            ) as mock_client_class:
-                mock_client = AsyncMock()
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.post.return_value = mock_place_response
-                mock_client_class.return_value = mock_client
-
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
                 result = await try_llm_extraction(
                     "Vienna coffee",
                     "Best cafe in Vienna",
@@ -416,18 +415,17 @@ class TestTryLlmExtraction:
         mock_response = MagicMock()
         mock_response.status_code = 500
 
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
         with patch(
             "app.services.place_extractor.llm_client.get_settings",
             return_value=mock_settings,
         ):
             with patch(
-                "app.services.place_extractor.llm_client.httpx.AsyncClient"
-            ) as mock_client_class:
-                mock_client = AsyncMock()
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.post.return_value = mock_response
-                mock_client_class.return_value = mock_client
-
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
                 result = await try_llm_extraction(
                     "Test",
                     "Caption",
@@ -452,18 +450,17 @@ class TestTryLlmExtraction:
         mock_response.status_code = 200
         mock_response.json.return_value = {"choices": [{"message": {"content": "[]"}}]}
 
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
         with patch(
             "app.services.place_extractor.llm_client.get_settings",
             return_value=mock_settings,
         ):
             with patch(
-                "app.services.place_extractor.llm_client.httpx.AsyncClient"
-            ) as mock_client_class:
-                mock_client = AsyncMock()
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.post.return_value = mock_response
-                mock_client_class.return_value = mock_client
-
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
                 result = await try_llm_extraction(
                     "Test",
                     "Caption",
@@ -488,18 +485,17 @@ class TestTryLlmExtraction:
         mock_response.status_code = 200
         mock_response.json.return_value = {"choices": [{"message": {"content": "[]"}}]}
 
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
         with patch(
             "app.services.place_extractor.llm_client.get_settings",
             return_value=mock_settings,
         ):
             with patch(
-                "app.services.place_extractor.llm_client.httpx.AsyncClient"
-            ) as mock_client_class:
-                mock_client = AsyncMock()
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.post.return_value = mock_response
-                mock_client_class.return_value = mock_client
-
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
                 # Include injection attempt in caption
                 await try_llm_extraction(
                     "Normal title",
@@ -510,10 +506,10 @@ class TestTryLlmExtraction:
                 )
 
                 # Verify the API was called (injection didn't crash it)
-                mock_client.post.assert_called_once()
+                mock_http_client.post.assert_called_once()
 
                 # Check that the payload was sanitized
-                call_kwargs = mock_client.post.call_args[1]
+                call_kwargs = mock_http_client.post.call_args[1]
                 payload = call_kwargs["json"]
                 user_message = payload["messages"][1]["content"]
 
