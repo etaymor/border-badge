@@ -392,10 +392,11 @@ class TestTryLlmExtraction:
                     extract_location_hints_fn=mock_extract_location_hints,
                 )
 
-                # Verify try_candidate_fn was called with the extracted place name
+                # Verify try_candidate_fn was called with location-enriched query
                 mock_try_candidate.assert_called_once()
                 call_args = mock_try_candidate.call_args
-                assert call_args[0][0] == "Cafe Central"
+                # Query now includes city/country for better Google Places results
+                assert call_args[0][0] == "Cafe Central, Vienna, Austria"
 
                 # Result should have the LLM entry type attached (normalized to lowercase)
                 assert result == mock_detected_place

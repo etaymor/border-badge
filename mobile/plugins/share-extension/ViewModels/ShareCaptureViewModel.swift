@@ -281,11 +281,16 @@ class ShareCaptureViewModel: ObservableObject {
             if let detected = response.detectedPlace {
                 selectedPlace = detected
 
-                // Infer entry type from place types
-                entryType = EntryType.from(
-                    primaryType: detected.primaryType,
-                    types: detected.types
-                )
+                // Prefer LLM entry type, fall back to Google types inference
+                if let llmType = detected.llmEntryType,
+                   let type = EntryType(rawValue: llmType) {
+                    entryType = type
+                } else {
+                    entryType = EntryType.from(
+                        primaryType: detected.primaryType,
+                        types: detected.types
+                    )
+                }
             }
 
             state = .form

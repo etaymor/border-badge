@@ -121,10 +121,13 @@ export function useShareCapture({
 
           if (result.detected_place) {
             setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
-            const inferredType = inferEntryTypeFromPlaceTypes(
-              result.detected_place.primary_type,
-              result.detected_place.types ?? []
-            );
+            // Prefer LLM entry type, fall back to Google types inference
+            const inferredType =
+              (result.detected_place.llm_entry_type as EntryType) ??
+              inferEntryTypeFromPlaceTypes(
+                result.detected_place.primary_type,
+                result.detected_place.types ?? []
+              );
             setEntryType(inferredType);
           }
         },
@@ -375,10 +378,13 @@ export function useShareCapture({
 
           if (result.detected_place) {
             setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
-            const inferredType = inferEntryTypeFromPlaceTypes(
-              result.detected_place.primary_type,
-              result.detected_place.types ?? []
-            );
+            // Prefer LLM entry type, fall back to Google types inference
+            const inferredType =
+              (result.detected_place.llm_entry_type as EntryType) ??
+              inferEntryTypeFromPlaceTypes(
+                result.detected_place.primary_type,
+                result.detected_place.types ?? []
+              );
             setEntryType(inferredType);
           }
         },

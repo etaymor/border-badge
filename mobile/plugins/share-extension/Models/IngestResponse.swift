@@ -28,6 +28,7 @@ struct DetectedPlace: Codable, Equatable {
     let primaryType: String?
     let types: [String]
     let googlePhotoUrl: String?
+    let llmEntryType: String?  // LLM-predicted entry type: "place", "food", "stay", "experience"
 
     enum CodingKeys: String, CodingKey {
         case googlePlaceId = "google_place_id"
@@ -42,6 +43,7 @@ struct DetectedPlace: Codable, Equatable {
         case primaryType = "primary_type"
         case types
         case googlePhotoUrl = "google_photo_url"
+        case llmEntryType = "llm_entry_type"
     }
 
     init(
@@ -56,7 +58,8 @@ struct DetectedPlace: Codable, Equatable {
         confidence: Double = 0.0,
         primaryType: String? = nil,
         types: [String] = [],
-        googlePhotoUrl: String? = nil
+        googlePhotoUrl: String? = nil,
+        llmEntryType: String? = nil
     ) {
         self.googlePlaceId = googlePlaceId
         self.name = name
@@ -70,6 +73,7 @@ struct DetectedPlace: Codable, Equatable {
         self.primaryType = primaryType
         self.types = types
         self.googlePhotoUrl = googlePhotoUrl
+        self.llmEntryType = llmEntryType
     }
 
     // MARK: - Factory Methods
