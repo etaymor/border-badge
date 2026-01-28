@@ -16,6 +16,7 @@ Package Structure:
     - location_hints.py: Location hint extraction from text
     - candidate_extraction.py: Place name candidate extraction
     - google_places_client.py: Google Places API client
+    - llm_client.py: LLM-based place extraction (OpenRouter)
     - scoring.py: Confidence calculation and result scoring
     - extractor.py: Main extraction orchestration
 """
@@ -26,14 +27,20 @@ from app.services.place_extractor.candidate_extraction import (
 )
 from app.services.place_extractor.data import COUNTRIES, MAJOR_CITIES
 from app.services.place_extractor.extractor import (
+    ExtractionResult,
     clean_instagram_profile_name,
     extract_place,
     extract_place_from_profile,
+    extract_place_with_method,
 )
 from app.services.place_extractor.google_places_client import (
     get_place_details,
     is_configured,
     search_places,
+)
+from app.services.place_extractor.llm_client import (
+    VALID_ENTRY_TYPES,
+    try_llm_extraction,
 )
 from app.services.place_extractor.location_hints import (
     LocationHint,
@@ -59,8 +66,10 @@ from app.services.place_extractor.text_utils import (
 __all__ = [
     # Main extraction functions
     "extract_place",
+    "extract_place_with_method",
     "extract_place_from_profile",
     "clean_instagram_profile_name",
+    "ExtractionResult",
     # Location data
     "MAJOR_CITIES",
     "COUNTRIES",
@@ -88,4 +97,7 @@ __all__ = [
     "truncate_text",
     "MAX_TEXT_LENGTH",
     "NOISE_WORDS",
+    # LLM extraction
+    "try_llm_extraction",
+    "VALID_ENTRY_TYPES",
 ]

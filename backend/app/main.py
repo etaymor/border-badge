@@ -20,9 +20,9 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, Response
 
 from app.core.config import get_settings
+from app.core.http_client import close_http_client
 from app.core.logging import setup_logging
 from app.core.urls import safe_external_url
-from app.db.session import close_http_client
 
 # ContextVar for accessing request in rate limit functions
 _request_ctx_var: ContextVar[Request | None] = ContextVar(

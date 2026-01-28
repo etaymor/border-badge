@@ -8,6 +8,8 @@ import asyncio
 import html
 import logging
 import re as _re
+from dataclasses import dataclass
+from typing import Literal
 
 from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
@@ -18,6 +20,7 @@ from app.services.place_extractor.google_places_client import (
     is_configured,
     search_places,
 )
+from app.services.place_extractor.llm_client import try_llm_extraction
 from app.services.place_extractor.location_hints import (
     LocationHint,
     extract_location_hints,
@@ -34,6 +37,9 @@ MAX_PARALLEL_CANDIDATES = 3
 
 # Overall timeout for place extraction (seconds)
 PLACE_EXTRACTION_TIMEOUT = 5.0
+
+# LLM extraction timeout (shorter than overall, allows fallback)
+LLM_EXTRACTION_TIMEOUT = 3.0
 
 
 async def _try_candidate(
@@ -52,24 +58,22 @@ async def _try_candidate(
     results = await search_places(candidate, location_bias=location_bias)
 
     if not results:
-        logger.info(f"_try_candidate: no results for {candidate!r}")
+        logger.debug("_try_candidate: no results", extra={"candidate": candidate[:50]})
         return None
 
     # Take the first result
     first_result = results[0]
     place_id = first_result.get("place_id")
-    logger.debug(f"_try_candidate: first_result place_id={place_id!r}")
 
     if not place_id:
-        logger.info(f"_try_candidate: no place_id in result for {candidate!r}")
+        logger.debug("_try_candidate: no place_id", extra={"candidate": candidate[:50]})
         return None
 
     # Fetch full details
     details = await get_place_details(place_id)
-    logger.debug(f"_try_candidate: got details for place_id={place_id!r}")
 
     if not details:
-        logger.info(f"_try_candidate: get_place_details failed for {place_id!r}")
+        logger.debug("_try_candidate: no details", extra={"place_id": place_id})
         return None
 
     # Calculate confidence
@@ -93,81 +97,133 @@ async def _try_candidate(
         types=details.get("types", []),
     )
 
-    logger.info(
-        "place_extraction_success",
-        extra={
-            "event": "place_extraction",
-            "result": "found",
-            "query": candidate[:50],
-            "place_name": detected.name[:50] if detected.name else None,
-            "country_code": detected.country_code,
-            "confidence": confidence,
-        },
+    logger.debug(
+        "place_candidate_resolved",
+        extra={"place_name": detected.name[:50] if detected.name else None},
     )
 
     return detected
 
 
+@dataclass(frozen=True)
+class ExtractionResult:
+    """Result of place extraction with method tracking."""
+
+    place: DetectedPlace | None
+    method: Literal["llm", "regex", "none"]
+
+
 async def _extract_place_impl(
     oembed: OEmbedResponse | None,
     caption: str | None = None,
-) -> DetectedPlace | None:
+    extraction_method: Literal["auto", "llm", "regex"] = "auto",
+) -> ExtractionResult:
     """Internal implementation of place extraction.
+
+    Cost Optimization:
+    - Regex candidate extraction runs in parallel (CPU-only, FREE)
+    - Google Places API is ONLY called after we know which path to take
+    - If LLM succeeds → Google resolves LLM's candidate
+    - If LLM fails → Google resolves regex candidates
+    - Never both (avoids duplicate $$ API calls)
 
     Args:
         oembed: oEmbed response from the social media provider
         caption: Optional user-provided caption
+        extraction_method: Method preference ("auto", "llm", or "regex")
 
     Returns:
-        DetectedPlace if a place was found, None otherwise
+        ExtractionResult with detected place and method used
     """
     if not is_configured():
         logger.debug("place_extraction_skipped: google_places_not_configured")
-        return None
+        return ExtractionResult(None, "none")
 
-    # Extract candidate place names from content
+    # Extract content from oEmbed
     title = oembed.title if oembed else None
     author_name = oembed.author_name if oembed else None
 
-    candidates = extract_place_candidates(title, caption, author_name)
+    settings = get_settings()
 
-    if not candidates:
-        logger.info(
-            "place_extraction_no_candidates",
-            extra={
-                "event": "place_extraction",
-                "result": "no_candidates",
-                "title": title[:50] if title else None,
-            },
+    # ===== PARALLEL PHASE (CPU-only for regex, async for LLM) =====
+
+    # Start LLM extraction if enabled and method allows
+    llm_task = None
+    if extraction_method in ("auto", "llm") and settings.llm_place_extraction_enabled:
+        llm_task = asyncio.create_task(
+            try_llm_extraction(
+                title,
+                caption,
+                author_name,
+                try_candidate_fn=_try_candidate,
+                extract_location_hints_fn=extract_location_hints,
+                timeout=LLM_EXTRACTION_TIMEOUT,
+            )
         )
-        return None
 
-    # Extract location hints from title and caption to bias the search
-    # This helps find places in the right geographic area when the content
-    # mentions a city or country (e.g., "Best coffee in Tokyo" -> bias to Tokyo)
+    # Run regex candidate extraction concurrently (CPU-only, FREE)
+    # This does NOT call Google Places - just extracts candidate strings
+    regex_candidates = []
+    if extraction_method in ("auto", "regex"):
+        regex_candidates = extract_place_candidates(title, caption, author_name)
+
+    # Extract location hints for geographic biasing
     combined_text = " ".join(filter(None, [title, caption]))
     location_hints = extract_location_hints(combined_text)
     location_bias = location_hints[0] if location_hints else None
 
-    # Log candidate count without exposing content (privacy)
-    title_len = len(title) if title else 0
-    bias_name = location_bias.name if location_bias else None
-    logger.info(
-        f"PLACE EXTRACTION: {len(candidates)} candidates from "
-        f"title_len={title_len}, location_bias={bias_name}"
+    # ===== SEQUENTIAL PHASE (API calls only when needed) =====
+
+    # Wait for LLM result if we started it
+    if llm_task:
+        try:
+            llm_result = await asyncio.wait_for(
+                llm_task, timeout=LLM_EXTRACTION_TIMEOUT
+            )
+            if (
+                llm_result
+                and llm_result.confidence >= settings.place_extraction_min_confidence
+            ):
+                logger.debug("place_extraction_method", extra={"method": "llm"})
+                return ExtractionResult(llm_result, "llm")
+        except asyncio.CancelledError:
+            raise  # Don't catch cancellation - propagate it
+        except TimeoutError:
+            logger.debug("llm_extraction_timed_out")
+            llm_task.cancel()
+        except Exception:
+            logger.exception("llm_extraction_failed")
+            if not llm_task.done():
+                llm_task.cancel()
+        finally:
+            # Ensure task cleanup regardless of path
+            if llm_task and not llm_task.done():
+                try:
+                    await llm_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    # If method was "llm" only and it failed, return no result
+    if extraction_method == "llm":
+        logger.info("place_extraction_failed", extra={"reason": "llm_only_no_result"})
+        return ExtractionResult(None, "none")
+
+    # ===== FALLBACK: LLM failed, NOW call Google Places for regex candidates =====
+
+    if not regex_candidates:
+        logger.info("place_extraction_failed", extra={"reason": "no_candidates"})
+        return ExtractionResult(None, "none")
+
+    logger.debug(
+        "place_extraction_regex_fallback",
+        extra={"candidates": len(regex_candidates)},
     )
-    # Log first candidate only (truncated) for debugging
-    if candidates:
-        first_cand = (
-            candidates[0][:30] + "..." if len(candidates[0]) > 30 else candidates[0]
-        )
-        logger.debug(f"PLACE EXTRACTION first candidate: {first_cand!r}")
 
     # Filter out country names - they're used for location biasing, not as search targets
     # (Google Places API returns errors for geopolitical queries like "Kyrgyzstan")
-    filtered_candidates = [c for c in candidates if c.lower() not in COUNTRIES]
+    filtered_candidates = [c for c in regex_candidates if c.lower() not in COUNTRIES]
 
-    # Try all candidates in parallel for better performance (limited by MAX_PARALLEL_CANDIDATES)
+    # NOW call Google Places API - only in the fallback path
     top_candidates = filtered_candidates[:MAX_PARALLEL_CANDIDATES]
     tasks = [_try_candidate(c, location_bias=location_bias) for c in top_candidates]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -180,66 +236,58 @@ async def _extract_place_impl(
             scored_results.append((score, i, result))
 
     if not scored_results:
-        logger.info(
-            "place_extraction_no_match",
-            extra={
-                "event": "place_extraction",
-                "result": "no_match",
-                "candidates_tried": len(top_candidates),
-            },
-        )
-        return None
+        logger.info("place_extraction_failed", extra={"reason": "no_match"})
+        return ExtractionResult(None, "none")
 
     # Sort by score (descending) and return the highest-scored result
     scored_results.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_idx, best_result = scored_results[0]
+    best_score, _, best_result = scored_results[0]
 
     # Log selection details for debugging
     if len(scored_results) > 1:
-        alts = [f"{r.name}({s:.2f})" for s, _, r in scored_results[1:3]]
-        name = best_result.name
-        cc = best_result.country_code
-        ptype = best_result.primary_type
-        logger.info(
-            f"PLACE EXTRACTION selected: {name} (score={best_score:.2f}, "
-            f"country={cc}, type={ptype}) over alternatives: {alts}"
+        logger.debug(
+            "place_extraction_selection",
+            extra={
+                "selected": best_result.name[:30] if best_result.name else None,
+                "score": round(best_score, 2),
+                "alternatives": len(scored_results) - 1,
+            },
         )
 
     # Apply minimum confidence threshold to avoid low-confidence false matches
-    settings = get_settings()
     min_confidence = settings.place_extraction_min_confidence
     if best_result.confidence < min_confidence:
         logger.info(
-            "place_extraction_low_confidence",
-            extra={
-                "event": "place_extraction",
-                "result": "low_confidence",
-                "place_name": best_result.name[:50] if best_result.name else None,
-                "confidence": best_result.confidence,
-                "threshold": min_confidence,
-            },
+            "place_extraction_failed",
+            extra={"reason": "low_confidence", "confidence": best_result.confidence},
         )
-        return None
+        return ExtractionResult(None, "none")
 
-    return best_result
+    logger.info(
+        "regex_extraction_success",
+        extra={"place_name": best_result.name[:30] if best_result.name else None},
+    )
+    return ExtractionResult(best_result, "regex")
 
 
-async def extract_place(
+async def extract_place_with_method(
     oembed: OEmbedResponse | None,
     caption: str | None = None,
-) -> DetectedPlace | None:
-    """Extract a place from social media content.
+    extraction_method: Literal["auto", "llm", "regex"] = "auto",
+) -> ExtractionResult:
+    """Extract a place from social media content with method tracking.
 
     Attempts to identify and resolve a place from the oEmbed metadata
-    and user caption using Google Places API. Tries top candidates in
-    parallel for better performance.
+    and user caption using Google Places API. Uses LLM-first extraction
+    when enabled, with regex as fallback.
 
     Args:
         oembed: oEmbed response from the social media provider
         caption: Optional user-provided caption
+        extraction_method: Method preference ("auto", "llm", or "regex")
 
     Returns:
-        DetectedPlace if a place was found, None otherwise
+        ExtractionResult containing the place (if found) and method used
 
     Note:
         The timeout wrapper does not cancel underlying HTTP requests to Google
@@ -249,19 +297,32 @@ async def extract_place(
     """
     try:
         return await asyncio.wait_for(
-            _extract_place_impl(oembed, caption),
+            _extract_place_impl(oembed, caption, extraction_method),
             timeout=PLACE_EXTRACTION_TIMEOUT,
         )
     except TimeoutError:
-        logger.warning(
-            "place_extraction_timeout",
-            extra={
-                "event": "place_extraction",
-                "result": "timeout",
-                "timeout_seconds": PLACE_EXTRACTION_TIMEOUT,
-            },
-        )
-        return None
+        logger.warning("place_extraction_timeout")
+        return ExtractionResult(None, "none")
+
+
+async def extract_place(
+    oembed: OEmbedResponse | None,
+    caption: str | None = None,
+) -> DetectedPlace | None:
+    """Extract a place from social media content.
+
+    This is a convenience wrapper around extract_place_with_method that
+    returns only the detected place (for backward compatibility).
+
+    Args:
+        oembed: oEmbed response from the social media provider
+        caption: Optional user-provided caption
+
+    Returns:
+        DetectedPlace if a place was found, None otherwise
+    """
+    result = await extract_place_with_method(oembed, caption)
+    return result.place
 
 
 # =============================================================================
@@ -350,14 +411,7 @@ async def extract_place_from_profile(
         DetectedPlace if a matching business was found, None otherwise
     """
     if not profile_name:
-        logger.info(
-            "profile_place_extraction_skipped",
-            extra={
-                "event": "place_extraction",
-                "result": "no_profile_name",
-                "source": "profile",
-            },
-        )
+        logger.debug("profile_place_extraction_skipped: no_profile_name")
         return None
 
     if not is_configured():
@@ -370,20 +424,6 @@ async def extract_place_from_profile(
         hints = extract_location_hints(bio)
         if hints:
             location_bias = hints[0]
-            logger.debug(
-                f"profile_place_extraction: bio_location_hint={location_bias.name}"
-            )
-
-    logger.info(
-        "profile_place_extraction_started",
-        extra={
-            "event": "place_extraction",
-            "source": "profile",
-            "profile_name_len": len(profile_name),
-            "has_bio": bool(bio),
-            "location_bias": location_bias.name if location_bias else None,
-        },
-    )
 
     try:
         detected = await asyncio.wait_for(
@@ -410,38 +450,17 @@ async def extract_place_from_profile(
             )
 
             logger.info(
-                "profile_place_extraction_success",
+                "profile_extraction_success",
                 extra={
-                    "event": "place_extraction",
-                    "result": "found",
-                    "source": "profile",
-                    "profile_name": profile_name[:50],
                     "place_name": detected.name[:50] if detected.name else None,
                     "country_code": detected.country_code,
-                    "confidence": detected.confidence,
                 },
             )
         else:
-            logger.info(
-                "profile_place_extraction_no_match",
-                extra={
-                    "event": "place_extraction",
-                    "result": "no_match",
-                    "source": "profile",
-                    "profile_name": profile_name[:50],
-                },
-            )
+            logger.info("place_extraction_failed", extra={"reason": "profile_no_match"})
 
         return detected
 
     except TimeoutError:
-        logger.warning(
-            "profile_place_extraction_timeout",
-            extra={
-                "event": "place_extraction",
-                "result": "timeout",
-                "source": "profile",
-                "timeout_seconds": PLACE_EXTRACTION_TIMEOUT,
-            },
-        )
+        logger.warning("place_extraction_timeout", extra={"source": "profile"})
         return None

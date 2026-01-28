@@ -1,6 +1,8 @@
 """Social media ingest endpoints."""
 
 import logging
+import time
+from typing import Literal
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -14,6 +16,7 @@ from app.main import limiter
 from app.schemas.entries import Entry, EntryWithPlace, Place
 from app.schemas.social_ingest import (
     DetectedCountry,
+    DetectedPlace,
     SaveToTripRequest,
     SocialIngestRequest,
     SocialIngestResponse,
@@ -23,8 +26,8 @@ from app.services.oembed_adapters import fetch_oembed
 from app.services.place_extractor import (
     clean_instagram_profile_name,
     extract_location_hints,
-    extract_place,
     extract_place_from_profile,
+    extract_place_with_method,
 )
 from app.services.url_resolver import (
     canonicalize_url,
@@ -145,21 +148,35 @@ async def ingest_social_url(
 
     # Step 3: Extract place from content
     # Profile URLs use a different extraction path that uses the profile name directly
+    extraction_start = time.monotonic()
+    extraction_method_used: Literal["llm", "regex", "none"] = "none"
+    detected_place: DetectedPlace | None = None
+
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
         profile_name = clean_instagram_profile_name(oembed.title or "")
         # Bio may contain location hints (address, city)
         bio = oembed.raw.get("og:description") if oembed.raw else None
         detected_place = await extract_place_from_profile(profile_name, bio)
+        # Profile extraction doesn't use LLM/regex, mark as "none" unless we found a place
+        if detected_place:
+            extraction_method_used = "regex"  # Profile uses direct search
     else:
-        # Standard extraction from post title/caption
-        detected_place = await extract_place(oembed, data.caption)
+        # Standard extraction from post title/caption with method tracking
+        extraction_result = await extract_place_with_method(
+            oembed, data.caption, data.extraction_method
+        )
+        detected_place = extraction_result.place
+        extraction_method_used = extraction_result.method
+
+    extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
 
     logger.info(
         f"INGEST place extraction result: "
         f"detected={detected_place.name if detected_place else None}, "
         f"confidence={detected_place.confidence if detected_place else None}, "
-        f"source={'profile' if is_profile else 'post'}"
+        f"source={'profile' if is_profile else 'post'}, "
+        f"method={extraction_method_used}, latency_ms={extraction_latency_ms}"
     )
 
     # Step 4: Extract country hint even if place detection failed
@@ -219,6 +236,8 @@ async def ingest_social_url(
         title=title,
         detected_place=detected_place,
         detected_country=detected_country,
+        extraction_method_used=extraction_method_used,
+        extraction_latency_ms=extraction_latency_ms,
     )
 
 

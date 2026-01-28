@@ -28,12 +28,15 @@ export interface DetectedPlace {
   primary_type: string | null;
   types: string[];
   google_photo_url?: string | null;
+  // LLM-predicted entry type: "place", "food", "stay", "experience"
+  llm_entry_type?: string | null;
 }
 
 // Request to ingest a social URL
 export interface SocialIngestRequest {
   url: string;
   caption?: string;
+  extraction_method?: 'auto' | 'llm' | 'regex';
 }
 
 // Country detected from location hints (when place detection fails)
@@ -54,6 +57,9 @@ export interface SocialIngestResponse {
   detected_place: DetectedPlace | null;
   // Country hint even when place detection fails (for trip defaulting & autocomplete bias)
   detected_country: DetectedCountry | null;
+  // Extraction metrics
+  extraction_method_used?: 'llm' | 'regex' | 'none';
+  extraction_latency_ms?: number;
 }
 
 // Request to save ingest data to a trip (includes full ingest data)

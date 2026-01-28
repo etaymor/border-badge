@@ -9,6 +9,7 @@ import time
 import httpx
 
 from app.core.config import get_settings
+from app.core.http_client import get_http_client
 from app.services.place_extractor.data import MAJOR_CITIES
 from app.services.place_extractor.location_hints import LocationHint
 
@@ -87,55 +88,54 @@ async def search_places(
     start_time = time.monotonic()
 
     try:
-        async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                PLACES_AUTOCOMPLETE_URL,
-                json=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Goog-Api-Key": settings.google_places_api_key,
-                },
+        client = get_http_client()
+        response = await client.post(
+            PLACES_AUTOCOMPLETE_URL,
+            json=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": settings.google_places_api_key,
+            },
+            timeout=API_TIMEOUT_SECONDS,
+        )
+
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+
+        if response.status_code != 200:
+            # Don't log response body - may contain sensitive error details
+            logger.warning(
+                f"places_autocomplete_error: status={response.status_code} "
+                f"query={query[:50]!r}"
             )
+            return []
 
-            elapsed_ms = (time.monotonic() - start_time) * 1000
+        data = response.json()
+        suggestions = data.get("suggestions", [])
 
-            if response.status_code != 200:
-                # Don't log response body - may contain sensitive error details
-                logger.warning(
-                    f"places_autocomplete_error: status={response.status_code} "
-                    f"query={query[:50]!r}"
+        results = []
+        for suggestion in suggestions:
+            place_prediction = suggestion.get("placePrediction")
+            if place_prediction:
+                results.append(
+                    {
+                        "place_id": place_prediction.get("placeId"),
+                        "name": place_prediction.get("structuredFormat", {})
+                        .get("mainText", {})
+                        .get("text", ""),
+                        "address": place_prediction.get("structuredFormat", {})
+                        .get("secondaryText", {})
+                        .get("text", ""),
+                        "description": place_prediction.get("text", {}).get("text", ""),
+                    }
                 )
-                return []
 
-            data = response.json()
-            suggestions = data.get("suggestions", [])
+        # Log the actual results for debugging
+        result_names = [r.get("name", "?") for r in results[:3]]
+        logger.info(
+            f"PLACES AUTOCOMPLETE query={query!r} -> {len(results)} results: {result_names}"
+        )
 
-            results = []
-            for suggestion in suggestions:
-                place_prediction = suggestion.get("placePrediction")
-                if place_prediction:
-                    results.append(
-                        {
-                            "place_id": place_prediction.get("placeId"),
-                            "name": place_prediction.get("structuredFormat", {})
-                            .get("mainText", {})
-                            .get("text", ""),
-                            "address": place_prediction.get("structuredFormat", {})
-                            .get("secondaryText", {})
-                            .get("text", ""),
-                            "description": place_prediction.get("text", {}).get(
-                                "text", ""
-                            ),
-                        }
-                    )
-
-            # Log the actual results for debugging
-            result_names = [r.get("name", "?") for r in results[:3]]
-            logger.info(
-                f"PLACES AUTOCOMPLETE query={query!r} -> {len(results)} results: {result_names}"
-            )
-
-            return results
+        return results
 
     except httpx.TimeoutException:
         elapsed_ms = (time.monotonic() - start_time) * 1000
@@ -184,66 +184,67 @@ async def get_place_details(place_id: str) -> dict | None:
     start_time = time.monotonic()
 
     try:
-        async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                url,
-                headers={
-                    "X-Goog-Api-Key": settings.google_places_api_key,
-                    "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri,primaryType,types",
-                },
+        client = get_http_client()
+        response = await client.get(
+            url,
+            headers={
+                "X-Goog-Api-Key": settings.google_places_api_key,
+                "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri,primaryType,types",
+            },
+            timeout=API_TIMEOUT_SECONDS,
+        )
+
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+
+        if response.status_code != 200:
+            # Don't log response body - may contain sensitive error details
+            logger.warning(
+                f"PLACES DETAILS ERROR: status={response.status_code}, "
+                f"place_id={place_id}"
             )
+            return None
 
-            elapsed_ms = (time.monotonic() - start_time) * 1000
+        data = response.json()
 
-            if response.status_code != 200:
-                # Don't log response body - may contain sensitive error details
-                logger.warning(
-                    f"PLACES DETAILS ERROR: status={response.status_code}, "
-                    f"place_id={place_id}"
-                )
-                return None
+        # Extract city and country from address components
+        city = None
+        country = None
+        country_code = None
 
-            data = response.json()
+        for component in data.get("addressComponents", []):
+            types = component.get("types", [])
+            if "locality" in types:
+                city = component.get("longText")
+            elif "country" in types:
+                country = component.get("longText")
+                country_code = component.get("shortText")
 
-            # Extract city and country from address components
-            city = None
-            country = None
-            country_code = None
+        location = data.get("location", {})
 
-            for component in data.get("addressComponents", []):
-                types = component.get("types", [])
-                if "locality" in types:
-                    city = component.get("longText")
-                elif "country" in types:
-                    country = component.get("longText")
-                    country_code = component.get("shortText")
+        # Get primary type for category inference
+        primary_type = data.get("primaryType")
+        types = data.get("types", [])
 
-            location = data.get("location", {})
+        result = {
+            "place_id": data.get("id"),
+            "name": data.get("displayName", {}).get("text", ""),
+            "address": data.get("formattedAddress"),
+            "latitude": location.get("latitude"),
+            "longitude": location.get("longitude"),
+            "city": city,
+            "country": country,
+            "country_code": country_code,
+            "website": data.get("websiteUri"),
+            "photos": data.get("photos", []),
+            "primary_type": primary_type,
+            "types": types,
+        }
 
-            # Get primary type for category inference
-            primary_type = data.get("primaryType")
-            types = data.get("types", [])
+        logger.info(
+            f"PLACES DETAILS SUCCESS: {result['name']}, country={country_code}, primary_type={primary_type}"
+        )
 
-            result = {
-                "place_id": data.get("id"),
-                "name": data.get("displayName", {}).get("text", ""),
-                "address": data.get("formattedAddress"),
-                "latitude": location.get("latitude"),
-                "longitude": location.get("longitude"),
-                "city": city,
-                "country": country,
-                "country_code": country_code,
-                "website": data.get("websiteUri"),
-                "photos": data.get("photos", []),
-                "primary_type": primary_type,
-                "types": types,
-            }
-
-            logger.info(
-                f"PLACES DETAILS SUCCESS: {result['name']}, country={country_code}, primary_type={primary_type}"
-            )
-
-            return result
+        return result
 
     except httpx.TimeoutException:
         elapsed_ms = (time.monotonic() - start_time) * 1000
