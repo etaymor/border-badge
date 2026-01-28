@@ -186,7 +186,7 @@ async def _extract_place_impl(
             ):
                 logger.debug("place_extraction_method", extra={"method": "llm"})
                 return ExtractionResult(llm_result, "llm")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.debug("llm_extraction_timed_out")
             # Cancel the LLM task to prevent resource leak from lingering coroutine
             llm_task.cancel()
