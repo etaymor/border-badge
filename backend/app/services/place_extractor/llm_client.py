@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import unicodedata
+from collections.abc import Awaitable, Callable
 
 import httpx
 
@@ -20,6 +21,7 @@ from app.core.llm_utils import (
     strip_code_fence,
 )
 from app.schemas.social_ingest import DetectedPlace
+from app.services.place_extractor.location_hints import LocationHint
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +164,11 @@ def _parse_llm_places(content: str) -> list[tuple[str, str | None, str | None, s
 # LLM Extraction
 # =============================================================================
 
-# Type alias for the callback that resolves place names to DetectedPlace
-TryCandidateCallback = type(
-    lambda name, location_bias: None  # noqa: ARG005
-)  # Callable signature hint
+# Type alias for callback that resolves place names to DetectedPlace
+TryCandidateFn = Callable[[str, LocationHint | None], Awaitable[DetectedPlace | None]]
+
+# Type alias for callback that extracts location hints from text
+ExtractLocationHintsFn = Callable[[str | None], list[LocationHint]]
 
 
 async def try_llm_extraction(
@@ -173,8 +176,8 @@ async def try_llm_extraction(
     caption: str | None,
     profile_name: str | None,
     *,
-    try_candidate_fn,
-    extract_location_hints_fn,
+    try_candidate_fn: TryCandidateFn,
+    extract_location_hints_fn: ExtractLocationHintsFn,
     timeout: float = 3.0,
 ) -> DetectedPlace | None:
     """Try LLM-based place extraction.
@@ -275,7 +278,7 @@ async def try_llm_extraction(
         )
 
         # Resolve via Google Places API and attach the LLM-predicted entry_type
-        detected = await try_candidate_fn(name, location_bias=location_bias)
+        detected = await try_candidate_fn(name, location_bias)
         if detected:
             # Attach the LLM-predicted entry type for automatic categorization
             detected.llm_entry_type = entry_type

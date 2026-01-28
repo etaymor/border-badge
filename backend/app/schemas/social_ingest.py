@@ -53,7 +53,7 @@ class DetectedPlace(BaseModel):
     types: list[str] = Field(default_factory=list)  # All place types
     google_photo_url: str | None = None
     # LLM-predicted entry type for automatic categorization (Place|Stay|Food|Experience)
-    llm_entry_type: str | None = None
+    llm_entry_type: Literal["place", "food", "stay", "experience"] | None = None
 
 
 class DetectedCountry(BaseModel):
