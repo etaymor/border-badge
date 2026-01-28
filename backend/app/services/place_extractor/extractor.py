@@ -41,6 +41,7 @@ PLACE_EXTRACTION_TIMEOUT = 5.0
 # LLM extraction timeout (shorter than overall, allows fallback)
 LLM_EXTRACTION_TIMEOUT = 3.0
 
+
 async def _try_candidate(
     candidate: str,
     location_bias: LocationHint | None = None,

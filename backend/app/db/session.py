@@ -9,7 +9,12 @@ from app.core.config import get_settings
 from app.core.http_client import close_http_client, get_http_client
 
 # Re-export for backward compatibility with main.py import
-__all__ = ["close_http_client", "get_http_client", "get_supabase_client", "SupabaseClient"]
+__all__ = [
+    "close_http_client",
+    "get_http_client",
+    "get_supabase_client",
+    "SupabaseClient",
+]
 
 
 class SupabaseClient:

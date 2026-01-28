@@ -13,6 +13,7 @@ import unicodedata
 import httpx
 
 from app.core.config import get_settings
+from app.core.http_client import get_http_client
 from app.core.llm_utils import (
     OPENROUTER_API_URL,
     fix_trailing_commas,
@@ -234,12 +235,13 @@ async def try_llm_extraction(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                OPENROUTER_API_URL,
-                json=payload,
-                headers=headers,
-            )
+        client = get_http_client()
+        response = await client.post(
+            OPENROUTER_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
 
         if response.status_code != 200:
             logger.warning(

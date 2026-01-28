@@ -125,9 +125,7 @@ async def search_places(
                         "address": place_prediction.get("structuredFormat", {})
                         .get("secondaryText", {})
                         .get("text", ""),
-                        "description": place_prediction.get("text", {}).get(
-                            "text", ""
-                        ),
+                        "description": place_prediction.get("text", {}).get("text", ""),
                     }
                 )
 
