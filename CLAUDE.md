@@ -195,6 +195,8 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 | `/entries/{id}/move` | Move entry to different trip |
 | `/entries/bulk-move` | Bulk move entries to a trip |
 | `/media/files` | Media upload URLs, status |
+| `/ingest/social` | Social media URL processing with LLM-first place extraction |
+| `/ingest/save-to-trip` | Save social ingest data to a trip |
 | `/photos/suggest-places` | Photo import place suggestions |
 | `/lists` | Shareable curated lists |
 | `/profile` | User profile |
@@ -425,6 +427,53 @@ All launch simplification changes are marked with:
 9. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
 10. **Query Caching:** Trips and entries queries use `staleTime` (5min) and `gcTime` (30min) to reduce redundant fetches. Mutations use scoped cache invalidation targeting only affected query keys.
 11. **Scoped Invalidation:** Trip and entry mutations invalidate only the specific trip/entry queries affected, not the entire cache. This prevents unnecessary refetches during navigation.
+
+## LLM Place Extraction System
+
+The social ingest feature uses LLM-first place extraction to identify places from TikTok and Instagram URLs.
+
+### Architecture
+
+The extraction pipeline runs LLM and regex extraction in parallel for optimal latency, but only calls Google Places API once (cost optimization):
+
+1. **LLM Extraction** (primary) - Uses Gemini 2.5 Flash-Lite via OpenRouter to extract structured place data
+2. **Regex Extraction** (fallback) - CPU-only pattern matching, used when LLM fails or times out
+3. **Google Places Resolution** - Called only once for whichever method succeeds
+
+### Entry Type Classification
+
+The LLM automatically classifies places into entry types:
+- `Place` - Landmarks, attractions, museums, parks
+- `Stay` - Hotels, Airbnbs, hostels
+- `Food` - Restaurants, cafes, bars
+- `Experience` - Tours, activities, classes
+
+### Configuration
+
+LLM extraction is opt-in via environment variable:
+```bash
+LLM_PLACE_EXTRACTION_ENABLED=true  # Enable LLM-first extraction
+```
+
+Requires `OPENROUTER_API_KEY` to be set (reuses existing OpenRouter config).
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `backend/app/services/place_extractor/extractor.py` | Main extraction orchestration + LLM extraction |
+| `backend/app/services/place_extractor/llm_client.py` | OpenRouter API client |
+| `backend/app/api/ingest.py` | Social ingest endpoints |
+| `docs/place-extraction-algorithm.md` | Detailed algorithm documentation |
+
+### API Response Fields
+
+The `/ingest/social` endpoint returns extraction metadata:
+- `extraction_method_used`: `"llm"`, `"regex"`, or `"none"`
+- `extraction_latency_ms`: Time taken for extraction
+- `detected_place.llm_entry_type`: LLM-predicted entry type (when LLM succeeds)
+
+---
 
 ## Photo Import System
 
