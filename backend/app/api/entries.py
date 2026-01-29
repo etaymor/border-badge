@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.subscriptions import FREE_LIMITS
 from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
@@ -143,9 +144,6 @@ async def list_entries(
     return results
 
 
-FREE_TIER_ENTRIES_PER_TRIP = 10
-
-
 @router.post(
     "/trips/{trip_id}/entries",
     response_model=EntryWithPlace,
@@ -188,13 +186,14 @@ async def create_entry(
         )
         entry_count = len(entry_count_result) if entry_count_result else 0
 
-        if entry_count >= FREE_TIER_ENTRIES_PER_TRIP:
+        entries_limit = FREE_LIMITS["entries_per_trip"]
+        if entry_count >= entries_limit:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "code": "LIMIT_EXCEEDED",
-                    "message": f"Free tier allows {FREE_TIER_ENTRIES_PER_TRIP} entries per trip. Upgrade to premium for unlimited entries.",
-                    "limit": FREE_TIER_ENTRIES_PER_TRIP,
+                    "message": f"Free tier allows {entries_limit} entries per trip. Upgrade to premium for unlimited entries.",
+                    "limit": entries_limit,
                     "current_count": entry_count,
                 },
             )

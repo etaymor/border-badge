@@ -112,4 +112,5 @@ GRANT EXECUTE ON FUNCTION increment_photo_import_usage TO authenticated;
 -- Revoke from public and authenticated to ensure only service role can invoke
 REVOKE ALL ON FUNCTION update_subscription_if_newer FROM PUBLIC;
 REVOKE ALL ON FUNCTION update_subscription_if_newer FROM authenticated;
--- Service role has superuser privileges and can execute without explicit grant
+-- Explicitly grant to service_role so webhooks can invoke reliably
+GRANT EXECUTE ON FUNCTION update_subscription_if_newer TO service_role;
