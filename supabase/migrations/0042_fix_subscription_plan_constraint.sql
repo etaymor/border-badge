@@ -6,6 +6,9 @@
 --   - Webhook handler sets subscription_plan = "annual"
 -- This mismatch causes webhook updates to fail silently.
 
+-- First, normalize any existing 'yearly' values to 'annual' before adding the new constraint
+UPDATE user_profile SET subscription_plan = 'annual' WHERE subscription_plan = 'yearly';
+
 ALTER TABLE user_profile DROP CONSTRAINT IF EXISTS chk_subscription_plan;
 
 ALTER TABLE user_profile

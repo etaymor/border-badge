@@ -74,7 +74,12 @@ export async function identifyUser(userId: string): Promise<CustomerInfo> {
   }
 
   const { customerInfo } = await Purchases.logIn(userId);
-  console.log('[RevenueCat] User identified:', userId);
+  if (isDevelopment) {
+    // Only log user ID in development - never in production
+    console.log('[RevenueCat] User identified:', userId);
+  } else {
+    console.log('[RevenueCat] User identified');
+  }
   return customerInfo;
 }
 

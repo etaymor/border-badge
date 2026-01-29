@@ -62,15 +62,20 @@ export function SubscriptionSection({ expirationDate, isSmallScreen }: Subscript
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsUpgrading(true);
 
-    await presentPaywall();
-
-    setIsUpgrading(false);
+    try {
+      await presentPaywall();
+    } catch (error) {
+      console.error('[SubscriptionSection] Error presenting paywall:', error);
+    } finally {
+      setIsUpgrading(false);
+    }
   }, [presentPaywall]);
 
-  const handleManageSubscription = useCallback(() => {
+  const handleManageSubscription = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     // Open App Store subscription management
-    Purchases.getCustomerInfo().then((info) => {
+    try {
+      const info = await Purchases.getCustomerInfo();
       if (info.managementURL) {
         // This will open the App Store subscription management
         // Note: On iOS simulator this may not work
@@ -81,7 +86,13 @@ export function SubscriptionSection({ expirationDate, isSmallScreen }: Subscript
           'To manage your subscription, go to Settings > Apple ID > Subscriptions on your device.'
         );
       }
-    });
+    } catch (error) {
+      console.error('[SubscriptionSection] Error getting customer info:', error);
+      Alert.alert(
+        'Error',
+        'Unable to access subscription management. Please try again or go to Settings > Apple ID > Subscriptions.'
+      );
+    }
   }, []);
 
   const handleRestorePurchases = useCallback(async () => {

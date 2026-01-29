@@ -158,22 +158,32 @@ export const useSubscriptionStatus = () => useSubscriptionStore((s) => s.status)
 
 export const useSubscriptionPlan = () => useSubscriptionStore((s) => s.plan);
 
+// Helper to check if status grants premium access (excludes 'loading' and 'free')
+const hasPremiumAccess = (status: SubscriptionStatus): boolean =>
+  status === 'premium' || status === 'trial';
+
 export const useCanUseShareExtension = () =>
   useSubscriptionStore(
-    (s) => s.status !== 'free' || s.shareExtensionUsage < FREE_LIMITS.shareExtension
+    (s) => hasPremiumAccess(s.status) || s.shareExtensionUsage < FREE_LIMITS.shareExtension
   );
 
 export const useCanImportPhotos = () =>
-  useSubscriptionStore((s) => s.status !== 'free' || s.photoImportUsage < FREE_LIMITS.photoImport);
+  useSubscriptionStore(
+    (s) => hasPremiumAccess(s.status) || s.photoImportUsage < FREE_LIMITS.photoImport
+  );
 
 export const useShareExtensionRemaining = () =>
   useSubscriptionStore((s) =>
-    s.status !== 'free' ? Infinity : Math.max(0, FREE_LIMITS.shareExtension - s.shareExtensionUsage)
+    hasPremiumAccess(s.status)
+      ? Infinity
+      : Math.max(0, FREE_LIMITS.shareExtension - s.shareExtensionUsage)
   );
 
 export const usePhotoImportRemaining = () =>
   useSubscriptionStore((s) =>
-    s.status !== 'free' ? Infinity : Math.max(0, FREE_LIMITS.photoImport - s.photoImportUsage)
+    hasPremiumAccess(s.status)
+      ? Infinity
+      : Math.max(0, FREE_LIMITS.photoImport - s.photoImportUsage)
   );
 
 // Subscribe to usage changes and sync to App Group for Share Extension access

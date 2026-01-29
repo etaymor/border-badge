@@ -109,20 +109,32 @@ async def increment_usage(
     db = get_supabase_client(user_token=token)
 
     # SECURITY: Use separate functions instead of dynamic column name
+    rpc_name = ""
     if body.feature == "share_extension":
-        result = await db.rpc(
-            "increment_share_extension_usage",
-            {"p_user_id": user.id},
-        )
+        rpc_name = "increment_share_extension_usage"
     elif body.feature == "photo_import":
-        result = await db.rpc(
-            "increment_photo_import_usage",
-            {"p_user_id": user.id},
-        )
+        rpc_name = "increment_photo_import_usage"
     else:
         raise HTTPException(status_code=400, detail="Invalid feature")
 
-    return IncrementUsageResponse(status="incremented", new_count=result or 0)
+    try:
+        result = await db.rpc(rpc_name, {"p_user_id": user.id})
+    except Exception as e:
+        logger.error(f"RPC {rpc_name} failed for user {user.id}: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to increment {body.feature} usage"
+        ) from None
+
+    # Validate that RPC returned a numeric count
+    if result is None or not isinstance(result, int):
+        logger.error(
+            f"RPC {rpc_name} returned invalid result for user {user.id}: {result}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Invalid response from {body.feature} increment"
+        )
+
+    return IncrementUsageResponse(status="incremented", new_count=result)
 
 
 @router.get("/can-add-entry/{trip_id}", response_model=CanAddEntryResponse)
