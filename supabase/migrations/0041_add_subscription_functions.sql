@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION increment_share_extension_usage(p_user_id UUID)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     new_count integer;
@@ -33,6 +34,7 @@ CREATE OR REPLACE FUNCTION increment_photo_import_usage(p_user_id UUID)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     new_count integer;
@@ -54,6 +56,7 @@ $$;
 
 -- Atomic subscription update with ordering (for concurrent webhooks)
 -- Uses advisory lock to prevent race conditions between concurrent webhook deliveries
+-- SECURITY: Only callable by service role (webhook/backend service account)
 CREATE OR REPLACE FUNCTION update_subscription_if_newer(
     p_user_id UUID,
     p_status TEXT,
@@ -66,6 +69,7 @@ CREATE OR REPLACE FUNCTION update_subscription_if_newer(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     current_timestamp_ms BIGINT;
@@ -103,4 +107,9 @@ $$;
 -- Grant execute permissions to authenticated users for usage functions
 GRANT EXECUTE ON FUNCTION increment_share_extension_usage TO authenticated;
 GRANT EXECUTE ON FUNCTION increment_photo_import_usage TO authenticated;
--- Webhook function uses service role, no grant needed for authenticated
+
+-- SECURITY: Restrict update_subscription_if_newer to service role only
+-- Revoke from public and authenticated to ensure only service role can invoke
+REVOKE ALL ON FUNCTION update_subscription_if_newer FROM PUBLIC;
+REVOKE ALL ON FUNCTION update_subscription_if_newer FROM authenticated;
+-- Service role has superuser privileges and can execute without explicit grant
