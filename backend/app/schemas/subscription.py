@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-SubscriptionStatus = Literal["free", "trial", "premium", "expired"]
+SubscriptionStatus = Literal["free", "trial", "premium"]
 SubscriptionPlan = Literal["weekly", "monthly", "annual"]
 
 

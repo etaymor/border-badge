@@ -55,6 +55,7 @@ def mock_supabase_client():
     mock.post = AsyncMock(return_value=[])
     mock.patch = AsyncMock(return_value=[])
     mock.delete = AsyncMock(return_value=[])
+    mock.rpc = AsyncMock(return_value=[])
     return mock
 
 

@@ -7,7 +7,36 @@ from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
 from app.main import app
-from tests.conftest import TEST_TRIP_ID, TEST_USER_ID, mock_auth_dependency
+from tests.conftest import (
+    TEST_ENTRY_ID,
+    TEST_TRIP_ID,
+    TEST_USER_ID,
+    mock_auth_dependency,
+)
+
+
+def _make_rpc_success_result(entry_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Create a successful RPC result with entry data."""
+    return [
+        {
+            "entry_row": entry_data,
+            "place_row": None,
+            "error_code": None,
+            "current_count": None,
+        }
+    ]
+
+
+def _make_rpc_limit_exceeded_result(current_count: int) -> list[dict[str, Any]]:
+    """Create a limit exceeded RPC result."""
+    return [
+        {
+            "entry_row": None,
+            "place_row": None,
+            "error_code": "LIMIT_EXCEEDED",
+            "current_count": current_count,
+        }
+    ]
 
 
 class TestEntryLimitEnforcement:
@@ -23,9 +52,10 @@ class TestEntryLimitEnforcement:
         sample_premium_profile: dict[str, Any],
     ) -> None:
         """Premium users can add entries beyond the free limit."""
-        # Profile with premium status
+        # Profile returns premium status
         mock_supabase_client.get.return_value = [sample_premium_profile]
-        mock_supabase_client.post.return_value = [sample_entry]
+        # RPC creates entry successfully (no limit passed for premium users)
+        mock_supabase_client.rpc.return_value = _make_rpc_success_result(sample_entry)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -40,6 +70,11 @@ class TestEntryLimitEnforcement:
                 )
             # Should succeed - premium users are not limited
             assert response.status_code == 201
+
+            # Verify RPC was called with no limit (None)
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][0] == "atomic_create_entry_with_place"
+            assert rpc_call[0][1]["p_entries_limit"] is None
         finally:
             app.dependency_overrides.clear()
 
@@ -54,7 +89,7 @@ class TestEntryLimitEnforcement:
     ) -> None:
         """Trial users have the same access as premium."""
         mock_supabase_client.get.return_value = [sample_trial_profile]
-        mock_supabase_client.post.return_value = [sample_entry]
+        mock_supabase_client.rpc.return_value = _make_rpc_success_result(sample_entry)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -68,6 +103,10 @@ class TestEntryLimitEnforcement:
                     json={"type": "place", "title": "New Place"},
                 )
             assert response.status_code == 201
+
+            # Verify RPC was called with no limit (None)
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_entries_limit"] is None
         finally:
             app.dependency_overrides.clear()
 
@@ -81,12 +120,10 @@ class TestEntryLimitEnforcement:
         sample_free_profile: dict[str, Any],
     ) -> None:
         """Free users can add entries when under the limit."""
-        # First call: profile, Second call: existing entries (5 < 10)
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [{"id": f"entry-{i}"} for i in range(5)],
-        ]
-        mock_supabase_client.post.return_value = [sample_entry]
+        # Profile returns free status
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC creates entry successfully (limit check passed in DB)
+        mock_supabase_client.rpc.return_value = _make_rpc_success_result(sample_entry)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -100,6 +137,10 @@ class TestEntryLimitEnforcement:
                     json={"type": "place", "title": "New Place"},
                 )
             assert response.status_code == 201
+
+            # Verify RPC was called with the limit
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_entries_limit"] == 10
         finally:
             app.dependency_overrides.clear()
 
@@ -112,11 +153,10 @@ class TestEntryLimitEnforcement:
         sample_free_profile: dict[str, Any],
     ) -> None:
         """Free users are blocked when at the entry limit."""
-        # First call: profile, Second call: existing entries (10 = limit)
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [{"id": f"entry-{i}"} for i in range(10)],
-        ]
+        # Profile returns free status
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC returns limit exceeded (10 entries = limit)
+        mock_supabase_client.rpc.return_value = _make_rpc_limit_exceeded_result(10)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -146,11 +186,10 @@ class TestEntryLimitEnforcement:
         sample_free_profile: dict[str, Any],
     ) -> None:
         """Free users are blocked when over the limit (edge case)."""
-        # 12 existing entries - already over limit
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [{"id": f"entry-{i}"} for i in range(12)],
-        ]
+        # Profile returns free status
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC returns limit exceeded (12 entries > limit)
+        mock_supabase_client.rpc.return_value = _make_rpc_limit_exceeded_result(12)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -181,10 +220,8 @@ class TestEntryLimitEnforcement:
             "id": TEST_USER_ID,
             "subscription_status": None,
         }
-        mock_supabase_client.get.side_effect = [
-            [profile_with_null],
-            [{"id": f"entry-{i}"} for i in range(10)],
-        ]
+        mock_supabase_client.get.return_value = [profile_with_null]
+        mock_supabase_client.rpc.return_value = _make_rpc_limit_exceeded_result(10)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -198,6 +235,10 @@ class TestEntryLimitEnforcement:
                     json={"type": "place", "title": "New Place"},
                 )
             assert response.status_code == 403
+
+            # Verify RPC was called with the limit (treated as free)
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_entries_limit"] == 10
         finally:
             app.dependency_overrides.clear()
 
@@ -209,10 +250,9 @@ class TestEntryLimitEnforcement:
         auth_headers: dict[str, str],
     ) -> None:
         """Missing profile defaults to free tier limits."""
-        mock_supabase_client.get.side_effect = [
-            [],  # No profile found
-            [{"id": f"entry-{i}"} for i in range(10)],
-        ]
+        # No profile found
+        mock_supabase_client.get.return_value = []
+        mock_supabase_client.rpc.return_value = _make_rpc_limit_exceeded_result(10)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -226,6 +266,10 @@ class TestEntryLimitEnforcement:
                     json={"type": "place", "title": "New Place"},
                 )
             assert response.status_code == 403
+
+            # Verify RPC was called with the limit (treated as free)
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_entries_limit"] == 10
         finally:
             app.dependency_overrides.clear()
 
@@ -240,15 +284,12 @@ class TestEntryLimitEnforcement:
     ) -> None:
         """Soft-deleted entries don't count toward the limit.
 
-        The query filters with deleted_at=is.null, so only 8 non-deleted
-        entries should be counted, allowing the new entry.
+        This is now enforced in the database function which filters
+        with deleted_at IS NULL when counting entries.
         """
-        # Only 8 non-deleted entries returned from DB query
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [{"id": f"entry-{i}"} for i in range(8)],
-        ]
-        mock_supabase_client.post.return_value = [sample_entry]
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC succeeds because DB only counted 8 non-deleted entries
+        mock_supabase_client.rpc.return_value = _make_rpc_success_result(sample_entry)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -261,7 +302,7 @@ class TestEntryLimitEnforcement:
                     headers=auth_headers,
                     json={"type": "place", "title": "New Place"},
                 )
-            # 8 < 10, should succeed
+            # Should succeed - soft-deleted entries not counted in DB
             assert response.status_code == 201
         finally:
             app.dependency_overrides.clear()
@@ -278,15 +319,13 @@ class TestEntryLimitEnforcement:
         """Entry limit is enforced per trip, not globally.
 
         Creating an entry in Trip B should succeed even if Trip A has 10 entries.
+        The limit parameter is passed to the RPC which checks the specific trip.
         """
         trip_b_id = "550e8400-e29b-41d4-a716-446655440099"
 
-        # Trip B has 0 entries
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [],  # No entries in Trip B
-        ]
-        mock_supabase_client.post.return_value = [sample_entry]
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC succeeds because Trip B has 0 entries
+        mock_supabase_client.rpc.return_value = _make_rpc_success_result(sample_entry)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -300,6 +339,10 @@ class TestEntryLimitEnforcement:
                     json={"type": "place", "title": "New Place"},
                 )
             assert response.status_code == 201
+
+            # Verify RPC was called with the correct trip_id
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_trip_id"] == trip_b_id
         finally:
             app.dependency_overrides.clear()
 
@@ -312,10 +355,8 @@ class TestEntryLimitEnforcement:
         sample_free_profile: dict[str, Any],
     ) -> None:
         """Verify the error response includes all required fields."""
-        mock_supabase_client.get.side_effect = [
-            [sample_free_profile],
-            [{"id": f"entry-{i}"} for i in range(10)],
-        ]
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        mock_supabase_client.rpc.return_value = _make_rpc_limit_exceeded_result(10)
 
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         try:
@@ -341,5 +382,86 @@ class TestEntryLimitEnforcement:
             assert detail["code"] == "LIMIT_EXCEEDED"
             assert "Upgrade to premium" in detail["message"]
             assert detail["limit"] == 10
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_trip_not_found_returns_404(
+        self,
+        client: TestClient,
+        mock_supabase_client: AsyncMock,
+        mock_user: AuthUser,
+        auth_headers: dict[str, str],
+        sample_free_profile: dict[str, Any],
+    ) -> None:
+        """Trip not found or user not authorized returns 404."""
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        # RPC returns empty result (trip not found or not authorized)
+        mock_supabase_client.rpc.return_value = []
+
+        app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+        try:
+            with patch(
+                "app.api.entries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ):
+                response = client.post(
+                    f"/trips/{TEST_TRIP_ID}/entries",
+                    headers=auth_headers,
+                    json={"type": "place", "title": "New Place"},
+                )
+            assert response.status_code == 404
+            assert "not found or not authorized" in response.json()["detail"]
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_entry_with_place_created_atomically(
+        self,
+        client: TestClient,
+        mock_supabase_client: AsyncMock,
+        mock_user: AuthUser,
+        auth_headers: dict[str, str],
+        sample_entry: dict[str, Any],
+        sample_place: dict[str, Any],
+        sample_free_profile: dict[str, Any],
+    ) -> None:
+        """Entry and place are created atomically via RPC."""
+        mock_supabase_client.get.return_value = [sample_free_profile]
+        mock_supabase_client.rpc.return_value = [
+            {
+                "entry_row": sample_entry,
+                "place_row": sample_place,
+                "error_code": None,
+                "current_count": None,
+            }
+        ]
+
+        app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+        try:
+            with patch(
+                "app.api.entries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ):
+                response = client.post(
+                    f"/trips/{TEST_TRIP_ID}/entries",
+                    headers=auth_headers,
+                    json={
+                        "type": "place",
+                        "title": "Central Park",
+                        "place": {
+                            "google_place_id": "ChIJN1t_tDeuEmsRUsoyG83frY4",
+                            "place_name": "Central Park",
+                            "lat": 40.7829,
+                            "lng": -73.9654,
+                        },
+                    },
+                )
+            assert response.status_code == 201
+            data = response.json()
+            assert data["id"] == TEST_ENTRY_ID
+            assert data["place"]["place_name"] == "Central Park"
+
+            # Verify RPC was called with place data
+            rpc_call = mock_supabase_client.rpc.call_args
+            assert rpc_call[0][1]["p_place_data"]["place_name"] == "Central Park"
         finally:
             app.dependency_overrides.clear()
