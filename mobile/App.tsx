@@ -41,7 +41,11 @@ import type { ShareCaptureSource } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
-import { initializeRevenueCat, identifyUser as identifyRevenueCatUser, logOutUser as logOutRevenueCatUser } from '@services/revenueCat';
+import {
+  initializeRevenueCat,
+  identifyUser as identifyRevenueCatUser,
+  logOutUser as logOutRevenueCatUser,
+} from '@services/revenueCat';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,

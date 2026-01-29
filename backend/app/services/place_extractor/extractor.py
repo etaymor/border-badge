@@ -6,10 +6,13 @@ candidate extraction, location hints, API calls, and scoring.
 
 import asyncio
 import html
+import json
 import logging
 import re as _re
 from dataclasses import dataclass
 from typing import Literal
+
+import httpx
 
 from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
@@ -83,7 +86,7 @@ async def _try_candidate(
         is_first_result=True,
     )
 
-    detected = DetectedPlace(
+    return DetectedPlace(
         google_place_id=details.get("place_id"),
         name=details.get("name", candidate),
         address=details.get("address"),
@@ -96,13 +99,6 @@ async def _try_candidate(
         primary_type=details.get("primary_type"),
         types=details.get("types", []),
     )
-
-    logger.debug(
-        "place_candidate_resolved",
-        extra={"place_name": detected.name[:50] if detected.name else None},
-    )
-
-    return detected
 
 
 @dataclass(frozen=True)
@@ -136,7 +132,7 @@ async def _extract_place_impl(
         ExtractionResult with detected place and method used
     """
     if not is_configured():
-        logger.debug("place_extraction_skipped: google_places_not_configured")
+        logger.debug("google_places_not_configured")
         return ExtractionResult(None, "none")
 
     # Extract content from oEmbed
@@ -184,15 +180,25 @@ async def _extract_place_impl(
                 llm_result
                 and llm_result.confidence >= settings.place_extraction_min_confidence
             ):
-                logger.debug("place_extraction_method", extra={"method": "llm"})
+                # Success already logged in llm_client.py as llm_extraction_success
                 return ExtractionResult(llm_result, "llm")
         except asyncio.CancelledError:
             raise  # Don't catch cancellation - propagate it
         except TimeoutError:
             logger.debug("llm_extraction_timed_out")
             llm_task.cancel()
-        except Exception:
-            logger.exception("llm_extraction_failed")
+            try:
+                await llm_task
+            except asyncio.CancelledError:
+                pass
+        except (
+            httpx.RequestError,
+            httpx.HTTPStatusError,
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+        ) as e:
+            logger.warning("llm_extraction_failed", extra={"error": str(e)[:100]})
             if not llm_task.done():
                 llm_task.cancel()
         finally:
@@ -214,10 +220,7 @@ async def _extract_place_impl(
         logger.info("place_extraction_failed", extra={"reason": "no_candidates"})
         return ExtractionResult(None, "none")
 
-    logger.debug(
-        "place_extraction_regex_fallback",
-        extra={"candidates": len(regex_candidates)},
-    )
+    logger.debug("regex_fallback", extra={"candidates": len(regex_candidates)})
 
     # Filter out country names - they're used for location biasing, not as search targets
     # (Google Places API returns errors for geopolitical queries like "Kyrgyzstan")
@@ -243,12 +246,12 @@ async def _extract_place_impl(
     scored_results.sort(key=lambda x: x[0], reverse=True)
     best_score, _, best_result = scored_results[0]
 
-    # Log selection details for debugging
+    # Log selection when multiple candidates matched (debugging)
     if len(scored_results) > 1:
         logger.debug(
-            "place_extraction_selection",
+            "regex_selected_from_multiple",
             extra={
-                "selected": best_result.name[:30] if best_result.name else None,
+                "place": best_result.name[:30] if best_result.name else None,
                 "score": round(best_score, 2),
                 "alternatives": len(scored_results) - 1,
             },
@@ -411,11 +414,11 @@ async def extract_place_from_profile(
         DetectedPlace if a matching business was found, None otherwise
     """
     if not profile_name:
-        logger.debug("profile_place_extraction_skipped: no_profile_name")
+        logger.debug("profile_extraction_skipped: no_profile_name")
         return None
 
     if not is_configured():
-        logger.debug("profile_place_extraction_skipped: google_places_not_configured")
+        logger.debug("profile_extraction_skipped: google_places_not_configured")
         return None
 
     # Extract location hints from bio for geographic biasing

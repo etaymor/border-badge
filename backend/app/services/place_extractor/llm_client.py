@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Injection patterns to strip from user-controlled content before LLM processing
+# Note: Unicode homoglyphs are handled via NFKC normalization in _sanitize_content()
 INJECTION_PATTERNS = [
     r"---+.*?---+",  # Delimiter injection
     r"IGNORE\s+(ALL\s+)?PREVIOUS",  # Direct instruction override
@@ -40,6 +41,16 @@ INJECTION_PATTERNS = [
     r"OVERRIDE",  # Direct override
     r"FORGET\s+(ALL|EVERYTHING)",  # Memory wipe
     r"<\|.*?\|>",  # ChatML tags
+    r"DISREGARD\s+(ALL\s+)?PREVIOUS",  # Alternative instruction override
+    r"ACT\s+AS\s+(IF\s+)?",  # Role impersonation
+    r"PRETEND\s+(TO\s+BE|YOU\s+ARE)",  # Role impersonation variant
+    r"ASSISTANT\s*:",  # Assistant role injection
+    r"USER\s*:",  # User role injection
+    r"\[\[.*?\]\]",  # Bracket injection
+    r"{{.*?}}",  # Template injection
+    r"<(system|user|assistant)>",  # XML-style role tags
+    r"BEGIN\s+(NEW\s+)?PROMPT",  # Prompt delimiter
+    r"END\s+PROMPT",  # Prompt delimiter
 ]
 
 # Compiled injection patterns for performance
@@ -202,7 +213,7 @@ async def try_llm_extraction(
         return None
 
     if not settings.openrouter_api_key:
-        logger.debug("llm_extraction_skipped: no_api_key")
+        logger.debug("llm_extraction_skipped: no_openrouter_api_key")
         return None
 
     # Skip if no content to extract from

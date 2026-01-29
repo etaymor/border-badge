@@ -43,12 +43,14 @@ export async function syncSubscriptionToAppGroup(customerInfo: CustomerInfo): Pr
       status = entitlement?.periodType === 'TRIAL' ? 'trial' : 'premium';
     }
 
-    await SharedGroupPreferences.setItem(APP_GROUP_KEYS.subscriptionStatus, status, APP_GROUP);
-    await SharedGroupPreferences.setItem(
-      APP_GROUP_KEYS.subscriptionExpires,
-      expiration?.toISOString() ?? '',
-      APP_GROUP
-    );
+    await Promise.all([
+      SharedGroupPreferences.setItem(APP_GROUP_KEYS.subscriptionStatus, status, APP_GROUP),
+      SharedGroupPreferences.setItem(
+        APP_GROUP_KEYS.subscriptionExpires,
+        expiration?.toISOString() ?? '',
+        APP_GROUP
+      ),
+    ]);
 
     console.log('[AppGroupSync] Synced subscription status:', status);
   } catch (error) {
@@ -59,10 +61,7 @@ export async function syncSubscriptionToAppGroup(customerInfo: CustomerInfo): Pr
 /**
  * Sync usage counts to App Group for Share Extension access
  */
-export async function syncUsageToAppGroup(
-  shareCount: number,
-  photoCount: number
-): Promise<void> {
+export async function syncUsageToAppGroup(shareCount: number, photoCount: number): Promise<void> {
   if (Platform.OS !== 'ios') return;
 
   if (!SharedGroupPreferences) {
@@ -71,16 +70,18 @@ export async function syncUsageToAppGroup(
   }
 
   try {
-    await SharedGroupPreferences.setItem(
-      APP_GROUP_KEYS.usageShareExtension,
-      String(shareCount),
-      APP_GROUP
-    );
-    await SharedGroupPreferences.setItem(
-      APP_GROUP_KEYS.usagePhotoImport,
-      String(photoCount),
-      APP_GROUP
-    );
+    await Promise.all([
+      SharedGroupPreferences.setItem(
+        APP_GROUP_KEYS.usageShareExtension,
+        String(shareCount),
+        APP_GROUP
+      ),
+      SharedGroupPreferences.setItem(
+        APP_GROUP_KEYS.usagePhotoImport,
+        String(photoCount),
+        APP_GROUP
+      ),
+    ]);
 
     console.log('[AppGroupSync] Synced usage counts - share:', shareCount, 'photo:', photoCount);
   } catch (error) {

@@ -5,26 +5,22 @@
  * Uses RevenueCat's remote paywall UI for consistency with onboarding paywall.
  */
 
-import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
 import type { RootStackScreenProps, GatedFeature } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan } from '@services/revenueCat';
-import { useSubscriptionStore } from '@stores/subscriptionStore';
 
 type Props = RootStackScreenProps<'PaywallModal'>;
 
 const FEATURE_MESSAGES: Record<GatedFeature, string> = {
-  shareExtension: "You've used all 5 free saves. Upgrade to save unlimited places from social media.",
-  photoImport:
-    "You've already imported one trip from photos. Upgrade to import unlimited trips.",
+  shareExtension:
+    "You've used all 5 free saves. Upgrade to save unlimited places from social media.",
+  photoImport: "You've already imported one trip from photos. Upgrade to import unlimited trips.",
   entries: 'This trip has reached 10 entries. Upgrade for unlimited entries per trip.',
 };
 
@@ -32,68 +28,32 @@ export function PaywallModalScreen({ navigation, route }: Props) {
   const feature = (route.params?.feature as GatedFeature) || 'entries';
   const [isLoading, setIsLoading] = useState(false);
   const hasPresented = useRef(false);
-  const { fetchCustomerInfo } = useSubscriptionStore();
+  const { presentPaywall } = usePaywallPresentation('modal');
 
   const dismiss = useCallback(() => {
     Analytics.paywallDismissed({ location: 'modal', feature });
     navigation.goBack();
   }, [navigation, feature]);
 
-  const presentPaywall = useCallback(async () => {
+  const handlePresentPaywall = useCallback(async () => {
     // Prevent double presentation
     if (hasPresented.current) return;
     hasPresented.current = true;
 
     setIsLoading(true);
 
-    // Track paywall view
-    Analytics.viewPaywall({ location: 'modal', feature });
+    const { success } = await presentPaywall({ feature });
 
-    try {
-      const result = await RevenueCatUI.presentPaywall({
-        displayCloseButton: true,
-      });
-
-      switch (result) {
-        case PAYWALL_RESULT.PURCHASED:
-        case PAYWALL_RESULT.RESTORED: {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          // Refresh subscription state and sync to App Group
-          const customerInfo = await fetchCustomerInfo();
-          if (customerInfo) {
-            await syncSubscriptionToAppGroup(customerInfo);
-            const plan = getSubscriptionPlan(customerInfo);
-            Analytics.purchaseCompleted({ plan, location: 'modal' });
-          }
-          // Navigate back without triggering dismiss analytics (purchase succeeded)
-          navigation.goBack();
-          break;
-        }
-
-        case PAYWALL_RESULT.CANCELLED:
-          Analytics.purchaseCancelled({ location: 'modal' });
-          hasPresented.current = false;
-          break;
-
-        case PAYWALL_RESULT.NOT_PRESENTED:
-        case PAYWALL_RESULT.ERROR:
-        default:
-          // User dismissed or error - stay on modal to show message
-          hasPresented.current = false;
-          break;
-      }
-    } catch (error) {
-      console.error('[PaywallModalScreen] Error presenting paywall:', error);
-      Analytics.purchaseFailed({
-        plan: null,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        location: 'modal',
-      });
+    if (success) {
+      // Navigate back without triggering dismiss analytics (purchase succeeded)
+      navigation.goBack();
+    } else {
+      // User cancelled or error - allow retry
       hasPresented.current = false;
-    } finally {
-      setIsLoading(false);
     }
-  }, [fetchCustomerInfo, navigation, feature]);
+
+    setIsLoading(false);
+  }, [presentPaywall, navigation, feature]);
 
   // Reset presentation flag when screen is focused
   useEffect(() => {
@@ -121,7 +81,7 @@ export function PaywallModalScreen({ navigation, route }: Props) {
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.upgradeButton}
-            onPress={presentPaywall}
+            onPress={handlePresentPaywall}
             disabled={isLoading}
             accessibilityRole="button"
             accessibilityLabel="View subscription options"

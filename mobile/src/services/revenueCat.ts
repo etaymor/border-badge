@@ -19,42 +19,60 @@ export const PRODUCT_IDS = {
   annual: 'com.atlasi.app.Annual',
 } as const;
 
+// Shared init promise to ensure configure() completes before logIn()/logOut()
+let initPromise: Promise<void> | null = null;
+
 /**
  * Initialize RevenueCat SDK
- * Should be called once at app startup before any purchases
+ * Should be called once at app startup before any purchases.
+ * Returns a shared promise that can be awaited by other functions.
  */
-export async function initializeRevenueCat(): Promise<void> {
-  // Skip if already configured
-  if (await Purchases.isConfigured()) {
-    return;
+export function initializeRevenueCat(): Promise<void> {
+  // Return existing promise if initialization is in progress or complete
+  if (initPromise) {
+    return initPromise;
   }
 
-  // Enable debug logs in development
-  if (isDevelopment) {
-    Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-  }
+  initPromise = (async () => {
+    // Skip if already configured
+    if (await Purchases.isConfigured()) {
+      return;
+    }
 
-  const apiKey =
-    Platform.OS === 'ios' ? env.revenueCatIosApiKey : env.revenueCatAndroidApiKey;
+    // Enable debug logs in development
+    if (isDevelopment) {
+      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+    }
 
-  if (!apiKey) {
-    console.warn('[RevenueCat] No API key configured for platform:', Platform.OS);
-    return;
-  }
+    const apiKey = Platform.OS === 'ios' ? env.revenueCatIosApiKey : env.revenueCatAndroidApiKey;
 
-  await Purchases.configure({
-    apiKey,
-    appUserID: null, // Anonymous until user authenticates
-  });
+    if (!apiKey) {
+      console.warn('[RevenueCat] No API key configured for platform:', Platform.OS);
+      return;
+    }
 
-  console.log('[RevenueCat] SDK initialized');
+    await Purchases.configure({
+      apiKey,
+      appUserID: null, // Anonymous until user authenticates
+    });
+
+    console.log('[RevenueCat] SDK initialized');
+  })();
+
+  return initPromise;
 }
 
 /**
  * Identify user with RevenueCat after authentication
- * Links purchases to user's account across devices
+ * Links purchases to user's account across devices.
+ * Waits for SDK initialization to complete before calling logIn().
  */
 export async function identifyUser(userId: string): Promise<CustomerInfo> {
+  // Ensure SDK is initialized before calling logIn
+  if (initPromise) {
+    await initPromise;
+  }
+
   const { customerInfo } = await Purchases.logIn(userId);
   console.log('[RevenueCat] User identified:', userId);
   return customerInfo;
@@ -62,9 +80,15 @@ export async function identifyUser(userId: string): Promise<CustomerInfo> {
 
 /**
  * Log out user from RevenueCat
- * Resets to anonymous user - call on sign out
+ * Resets to anonymous user - call on sign out.
+ * Waits for SDK initialization to complete before calling logOut().
  */
 export async function logOutUser(): Promise<CustomerInfo> {
+  // Ensure SDK is initialized before calling logOut
+  if (initPromise) {
+    await initPromise;
+  }
+
   const customerInfo = await Purchases.logOut();
   console.log('[RevenueCat] User logged out');
   return customerInfo;

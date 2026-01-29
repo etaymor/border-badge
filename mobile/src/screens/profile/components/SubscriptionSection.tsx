@@ -6,14 +6,14 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import Purchases from 'react-native-purchases';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan } from '@services/revenueCat';
+import { ENTITLEMENT_ID } from '@services/revenueCat';
 import {
   useSubscriptionStore,
   useIsPremium,
@@ -26,16 +26,14 @@ interface SubscriptionSectionProps {
   isSmallScreen?: boolean;
 }
 
-export function SubscriptionSection({
-  expirationDate,
-  isSmallScreen,
-}: SubscriptionSectionProps) {
+export function SubscriptionSection({ expirationDate, isSmallScreen }: SubscriptionSectionProps) {
   const isPremium = useIsPremium();
   const status = useSubscriptionStatus();
   const plan = useSubscriptionPlan();
   const fetchCustomerInfo = useSubscriptionStore((s) => s.fetchCustomerInfo);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const { presentPaywall } = usePaywallPresentation('settings');
 
   const formatPlanName = useCallback((planId: string | null): string => {
     switch (planId) {
@@ -64,36 +62,10 @@ export function SubscriptionSection({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsUpgrading(true);
 
-    // Track paywall view from settings
-    Analytics.viewPaywall({ location: 'modal' });
+    await presentPaywall();
 
-    try {
-      const result = await RevenueCatUI.presentPaywall({
-        displayCloseButton: true,
-      });
-
-      if (result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        const customerInfo = await fetchCustomerInfo();
-        if (customerInfo) {
-          await syncSubscriptionToAppGroup(customerInfo);
-          const plan = getSubscriptionPlan(customerInfo);
-          Analytics.purchaseCompleted({ plan, location: 'settings' });
-        }
-      } else if (result === PAYWALL_RESULT.CANCELLED) {
-        Analytics.purchaseCancelled({ location: 'settings' });
-      }
-    } catch (error) {
-      console.error('[SubscriptionSection] Error presenting paywall:', error);
-      Analytics.purchaseFailed({
-        plan: null,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        location: 'settings',
-      });
-    } finally {
-      setIsUpgrading(false);
-    }
-  }, [fetchCustomerInfo]);
+    setIsUpgrading(false);
+  }, [presentPaywall]);
 
   const handleManageSubscription = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -124,7 +96,7 @@ export function SubscriptionSection({
       await syncSubscriptionToAppGroup(customerInfo);
       await fetchCustomerInfo();
 
-      const hasActiveEntitlement = customerInfo.entitlements.active['Full Access'] !== undefined;
+      const hasActiveEntitlement = customerInfo.entitlements.active[ENTITLEMENT_ID] !== undefined;
       Analytics.restoreCompleted({ foundSubscription: hasActiveEntitlement });
 
       if (hasActiveEntitlement) {
@@ -214,7 +186,10 @@ export function SubscriptionSection({
               <View style={styles.divider} />
               <Pressable
                 onPress={handleManageSubscription}
-                style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressableActive]}
+                style={({ pressed }) => [
+                  styles.cardPressable,
+                  pressed && styles.cardPressableActive,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Manage subscription"
               >
@@ -235,7 +210,10 @@ export function SubscriptionSection({
               <Pressable
                 onPress={handleUpgrade}
                 disabled={isUpgrading}
-                style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressableActive]}
+                style={({ pressed }) => [
+                  styles.cardPressable,
+                  pressed && styles.cardPressableActive,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Upgrade to premium"
               >

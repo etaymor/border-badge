@@ -409,20 +409,23 @@ export const Analytics = {
     }),
 
   // Subscription & Paywall Events
-  viewPaywall: (props: { location: 'onboarding' | 'modal'; feature?: string }) =>
+  viewPaywall: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
     track('view_paywall', { location: props.location, feature: props.feature ?? null }),
 
-  paywallDismissed: (props: { location: 'onboarding' | 'modal'; feature?: string }) =>
+  paywallDismissed: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
     track('paywall_dismissed', { location: props.location, feature: props.feature ?? null }),
 
-  purchaseCompleted: (props: { plan: string | null; location: 'onboarding' | 'modal' | 'settings' }) =>
-    track('purchase_completed', { plan: props.plan, location: props.location }),
+  purchaseCompleted: (props: {
+    plan: string | null;
+    location: 'onboarding' | 'modal' | 'settings';
+  }) => track('purchase_completed', { plan: props.plan, location: props.location }),
 
   purchaseFailed: (props: {
     plan: string | null;
     error: string;
     location: 'onboarding' | 'modal' | 'settings';
-  }) => track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
+  }) =>
+    track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
 
   purchaseCancelled: (props: { location: 'onboarding' | 'modal' | 'settings' }) =>
     track('purchase_cancelled', { location: props.location }),
@@ -434,8 +437,10 @@ export const Analytics = {
 
   restoreFailed: (props: { error: string }) => track('restore_failed', { error: props.error }),
 
-  featureLimitHit: (props: { feature: 'entries' | 'shareExtension' | 'photoImport'; remaining: number }) =>
-    track('feature_limit_hit', { feature: props.feature, remaining: props.remaining }),
+  featureLimitHit: (props: {
+    feature: 'entries' | 'shareExtension' | 'photoImport';
+    remaining: number;
+  }) => track('feature_limit_hit', { feature: props.feature, remaining: props.remaining }),
 
   subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
     track('subscription_status_changed', {

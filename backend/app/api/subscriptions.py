@@ -10,6 +10,7 @@ from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
+from app.main import limiter
 from app.schemas.subscription import (
     CanAddEntryResponse,
     IncrementUsageRequest,
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Free tier limits (must match mobile constants)
+# IMPORTANT: These values must stay in sync across all codebases!
+# - TypeScript: mobile/src/stores/subscriptionStore.ts (FREE_LIMITS)
+# - Swift: mobile/plugins/share-extension/Utilities/AppGroupStorage.swift (freeShareExtensionLimit)
+# - CI Test: backend/tests/test_limits_consistency.py
 FREE_LIMITS = {
     "share_extension": 5,
     "photo_import": 1,
@@ -33,6 +38,7 @@ FREE_LIMITS = {
 
 
 @router.get("/status", response_model=SubscriptionInfo)
+@limiter.limit("60/minute")
 async def get_subscription_status(
     request: Request,
     user: CurrentUser,
@@ -61,6 +67,7 @@ async def get_subscription_status(
 
 
 @router.get("/usage", response_model=UsageLimits)
+@limiter.limit("60/minute")
 async def get_usage_limits(
     request: Request,
     user: CurrentUser,
@@ -91,6 +98,7 @@ async def get_usage_limits(
 
 
 @router.post("/usage/increment", response_model=IncrementUsageResponse)
+@limiter.limit("30/minute")
 async def increment_usage(
     body: IncrementUsageRequest,
     request: Request,
@@ -118,6 +126,7 @@ async def increment_usage(
 
 
 @router.get("/can-add-entry/{trip_id}", response_model=CanAddEntryResponse)
+@limiter.limit("60/minute")
 async def can_add_entry(
     trip_id: str,
     request: Request,
@@ -176,6 +185,7 @@ async def can_add_entry(
 
 
 @router.post("/verify", response_model=VerifySubscriptionResponse)
+@limiter.limit("5/minute")
 async def verify_subscription(
     request: Request,
     user: CurrentUser,
@@ -231,6 +241,9 @@ async def verify_subscription(
 
         # Determine subscription status
         new_status: str | None = None
+        expires_at: datetime | None = None
+        plan: str | None = None
+
         if full_access.get("expires_date"):
             expires_at = datetime.fromisoformat(
                 full_access["expires_date"].replace("Z", "+00:00")
@@ -244,26 +257,34 @@ async def verify_subscription(
                 else:
                     new_status = "premium"
 
-                # Update database
-                await db.patch(
-                    "user_profile",
-                    data={
-                        "subscription_status": new_status,
-                        "subscription_expires_at": expires_at.isoformat(),
-                        "subscription_last_verified_at": datetime.now(UTC).isoformat(),
-                    },
-                    params={"id": f"eq.{user.id}"},
-                )
+                # Extract plan from product_id if available
+                product_id = full_access.get("product_identifier", "")
+                if "annual" in product_id.lower() or "yearly" in product_id.lower():
+                    plan = "annual"
+                elif "monthly" in product_id.lower():
+                    plan = "monthly"
+                elif "weekly" in product_id.lower():
+                    plan = "weekly"
             else:
                 new_status = "free"
-                await db.patch(
-                    "user_profile",
-                    data={
-                        "subscription_status": "free",
-                        "subscription_last_verified_at": datetime.now(UTC).isoformat(),
-                    },
-                    params={"id": f"eq.{user.id}"},
-                )
+        else:
+            new_status = "free"
+
+        # Use RPC with current time as timestamp to ensure proper event ordering
+        # This ensures verify calls respect concurrent webhook updates
+        now = datetime.now(UTC)
+        await db.rpc(
+            "update_subscription_if_newer",
+            {
+                "p_user_id": str(user.id),
+                "p_status": new_status,
+                "p_plan": plan,
+                "p_expires_at": expires_at.isoformat() if expires_at else None,
+                "p_revenuecat_id": customer_id,
+                "p_event_timestamp_ms": int(now.timestamp() * 1000),
+                "p_event_id": f"verify-{user.id}-{now.isoformat()}",
+            },
+        )
 
         return VerifySubscriptionResponse(
             status="verified", subscription_status=new_status

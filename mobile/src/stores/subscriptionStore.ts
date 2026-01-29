@@ -23,6 +23,10 @@ export type SubscriptionStatus = 'free' | 'trial' | 'premium' | 'loading';
 export type SubscriptionPlan = 'weekly' | 'monthly' | 'annual' | null;
 
 // Free tier limits (lifetime, not monthly)
+// IMPORTANT: These values must stay in sync across all codebases!
+// - Python: backend/app/api/subscriptions.py (FREE_LIMITS)
+// - Swift: mobile/plugins/share-extension/Utilities/AppGroupStorage.swift (freeShareExtensionLimit)
+// - CI Test: backend/tests/test_limits_consistency.py
 export const FREE_LIMITS = {
   shareExtension: 5,
   photoImport: 1,
@@ -53,51 +57,13 @@ export const useSubscriptionStore = create<SubscriptionState>()(
   subscribeWithSelector(
     persist(
       (set) => ({
-      status: 'loading',
-      plan: null,
-      expirationDate: null,
-      shareExtensionUsage: 0,
-      photoImportUsage: 0,
+        status: 'loading',
+        plan: null,
+        expirationDate: null,
+        shareExtensionUsage: 0,
+        photoImportUsage: 0,
 
-      setCustomerInfo: (info: CustomerInfo) => {
-        const premium = checkIsPremium(info);
-        const trial = checkIsTrialing(info);
-        const plan = getSubscriptionPlan(info);
-        const expiration = getExpirationDate(info);
-
-        set({
-          status: premium ? (trial ? 'trial' : 'premium') : 'free',
-          plan,
-          expirationDate: expiration?.toISOString() ?? null,
-        });
-      },
-
-      setUsageLimits: (share: number, photo: number) => {
-        set({
-          shareExtensionUsage: share,
-          photoImportUsage: photo,
-        });
-      },
-
-      incrementShareExtensionUsage: () => {
-        set((state) => ({
-          shareExtensionUsage: state.shareExtensionUsage + 1,
-        }));
-      },
-
-      incrementPhotoImportUsage: () => {
-        set((state) => ({
-          photoImportUsage: state.photoImportUsage + 1,
-        }));
-      },
-
-      setStatus: (status: SubscriptionStatus) => {
-        set({ status });
-      },
-
-      fetchCustomerInfo: async () => {
-        try {
-          const info = await Purchases.getCustomerInfo();
+        setCustomerInfo: (info: CustomerInfo) => {
           const premium = checkIsPremium(info);
           const trial = checkIsTrialing(info);
           const plan = getSubscriptionPlan(info);
@@ -108,25 +74,63 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             plan,
             expirationDate: expiration?.toISOString() ?? null,
           });
+        },
 
-          return info;
-        } catch (error) {
-          console.error('[SubscriptionStore] Failed to fetch customer info:', error);
-          set({ status: 'free' }); // Fail safe to free
-          return null;
-        }
-      },
+        setUsageLimits: (share: number, photo: number) => {
+          set({
+            shareExtensionUsage: share,
+            photoImportUsage: photo,
+          });
+        },
 
-      reset: () => {
-        set({
-          status: 'free',
-          plan: null,
-          expirationDate: null,
-          shareExtensionUsage: 0,
-          photoImportUsage: 0,
-        });
-      },
-    }),
+        incrementShareExtensionUsage: () => {
+          set((state) => ({
+            shareExtensionUsage: state.shareExtensionUsage + 1,
+          }));
+        },
+
+        incrementPhotoImportUsage: () => {
+          set((state) => ({
+            photoImportUsage: state.photoImportUsage + 1,
+          }));
+        },
+
+        setStatus: (status: SubscriptionStatus) => {
+          set({ status });
+        },
+
+        fetchCustomerInfo: async () => {
+          try {
+            const info = await Purchases.getCustomerInfo();
+            const premium = checkIsPremium(info);
+            const trial = checkIsTrialing(info);
+            const plan = getSubscriptionPlan(info);
+            const expiration = getExpirationDate(info);
+
+            set({
+              status: premium ? (trial ? 'trial' : 'premium') : 'free',
+              plan,
+              expirationDate: expiration?.toISOString() ?? null,
+            });
+
+            return info;
+          } catch (error) {
+            console.error('[SubscriptionStore] Failed to fetch customer info:', error);
+            set({ status: 'free' }); // Fail safe to free
+            return null;
+          }
+        },
+
+        reset: () => {
+          set({
+            status: 'free',
+            plan: null,
+            expirationDate: null,
+            shareExtensionUsage: 0,
+            photoImportUsage: 0,
+          });
+        },
+      }),
       {
         name: 'subscription-storage',
         storage: createJSONStorage(() => AsyncStorage),
@@ -160,15 +164,11 @@ export const useCanUseShareExtension = () =>
   );
 
 export const useCanImportPhotos = () =>
-  useSubscriptionStore(
-    (s) => s.status !== 'free' || s.photoImportUsage < FREE_LIMITS.photoImport
-  );
+  useSubscriptionStore((s) => s.status !== 'free' || s.photoImportUsage < FREE_LIMITS.photoImport);
 
 export const useShareExtensionRemaining = () =>
   useSubscriptionStore((s) =>
-    s.status !== 'free'
-      ? Infinity
-      : Math.max(0, FREE_LIMITS.shareExtension - s.shareExtensionUsage)
+    s.status !== 'free' ? Infinity : Math.max(0, FREE_LIMITS.shareExtension - s.shareExtensionUsage)
   );
 
 export const usePhotoImportRemaining = () =>

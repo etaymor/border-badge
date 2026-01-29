@@ -21,7 +21,11 @@ import {
   detectedPlaceToSelectedPlace,
   selectedPlaceToDetectedPlace,
 } from './shareCaptureUtils';
-import { useSubscriptionStore, useIsPremium, useCanUseShareExtension } from '@stores/subscriptionStore';
+import {
+  useSubscriptionStore,
+  useIsPremium,
+  useCanUseShareExtension,
+} from '@stores/subscriptionStore';
 
 interface UseShareCaptureParams {
   url: string;

@@ -213,6 +213,10 @@ enum AppGroupStorage {
     private static let usageShareExtensionKey = "usage_share_extension"
 
     /// Free tier limit for share extension uses
+    /// IMPORTANT: This value must stay in sync across all codebases!
+    /// - TypeScript: mobile/src/stores/subscriptionStore.ts (FREE_LIMITS.shareExtension)
+    /// - Python: backend/app/api/subscriptions.py (FREE_LIMITS["share_extension"])
+    /// - CI Test: backend/tests/test_limits_consistency.py
     static let freeShareExtensionLimit = 5
 
     /// Get subscription status (premium, trial, or free)
