@@ -99,8 +99,13 @@ async def revenuecat_webhook(
     if expiration_ms:
         expires_at = datetime.fromtimestamp(expiration_ms / 1000, tz=UTC).isoformat()
 
-    # Get event timestamp for ordering
-    event_timestamp_ms = event.get("event_timestamp_ms", 0)
+    # Get event timestamp for ordering - required for idempotency
+    event_timestamp_ms = event.get("event_timestamp_ms")
+    if not event_timestamp_ms or not isinstance(event_timestamp_ms, int):
+        logger.warning(
+            f"RevenueCat webhook: Missing or invalid event_timestamp_ms for event {event_id}"
+        )
+        return {"status": "ignored", "reason": "invalid_timestamp"}
 
     # Update user profile with advisory lock for concurrency safety
     # None for user_token means use service role (bypasses RLS)
