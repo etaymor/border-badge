@@ -438,6 +438,7 @@ jest.mock('react-native-purchases-ui', () => ({
 
 jest.mock('react-native-purchases', () => ({
   configure: jest.fn(),
+  isConfigured: jest.fn().mockResolvedValue(true),
   getCustomerInfo: jest.fn().mockResolvedValue({
     entitlements: { active: {} },
     activeSubscriptions: [],
@@ -463,7 +464,8 @@ jest.mock('react-native-purchases', () => ({
     activeSubscriptions: [],
     allPurchasedProductIdentifiers: [],
   }),
-  addCustomerInfoUpdateListener: jest.fn(() => ({ remove: jest.fn() })),
+  addCustomerInfoUpdateListener: jest.fn(() => jest.fn()),
+  removeCustomerInfoUpdateListener: jest.fn(),
   setLogLevel: jest.fn(),
   LOG_LEVEL: {
     VERBOSE: 'VERBOSE',
@@ -471,6 +473,11 @@ jest.mock('react-native-purchases', () => ({
     INFO: 'INFO',
     WARN: 'WARN',
     ERROR: 'ERROR',
+  },
+  PURCHASES_ERROR_CODE: {
+    PURCHASE_CANCELLED_ERROR: 'PURCHASE_CANCELLED',
+    PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR: 'PRODUCT_NOT_AVAILABLE',
+    NETWORK_ERROR: 'NETWORK_ERROR',
   },
 }));
 

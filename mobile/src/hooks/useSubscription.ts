@@ -43,8 +43,8 @@ export function useSubscription() {
   // Version counter to handle listener vs fetch race condition
   const versionRef = useRef(0);
   // Refs for stable function access in useEffect (avoids re-registering listener)
-  const fetchCustomerInfoRef = useRef<() => Promise<void>>();
-  const fetchUsageLimitsRef = useRef<() => Promise<void>>();
+  const fetchCustomerInfoRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  const fetchUsageLimitsRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Fetch customer info from RevenueCat
   const fetchCustomerInfo = useCallback(async () => {
