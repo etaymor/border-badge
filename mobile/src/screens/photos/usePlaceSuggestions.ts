@@ -168,7 +168,7 @@ export function usePlaceSuggestions({
 
       // Check premium gating before making API calls
       // Free users get 1 photo trip import (counted when API calls are made, not cached results)
-      if (!isPremium && !canImportPhotos && !hasCountedUsageRef.current) {
+      if (!isPremium && !canImportPhotos) {
         // User has exhausted their free photo trip import
         // Return the cached results only - they need to upgrade for API calls
         if (__DEV__) {

@@ -4,7 +4,7 @@
 -- SECURITY: Separate functions per column to prevent SQL injection
 -- DO NOT use dynamic column names from user input
 
--- Atomic increment for share extension usage
+-- Atomic increment for share extension usage (with auth check)
 CREATE OR REPLACE FUNCTION increment_share_extension_usage(p_user_id UUID)
 RETURNS integer
 LANGUAGE plpgsql
@@ -12,7 +12,14 @@ SECURITY DEFINER
 AS $$
 DECLARE
     new_count integer;
+    caller_id UUID;
 BEGIN
+    -- Authorization check: ensure caller owns the target row
+    caller_id := auth.uid();
+    IF caller_id IS NULL OR caller_id != p_user_id THEN
+        RAISE EXCEPTION 'Unauthorized: can only increment your own usage';
+    END IF;
+
     UPDATE user_profile
     SET usage_share_extension_count = COALESCE(usage_share_extension_count, 0) + 1
     WHERE id = p_user_id
@@ -21,7 +28,7 @@ BEGIN
 END;
 $$;
 
--- Atomic increment for photo import usage
+-- Atomic increment for photo import usage (with auth check)
 CREATE OR REPLACE FUNCTION increment_photo_import_usage(p_user_id UUID)
 RETURNS integer
 LANGUAGE plpgsql
@@ -29,7 +36,14 @@ SECURITY DEFINER
 AS $$
 DECLARE
     new_count integer;
+    caller_id UUID;
 BEGIN
+    -- Authorization check: ensure caller owns the target row
+    caller_id := auth.uid();
+    IF caller_id IS NULL OR caller_id != p_user_id THEN
+        RAISE EXCEPTION 'Unauthorized: can only increment your own usage';
+    END IF;
+
     UPDATE user_profile
     SET usage_photo_import_count = COALESCE(usage_photo_import_count, 0) + 1
     WHERE id = p_user_id

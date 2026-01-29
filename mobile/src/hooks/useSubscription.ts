@@ -88,8 +88,8 @@ export function useSubscription() {
     isMountedRef.current = true;
     const currentVersion = ++versionRef.current;
 
-    // Add listener - returns void in newer SDK versions
-    Purchases.addCustomerInfoUpdateListener((info: CustomerInfo) => {
+    // Create a stable listener function that can be removed on cleanup
+    const customerInfoListener = (info: CustomerInfo) => {
       // Only process if still mounted and this is the latest version
       if (isMountedRef.current && versionRef.current === currentVersion) {
         setCustomerInfo(info);
@@ -97,7 +97,10 @@ export function useSubscription() {
           console.error('Failed to sync subscription to App Group:', err);
         });
       }
-    });
+    };
+
+    // Add listener
+    Purchases.addCustomerInfoUpdateListener(customerInfoListener);
 
     // Initial fetch
     void fetchCustomerInfo();
@@ -105,8 +108,8 @@ export function useSubscription() {
 
     return () => {
       isMountedRef.current = false;
-      // Note: In newer SDK versions, listeners are managed by the SDK
-      // and cleaned up automatically when the component unmounts
+      // Remove the listener to prevent memory leaks
+      Purchases.removeCustomerInfoUpdateListener(customerInfoListener);
     };
   }, [setCustomerInfo, fetchCustomerInfo, fetchUsageLimits]);
 

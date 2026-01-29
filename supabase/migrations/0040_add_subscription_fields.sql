@@ -34,7 +34,7 @@ BEGIN
   ) THEN
     ALTER TABLE user_profile
       ADD CONSTRAINT chk_subscription_plan
-      CHECK (subscription_plan IN ('weekly', 'monthly', 'annual') OR subscription_plan IS NULL);
+      CHECK (subscription_plan IN ('weekly', 'monthly', 'yearly') OR subscription_plan IS NULL);
   END IF;
 END $$;
 
