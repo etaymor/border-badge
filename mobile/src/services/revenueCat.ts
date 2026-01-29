@@ -69,9 +69,11 @@ export function initializeRevenueCat(): Promise<void> {
  */
 export async function identifyUser(userId: string): Promise<CustomerInfo> {
   // Ensure SDK is initialized before calling logIn
-  if (initPromise) {
-    await initPromise;
+  // If initPromise is null, trigger initialization to avoid calling logIn() before configure()
+  if (!initPromise) {
+    initPromise = initializeRevenueCat();
   }
+  await initPromise;
 
   const { customerInfo } = await Purchases.logIn(userId);
   if (isDevelopment) {
@@ -90,9 +92,11 @@ export async function identifyUser(userId: string): Promise<CustomerInfo> {
  */
 export async function logOutUser(): Promise<CustomerInfo> {
   // Ensure SDK is initialized before calling logOut
-  if (initPromise) {
-    await initPromise;
+  // If initPromise is null, trigger initialization to avoid calling logOut() before configure()
+  if (!initPromise) {
+    initPromise = initializeRevenueCat();
   }
+  await initPromise;
 
   const customerInfo = await Purchases.logOut();
   console.log('[RevenueCat] User logged out');

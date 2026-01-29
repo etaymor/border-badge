@@ -1,7 +1,7 @@
 """Entry endpoints."""
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -161,14 +161,14 @@ async def create_entry(
     db = get_supabase_client(user_token=token)
 
     # BACKEND ENFORCEMENT: Check subscription and entry limit for free users
-    profile_result = await db.get(
+    profile_result: list[dict[str, Any]] | None = await db.get(
         "user_profile",
         {
             "id": f"eq.{user.id}",
             "select": "subscription_status",
         },
     )
-    subscription_status = (
+    subscription_status: str = (
         profile_result[0].get("subscription_status", "free")
         if profile_result
         else "free"
@@ -176,7 +176,7 @@ async def create_entry(
 
     if subscription_status not in ("premium", "trial"):
         # Count existing non-deleted entries for this trip
-        entry_count_result = await db.get(
+        entry_count_result: list[dict[str, Any]] | None = await db.get(
             "entry",
             {
                 "trip_id": f"eq.{trip_id}",
@@ -184,9 +184,9 @@ async def create_entry(
                 "select": "id",
             },
         )
-        entry_count = len(entry_count_result) if entry_count_result else 0
+        entry_count: int = len(entry_count_result) if entry_count_result else 0
 
-        entries_limit = FREE_LIMITS["entries_per_trip"]
+        entries_limit: int = FREE_LIMITS["entries_per_trip"]
         if entry_count >= entries_limit:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

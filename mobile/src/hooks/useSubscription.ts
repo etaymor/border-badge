@@ -42,6 +42,9 @@ export function useSubscription() {
   const isMountedRef = useRef(true);
   // Version counter to handle listener vs fetch race condition
   const versionRef = useRef(0);
+  // Refs for stable function access in useEffect (avoids re-registering listener)
+  const fetchCustomerInfoRef = useRef<() => Promise<void>>();
+  const fetchUsageLimitsRef = useRef<() => Promise<void>>();
 
   // Fetch customer info from RevenueCat
   const fetchCustomerInfo = useCallback(async () => {
@@ -83,6 +86,10 @@ export function useSubscription() {
     }
   }, [setUsageLimits]);
 
+  // Keep refs updated with latest function versions
+  fetchCustomerInfoRef.current = fetchCustomerInfo;
+  fetchUsageLimitsRef.current = fetchUsageLimits;
+
   // Set up listener for subscription changes
   useEffect(() => {
     isMountedRef.current = true;
@@ -102,16 +109,16 @@ export function useSubscription() {
     // Add listener
     Purchases.addCustomerInfoUpdateListener(customerInfoListener);
 
-    // Initial fetch
-    void fetchCustomerInfo();
-    void fetchUsageLimits();
+    // Initial fetch - use refs to avoid adding functions to dependency array
+    void fetchCustomerInfoRef.current?.();
+    void fetchUsageLimitsRef.current?.();
 
     return () => {
       isMountedRef.current = false;
       // Remove the listener to prevent memory leaks
       Purchases.removeCustomerInfoUpdateListener(customerInfoListener);
     };
-  }, [setCustomerInfo, fetchCustomerInfo, fetchUsageLimits]);
+  }, [setCustomerInfo]);
 
   // Purchase a package
   const purchasePackage = useCallback(
