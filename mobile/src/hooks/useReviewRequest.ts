@@ -46,28 +46,22 @@ interface UseReviewRequestReturn {
    * Record that user responded positively.
    * This marks review as "completed" and triggers native prompt.
    */
-  handlePositiveResponse: () => Promise<void>;
+  handlePositiveResponse: (trigger: ReviewTrigger) => Promise<void>;
 
   /**
    * Record that user responded negatively.
    * This starts the 7-day cooldown but does NOT mark as completed.
    */
-  handleNegativeResponse: () => void;
+  handleNegativeResponse: (trigger: ReviewTrigger) => void;
 
   /**
    * Record that user dismissed without responding.
    * This starts the 7-day cooldown but does NOT mark as completed.
    */
-  handleDismiss: () => void;
+  handleDismiss: (trigger: ReviewTrigger) => void;
 }
 
 export function useReviewRequest(): UseReviewRequestReturn {
-  // Use selectors to prevent unnecessary re-renders
-  const canShowPrompt = useReviewStore(selectCanShowPrompt);
-  const hasTriggeredPostOnboarding = useReviewStore(selectHasTriggeredPostOnboarding);
-  const hasTriggeredFirstSocialSave = useReviewStore(selectHasTriggeredFirstSocialSave);
-  const hasTriggeredFirstPhotoImport = useReviewStore(selectHasTriggeredFirstPhotoImport);
-
   // Get actions directly from store (stable references)
   const {
     markReviewCompleted,
@@ -81,39 +75,34 @@ export function useReviewRequest(): UseReviewRequestReturn {
   const triggerLockRef = useRef<string | null>(null);
 
   // Pure eligibility check - NO SIDE EFFECTS
-  const checkEligibility = useCallback(
-    (trigger: ReviewTrigger): boolean => {
-      // Check global eligibility first
-      if (!canShowPrompt) {
+  // Uses getState() to always read fresh state at call time, avoiding stale closures
+  const checkEligibility = useCallback((trigger: ReviewTrigger): boolean => {
+    const state = useReviewStore.getState();
+
+    // Check global eligibility first
+    if (!selectCanShowPrompt(state)) {
+      return false;
+    }
+
+    // Check trigger-specific eligibility
+    switch (trigger) {
+      case 'post_onboarding':
+        return !selectHasTriggeredPostOnboarding(state);
+
+      case 'first_social_save':
+        return !selectHasTriggeredFirstSocialSave(state);
+
+      case 'first_photo_import':
+        return !selectHasTriggeredFirstPhotoImport(state);
+
+      case 'country_visited':
+        // No first-time restriction for country visits
+        return true;
+
+      default:
         return false;
-      }
-
-      // Check trigger-specific eligibility
-      switch (trigger) {
-        case 'post_onboarding':
-          return !hasTriggeredPostOnboarding;
-
-        case 'first_social_save':
-          return !hasTriggeredFirstSocialSave;
-
-        case 'first_photo_import':
-          return !hasTriggeredFirstPhotoImport;
-
-        case 'country_visited':
-          // No first-time restriction for country visits
-          return true;
-
-        default:
-          return false;
-      }
-    },
-    [
-      canShowPrompt,
-      hasTriggeredPostOnboarding,
-      hasTriggeredFirstSocialSave,
-      hasTriggeredFirstPhotoImport,
-    ]
-  );
+    }
+  }, []); // No dependencies needed - reads fresh state each call
 
   // Mark trigger as used - call AFTER checkEligibility returns true
   const startReviewFlow = useCallback(
@@ -164,23 +153,41 @@ export function useReviewRequest(): UseReviewRequestReturn {
     }
   }, []);
 
-  const handlePositiveResponse = useCallback(async () => {
-    Analytics.reviewSatisfactionPositive();
-    markReviewCompleted();
+  const handlePositiveResponse = useCallback(
+    async (trigger: ReviewTrigger) => {
+      Analytics.reviewSatisfactionPositive(trigger);
+      markReviewCompleted();
 
-    // Request native review
-    await requestNativeReview();
-  }, [markReviewCompleted, requestNativeReview]);
+      // Request native review
+      await requestNativeReview();
 
-  const handleNegativeResponse = useCallback(() => {
-    Analytics.reviewSatisfactionNegative();
-    recordPromptShown(); // Start cooldown
-  }, [recordPromptShown]);
+      // Reset lock so the same trigger can fire again in future sessions
+      triggerLockRef.current = null;
+    },
+    [markReviewCompleted, requestNativeReview]
+  );
 
-  const handleDismiss = useCallback(() => {
-    Analytics.reviewSatisfactionDismissed();
-    recordPromptShown(); // Start cooldown
-  }, [recordPromptShown]);
+  const handleNegativeResponse = useCallback(
+    (trigger: ReviewTrigger) => {
+      Analytics.reviewSatisfactionNegative(trigger);
+      recordPromptShown(); // Start cooldown
+
+      // Reset lock so the same trigger can fire again in future sessions
+      triggerLockRef.current = null;
+    },
+    [recordPromptShown]
+  );
+
+  const handleDismiss = useCallback(
+    (trigger: ReviewTrigger) => {
+      Analytics.reviewSatisfactionDismissed(trigger);
+      recordPromptShown(); // Start cooldown
+
+      // Reset lock so the same trigger can fire again in future sessions
+      triggerLockRef.current = null;
+    },
+    [recordPromptShown]
+  );
 
   return {
     checkEligibility,

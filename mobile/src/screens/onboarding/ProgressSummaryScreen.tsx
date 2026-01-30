@@ -243,23 +243,23 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     navigation.navigate('NameEntry');
   };
 
-  const handleReviewPositive = async () => {
+  const handleReviewPositive = useCallback(async () => {
     setShowReviewModal(false);
-    await handlePositiveResponse();
+    await handlePositiveResponse('post_onboarding');
     navigation.navigate('NameEntry');
-  };
+  }, [handlePositiveResponse, navigation]);
 
-  const handleReviewNegative = () => {
+  const handleReviewNegative = useCallback(() => {
     setShowReviewModal(false);
-    handleNegativeResponse();
+    handleNegativeResponse('post_onboarding');
     navigation.navigate('NameEntry');
-  };
+  }, [handleNegativeResponse, navigation]);
 
-  const handleReviewDismiss = () => {
+  const handleReviewDismiss = useCallback(() => {
     setShowReviewModal(false);
-    handleDismiss();
+    handleDismiss('post_onboarding');
     navigation.navigate('NameEntry');
-  };
+  }, [handleDismiss, navigation]);
 
   return (
     <View style={styles.container}>

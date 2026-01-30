@@ -27,7 +27,6 @@ interface ReviewActions {
   markPostOnboardingTriggered: () => void;
   markFirstSocialSaveTriggered: () => void;
   markFirstPhotoImportTriggered: () => void;
-  reset: () => void; // For testing
 }
 
 const initialState: ReviewState = {
@@ -57,8 +56,6 @@ export const useReviewStore = create<ReviewState & ReviewActions>()(
       markPostOnboardingTriggered: () => set({ hasTriggeredPostOnboarding: true }),
       markFirstSocialSaveTriggered: () => set({ hasTriggeredFirstSocialSave: true }),
       markFirstPhotoImportTriggered: () => set({ hasTriggeredFirstPhotoImport: true }),
-
-      reset: () => set(initialState),
     }),
     {
       name: 'review-storage',

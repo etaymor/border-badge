@@ -1,13 +1,16 @@
 """Tests for place extractor service."""
 
-from unittest.mock import patch
+import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.schemas.social_ingest import OEmbedResponse
 from app.services.place_extractor import (
     clean_instagram_profile_name,
     extract_place_from_profile,
 )
+from app.services.place_extractor.extractor import _extract_place_impl
 
 
 class TestCleanInstagramProfileName:
@@ -246,3 +249,157 @@ class TestExtractPlaceFromProfile:
                         assert result is not None
                         # Should be capped at 1.0 (not 1.05)
                         assert result.confidence == 1.0
+
+
+class TestLLMTaskCancellation:
+    """Tests for LLM task cancellation on timeout."""
+
+    @pytest.mark.asyncio
+    async def test_llm_task_cancelled_on_timeout(self):
+        """Verify LLM task is cancelled when it times out."""
+        # Track if the task was cancelled
+        task_cancelled = False
+
+        async def slow_llm_extraction(*args, **kwargs):
+            """Simulate slow LLM extraction that exceeds timeout."""
+            nonlocal task_cancelled
+            try:
+                await asyncio.sleep(10)  # Much longer than LLM_EXTRACTION_TIMEOUT
+                return None
+            except asyncio.CancelledError:
+                task_cancelled = True
+                raise
+
+        # Mock dependencies
+        with patch(
+            "app.services.place_extractor.extractor.is_configured",
+            return_value=True,
+        ):
+            with patch(
+                "app.services.place_extractor.extractor.get_settings"
+            ) as mock_settings:
+                settings = MagicMock()
+                settings.llm_place_extraction_enabled = True
+                settings.place_extraction_min_confidence = 0.5
+                mock_settings.return_value = settings
+
+                with patch(
+                    "app.services.place_extractor.extractor.try_llm_extraction",
+                    side_effect=slow_llm_extraction,
+                ):
+                    with patch(
+                        "app.services.place_extractor.extractor.extract_place_candidates",
+                        return_value=[],
+                    ):
+                        oembed = OEmbedResponse(
+                            title="Test Post",
+                            author_name="testuser",
+                            provider_name="TikTok",
+                        )
+
+                        result = await _extract_place_impl(oembed)
+
+                        # Task should have been cancelled
+                        assert task_cancelled is True
+                        # Should return no result since LLM timed out and no regex candidates
+                        assert result.place is None
+
+    @pytest.mark.asyncio
+    async def test_no_background_tasks_accumulate_on_timeout(self):
+        """Verify no background tasks accumulate after LLM timeout."""
+        call_count = 0
+
+        async def slow_llm_extraction(*args, **kwargs):
+            """Simulate slow LLM extraction that exceeds timeout."""
+            nonlocal call_count
+            call_count += 1
+            try:
+                await asyncio.sleep(10)
+                return None
+            except asyncio.CancelledError:
+                raise
+
+        with patch(
+            "app.services.place_extractor.extractor.is_configured",
+            return_value=True,
+        ):
+            with patch(
+                "app.services.place_extractor.extractor.get_settings"
+            ) as mock_settings:
+                settings = MagicMock()
+                settings.llm_place_extraction_enabled = True
+                settings.place_extraction_min_confidence = 0.5
+                mock_settings.return_value = settings
+
+                with patch(
+                    "app.services.place_extractor.extractor.try_llm_extraction",
+                    side_effect=slow_llm_extraction,
+                ):
+                    with patch(
+                        "app.services.place_extractor.extractor.extract_place_candidates",
+                        return_value=[],
+                    ):
+                        # Run multiple extractions
+                        for _ in range(3):
+                            oembed = OEmbedResponse(
+                                title="Test Post",
+                                author_name="testuser",
+                                provider_name="TikTok",
+                            )
+                            await _extract_place_impl(oembed)
+
+                        # Allow any pending tasks to complete
+                        await asyncio.sleep(0.1)
+
+                        # Get all running tasks
+                        current_task = asyncio.current_task()
+                        all_tasks = [
+                            t
+                            for t in asyncio.all_tasks()
+                            if t is not current_task and not t.done()
+                        ]
+
+                        # No background LLM tasks should be running
+                        assert (
+                            len(all_tasks) == 0
+                        ), f"Found {len(all_tasks)} background tasks still running"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_properly_handled(self):
+        """Verify CancelledError from LLM task doesn't crash extraction."""
+
+        async def immediate_cancel(*args, **kwargs):
+            """Simulate immediate cancellation."""
+            raise asyncio.CancelledError()
+
+        with patch(
+            "app.services.place_extractor.extractor.is_configured",
+            return_value=True,
+        ):
+            with patch(
+                "app.services.place_extractor.extractor.get_settings"
+            ) as mock_settings:
+                settings = MagicMock()
+                settings.llm_place_extraction_enabled = True
+                settings.place_extraction_min_confidence = 0.5
+                mock_settings.return_value = settings
+
+                with patch(
+                    "app.services.place_extractor.extractor.try_llm_extraction",
+                    side_effect=immediate_cancel,
+                ):
+                    with patch(
+                        "app.services.place_extractor.extractor.extract_place_candidates",
+                        return_value=[],
+                    ):
+                        oembed = OEmbedResponse(
+                            title="Test Post",
+                            author_name="testuser",
+                            provider_name="TikTok",
+                        )
+
+                        # CancelledError from outer context should propagate
+                        # but CancelledError from task cancellation should be handled
+                        # This test verifies the extraction doesn't hang or crash
+                        with pytest.raises(asyncio.CancelledError):
+                            await _extract_place_impl(oembed)

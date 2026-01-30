@@ -249,17 +249,17 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   const handleReviewPositive = useCallback(async () => {
     setShowReviewModal(false);
-    await handlePositiveResponse();
+    await handlePositiveResponse('country_visited');
   }, [handlePositiveResponse]);
 
   const handleReviewNegative = useCallback(() => {
     setShowReviewModal(false);
-    handleNegativeResponse();
+    handleNegativeResponse('country_visited');
   }, [handleNegativeResponse]);
 
   const handleReviewDismiss = useCallback(() => {
     setShowReviewModal(false);
-    handleDismiss();
+    handleDismiss('country_visited');
   }, [handleDismiss]);
 
   const handleRemoveVisited = useCallback(() => {

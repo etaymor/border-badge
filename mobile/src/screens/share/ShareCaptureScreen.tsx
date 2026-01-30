@@ -9,7 +9,7 @@
  * 5. Save to trip via /ingest/save-to-trip
  */
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -106,7 +106,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
   });
 
   // Navigate after review modal closes
-  const navigateAfterReview = () => {
+  const navigateAfterReview = useCallback(() => {
     if (pendingNavigationTripId) {
       navigation.navigate('Trips', {
         screen: 'TripDetail',
@@ -115,25 +115,25 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     } else {
       navigation.goBack();
     }
-  };
+  }, [navigation, pendingNavigationTripId]);
 
-  const handleReviewPositive = async () => {
+  const handleReviewPositive = useCallback(async () => {
     setShowReviewModal(false);
-    await handlePositiveResponse();
+    await handlePositiveResponse('first_social_save');
     navigateAfterReview();
-  };
+  }, [handlePositiveResponse, navigateAfterReview]);
 
-  const handleReviewNegative = () => {
+  const handleReviewNegative = useCallback(() => {
     setShowReviewModal(false);
-    handleNegativeResponse();
+    handleNegativeResponse('first_social_save');
     navigateAfterReview();
-  };
+  }, [handleNegativeResponse, navigateAfterReview]);
 
-  const handleReviewDismiss = () => {
+  const handleReviewDismiss = useCallback(() => {
     setShowReviewModal(false);
-    handleDismiss();
+    handleDismiss('first_social_save');
     navigateAfterReview();
-  };
+  }, [handleDismiss, navigateAfterReview]);
 
   // Derive effective country code:
   // - If user explicitly cleared the place, don't bias by country (search worldwide)

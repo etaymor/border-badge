@@ -10,11 +10,12 @@ import { Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import { Text } from '@components/ui';
+import { env } from '@config/env';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { Analytics } from '@services/analytics';
 
-const CONTACT_URL = 'https://atlasi.app/contact';
+const CONTACT_URL = `${env.webBaseUrl}/contact`;
 
 interface SatisfactionModalProps {
   visible: boolean;

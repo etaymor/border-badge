@@ -255,19 +255,19 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   const handleReviewPositive = useCallback(async () => {
     setShowReviewModal(false);
-    await handlePositiveResponse();
+    await handlePositiveResponse('first_photo_import');
     completePendingNavigation();
   }, [handlePositiveResponse, completePendingNavigation]);
 
   const handleReviewNegative = useCallback(() => {
     setShowReviewModal(false);
-    handleNegativeResponse();
+    handleNegativeResponse('first_photo_import');
     completePendingNavigation();
   }, [handleNegativeResponse, completePendingNavigation]);
 
   const handleReviewDismiss = useCallback(() => {
     setShowReviewModal(false);
-    handleDismiss();
+    handleDismiss('first_photo_import');
     completePendingNavigation();
   }, [handleDismiss, completePendingNavigation]);
 
