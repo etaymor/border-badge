@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SatisfactionModal } from '@components/review';
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { GlassBackButton, Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
@@ -19,6 +20,7 @@ import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
 import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useReviewRequest } from '@hooks/useReviewRequest';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -80,6 +82,16 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   // Share overlay state
   const [showShareOverlay, setShowShareOverlay] = useState(false);
+
+  // Review request state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const {
+    checkEligibility,
+    startReviewFlow,
+    handlePositiveResponse,
+    handleNegativeResponse,
+    handleDismiss,
+  } = useReviewRequest();
 
   // Include home country in visited count if set
   const allVisitedCountries = useMemo(() => {
@@ -218,7 +230,34 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const handleContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Check if we should show review prompt
+    if (checkEligibility('post_onboarding')) {
+      if (startReviewFlow('post_onboarding')) {
+        setShowReviewModal(true);
+        return; // Don't navigate yet
+      }
+    }
+
     // LAUNCH_SIMPLIFICATION: Skip paywall, go directly to name entry
+    navigation.navigate('NameEntry');
+  };
+
+  const handleReviewPositive = async () => {
+    setShowReviewModal(false);
+    await handlePositiveResponse();
+    navigation.navigate('NameEntry');
+  };
+
+  const handleReviewNegative = () => {
+    setShowReviewModal(false);
+    handleNegativeResponse();
+    navigation.navigate('NameEntry');
+  };
+
+  const handleReviewDismiss = () => {
+    setShowReviewModal(false);
+    handleDismiss();
     navigation.navigate('NameEntry');
   };
 
@@ -322,6 +361,14 @@ export function ProgressSummaryScreen({ navigation }: Props) {
         visible={showShareOverlay}
         context={shareContext}
         onDismiss={handleDismissShare}
+      />
+
+      {/* Review Satisfaction Modal */}
+      <SatisfactionModal
+        visible={showReviewModal}
+        onPositive={handleReviewPositive}
+        onNegative={handleReviewNegative}
+        onDismiss={handleReviewDismiss}
       />
     </View>
   );

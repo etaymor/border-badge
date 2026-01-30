@@ -294,7 +294,14 @@ export function usePlaceSuggestions({
         }
       }
     },
-    [suggestPlacesMutation, clusterLookupRef, isPremium, canImportPhotos, incrementPhotoImportUsage, currentCandidateIdRef]
+    [
+      suggestPlacesMutation,
+      clusterLookupRef,
+      isPremium,
+      canImportPhotos,
+      incrementPhotoImportUsage,
+      currentCandidateIdRef,
+    ]
   );
 
   /**
