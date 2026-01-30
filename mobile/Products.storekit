@@ -1,0 +1,231 @@
+{
+  "identifier" : "Products",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6740020233",
+      "introductoryOffer" : {
+        "internalID" : "1A2B3C4D",
+        "numberOfPeriods" : 1,
+        "paymentMode" : "free",
+        "subscriptionPeriod" : "P7D"
+      },
+      "localizations" : [
+        {
+          "description" : "Weekly Premium Access",
+          "displayName" : "Weekly",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.atlasi.app.Weekly",
+      "referenceName" : "Weekly",
+      "type" : "RecurringSubscription"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "6740020156",
+      "introductoryOffer" : {
+        "internalID" : "2B3C4D5E",
+        "numberOfPeriods" : 1,
+        "paymentMode" : "free",
+        "subscriptionPeriod" : "P7D"
+      },
+      "localizations" : [
+        {
+          "description" : "Monthly Premium Access",
+          "displayName" : "Monthly",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.atlasi.app.Monthly",
+      "referenceName" : "Monthly",
+      "type" : "RecurringSubscription"
+    },
+    {
+      "displayPrice" : "49.99",
+      "familyShareable" : false,
+      "internalID" : "6740020079",
+      "introductoryOffer" : {
+        "internalID" : "3C4D5E6F",
+        "numberOfPeriods" : 1,
+        "paymentMode" : "free",
+        "subscriptionPeriod" : "P7D"
+      },
+      "localizations" : [
+        {
+          "description" : "Annual Premium Access",
+          "displayName" : "Annual",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.atlasi.app.Annual",
+      "referenceName" : "Annual",
+      "type" : "RecurringSubscription"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6740019694",
+    "_developerTeamID" : "YOUR_TEAM_ID",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : "2026-01-29T00:00:00Z",
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21624498",
+      "localizations" : [
+
+      ],
+      "name" : "Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "0.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6740020233",
+          "introductoryOffer" : {
+            "internalID" : "1A2B3C4D",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Weekly Premium Access",
+              "displayName" : "Weekly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.atlasi.app.Weekly",
+          "recurringSubscriptionPeriod" : "P1W",
+          "referenceName" : "Weekly",
+          "subscriptionGroupID" : "21624498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6740020156",
+          "introductoryOffer" : {
+            "internalID" : "2B3C4D5E",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Monthly Premium Access",
+              "displayName" : "Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.atlasi.app.Monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Monthly",
+          "subscriptionGroupID" : "21624498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6740020079",
+          "introductoryOffer" : {
+            "internalID" : "3C4D5E6F",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Annual Premium Access",
+              "displayName" : "Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.atlasi.app.Annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Annual",
+          "subscriptionGroupID" : "21624498",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

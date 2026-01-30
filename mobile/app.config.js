@@ -53,6 +53,7 @@ export default {
       'expo-apple-authentication',
       'expo-secure-store',
       './plugins/withShareExtension',
+      './plugins/withStoreKitConfig',
       [
         'expo-media-library',
         {

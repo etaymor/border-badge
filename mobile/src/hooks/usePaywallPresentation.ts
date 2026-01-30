@@ -12,10 +12,11 @@
 import { useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
+import Purchases from 'react-native-purchases';
 
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan } from '@services/revenueCat';
+import { getSubscriptionPlan, initializeRevenueCat } from '@services/revenueCat';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import type { GatedFeature } from '@navigation/types';
 
@@ -52,6 +53,18 @@ export function usePaywallPresentation(location: PaywallLocation) {
       Analytics.viewPaywall({ location, feature: options?.feature });
 
       try {
+        // Ensure RevenueCat SDK is fully initialized
+        await initializeRevenueCat();
+
+        // Fetch offerings - this should populate from RevenueCat dashboard
+        const offerings = await Purchases.getOfferings();
+        console.log('[usePaywallPresentation] Offerings fetched:', offerings.current?.identifier);
+
+        if (!offerings.current) {
+          console.error('[usePaywallPresentation] No current offering available');
+          return { success: false, result: PAYWALL_RESULT.ERROR, cancelled: false, error: true };
+        }
+
         const result = await RevenueCatUI.presentPaywall({
           displayCloseButton: true,
         });

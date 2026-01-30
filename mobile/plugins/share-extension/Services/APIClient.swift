@@ -92,8 +92,8 @@ actor APIClient {
     // MARK: - Public API
 
     /// Process a social URL via /ingest/social
-    func ingestSocial(url: String, caption: String?) async throws -> SocialIngestResponse {
-        let request = SocialIngestRequest(url: url, caption: caption)
+    func ingestSocial(url: String, caption: String?, extractionMethod: String? = nil) async throws -> SocialIngestResponse {
+        let request = SocialIngestRequest(url: url, caption: caption, extractionMethod: extractionMethod)
         return try await post(
             path: "/ingest/social",
             body: request,

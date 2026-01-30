@@ -3,7 +3,7 @@
 --   WHERE trip_id = X AND deleted_at IS NULL ORDER BY created_at DESC
 -- The partial index excludes soft-deleted entries for better performance.
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entry_trip_created_active
+CREATE INDEX IF NOT EXISTS idx_entry_trip_created_active
   ON entry(trip_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
