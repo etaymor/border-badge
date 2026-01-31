@@ -101,6 +101,14 @@ jest.mock('../../../stores/subscriptionStore', () => ({
   useCanImportPhotos: jest.fn(() => true), // Allow photo imports
 }));
 
+// Mock react-navigation
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: jest.fn(() => ({
+    navigate: jest.fn(),
+    goBack: jest.fn(),
+  })),
+}));
+
 const mockedOnboardingStore = onboardingStore as jest.Mocked<typeof onboardingStore>;
 const mockedPhotoImport = photoImportService as jest.Mocked<typeof photoImportService>;
 const mockedPhotoImportHooks = photoImportHooks as jest.Mocked<typeof photoImportHooks>;

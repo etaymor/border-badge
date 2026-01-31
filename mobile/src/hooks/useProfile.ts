@@ -4,6 +4,7 @@ import { Alert } from 'react-native';
 import type { TrackingPreset } from '@constants/trackingPreferences';
 import { STALE_TIMES } from '../queryClient';
 import { api } from '@services/api';
+import { useOnboardingStore } from '@stores/onboardingStore';
 
 export interface Profile {
   id: string;
@@ -31,6 +32,8 @@ const PROFILE_QUERY_KEY = ['profile'];
 
 // Fetch the current user's profile
 export function useProfile() {
+  const setHomeCountry = useOnboardingStore((s) => s.setHomeCountry);
+
   return useQuery({
     queryKey: PROFILE_QUERY_KEY,
     queryFn: async (): Promise<Profile> => {
@@ -38,12 +41,16 @@ export function useProfile() {
       return response.data;
     },
     staleTime: STALE_TIMES.PROFILE, // 30 minutes - profile changes infrequently
+    onSuccess: (data) => {
+      setHomeCountry(data.home_country_code ?? null);
+    },
   });
 }
 
 // Update the current user's profile
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
+  const setHomeCountry = useOnboardingStore((s) => s.setHomeCountry);
 
   return useMutation({
     mutationFn: async (input: UpdateProfileInput): Promise<Profile> => {
@@ -52,6 +59,7 @@ export function useUpdateProfile() {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(PROFILE_QUERY_KEY, data);
+      setHomeCountry(data.home_country_code ?? null);
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to update profile';

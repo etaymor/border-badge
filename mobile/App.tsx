@@ -65,6 +65,7 @@ import { env } from '@config/env';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
+import { useSubscriptionStore } from '@stores/subscriptionStore';
 import { performBackgroundPhotoSync } from '@services/photoImport';
 import {
   NAVIGATION_STATE_TTL_MS,
@@ -159,9 +160,16 @@ export default function App() {
   useEffect(() => {
     void initAnalytics();
     // Initialize RevenueCat SDK (must be called before any purchases)
-    initializeRevenueCat().catch((error) => {
-      console.error('Failed to initialize RevenueCat:', error);
-    });
+    // After initialization, fetch customer info to populate subscription status
+    initializeRevenueCat()
+      .then(() => {
+        // Fetch customer info to update subscription store from 'loading' to actual status
+        // This enables premium gating checks throughout the app
+        return useSubscriptionStore.getState().fetchCustomerInfo();
+      })
+      .catch((error) => {
+        console.error('Failed to initialize RevenueCat:', error);
+      });
     // Sync API URL to App Group so Share Extension can use it
     // This is awaited internally but we don't block app initialization on it
     // since the Share Extension has a fallback to production URL if not set
