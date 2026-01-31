@@ -404,8 +404,11 @@ class TestSaveToTrip:
                     )
 
                     assert response.status_code == 201
-                    args, kwargs = mock_client.rpc.await_args
-                    payload = args[1]
+                    # Get the first RPC call (atomic_create_entry_with_place)
+                    # The second call is increment_share_extension_usage
+                    first_call = mock_client.rpc.call_args_list[0]
+                    assert first_call[0][0] == "atomic_create_entry_with_place"
+                    payload = first_call[0][1]
                     assert (
                         "google_photo_url" not in payload["p_place_data"]["extra_data"]
                     )

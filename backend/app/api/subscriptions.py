@@ -206,6 +206,12 @@ async def can_add_entry(
         },
     )
 
+    if entries_result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to check entry count. Please try again.",
+        )
+
     count = len(entries_result)
     limit = FREE_LIMITS["entries_per_trip"]
     allowed = count < limit
