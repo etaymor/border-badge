@@ -4,6 +4,8 @@ import { createBlankStackNavigator } from 'react-native-screen-transitions/blank
 import ErrorBoundary from '@components/ui/ErrorBoundary';
 import { useAuthStore } from '@stores/authStore';
 
+import { PaywallModalScreen } from '@screens/paywall';
+
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
@@ -46,7 +48,10 @@ export function RootNavigator() {
             <Stack.Screen name="Auth" component={AuthNavigator} />
           </>
         ) : (
-          <Stack.Screen name="Main" component={MainTabNavigator} />
+          <>
+            <Stack.Screen name="Main" component={MainTabNavigator} />
+            <Stack.Screen name="PaywallModal" component={PaywallModalScreen} />
+          </>
         )}
       </Stack.Navigator>
     </ErrorBoundary>

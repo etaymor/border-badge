@@ -49,23 +49,17 @@ jest.mock('../../../services/photoImport', () => ({
   setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('../../../hooks/usePhotoImport', () => ({
-  useSuggestPlacesChunked: jest.fn(),
-  RateLimitError: class RateLimitError extends Error {
-    retryAfterSeconds: number;
-    constructor(retryAfterSeconds: number) {
-      super(`Rate limited. Retry after ${retryAfterSeconds} seconds.`);
-      this.name = 'RateLimitError';
-      this.retryAfterSeconds = retryAfterSeconds;
-    }
-  },
-  QuotaExhaustedError: class QuotaExhaustedError extends Error {
-    constructor() {
-      super('Daily quota exhausted');
-      this.name = 'QuotaExhaustedError';
-    }
-  },
-}));
+// Import actual error classes to use in tests - these are the same classes used by the real code
+const actualPhotoImportHooks = jest.requireActual('../../../hooks/usePhotoImport');
+
+jest.mock('../../../hooks/usePhotoImport', () => {
+  const actual = jest.requireActual('../../../hooks/usePhotoImport');
+  return {
+    useSuggestPlacesChunked: jest.fn(),
+    RateLimitError: actual.RateLimitError,
+    QuotaExhaustedError: actual.QuotaExhaustedError,
+  };
+});
 
 jest.mock('../../../hooks/useEntries', () => ({
   useCreateEntry: jest.fn(() => ({
@@ -97,6 +91,22 @@ jest.mock('../../../services/analytics', () => ({
     photoImportWorkflowCompleted: jest.fn(),
     photoImportWorkflowExited: jest.fn(),
   },
+  calculateApiPercentiles: jest.fn(() => ({ p50: 100, p95: 200, p99: 300 })),
+}));
+
+// Mock subscription store to allow photo imports (bypass premium gating)
+jest.mock('../../../stores/subscriptionStore', () => ({
+  useSubscriptionStore: jest.fn(() => jest.fn()),
+  useIsPremium: jest.fn(() => true), // Simulate premium user
+  useCanImportPhotos: jest.fn(() => true), // Allow photo imports
+}));
+
+// Mock react-navigation
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: jest.fn(() => ({
+    navigate: jest.fn(),
+    goBack: jest.fn(),
+  })),
 }));
 
 const mockedOnboardingStore = onboardingStore as jest.Mocked<typeof onboardingStore>;
@@ -536,7 +546,7 @@ describe('usePhotoImportWorkflow', () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
       mockSuggestPlacesMutation.mutateAsync.mockRejectedValue(
-        new photoImportHooks.QuotaExhaustedError()
+        new actualPhotoImportHooks.QuotaExhaustedError()
       );
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -564,7 +574,7 @@ describe('usePhotoImportWorkflow', () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
       mockSuggestPlacesMutation.mutateAsync.mockRejectedValue(
-        new photoImportHooks.RateLimitError(30)
+        new actualPhotoImportHooks.RateLimitError(30)
       );
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {

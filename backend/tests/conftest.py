@@ -55,6 +55,7 @@ def mock_supabase_client():
     mock.post = AsyncMock(return_value=[])
     mock.patch = AsyncMock(return_value=[])
     mock.delete = AsyncMock(return_value=[])
+    mock.rpc = AsyncMock(return_value=[])
     return mock
 
 
@@ -171,6 +172,53 @@ def sample_uncategorized_trip() -> dict[str, Any]:
         "created_at": "2024-01-01T00:00:00Z",
         "deleted_at": None,
         "entry_count": 0,
+    }
+
+
+# ============================================================================
+# Subscription Test Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def sample_free_profile() -> dict[str, Any]:
+    """Sample user profile with free subscription."""
+    return {
+        "id": TEST_USER_ID,
+        "subscription_status": "free",
+        "subscription_plan": None,
+        "subscription_expires_at": None,
+        "usage_share_extension_count": 0,
+        "usage_photo_import_count": 0,
+        "revenuecat_customer_id": None,
+    }
+
+
+@pytest.fixture
+def sample_premium_profile() -> dict[str, Any]:
+    """Sample user profile with premium subscription."""
+    return {
+        "id": TEST_USER_ID,
+        "subscription_status": "premium",
+        "subscription_plan": "annual",
+        "subscription_expires_at": "2025-12-31T00:00:00+00:00",
+        "usage_share_extension_count": 10,
+        "usage_photo_import_count": 5,
+        "revenuecat_customer_id": f"rc_{TEST_USER_ID}",
+    }
+
+
+@pytest.fixture
+def sample_trial_profile() -> dict[str, Any]:
+    """Sample user profile with trial subscription."""
+    return {
+        "id": TEST_USER_ID,
+        "subscription_status": "trial",
+        "subscription_plan": "monthly",
+        "subscription_expires_at": "2024-02-15T00:00:00+00:00",
+        "usage_share_extension_count": 0,
+        "usage_photo_import_count": 0,
+        "revenuecat_customer_id": f"rc_{TEST_USER_ID}",
     }
 
 

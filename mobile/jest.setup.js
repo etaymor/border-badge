@@ -420,6 +420,67 @@ jest.mock(
   { virtual: true }
 );
 
+// Mock react-native-purchases (RevenueCat)
+jest.mock('react-native-purchases-ui', () => ({
+  __esModule: true,
+  default: {
+    presentPaywall: jest.fn().mockResolvedValue({ paywallResult: 'NOT_PRESENTED' }),
+    presentPaywallIfNeeded: jest.fn().mockResolvedValue({ paywallResult: 'NOT_PRESENTED' }),
+  },
+  PAYWALL_RESULT: {
+    NOT_PRESENTED: 'NOT_PRESENTED',
+    ERROR: 'ERROR',
+    CANCELLED: 'CANCELLED',
+    PURCHASED: 'PURCHASED',
+    RESTORED: 'RESTORED',
+  },
+}));
+
+jest.mock('react-native-purchases', () => ({
+  configure: jest.fn(),
+  isConfigured: jest.fn().mockResolvedValue(true),
+  getCustomerInfo: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  logIn: jest.fn().mockResolvedValue({
+    customerInfo: {
+      entitlements: { active: {} },
+      activeSubscriptions: [],
+      allPurchasedProductIdentifiers: [],
+    },
+    created: true,
+  }),
+  logOut: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  getOfferings: jest.fn().mockResolvedValue({ current: null, all: {} }),
+  purchasePackage: jest.fn(),
+  restorePurchases: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  addCustomerInfoUpdateListener: jest.fn(() => jest.fn()),
+  removeCustomerInfoUpdateListener: jest.fn(),
+  setLogLevel: jest.fn(),
+  LOG_LEVEL: {
+    VERBOSE: 'VERBOSE',
+    DEBUG: 'DEBUG',
+    INFO: 'INFO',
+    WARN: 'WARN',
+    ERROR: 'ERROR',
+  },
+  PURCHASES_ERROR_CODE: {
+    PURCHASE_CANCELLED_ERROR: 'PURCHASE_CANCELLED',
+    PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR: 'PRODUCT_NOT_AVAILABLE',
+    NETWORK_ERROR: 'NETWORK_ERROR',
+  },
+}));
+
 // Mock countriesDb service
 jest.mock('@services/countriesDb', () => ({
   getAllCountries: jest.fn().mockResolvedValue([]),

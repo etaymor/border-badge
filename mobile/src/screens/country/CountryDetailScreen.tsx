@@ -23,9 +23,11 @@ import {
   CountryEmptyState,
   TripsSectionHeader,
 } from '@components/country';
+import { SatisfactionModal } from '@components/review';
 import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
+import { useReviewRequest } from '@hooks/useReviewRequest';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -52,6 +54,16 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   // Share overlay state
   const [showShareOverlay, setShowShareOverlay] = useState(false);
   const [shareContext, setShareContext] = useState<MilestoneContext | null>(null);
+
+  // Review request state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const {
+    checkEligibility,
+    startReviewFlow,
+    handlePositiveResponse,
+    handleNegativeResponse,
+    handleDismiss,
+  } = useReviewRequest();
 
   // Data Hooks
   const code = countryCode || countryId;
@@ -226,7 +238,29 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   const handleCloseShare = useCallback(() => {
     setShowShareOverlay(false);
-  }, []);
+
+    // Check if we should show review prompt after sharing milestone
+    if (checkEligibility('country_visited')) {
+      if (startReviewFlow('country_visited')) {
+        setShowReviewModal(true);
+      }
+    }
+  }, [checkEligibility, startReviewFlow]);
+
+  const handleReviewPositive = useCallback(async () => {
+    setShowReviewModal(false);
+    await handlePositiveResponse('country_visited');
+  }, [handlePositiveResponse]);
+
+  const handleReviewNegative = useCallback(() => {
+    setShowReviewModal(false);
+    handleNegativeResponse('country_visited');
+  }, [handleNegativeResponse]);
+
+  const handleReviewDismiss = useCallback(() => {
+    setShowReviewModal(false);
+    handleDismiss('country_visited');
+  }, [handleDismiss]);
 
   const handleRemoveVisited = useCallback(() => {
     Alert.alert('Unmark as Visited?', 'This will remove this country from your visited list.', [
@@ -443,6 +477,13 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         visible={showShareOverlay}
         context={shareContext}
         onDismiss={handleCloseShare}
+      />
+
+      <SatisfactionModal
+        visible={showReviewModal}
+        onPositive={handleReviewPositive}
+        onNegative={handleReviewNegative}
+        onDismiss={handleReviewDismiss}
       />
     </View>
   );

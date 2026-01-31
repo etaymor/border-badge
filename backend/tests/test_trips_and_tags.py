@@ -580,9 +580,8 @@ def test_delete_trip(
     sample_trip: dict[str, Any],
 ) -> None:
     """Test soft-deleting a trip."""
-    deleted_trip = {**sample_trip, "deleted_at": "2024-01-15T12:00:00Z"}
-
-    mock_supabase_client.patch.return_value = [deleted_trip]
+    # Soft delete uses RPC function (returns True on success)
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

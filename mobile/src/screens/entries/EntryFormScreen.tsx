@@ -36,6 +36,8 @@ import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { usePremiumGate } from '@hooks/usePremiumGate';
+import { useEntries } from '@hooks/useEntries';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -61,9 +63,14 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const { data: existingEntry, isLoading: isLoadingEntry } = useEntry(entryId ?? '');
   // Fetch trip to get country code for scoping place search
   const { data: trip } = useTrip(tripId);
+  // Fetch entries to check count for free tier limit
+  const { data: tripEntries } = useEntries(tripId);
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
   const deleteEntry = useDeleteEntry();
+
+  // Premium gating for entry limits
+  const { showPaywallIfNeeded } = usePremiumGate();
 
   // Form state
   const [entryType, setEntryType] = useState<EntryType | null>(initialEntryType ?? null);
@@ -238,6 +245,14 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const handleSubmit = useCallback(async () => {
     if (!validateForm() || !entryType) return;
 
+    // For new entries, check if user can add more (free tier limit)
+    if (!isEditing) {
+      const entryCount = tripEntries?.length ?? 0;
+      if (!showPaywallIfNeeded('entries', entryCount)) {
+        return; // Paywall was shown, don't proceed
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const place: PlaceInput | undefined = selectedPlace
@@ -304,6 +319,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
     createEntry,
     updateEntry,
     navigation,
+    tripEntries,
+    showPaywallIfNeeded,
   ]);
 
   // Handle type selection with animation

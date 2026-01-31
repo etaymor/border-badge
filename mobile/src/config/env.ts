@@ -32,12 +32,34 @@ export const env = {
   enableDevTools: process.env.EXPO_PUBLIC_ENABLE_DEV_TOOLS === 'true',
 
   // Web base URL for public pages (terms, privacy, etc.)
-  // In production: https://atlasi.app
-  // In development: same as API URL
-  webBaseUrl:
-    process.env.EXPO_PUBLIC_WEB_BASE_URL ||
-    process.env.EXPO_PUBLIC_API_URL ||
-    'http://localhost:8000',
+  // Environment variable: EXPO_PUBLIC_WEB_BASE_URL (optional)
+  // Fallback chain:
+  //   1. EXPO_PUBLIC_WEB_BASE_URL if set
+  //   2. EXPO_PUBLIC_API_URL if set (useful for development with local backend)
+  //   3. https://atlasi.app in production
+  //   4. http://localhost:8000 in development
+  webBaseUrl: (() => {
+    const appEnv = (process.env.EXPO_PUBLIC_APP_ENV || 'development') as string;
+    const url =
+      process.env.EXPO_PUBLIC_WEB_BASE_URL ||
+      process.env.EXPO_PUBLIC_API_URL ||
+      (appEnv === 'production' ? 'https://atlasi.app' : 'http://localhost:8000');
+
+    // Validate URL format
+    try {
+      new URL(url);
+      return url;
+    } catch {
+      throw new Error(
+        `Invalid web base URL: "${url}". Must be a valid URL. ` +
+          'Set EXPO_PUBLIC_WEB_BASE_URL or ensure EXPO_PUBLIC_API_URL is valid.'
+      );
+    }
+  })(),
+
+  // RevenueCat Configuration
+  revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || '',
+  revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || '',
 } as const;
 
 // Helper to check if we're in development

@@ -34,6 +34,7 @@ import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
+import { useSubscriptionStore } from '@stores/subscriptionStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
@@ -43,6 +44,7 @@ import { ProfileAvatar } from './components/ProfileAvatar';
 import { ProfileNameSection } from './components/ProfileNameSection';
 import { ProfileInfoSection } from './components/ProfileInfoSection';
 import { SignOutSection } from './components/SignOutSection';
+import { SubscriptionSection } from './components/SubscriptionSection';
 // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas
 // import { TrackingPreferenceModal } from './components/TrackingPreferenceModal';
 import { ExportCountriesModal } from './components/ExportCountriesModal';
@@ -84,6 +86,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const { session } = useAuthStore();
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
   const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
+  const subscriptionExpirationDate = useSubscriptionStore((s) => s.expirationDate);
   const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: homeCountry } = useCountryByCode(profile?.home_country_code);
   const { data: userCountries } = useUserCountries();
@@ -518,6 +521,13 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onCancelEditing={handleCancelEditing}
           onSaveName={handleSaveName}
           onNameChange={handleNameChange}
+        />
+
+        <View style={styles.divider} />
+
+        <SubscriptionSection
+          expirationDate={subscriptionExpirationDate}
+          isSmallScreen={isSmallScreen}
         />
 
         <View style={styles.divider} />

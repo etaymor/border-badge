@@ -60,9 +60,25 @@ struct CaptureFormView: View {
                 // Notes field
                 NotesField(notes: $viewModel.notes)
 
+                // Remaining saves indicator for free users
+                if !viewModel.isPremium && viewModel.remainingFreeSaves >= 0 {
+                    if viewModel.remainingFreeSaves > 0 {
+                        let limit = AppGroupStorage.freeShareExtensionLimit
+                        Text("\(viewModel.remainingFreeSaves) of \(limit) free saves remaining")
+                            .font(Typography.body(13))
+                            .foregroundColor(BrandColors.stormGray)
+                            .multilineTextAlignment(.center)
+                    } else {
+                        Text("Free limit reached. Open Atlasi to upgrade.")
+                            .font(Typography.body(13))
+                            .foregroundColor(BrandColors.sunsetGold)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+
                 // Save button
                 Button(action: onSave) {
-                    Text("Save to Trip")
+                    Text(viewModel.canUseShareExtension ? "Save to Trip" : "Upgrade to Save")
                 }
                 .buttonStyle(PrimaryButtonStyle(isEnabled: viewModel.canSave))
                 .disabled(!viewModel.canSave)

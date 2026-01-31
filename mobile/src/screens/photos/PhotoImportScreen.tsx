@@ -6,13 +6,14 @@
  * select a trip, and confirm/reject place suggestions.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SatisfactionModal } from '@components/review';
 import { Button, GlassBackButton, GlassIconButton } from '@components/ui';
 import type {
   TripCandidateDisplay,
@@ -21,10 +22,13 @@ import type {
 } from '@services/photoImport';
 import type { MergedSuggestion } from './photoImportTypes';
 import { useCountryByCode } from '@hooks/useCountries';
+import { useReviewRequest } from '@hooks/useReviewRequest';
 import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
-import type { PassportStackScreenProps } from '@navigation/types';
+import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ManualPlaceSearch,
   TripCandidateCard,
@@ -139,6 +143,7 @@ function buildSuggestionFromMerged(merged: MergedSuggestion): ClusterSuggestion 
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     countryCode: filterCountryCode,
     tripId,
@@ -147,6 +152,18 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   } = route.params ?? {};
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
+
+  // Track if at least one place was confirmed this session for review trigger
+  const hasConfirmedPlaceRef = useRef(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [pendingBackAction, setPendingBackAction] = useState<'candidates' | 'goBack' | null>(null);
+  const {
+    checkEligibility,
+    startReviewFlow,
+    handlePositiveResponse,
+    handleNegativeResponse,
+    handleDismiss,
+  } = useReviewRequest();
 
   // Reset error state when preview photo changes
   useEffect(() => {
@@ -171,6 +188,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     dismissedClusterIdsInternal,
     getUploadState,
     uploadingClusterIds,
+    isPremium,
+    canImportPhotos,
     startScan,
     cancelScan,
     selectCandidate,
@@ -192,6 +211,65 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     autoStart,
     skipToSuggestions,
   });
+
+  // Wrap handleConfirmPlace to track when a place is confirmed for review trigger
+  const handleConfirmPlaceWithTracking = useCallback(
+    async (...args: Parameters<typeof handleConfirmPlace>) => {
+      await handleConfirmPlace(...args);
+      hasConfirmedPlaceRef.current = true;
+    },
+    [handleConfirmPlace]
+  );
+
+  // Handle back navigation with potential review trigger
+  const handleBackNavigation = useCallback(
+    (action: 'candidates' | 'goBack') => {
+      // Only trigger review on first photo import if user confirmed at least one place
+      if (hasConfirmedPlaceRef.current && checkEligibility('first_photo_import')) {
+        if (startReviewFlow('first_photo_import')) {
+          setPendingBackAction(action);
+          setShowReviewModal(true);
+          return;
+        }
+      }
+
+      // Proceed with navigation
+      if (action === 'candidates') {
+        backToCandidates();
+      } else {
+        navigation.goBack();
+      }
+    },
+    [checkEligibility, startReviewFlow, backToCandidates, navigation]
+  );
+
+  // Complete pending back navigation after review modal closes
+  const completePendingNavigation = useCallback(() => {
+    if (pendingBackAction === 'candidates') {
+      backToCandidates();
+    } else if (pendingBackAction === 'goBack') {
+      navigation.goBack();
+    }
+    setPendingBackAction(null);
+  }, [pendingBackAction, backToCandidates, navigation]);
+
+  const handleReviewPositive = useCallback(async () => {
+    setShowReviewModal(false);
+    await handlePositiveResponse('first_photo_import');
+    completePendingNavigation();
+  }, [handlePositiveResponse, completePendingNavigation]);
+
+  const handleReviewNegative = useCallback(() => {
+    setShowReviewModal(false);
+    handleNegativeResponse('first_photo_import');
+    completePendingNavigation();
+  }, [handleNegativeResponse, completePendingNavigation]);
+
+  const handleReviewDismiss = useCallback(() => {
+    setShowReviewModal(false);
+    handleDismiss('first_photo_import');
+    completePendingNavigation();
+  }, [handleDismiss, completePendingNavigation]);
 
   // Get country name for display in suggestions header
   const { data: selectedCountry } = useCountryByCode(selectedCandidate?.countryCode);
@@ -376,7 +454,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             suggestion={buildSuggestionFromMerged(merged)}
             previewUris={merged.previewUris}
             onConfirm={(suggestion, place) =>
-              handleConfirmPlace(suggestion, place, false, additionalClusterIds)
+              handleConfirmPlaceWithTracking(suggestion, place, false, additionalClusterIds)
             }
             onReject={handleRejectPlace}
             onPhotoPress={setPreviewPhoto}
@@ -399,7 +477,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           <PlaceSuggestionCard
             suggestion={item.data}
             previewUris={item.cluster.previewUris}
-            onConfirm={handleConfirmPlace}
+            onConfirm={handleConfirmPlaceWithTracking}
             onReject={handleRejectPlace}
             onPhotoPress={setPreviewPhoto}
             onDismiss={handleHideCluster}
@@ -423,7 +501,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       );
     },
     [
-      handleConfirmPlace,
+      handleConfirmPlaceWithTracking,
       handleRejectPlace,
       handleAddEntryForCluster,
       handleHideCluster,
@@ -442,9 +520,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onPress={() => {
             if (phase === 'suggestions' && !skipToSuggestions) {
               // Only go back to candidates if we didn't skip directly to suggestions
-              backToCandidates();
+              handleBackNavigation('candidates');
             } else {
-              navigation.goBack();
+              handleBackNavigation('goBack');
             }
           }}
         />
@@ -574,6 +652,21 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             {formatDateRange(selectedCandidate.dateRange.start, selectedCandidate.dateRange.end)}
           </Text>
 
+          {/* Premium gating banner - show when user has used their free import */}
+          {!isPremium && !canImportPhotos && (
+            <View style={styles.premiumGateBanner}>
+              <Text style={styles.premiumGateTitle}>Free Limit Reached</Text>
+              <Text style={styles.premiumGateText}>
+                {"You've already imported one trip from photos. Upgrade to import unlimited trips."}
+              </Text>
+              <Button
+                title="Upgrade to Premium"
+                onPress={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
+                style={styles.premiumGateButton}
+              />
+            </View>
+          )}
+
           {/* Progress indicator during loading */}
           {suggestPlacesMutation.isPending && suggestPlacesMutation.progress && (
             <View style={styles.progressHeader}>
@@ -674,6 +767,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         selectedCandidate={selectedCandidate}
         onSelectCandidate={handleSwitchCandidate}
         onClose={() => setShowTripSwitcher(false)}
+      />
+
+      {/* Review Satisfaction Modal */}
+      <SatisfactionModal
+        visible={showReviewModal}
+        onPositive={handleReviewPositive}
+        onNegative={handleReviewNegative}
+        onDismiss={handleReviewDismiss}
       />
     </View>
   );

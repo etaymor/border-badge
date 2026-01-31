@@ -82,8 +82,8 @@ export function NameEntryScreen({ navigation }: Props) {
     // Store the display name
     setDisplayName(validation.trimmedValue);
 
-    // Navigate to account creation
-    navigation.navigate('AccountCreation');
+    // Navigate to paywall (which will proceed to account creation)
+    navigation.navigate('Paywall');
   };
 
   const titleTranslateY = titleAnim.interpolate({

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -98,6 +98,16 @@ class Settings(BaseSettings):
         description="Enable LLM-first place extraction (experimental)",
     )
 
+    # RevenueCat Configuration
+    revenuecat_webhook_auth_header: str = Field(
+        default="", repr=False, description="Shared secret for RevenueCat webhook auth"
+    )
+    revenuecat_api_key: str = Field(
+        default="",
+        repr=False,
+        description="RevenueCat API key for subscription verification",
+    )
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:
@@ -118,6 +128,18 @@ class Settings(BaseSettings):
                 return []
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @model_validator(mode="after")
+    def validate_production_revenuecat_config(self) -> "Settings":
+        """Ensure RevenueCat config is set in production."""
+        if self.env == "production":
+            if not self.revenuecat_webhook_auth_header:
+                raise ValueError(
+                    "revenuecat_webhook_auth_header is required in production"
+                )
+            if not self.revenuecat_api_key:
+                raise ValueError("revenuecat_api_key is required in production")
+        return self
 
     @property
     def is_development(self) -> bool:

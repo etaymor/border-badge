@@ -45,10 +45,20 @@ def test_create_entry(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
     sample_entry: dict[str, Any],
+    sample_free_profile: dict[str, Any],
 ) -> None:
     """Test creating a new entry."""
     trip_id = "550e8400-e29b-41d4-a716-446655440002"
-    mock_supabase_client.post.return_value = [sample_entry]
+    # Mock profile check (free status) and RPC result
+    mock_supabase_client.get.return_value = [sample_free_profile]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "entry_row": sample_entry,
+            "place_row": None,
+            "error_code": None,
+            "current_count": None,
+        }
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -79,11 +89,21 @@ def test_create_entry_with_place(
     auth_headers: dict[str, str],
     sample_entry: dict[str, Any],
     sample_place: dict[str, Any],
+    sample_free_profile: dict[str, Any],
 ) -> None:
     """Test creating an entry with place data."""
     from tests.conftest import TEST_TRIP_ID
 
-    mock_supabase_client.post.side_effect = [[sample_entry], [sample_place]]
+    # Mock profile check and atomic RPC that creates entry + place
+    mock_supabase_client.get.return_value = [sample_free_profile]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "entry_row": sample_entry,
+            "place_row": sample_place,
+            "error_code": None,
+            "current_count": None,
+        }
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -177,10 +197,8 @@ def test_delete_entry(
     sample_entry: dict[str, Any],
 ) -> None:
     """Test soft-deleting an entry."""
-    # Soft delete uses patch, not delete
-    mock_supabase_client.patch.return_value = [
-        {**sample_entry, "deleted_at": "2024-01-01T00:00:00+00:00"}
-    ]
+    # Soft delete uses RPC function (returns True on success)
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

@@ -9,8 +9,7 @@ import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
-// LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
-// import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
+import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
 // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries)
 // import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
@@ -100,11 +99,11 @@ export function OnboardingNavigator() {
         options={DramaticRevealPreset}
       />
 
-      {/* LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch */}
-      {/* <Stack.Screen name="Paywall" component={PaywallScreen} /> */}
-
       {/* ProgressSummary → NameEntry: Stamps collecting into passport */}
       <Stack.Screen name="NameEntry" component={NameEntryScreen} options={CollectPreset} />
+
+      {/* NameEntry → Paywall: Show subscription options */}
+      <Stack.Screen name="Paywall" component={PaywallScreen} />
 
       {/* NameEntry → AccountCreation: Default slide (sealing the deal) */}
       <Stack.Screen

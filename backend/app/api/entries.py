@@ -1,11 +1,12 @@
 """Entry endpoints."""
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.subscriptions import FREE_LIMITS
 from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
@@ -155,13 +156,35 @@ async def create_entry(
     data: EntryCreate,
     user: CurrentUser,
 ) -> EntryWithPlace:
-    """Create a new entry for a trip."""
+    """Create a new entry for a trip.
+
+    Uses atomic database function with advisory lock to prevent race conditions
+    in entry limit enforcement for free tier users.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Create entry
-    entry_data = {
-        "trip_id": str(trip_id),
+    # Get subscription status to determine if entry limit applies
+    profile_result: list[dict[str, Any]] | None = await db.get(
+        "user_profile",
+        {
+            "id": f"eq.{user.id}",
+            "select": "subscription_status",
+        },
+    )
+    subscription_status: str = (
+        profile_result[0].get("subscription_status", "free")
+        if profile_result
+        else "free"
+    )
+
+    # Set limit for free users only (premium/trial users get None = no limit)
+    entries_limit: int | None = None
+    if subscription_status not in ("premium", "trial"):
+        entries_limit = FREE_LIMITS["entries_per_trip"]
+
+    # Prepare entry data for RPC
+    entry_payload: dict[str, Any] = {
         "type": data.type.value,
         "title": data.title,
         "notes": data.notes,
@@ -170,26 +193,15 @@ async def create_entry(
         "date": data.date.isoformat() if data.date else None,
     }
 
-    entry_rows = await db.post("entry", entry_data)
-    if not entry_rows:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create entry",
-        )
-
-    entry = Entry(**entry_rows[0])
-    place = None
-
-    # Create place if provided
+    # Prepare place data for RPC (if provided)
+    place_payload: dict[str, Any] | None = None
     if data.place:
         logger.info(
-            "Creating place for entry %s: place_name=%s, google_place_id=%s",
-            entry.id,
+            "Creating entry with place: place_name=%s, google_place_id=%s",
             data.place.place_name,
             data.place.google_place_id,
         )
-        place_data = {
-            "entry_id": str(entry.id),
+        place_payload = {
             "google_place_id": data.place.google_place_id,
             "place_name": data.place.place_name,
             "lat": data.place.lat,
@@ -198,62 +210,72 @@ async def create_entry(
             "extra_data": data.place.extra_data,
         }
 
-        # Try to create the place - rely on unique index for duplicate detection
-        # instead of TOCTOU-vulnerable pre-check
-        try:
-            place_rows = await db.post("place", place_data)
-        except HTTPException as e:
-            # Handle unique constraint violation from concurrent inserts
-            detail = str(e.detail).lower() if e.detail else ""
-            if "unique" in detail or "duplicate" in detail:
-                # Rollback: delete the entry we just created
-                try:
-                    await db.delete("entry", {"id": f"eq.{entry.id}"})
-                except Exception:
-                    logger.warning(
-                        "Failed to rollback entry %s after duplicate place detection",
-                        entry.id,
-                    )
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="This place has already been saved to this trip",
-                ) from None
-            raise
+    # Atomic entry creation with limit enforcement
+    # Uses advisory lock in DB to prevent TOCTOU race conditions
+    try:
+        result = await db.rpc(
+            "atomic_create_entry_with_place",
+            {
+                "p_trip_id": str(trip_id),
+                "p_entry_data": entry_payload,
+                "p_place_data": place_payload,
+                "p_entries_limit": entries_limit,
+            },
+        )
+    except HTTPException as e:
+        # Handle unique constraint violation for duplicate places
+        detail = str(e.detail).lower() if e.detail else ""
+        if "unique" in detail or "duplicate" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            ) from None
+        raise
 
+    # Empty result means trip not found or user not authorized
+    if not result or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+    row = result[0]
+
+    # Handle limit exceeded error from atomic function
+    if row.get("error_code") == "LIMIT_EXCEEDED":
+        current_count = row.get("current_count", entries_limit)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "LIMIT_EXCEEDED",
+                "message": f"Free tier allows {entries_limit} entries per trip. Upgrade to premium for unlimited entries.",
+                "limit": entries_limit,
+                "current_count": current_count,
+            },
+        )
+
+    # Parse entry and place from RPC result
+    entry_data = row.get("entry_row")
+    place_data_result = row.get("place_row")
+
+    if not entry_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create entry",
+        )
+
+    entry = Entry(**entry_data)
+    place = Place(**place_data_result) if place_data_result else None
+
+    if data.place and place:
         logger.debug(
             "Place created for entry",
             extra={
                 "entry_id": str(entry.id),
-                "place_id": place_rows[0]["id"] if place_rows else None,
+                "place_id": str(place.id),
                 "has_google_place_id": bool(data.place.google_place_id),
             },
         )
-        if not place_rows:
-            # Rollback: delete the entry we just created
-            # If cleanup fails, log the orphaned entry for manual resolution
-            try:
-                await db.delete("entry", {"id": f"eq.{entry.id}"})
-                logger.warning(
-                    "Place creation failed for entry %s, successfully rolled back",
-                    entry.id,
-                )
-            except Exception as cleanup_error:
-                logger.error(
-                    "ORPHANED ENTRY: Entry %s created but place creation failed "
-                    "and cleanup delete also failed: %s. Manual cleanup required.",
-                    entry.id,
-                    cleanup_error,
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create entry. Please contact support.",
-                ) from None
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create place for entry",
-            )
-        place = Place(**place_rows[0])
 
     # Reassign pending media to this entry
     if data.pending_media_ids:

@@ -207,6 +207,7 @@ export function MoveToTripSheet({
     translateY,
     backdropOpacity,
     onComplete,
+    trips,
   ]);
 
   const handleTripSelect = useCallback((trip: Trip) => {
