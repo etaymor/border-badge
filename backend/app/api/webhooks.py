@@ -4,6 +4,7 @@ import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -62,6 +63,13 @@ async def revenuecat_webhook(
     if not app_user_id:
         return {"status": "ignored", "reason": "no_user_id"}
 
+    # Validate app_user_id is a valid UUID to prevent malformed IDs causing DB errors
+    try:
+        user_id = UUID(app_user_id)
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid app_user_id format: {app_user_id}")
+        return {"status": "ignored", "reason": "invalid_user_id"}
+
     # Map event types to subscription status
     status_map = {
         "INITIAL_PURCHASE": "premium",
@@ -93,17 +101,27 @@ async def revenuecat_webhook(
     elif "Weekly" in product_id or "weekly" in product_id:
         subscription_plan = "weekly"
 
-    # Get expiration date
+    # Get expiration date with type validation
     expiration_ms = event.get("expiration_at_ms")
     expires_at: str | None = None
-    if expiration_ms:
-        expires_at = datetime.fromtimestamp(expiration_ms / 1000, tz=UTC).isoformat()
+    if expiration_ms and isinstance(expiration_ms, int | float):
+        try:
+            expires_at = datetime.fromtimestamp(
+                expiration_ms / 1000, tz=UTC
+            ).isoformat()
+        except (ValueError, OSError) as e:
+            logger.warning(f"Invalid expiration_ms: {expiration_ms}, error: {e}")
+            expires_at = None
 
     # Get event timestamp for ordering - required for idempotency
     event_timestamp_ms = event.get("event_timestamp_ms")
-    if not event_timestamp_ms or not isinstance(event_timestamp_ms, int):
+    if (
+        not event_timestamp_ms
+        or not isinstance(event_timestamp_ms, int)
+        or event_timestamp_ms <= 0
+    ):
         logger.warning(
-            f"RevenueCat webhook: Missing or invalid event_timestamp_ms for event {event_id}"
+            f"RevenueCat webhook: Invalid event_timestamp_ms: {event_timestamp_ms}"
         )
         return {"status": "ignored", "reason": "invalid_timestamp"}
 
@@ -115,7 +133,7 @@ async def revenuecat_webhook(
     result = await supabase.rpc(
         "update_subscription_if_newer",
         {
-            "p_user_id": app_user_id,
+            "p_user_id": str(user_id),
             "p_status": new_status,
             "p_plan": subscription_plan,
             "p_expires_at": expires_at,
@@ -126,11 +144,11 @@ async def revenuecat_webhook(
     )
 
     if result and result.get("updated"):
-        logger.info(f"Updated subscription for {app_user_id}: {new_status}")
+        logger.info(f"Updated subscription for {user_id}: {new_status}")
         return {"status": "success"}
     elif result and result.get("skipped"):
-        logger.info(f"Skipped older event for {app_user_id}")
+        logger.info(f"Skipped older event for {user_id}")
         return {"status": "skipped", "reason": "older_event"}
     else:
-        logger.warning(f"User not found for RevenueCat event: {app_user_id}")
+        logger.warning(f"User not found for RevenueCat event: {user_id}")
         return {"status": "user_not_found"}

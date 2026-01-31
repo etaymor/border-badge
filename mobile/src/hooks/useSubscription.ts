@@ -48,16 +48,20 @@ export function useSubscription() {
 
   // Fetch customer info from RevenueCat
   const fetchCustomerInfo = useCallback(async () => {
+    // Capture current version to detect if a newer fetch was started
+    const fetchVersion = versionRef.current;
     try {
       const isConfigured = await Purchases.isConfigured();
       if (!isConfigured) {
         console.warn('[useSubscription] RevenueCat not configured');
-        setStatus('free');
+        if (isMountedRef.current && versionRef.current === fetchVersion) {
+          setStatus('free');
+        }
         return;
       }
 
       const info = await Purchases.getCustomerInfo();
-      if (isMountedRef.current) {
+      if (isMountedRef.current && versionRef.current === fetchVersion) {
         setCustomerInfo(info);
         syncSubscriptionToAppGroup(info).catch((error) => {
           console.error('Failed to sync subscription to App Group:', error);
@@ -65,7 +69,7 @@ export function useSubscription() {
       }
     } catch (error) {
       console.error('[useSubscription] Failed to fetch customer info:', error);
-      if (isMountedRef.current) {
+      if (isMountedRef.current && versionRef.current === fetchVersion) {
         setStatus('free'); // Fail safe to free
       }
     }
@@ -76,10 +80,15 @@ export function useSubscription() {
     try {
       const response = await api.get<{
         share_extension_count: number;
+        share_extension_period_start: string | null;
         photo_import_count: number;
       }>('/subscriptions/usage');
       if (isMountedRef.current) {
-        setUsageLimits(response.data.share_extension_count, response.data.photo_import_count);
+        setUsageLimits(
+          response.data.share_extension_count,
+          response.data.photo_import_count,
+          response.data.share_extension_period_start
+        );
       }
     } catch (error) {
       console.error('[useSubscription] Failed to fetch usage limits:', error);

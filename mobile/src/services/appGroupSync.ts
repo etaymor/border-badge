@@ -11,13 +11,12 @@ import { isPremium, getExpirationDate, ENTITLEMENT_ID } from './revenueCat';
 
 const { SharedGroupPreferences } = NativeModules;
 
-const APP_GROUP = 'group.com.atlasi.app';
-
 // Keys for subscription data in App Group
 export const APP_GROUP_KEYS = {
   subscriptionStatus: 'subscription_status',
   subscriptionExpires: 'subscription_expires',
   usageShareExtension: 'usage_share_extension',
+  usageShareExtensionPeriodStart: 'usage_share_extension_period_start',
   usagePhotoImport: 'usage_photo_import',
 } as const;
 
@@ -44,11 +43,10 @@ export async function syncSubscriptionToAppGroup(customerInfo: CustomerInfo): Pr
     }
 
     await Promise.all([
-      SharedGroupPreferences.setItem(APP_GROUP_KEYS.subscriptionStatus, status, APP_GROUP),
+      SharedGroupPreferences.setItem(APP_GROUP_KEYS.subscriptionStatus, status),
       SharedGroupPreferences.setItem(
         APP_GROUP_KEYS.subscriptionExpires,
-        expiration?.toISOString() ?? '',
-        APP_GROUP
+        expiration?.toISOString() ?? ''
       ),
     ]);
 
@@ -61,7 +59,11 @@ export async function syncSubscriptionToAppGroup(customerInfo: CustomerInfo): Pr
 /**
  * Sync usage counts to App Group for Share Extension access
  */
-export async function syncUsageToAppGroup(shareCount: number, photoCount: number): Promise<void> {
+export async function syncUsageToAppGroup(
+  shareCount: number,
+  photoCount: number,
+  sharePeriodStart?: string | null
+): Promise<void> {
   if (Platform.OS !== 'ios') return;
 
   if (!SharedGroupPreferences) {
@@ -71,16 +73,12 @@ export async function syncUsageToAppGroup(shareCount: number, photoCount: number
 
   try {
     await Promise.all([
+      SharedGroupPreferences.setItem(APP_GROUP_KEYS.usageShareExtension, String(shareCount)),
       SharedGroupPreferences.setItem(
-        APP_GROUP_KEYS.usageShareExtension,
-        String(shareCount),
-        APP_GROUP
+        APP_GROUP_KEYS.usageShareExtensionPeriodStart,
+        sharePeriodStart ?? ''
       ),
-      SharedGroupPreferences.setItem(
-        APP_GROUP_KEYS.usagePhotoImport,
-        String(photoCount),
-        APP_GROUP
-      ),
+      SharedGroupPreferences.setItem(APP_GROUP_KEYS.usagePhotoImport, String(photoCount)),
     ]);
 
     console.log('[AppGroupSync] Synced usage counts - share:', shareCount, 'photo:', photoCount);
@@ -105,14 +103,8 @@ export async function getSubscriptionFromAppGroup(): Promise<{
   }
 
   try {
-    const status = await SharedGroupPreferences.getItem(
-      APP_GROUP_KEYS.subscriptionStatus,
-      APP_GROUP
-    );
-    const expires = await SharedGroupPreferences.getItem(
-      APP_GROUP_KEYS.subscriptionExpires,
-      APP_GROUP
-    );
+    const status = await SharedGroupPreferences.getItem(APP_GROUP_KEYS.subscriptionStatus);
+    const expires = await SharedGroupPreferences.getItem(APP_GROUP_KEYS.subscriptionExpires);
 
     return { status, expires };
   } catch (error) {

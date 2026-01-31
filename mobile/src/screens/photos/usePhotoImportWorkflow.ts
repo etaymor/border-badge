@@ -1,27 +1,23 @@
 /**
  * usePhotoImportWorkflow - Custom hook managing the photo import workflow state and logic.
  *
- * Composes smaller hooks for scanning, suggestions, and entry creation.
+ * Composes smaller hooks for scanning, suggestions, entry creation, navigation, and analytics.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
+import { useSubscriptionStore } from '@stores/subscriptionStore';
 import {
   abortBackgroundSync,
-  getAllCachedPhotos,
   getLastImportTime,
-  getLastSelectedCandidateId,
   getProcessedClusterIds,
-  segmentTripsFromCache,
-  setLastSelectedCandidateId,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
   type LocationClusterDisplay,
   type PhotoWithLocation,
 } from '@services/photoImport';
-import { Analytics } from '@services/analytics';
 
 import type {
   ImportPhase,
@@ -31,6 +27,9 @@ import type {
 import { usePhotoScan, ScanResult } from './usePhotoScan';
 import { usePlaceSuggestions } from './usePlaceSuggestions';
 import { useEntryCreation } from './useEntryCreation';
+import { useWorkflowAnalytics } from './useWorkflowAnalytics';
+import { useWorkflowNavigation } from './useWorkflowNavigation';
+import { useAutoStartWorkflow } from './useAutoStartWorkflow';
 
 // Re-export types for convenience
 export type {
@@ -46,6 +45,7 @@ export function usePhotoImportWorkflow({
   skipToSuggestions,
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
+  const subscriptionStatus = useSubscriptionStore((s) => s.status);
 
   // ==========================================================================
   // Core State
@@ -96,23 +96,8 @@ export function usePhotoImportWorkflow({
   const clusterLookupRef = useRef<Map<string, LocationCluster>>(new Map());
   const clusterDisplaysRef = useRef<Map<string, LocationClusterDisplay>>(new Map());
 
-  // Track whether auto-start has been attempted
-  const autoStartAttemptedRef = useRef(false);
-
   // Track current candidate ID to prevent race conditions during rapid switching
   const currentCandidateIdRef = useRef<string | null>(null);
-
-  // ==========================================================================
-  // Workflow Analytics Tracking
-  // ==========================================================================
-  // Track workflow timing and completion for analytics
-  const workflowStartTimeRef = useRef<number | null>(null);
-  const workflowConfirmedCountRef = useRef(0);
-  const workflowRejectedCountRef = useRef(0);
-  const workflowHiddenCountRef = useRef(0);
-  const workflowTotalClustersRef = useRef(0);
-  const workflowClustersWithSuggestionsRef = useRef(0);
-  const workflowCompletedRef = useRef(false);
 
   // ==========================================================================
   // Load persisted state on mount
@@ -241,349 +226,111 @@ export function usePhotoImportWorkflow({
   });
 
   // ==========================================================================
+  // Workflow Analytics Hook
+  // ==========================================================================
+  const apiSuggestionsData = suggestPlacesMutation.data?.suggestions;
+
+  const { incrementConfirmed, incrementRejected, incrementHidden } = useWorkflowAnalytics({
+    phase,
+    selectedCandidate,
+    dismissedClusterIdsInternal,
+    apiSuggestionsData,
+    cachedSuggestions,
+  });
+
+  // ==========================================================================
   // Workflow Analytics Wrappers
   // ==========================================================================
-  // Wrap handlers to track workflow progress for analytics
-
   const handleConfirmPlace = useCallback(
     async (...args: Parameters<typeof handleConfirmPlaceInternal>) => {
       await handleConfirmPlaceInternal(...args);
-      workflowConfirmedCountRef.current += 1;
+      incrementConfirmed();
     },
-    [handleConfirmPlaceInternal]
+    [handleConfirmPlaceInternal, incrementConfirmed]
   );
 
   const handleRejectPlace = useCallback(
     (...args: Parameters<typeof handleRejectPlaceInternal>) => {
       handleRejectPlaceInternal(...args);
-      workflowRejectedCountRef.current += 1;
+      incrementRejected();
     },
-    [handleRejectPlaceInternal]
+    [handleRejectPlaceInternal, incrementRejected]
   );
 
   const handleHideCluster = useCallback(
     async (...args: Parameters<typeof handleHideClusterInternal>) => {
       await handleHideClusterInternal(...args);
-      workflowHiddenCountRef.current += 1;
+      incrementHidden();
     },
-    [handleHideClusterInternal]
+    [handleHideClusterInternal, incrementHidden]
   );
 
   const handleHideMultipleClusters = useCallback(
     async (clusterIds: string[]) => {
       await handleHideMultipleClustersInternal(clusterIds);
-      workflowHiddenCountRef.current += clusterIds.length;
+      incrementHidden(clusterIds.length);
     },
-    [handleHideMultipleClustersInternal]
+    [handleHideMultipleClustersInternal, incrementHidden]
   );
 
   // ==========================================================================
-  // Navigation Actions
+  // Workflow Navigation Hook
   // ==========================================================================
-
-  /**
-   * Select a candidate and go to trip selection phase.
-   */
-  const selectCandidate = useCallback((candidate: TripCandidateDisplay) => {
-    setSelectedCandidate(candidate);
-    setPhase('trip-selection');
-    Analytics.photoImportCandidateSelected({
-      countryCode: candidate.countryCode,
-      clusterCount: candidate.locationClusterIds.length,
-    });
-  }, []);
-
-  /**
-   * Select a trip and proceed to suggestions phase.
-   * Accepts optional candidate parameter to use when called in the same
-   * render cycle as selectCandidate (avoids stale closure).
-   * Persists the candidate selection so it's remembered next time.
-   */
-  const selectTrip = useCallback(
-    async (tripIdToSelect: string, candidate?: TripCandidateDisplay) => {
-      const candidateToUse = candidate ?? selectedCandidate;
-      if (!candidateToUse) {
-        if (__DEV__) console.warn('[PhotoImport] selectTrip called without candidate');
-        return;
-      }
-
-      // Track current candidate for race condition detection
-      currentCandidateIdRef.current = candidateToUse.id;
-
-      setSelectedTripId(tripIdToSelect);
-      setPhase('suggestions');
-
-      // Persist the candidate selection for this destination trip
-      setLastSelectedCandidateId(tripIdToSelect, candidateToUse.id).catch(() => {
-        // Swallow persistence errors - not critical
-      });
-
-      await fetchSuggestions(candidateToUse);
-    },
-    [fetchSuggestions, selectedCandidate]
-  );
-
-  const backToCandidates = useCallback(() => {
-    setSelectedCandidate(null);
-    setSelectedTripId(null);
-    setPhase('candidates');
-    suggestPlacesMutation.reset();
-  }, [suggestPlacesMutation]);
-
-  const backToTripSelection = useCallback(() => {
-    setSelectedTripId(null);
-    setPhase('trip-selection');
-    suggestPlacesMutation.reset();
-  }, [suggestPlacesMutation]);
-
-  /**
-   * Switch to a different photo trip candidate (for same country).
-   * Keeps the destination trip the same, just refetches suggestions for new candidate.
-   * Persists the selection so it's remembered next time.
-   *
-   * Uses a ref to track the current candidate ID to prevent race conditions
-   * when the user rapidly switches between candidates.
-   */
-  const switchCandidate = useCallback(
-    async (newCandidate: TripCandidateDisplay) => {
-      if (!selectedTripId) return;
-
-      // Track current candidate to detect if user switched during async operations
-      currentCandidateIdRef.current = newCandidate.id;
-
-      // Reset existing suggestions (both API mutation and cached)
-      suggestPlacesMutation.reset();
-      clearFetchedCache();
-
-      // Update selected candidate
-      setSelectedCandidate(newCandidate);
-
-      // Persist the selection for this destination trip
-      setLastSelectedCandidateId(selectedTripId, newCandidate.id).catch(() => {
-        // Swallow persistence errors - not critical
-      });
-
-      // Fetch suggestions for new candidate
-      await fetchSuggestions(newCandidate);
-
-      // Note: fetchSuggestions handles its own state updates via React Query mutation.
-      // If user switched candidates during the fetch, the mutation.reset() call in the
-      // new switchCandidate invocation will have already cleared the stale results.
-    },
-    [selectedTripId, suggestPlacesMutation, clearFetchedCache, fetchSuggestions]
-  );
+  const {
+    handlePremiumGate,
+    selectCandidate,
+    selectTrip,
+    backToCandidates,
+    backToTripSelection,
+    switchCandidate,
+  } = useWorkflowNavigation({
+    selectedCandidate,
+    selectedTripId,
+    isPremium,
+    canImportPhotos,
+    currentCandidateIdRef,
+    setSelectedCandidate,
+    setSelectedTripId,
+    setPhase,
+    fetchSuggestions,
+    resetSuggestPlacesMutation: suggestPlacesMutation.reset,
+    clearFetchedCache,
+  });
 
   // ==========================================================================
-  // Auto-start effect
+  // Auto-start Effect Hook
   // ==========================================================================
-  useEffect(() => {
-    if (autoStart && filterCountryCode && !autoStartAttemptedRef.current && homeCountry) {
-      autoStartAttemptedRef.current = true;
-
-      (async () => {
-        const lastImport = await getLastImportTime();
-        if (!lastImport) {
-          // No previous import - can't auto-start
-          return;
-        }
-
-        // If skipToSuggestions is enabled, load from cache directly
-        if (skipToSuggestions) {
-          const allCachedPhotos = await getAllCachedPhotos();
-          if (allCachedPhotos.length === 0) {
-            // Cache empty, fallback to normal scan
-            startScan(false);
-            return;
-          }
-
-          // Build candidates from cache (fast - no device scanning)
-          const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
-          let candidates = optimizedData.candidates;
-
-          // Filter to the requested country
-          candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
-
-          if (candidates.length === 0) {
-            // No candidates for this country - shouldn't happen if UI showed button
-            // but fallback to scan just in case
-            startScan(false);
-            return;
-          }
-
-          // Set state from cache (photoLookup only stored in ref - not needed for UI updates)
-          setClusterLookup(optimizedData.clusterLookup);
-          setClusterDisplays(optimizedData.clusterDisplays);
-          photoLookupRef.current = optimizedData.photoLookup;
-          clusterLookupRef.current = optimizedData.clusterLookup;
-          clusterDisplaysRef.current = optimizedData.clusterDisplays;
-          setTripCandidates(candidates);
-          setLastImportTimeState(lastImport);
-          setIsIncremental(true);
-
-          // If tripId is provided with skipToSuggestions, go directly to suggestions phase
-          if (tripId && candidates.length > 0) {
-            // Check for a previously selected candidate for this destination trip
-            const lastCandidateId = await getLastSelectedCandidateId(tripId);
-            let candidate = candidates[0]; // Default to first
-
-            if (lastCandidateId) {
-              const rememberedCandidate = candidates.find((c) => c.id === lastCandidateId);
-              if (rememberedCandidate) {
-                candidate = rememberedCandidate;
-              }
-            }
-
-            // Track current candidate for race condition detection
-            currentCandidateIdRef.current = candidate.id;
-
-            setSelectedCandidate(candidate);
-            setSelectedTripId(tripId);
-            setPhase('suggestions');
-            fetchSuggestions(candidate);
-
-            Analytics.photoImportCandidateSelected({
-              countryCode: candidate.countryCode,
-              clusterCount: candidate.locationClusterIds.length,
-            });
-          } else {
-            // No tripId - show candidates for user to select
-            setPhase('candidates');
-
-            // Auto-select if single candidate (common case when filtering by country)
-            if (candidates.length === 1) {
-              setSelectedCandidate(candidates[0]);
-              Analytics.photoImportCandidateSelected({
-                countryCode: candidates[0].countryCode,
-                clusterCount: candidates[0].locationClusterIds.length,
-              });
-            }
-          }
-        } else {
-          // Normal incremental scan
-          startScan(false);
-        }
-      })();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, filterCountryCode, homeCountry, skipToSuggestions]);
+  useAutoStartWorkflow({
+    autoStart,
+    filterCountryCode,
+    tripId,
+    skipToSuggestions,
+    homeCountry,
+    subscriptionStatus,
+    isPremium,
+    canImportPhotos,
+    currentCandidateIdRef,
+    startScan,
+    handlePremiumGate,
+    fetchSuggestions,
+    setClusterLookup,
+    setClusterDisplays,
+    photoLookupRef,
+    clusterLookupRef,
+    clusterDisplaysRef,
+    setTripCandidates,
+    setLastImportTimeState,
+    setIsIncremental,
+    setSelectedCandidate,
+    setSelectedTripId,
+    setPhase,
+  });
 
   // ==========================================================================
-  // Workflow Analytics: Start timing when entering suggestions phase
-  // ==========================================================================
-  useEffect(() => {
-    if (phase === 'suggestions' && selectedCandidate && !workflowStartTimeRef.current) {
-      workflowStartTimeRef.current = Date.now();
-      workflowTotalClustersRef.current = selectedCandidate.locationClusterIds.length;
-      workflowConfirmedCountRef.current = 0;
-      workflowRejectedCountRef.current = 0;
-      workflowHiddenCountRef.current = 0;
-      workflowCompletedRef.current = false;
-    }
-    // Reset tracking when leaving suggestions phase
-    if (phase !== 'suggestions') {
-      workflowStartTimeRef.current = null;
-    }
-  }, [phase, selectedCandidate]);
-
-  // ==========================================================================
-  // Workflow Analytics: Track clusters with suggestions for success rate
-  // ==========================================================================
-  // Extract stable data reference to avoid recalculating on mutation object changes
-  const apiSuggestionsData = suggestPlacesMutation.data?.suggestions;
-
-  useEffect(() => {
-    // Count clusters that have at least one suggestion (from API or cache)
-    // Use a Set to deduplicate by cluster_id (cached suggestions take precedence)
-    const seenClusterIds = new Set<string>();
-    let clustersWithSuggestions = 0;
-
-    // Count from cached suggestions first
-    for (const s of cachedSuggestions) {
-      if (!seenClusterIds.has(s.cluster_id)) {
-        seenClusterIds.add(s.cluster_id);
-        if (s.places.length > 0) clustersWithSuggestions++;
-      }
-    }
-
-    // Count from API suggestions (skip duplicates)
-    if (apiSuggestionsData) {
-      for (const s of apiSuggestionsData) {
-        if (!seenClusterIds.has(s.cluster_id)) {
-          seenClusterIds.add(s.cluster_id);
-          if (s.places.length > 0) clustersWithSuggestions++;
-        }
-      }
-    }
-
-    workflowClustersWithSuggestionsRef.current = clustersWithSuggestions;
-  }, [apiSuggestionsData, cachedSuggestions]);
-
-  // ==========================================================================
-  // Workflow Analytics: Track completion
-  // ==========================================================================
-  useEffect(() => {
-    if (!selectedCandidate || !workflowStartTimeRef.current || workflowCompletedRef.current) {
-      return;
-    }
-
-    const totalClusters = workflowTotalClustersRef.current;
-    const processedClusters =
-      workflowConfirmedCountRef.current +
-      workflowRejectedCountRef.current +
-      workflowHiddenCountRef.current;
-
-    if (processedClusters >= totalClusters && totalClusters > 0) {
-      workflowCompletedRef.current = true;
-
-      const successRate =
-        totalClusters > 0
-          ? Math.round((workflowClustersWithSuggestionsRef.current / totalClusters) * 100)
-          : 0;
-      const acceptanceRate =
-        totalClusters > 0
-          ? Math.round((workflowConfirmedCountRef.current / totalClusters) * 100)
-          : 0;
-
-      Analytics.photoImportWorkflowCompleted({
-        totalClusters,
-        confirmedCount: workflowConfirmedCountRef.current,
-        rejectedCount: workflowRejectedCountRef.current,
-        hiddenCount: workflowHiddenCountRef.current,
-        workflowDurationMs: Date.now() - workflowStartTimeRef.current,
-        successRate,
-        acceptanceRate,
-      });
-    }
-  }, [selectedCandidate, dismissedClusterIdsInternal]);
-
-  // ==========================================================================
-  // Cleanup on unmount - clear fetched cache and track workflow exit
+  // Cleanup on unmount - clear fetched cache
   // ==========================================================================
   useEffect(() => {
     return () => {
-      // Track workflow exit if we had started but didn't complete
-      if (
-        workflowStartTimeRef.current &&
-        !workflowCompletedRef.current &&
-        workflowTotalClustersRef.current > 0
-      ) {
-        const totalClusters = workflowTotalClustersRef.current;
-        const processedClusters =
-          workflowConfirmedCountRef.current +
-          workflowRejectedCountRef.current +
-          workflowHiddenCountRef.current;
-        const remainingClusters = totalClusters - processedClusters;
-
-        if (remainingClusters > 0) {
-          Analytics.photoImportWorkflowExited({
-            totalClusters,
-            processedClusters,
-            remainingClusters,
-            workflowDurationMs: Date.now() - workflowStartTimeRef.current,
-          });
-        }
-      }
-
       clearFetchedCache();
     };
   }, [clearFetchedCache]);

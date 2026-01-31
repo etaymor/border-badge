@@ -22,6 +22,7 @@ class UsageLimits(BaseModel):
 
     share_extension_count: int
     share_extension_limit: int
+    share_extension_period_start: datetime | None = None
     photo_import_count: int
     photo_import_limit: int
     entries_per_trip_limit: int

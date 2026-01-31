@@ -101,7 +101,7 @@ struct ShareCaptureError: Equatable {
 
     static func freeLimitReached() -> ShareCaptureError {
         ShareCaptureError(
-            message: "You've used all 5 free saves. Open Atlasi to upgrade and save unlimited places.",
+            message: "You've used your 5 free saves this month. Open Atlasi to upgrade for unlimited saves.",
             canRetry: false,
             canManualEntry: false,
             canSaveForLater: false
@@ -374,6 +374,10 @@ class ShareCaptureViewModel: ObservableObject {
 
             // Mark that user has used share extension (for tutorial dismissal in main app)
             AppGroupStorage.markShareExtensionUsed()
+
+            // Increment local usage count (optimistic update for immediate UX feedback)
+            // Backend also increments; this ensures Share Extension shows correct remaining count
+            AppGroupStorage.incrementShareExtensionUsage()
 
             // Track success
             AnalyticsQueue.track("share_extension_success", properties: [

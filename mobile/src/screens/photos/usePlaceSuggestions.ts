@@ -62,9 +62,11 @@ export function usePlaceSuggestions({
    * When currentCandidateIdRef is provided, this function checks for stale
    * responses caused by rapid candidate switching. If the candidate ID changes
    * during an async operation, results are discarded to prevent race conditions.
+   *
+   * Returns undefined on success, or { gatedByPremium: true } if user hit premium limit.
    */
   const fetchSuggestions = useCallback(
-    async (candidate: TripCandidateDisplay) => {
+    async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
       // Capture the candidate ID at the start to detect stale responses
       const requestCandidateId = candidate.id;
 
@@ -79,7 +81,7 @@ export function usePlaceSuggestions({
         if (__DEV__) {
           console.log('[PhotoImport] Skipping fetch - already processed:', candidate.id);
         }
-        return;
+        return undefined;
       }
 
       const currentClusterLookup = clusterLookupRef.current;
@@ -94,7 +96,7 @@ export function usePlaceSuggestions({
           console.log('[PhotoImport] No clusters found for candidate:', candidate.id);
         }
         fetchedCandidatesRef.current.add(candidate.id);
-        return;
+        return undefined;
       }
 
       // Check SQLite cache for existing suggestions
@@ -131,7 +133,7 @@ export function usePlaceSuggestions({
         if (__DEV__) {
           console.log('[PhotoImport] Discarding stale cached results for:', requestCandidateId);
         }
-        return;
+        return undefined;
       }
 
       // Store cached results for the UI to merge with API results
@@ -143,6 +145,20 @@ export function usePlaceSuggestions({
       const totalClusterCount = allClusters.length;
       const cacheHitRate =
         totalClusterCount > 0 ? Math.round((cachedClusterCount / totalClusterCount) * 100) : 0;
+
+      // Check premium gating before continuing (even for cache-only results)
+      // Free users get 1 photo trip import; gate any additional imports regardless of cache hit
+      if (!isPremium && !canImportPhotos) {
+        // User has exhausted their free photo trip import
+        // Return the cached results only - they need to upgrade for API calls
+        if (__DEV__) {
+          console.log('[PhotoImport] Premium gate: User has used free photo trip import');
+        }
+        // Mark candidate as processed to prevent re-fetching
+        fetchedCandidatesRef.current.add(candidate.id);
+        // Return special marker that caller can check to show paywall
+        return { gatedByPremium: true };
+      }
 
       // If all clusters are cached, we're done - no API call needed
       if (uncachedClusters.length === 0) {
@@ -163,18 +179,7 @@ export function usePlaceSuggestions({
             cacheHitRate: 100,
           });
         }
-        return;
-      }
-
-      // Check premium gating before making API calls
-      // Free users get 1 photo trip import (counted when API calls are made, not cached results)
-      if (!isPremium && !canImportPhotos) {
-        // User has exhausted their free photo trip import
-        // Return the cached results only - they need to upgrade for API calls
-        if (__DEV__) {
-          console.log('[PhotoImport] Premium gate: User has used free photo trip import');
-        }
-        return { gatedByPremium: true };
+        return undefined;
       }
 
       // Fetch uncached clusters from API
@@ -239,7 +244,7 @@ export function usePlaceSuggestions({
           }
           // Note: We still cached the results above, which is fine - they'll be used
           // if the user switches back to this candidate
-          return;
+          return undefined;
         }
 
         // Mark candidate as processed
@@ -293,6 +298,8 @@ export function usePlaceSuggestions({
           );
         }
       }
+
+      return undefined;
     },
     [
       suggestPlacesMutation,

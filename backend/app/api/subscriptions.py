@@ -79,7 +79,7 @@ async def get_usage_limits(
     result = await db.get(
         "user_profile",
         params={
-            "select": "usage_share_extension_count,usage_photo_import_count",
+            "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start",
             "id": f"eq.{user.id}",
         },
     )
@@ -88,9 +88,31 @@ async def get_usage_limits(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     profile = result[0]
+
+    # Calculate effective share extension count (reset if new month)
+    # NOTE: The client uses the returned period_start to compute its own display hint.
+    # Clients may have timezone mismatches and show "available saves" incorrectly, but
+    # the actual enforcement happens in increment_share_extension_usage RPC which is
+    # server-authoritative. See increment_share_extension_usage for the actual reset logic.
+    share_extension_count = profile.get("usage_share_extension_count") or 0
+    period_start_str = profile.get("usage_share_extension_period_start")
+    period_start: datetime | None = None
+
+    if period_start_str:
+        period_start = datetime.fromisoformat(period_start_str.replace("Z", "+00:00"))
+        current_month_start = datetime.now(UTC).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+
+        # If period is from previous month, count is effectively 0
+        if period_start < current_month_start:
+            share_extension_count = 0
+            period_start = None  # Signal that period has reset
+
     return UsageLimits(
-        share_extension_count=profile.get("usage_share_extension_count") or 0,
+        share_extension_count=share_extension_count,
         share_extension_limit=FREE_LIMITS["share_extension"],
+        share_extension_period_start=period_start,
         photo_import_count=profile.get("usage_photo_import_count") or 0,
         photo_import_limit=FREE_LIMITS["photo_import"],
         entries_per_trip_limit=FREE_LIMITS["entries_per_trip"],
@@ -183,6 +205,12 @@ async def can_add_entry(
             "deleted_at": "is.null",
         },
     )
+
+    if entries_result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to check entry count. Please try again.",
+        )
 
     count = len(entries_result)
     limit = FREE_LIMITS["entries_per_trip"]
@@ -285,18 +313,29 @@ async def verify_subscription(
         # Use RPC with current time as timestamp to ensure proper event ordering
         # This ensures verify calls respect concurrent webhook updates
         now = datetime.now(UTC)
-        await db.rpc(
-            "update_subscription_if_newer",
-            {
-                "p_user_id": str(user.id),
-                "p_status": new_status,
-                "p_plan": plan,
-                "p_expires_at": expires_at.isoformat() if expires_at else None,
-                "p_revenuecat_id": customer_id,
-                "p_event_timestamp_ms": int(now.timestamp() * 1000),
-                "p_event_id": f"verify-{user.id}-{now.isoformat()}",
-            },
-        )
+        event_id = f"verify-{user.id}-{now.isoformat()}"
+        try:
+            await db.rpc(
+                "update_subscription_if_newer",
+                {
+                    "p_user_id": str(user.id),
+                    "p_status": new_status,
+                    "p_plan": plan,
+                    "p_expires_at": expires_at.isoformat() if expires_at else None,
+                    "p_revenuecat_id": customer_id,
+                    "p_event_timestamp_ms": int(now.timestamp() * 1000),
+                    "p_event_id": event_id,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to update subscription in DB: user_id={user.id}, "
+                f"event_id={event_id}, error={e}"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Subscription verified with RevenueCat but failed to update database",
+            ) from None
 
         return VerifySubscriptionResponse(
             status="verified", subscription_status=new_status
