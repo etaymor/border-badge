@@ -328,14 +328,14 @@ async def verify_subscription(
                 },
             )
         except Exception as e:
+            # DB update failed but RevenueCat verification succeeded.
+            # Return success to user - they ARE subscribed, and the next
+            # RevenueCat webhook will eventually sync the DB state.
             logger.error(
                 f"Failed to update subscription in DB: user_id={user.id}, "
-                f"event_id={event_id}, error={e}"
+                f"event_id={event_id}, error={e}. "
+                "Returning success since RevenueCat verification passed."
             )
-            raise HTTPException(
-                status_code=502,
-                detail="Subscription verified with RevenueCat but failed to update database",
-            ) from None
 
         return VerifySubscriptionResponse(
             status="verified", subscription_status=new_status
