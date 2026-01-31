@@ -375,6 +375,10 @@ class ShareCaptureViewModel: ObservableObject {
             // Mark that user has used share extension (for tutorial dismissal in main app)
             AppGroupStorage.markShareExtensionUsed()
 
+            // Increment local usage count (optimistic update for immediate UX feedback)
+            // Backend also increments; this ensures Share Extension shows correct remaining count
+            AppGroupStorage.incrementShareExtensionUsage()
+
             // Track success
             AnalyticsQueue.track("share_extension_success", properties: [
                 "category": entryType.rawValue,

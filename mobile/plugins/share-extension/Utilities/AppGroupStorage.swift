@@ -297,4 +297,23 @@ enum AppGroupStorage {
         let usage = getShareExtensionUsage()  // Period-adjusted
         return max(0, freeShareExtensionLimit - usage)
     }
+
+    /// Increment share extension usage count locally (optimistic update after successful save)
+    /// This ensures the Share Extension shows correct remaining count without waiting for main app sync.
+    /// The backend has the authoritative count; this is for immediate UX feedback.
+    static func incrementShareExtensionUsage() {
+        let currentUsage = getShareExtensionUsageRaw()
+        let newUsage = currentUsage + 1
+        userDefaults?.set(String(newUsage), forKey: usageShareExtensionKey)
+
+        // If period was reset (nil or old month), set period start to now
+        if hasShareExtensionPeriodReset() {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let nowString = formatter.string(from: Date())
+            userDefaults?.set(nowString, forKey: usageShareExtensionPeriodStartKey)
+        }
+
+        NSLog("[Atlasi AppGroupStorage] Incremented share extension usage to \(newUsage)")
+    }
 }

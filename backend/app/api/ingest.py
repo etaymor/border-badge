@@ -398,6 +398,20 @@ async def save_to_trip(
     entry = Entry(**entry_row)
     place = Place(**place_row) if place_row else None
 
+    # Increment share extension usage count (fire-and-forget, don't fail on error)
+    try:
+        await db.rpc("increment_share_extension_usage", {"p_user_id": user.id})
+    except Exception as e:
+        # Log but don't fail the request - entry was already created successfully
+        logger.warning(
+            "share_extension_usage_increment_failed",
+            extra={
+                "event": "usage_increment_error",
+                "user_id": str(user.id),
+                "error": str(e)[:200],
+            },
+        )
+
     logger.info(
         "save_to_trip_completed",
         extra={
