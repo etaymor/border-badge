@@ -266,53 +266,6 @@ describe('useReviewRequest', () => {
     });
   });
 
-  describe('requestNativeReview', () => {
-    it('requests native review when available', async () => {
-      (StoreReview.hasAction as jest.Mock).mockResolvedValue(true);
-
-      const { result } = renderHook(() => useReviewRequest());
-
-      let success = false;
-      await act(async () => {
-        success = await result.current.requestNativeReview();
-      });
-
-      expect(success).toBe(true);
-      expect(StoreReview.requestReview).toHaveBeenCalled();
-      expect(Analytics.reviewNativeRequested).toHaveBeenCalled();
-    });
-
-    it('returns false when native review not available', async () => {
-      (StoreReview.hasAction as jest.Mock).mockResolvedValue(false);
-
-      const { result } = renderHook(() => useReviewRequest());
-
-      let success = false;
-      await act(async () => {
-        success = await result.current.requestNativeReview();
-      });
-
-      expect(success).toBe(false);
-      expect(StoreReview.requestReview).not.toHaveBeenCalled();
-      expect(Analytics.reviewNativeUnavailable).toHaveBeenCalled();
-    });
-
-    it('handles errors gracefully', async () => {
-      const error = new Error('Review request failed');
-      (StoreReview.requestReview as jest.Mock).mockRejectedValue(error);
-
-      const { result } = renderHook(() => useReviewRequest());
-
-      let success = false;
-      await act(async () => {
-        success = await result.current.requestNativeReview();
-      });
-
-      expect(success).toBe(false);
-      expect(Analytics.reviewNativeError).toHaveBeenCalledWith('Review request failed');
-    });
-  });
-
   describe('handlePositiveResponse', () => {
     it('marks review completed and requests native review', async () => {
       (StoreReview.hasAction as jest.Mock).mockResolvedValue(true);

@@ -42,7 +42,7 @@ describe('SatisfactionModal', () => {
     jest.clearAllMocks();
     // Use spyOn to mock Linking methods
     jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
-    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as any);
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as unknown as void);
   });
 
   afterEach(() => {
@@ -115,9 +115,7 @@ describe('SatisfactionModal', () => {
     });
 
     it('continues despite haptic feedback failure', async () => {
-      (Haptics.impactAsync as jest.Mock).mockRejectedValueOnce(
-        new Error('Haptics unavailable')
-      );
+      (Haptics.impactAsync as jest.Mock).mockRejectedValueOnce(new Error('Haptics unavailable'));
 
       const { getByLabelText } = render(
         <SatisfactionModal
@@ -262,9 +260,7 @@ describe('SatisfactionModal', () => {
     });
 
     it('continues despite haptic feedback failure on negative button', async () => {
-      (Haptics.impactAsync as jest.Mock).mockRejectedValueOnce(
-        new Error('Haptics unavailable')
-      );
+      (Haptics.impactAsync as jest.Mock).mockRejectedValueOnce(new Error('Haptics unavailable'));
       (Linking.canOpenURL as jest.Mock).mockResolvedValue(false);
 
       const { getByLabelText } = render(
@@ -327,9 +323,7 @@ describe('SatisfactionModal', () => {
         />
       );
 
-      expect(
-        getByText('Your feedback helps us improve the app for everyone.')
-      ).toBeTruthy();
+      expect(getByText('Your feedback helps us improve the app for everyone.')).toBeTruthy();
     });
 
     it('displays correct positive button text', () => {
