@@ -169,11 +169,13 @@ export default function App() {
         share_extension_period_start: string | null;
         photo_import_count: number;
       }>('/subscriptions/usage');
-      useSubscriptionStore.getState().setUsageLimits(
-        response.data.share_extension_count,
-        response.data.photo_import_count,
-        response.data.share_extension_period_start
-      );
+      useSubscriptionStore
+        .getState()
+        .setUsageLimits(
+          response.data.share_extension_count,
+          response.data.photo_import_count,
+          response.data.share_extension_period_start
+        );
     } catch (error) {
       // Silent failure - usage limits will remain at defaults
       // Backend is source of truth; this is just for UX optimization
