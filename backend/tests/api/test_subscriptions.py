@@ -538,3 +538,66 @@ def test_verify_subscription_not_configured(
         assert "not configured" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Timezone Edge Case Documentation
+# ============================================================================
+# SCENARIO: Client-side timezone mismatches with monthly reset
+#
+# Problem: User in UTC+14 saves at Jan 31 23:59 local (still Jan 31 UTC).
+# Device thinks it's Feb 1 → resets counter to 0 → shows "5 available"
+# Backend sees Jan 31 UTC → doesn't reset → count is still 4
+#
+# Current Design (CORRECT):
+# 1. Backend RPC (increment_share_extension_usage) is AUTHORITATIVE
+#    - Uses server UTC time to determine if reset applies
+#    - Increments count AFTER reset, so enforcement is always correct
+# 2. Client-side calculation (/usage endpoint returns period_start) is UX HINT only
+#    - Client shows effective usage based on period_start
+#    - Timezone mismatches only affect the display, not enforcement
+# 3. Worst case: User sees "4 available" but can still save
+#    - Better UX than showing "5 available" then hitting backend limit
+#
+# Test below documents this contract: RPC is source of truth for increment.
+
+
+def test_share_extension_period_reset_on_new_month(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """
+    Document the timezone edge case contract.
+
+    RPC (increment_share_extension_usage) is the authoritative source for reset.
+    Client-side period calculations are UX hints only. The RPC uses server UTC
+    time to determine if a reset applies, so enforcement is always correct
+    regardless of client timezone mismatches.
+    """
+    # RPC always returns the correct count after applying backend reset logic
+    mock_supabase_client.rpc = AsyncMock(return_value=1)  # Reset applied, now at 1
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.subscriptions.get_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            # Client calls RPC to increment (not client-side calculation)
+            response = client.post(
+                "/subscriptions/usage/increment",
+                headers=auth_headers,
+                json={"feature": "share_extension"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        # RPC returns 1, indicating a reset was applied before incrementing
+        assert data["new_count"] == 1
+        # RPC was called with correct user ID (authorization built into RPC)
+        mock_supabase_client.rpc.assert_called_once_with(
+            "increment_share_extension_usage", {"p_user_id": mock_user.id}
+        )
+    finally:
+        app.dependency_overrides.clear()

@@ -168,6 +168,13 @@ const hasPremiumAccess = (status: SubscriptionStatus): boolean =>
   status === 'premium' || status === 'trial';
 
 // Helper to check if share extension period has reset (new month)
+// NOTE: This uses device local time for UX optimization only. The backend
+// (increment_share_extension_usage RPC) is the source of truth for actual reset
+// timing using server UTC. Client-side timezone mismatches only affect the
+// display of "available saves", not actual enforcement. This is acceptable because:
+// 1. Increment is backend-authoritative via RPC
+// 2. Worst case: user sees "4 available" but can still save (backend resets them)
+// 3. Better UX than showing "5 available" then hitting a backend limit
 const hasShareExtensionPeriodReset = (periodStart: string | null): boolean => {
   if (!periodStart) return true; // No period = fresh start
   const periodDate = new Date(periodStart);

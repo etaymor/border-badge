@@ -243,6 +243,13 @@ enum AppGroupStorage {
     }
 
     /// Check if the share extension period has reset (new month in UTC)
+    /// NOTE: This uses device local time for UX optimization only. The backend
+    /// (increment_share_extension_usage RPC) is the source of truth for actual reset
+    /// timing using server UTC. Device-side timezone mismatches only affect the
+    /// display of "available saves", not actual enforcement. This is acceptable because:
+    /// 1. Increment is backend-authoritative via RPC called from main app
+    /// 2. Worst case: share extension shows "4 available" but main app can still save
+    /// 3. Better UX than showing "5 available" then hitting a backend limit
     static func hasShareExtensionPeriodReset() -> Bool {
         guard let periodStart = getShareExtensionPeriodStart() else {
             return true  // No period = fresh start

@@ -90,14 +90,16 @@ async def get_usage_limits(
     profile = result[0]
 
     # Calculate effective share extension count (reset if new month)
+    # NOTE: The client uses the returned period_start to compute its own display hint.
+    # Clients may have timezone mismatches and show "available saves" incorrectly, but
+    # the actual enforcement happens in increment_share_extension_usage RPC which is
+    # server-authoritative. See increment_share_extension_usage for the actual reset logic.
     share_extension_count = profile.get("usage_share_extension_count") or 0
     period_start_str = profile.get("usage_share_extension_period_start")
     period_start: datetime | None = None
 
     if period_start_str:
-        period_start = datetime.fromisoformat(
-            period_start_str.replace("Z", "+00:00")
-        )
+        period_start = datetime.fromisoformat(period_start_str.replace("Z", "+00:00"))
         current_month_start = datetime.now(UTC).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )
@@ -305,18 +307,29 @@ async def verify_subscription(
         # Use RPC with current time as timestamp to ensure proper event ordering
         # This ensures verify calls respect concurrent webhook updates
         now = datetime.now(UTC)
-        await db.rpc(
-            "update_subscription_if_newer",
-            {
-                "p_user_id": str(user.id),
-                "p_status": new_status,
-                "p_plan": plan,
-                "p_expires_at": expires_at.isoformat() if expires_at else None,
-                "p_revenuecat_id": customer_id,
-                "p_event_timestamp_ms": int(now.timestamp() * 1000),
-                "p_event_id": f"verify-{user.id}-{now.isoformat()}",
-            },
-        )
+        event_id = f"verify-{user.id}-{now.isoformat()}"
+        try:
+            await db.rpc(
+                "update_subscription_if_newer",
+                {
+                    "p_user_id": str(user.id),
+                    "p_status": new_status,
+                    "p_plan": plan,
+                    "p_expires_at": expires_at.isoformat() if expires_at else None,
+                    "p_revenuecat_id": customer_id,
+                    "p_event_timestamp_ms": int(now.timestamp() * 1000),
+                    "p_event_id": event_id,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to update subscription in DB: user_id={user.id}, "
+                f"event_id={event_id}, error={e}"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Subscription verified with RevenueCat but failed to update database",
+            ) from None
 
         return VerifySubscriptionResponse(
             status="verified", subscription_status=new_status

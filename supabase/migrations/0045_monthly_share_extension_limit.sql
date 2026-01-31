@@ -24,8 +24,8 @@ BEGIN
         RAISE EXCEPTION 'Unauthorized: can only increment your own usage';
     END IF;
 
-    -- Calculate start of current UTC month
-    current_month_start := date_trunc('month', NOW() AT TIME ZONE 'UTC');
+    -- Calculate start of current UTC month (as TIMESTAMPTZ for correct comparison)
+    current_month_start := timezone('UTC', date_trunc('month', NOW() AT TIME ZONE 'UTC'));
 
     -- Get current period start
     SELECT usage_share_extension_period_start INTO current_period_start

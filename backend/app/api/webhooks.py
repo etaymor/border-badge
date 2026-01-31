@@ -93,17 +93,27 @@ async def revenuecat_webhook(
     elif "Weekly" in product_id or "weekly" in product_id:
         subscription_plan = "weekly"
 
-    # Get expiration date
+    # Get expiration date with type validation
     expiration_ms = event.get("expiration_at_ms")
     expires_at: str | None = None
-    if expiration_ms:
-        expires_at = datetime.fromtimestamp(expiration_ms / 1000, tz=UTC).isoformat()
+    if expiration_ms and isinstance(expiration_ms, int | float):
+        try:
+            expires_at = datetime.fromtimestamp(
+                expiration_ms / 1000, tz=UTC
+            ).isoformat()
+        except (ValueError, OSError) as e:
+            logger.warning(f"Invalid expiration_ms: {expiration_ms}, error: {e}")
+            expires_at = None
 
     # Get event timestamp for ordering - required for idempotency
     event_timestamp_ms = event.get("event_timestamp_ms")
-    if not event_timestamp_ms or not isinstance(event_timestamp_ms, int):
+    if (
+        not event_timestamp_ms
+        or not isinstance(event_timestamp_ms, int)
+        or event_timestamp_ms <= 0
+    ):
         logger.warning(
-            f"RevenueCat webhook: Missing or invalid event_timestamp_ms for event {event_id}"
+            f"RevenueCat webhook: Invalid event_timestamp_ms: {event_timestamp_ms}"
         )
         return {"status": "ignored", "reason": "invalid_timestamp"}
 
