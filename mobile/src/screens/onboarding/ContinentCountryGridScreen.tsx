@@ -227,12 +227,17 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<TextInput>(null);
 
+  // Track screen focus to prevent tooltip from showing after navigation
+  const isFocusedRef = useRef(true);
+
   // Dismiss keyboard, close search, and hide tooltip when navigating away
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
+      isFocusedRef.current = true;
       Keyboard.dismiss();
     });
     const unsubscribeBlur = navigation.addListener('blur', () => {
+      isFocusedRef.current = false;
       Keyboard.dismiss();
       setSearchVisible(false);
       setSearchQuery('');
@@ -261,7 +266,9 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   // Show tooltip after first card animates in (first time any grid is shown during onboarding)
   useEffect(() => {
-    if (isFirstComplete && !countryGridTooltipShown) {
+    // Only show tooltip when screen is focused to prevent showing over other screens
+    // after navigation (e.g., when onboarding store resets and countryGridTooltipShown becomes false)
+    if (isFirstComplete && !countryGridTooltipShown && isFocusedRef.current) {
       // Measure immediately - no delay needed since first card is already visible
       firstCardRef.current?.measureInWindow((x, y, width, height) => {
         if (width > 0 && height > 0) {

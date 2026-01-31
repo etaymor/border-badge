@@ -594,3 +594,178 @@ class TestTryLlmExtraction:
 
                 # Injection pattern should be stripped
                 assert "IGNORE PREVIOUS INSTRUCTIONS" not in user_message
+
+    @pytest.mark.asyncio
+    async def test_handles_timeout_exception(
+        self, mock_try_candidate, mock_extract_location_hints
+    ):
+        """Handles timeout from OpenRouter API gracefully."""
+        import httpx
+
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.side_effect = httpx.TimeoutException("Request timed out")
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_extraction(
+                    "Test",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+                # Should return None on timeout, not raise
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_handles_request_error(
+        self, mock_try_candidate, mock_extract_location_hints
+    ):
+        """Handles network request errors gracefully."""
+        import httpx
+
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.side_effect = httpx.RequestError("Connection failed")
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_extraction(
+                    "Test",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+                # Should return None on request error, not raise
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_handles_json_decode_error(
+        self, mock_try_candidate, mock_extract_location_hints
+    ):
+        """Handles invalid JSON response from API gracefully."""
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        # Simulate invalid JSON response
+        mock_response.json.side_effect = ValueError("Invalid JSON")
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_extraction(
+                    "Test",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+                # Should return None on JSON decode error, not raise
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_handles_key_error_in_response(
+        self, mock_try_candidate, mock_extract_location_hints
+    ):
+        """Handles malformed API response with missing keys gracefully."""
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        # Return a response that will cause KeyError when accessing nested keys
+        mock_response.json.return_value = {"unexpected_key": "value"}
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_extraction(
+                    "Test",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+                # Should return None on malformed response, not raise
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_bubbles_up(
+        self, mock_try_candidate, mock_extract_location_hints
+    ):
+        """Unexpected exceptions should bubble up and not be silently caught."""
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_http_client = AsyncMock()
+        # Simulate an unexpected exception (e.g., programming error)
+        mock_http_client.post.side_effect = RuntimeError("Unexpected internal error")
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                # Unexpected exceptions should NOT be caught
+                with pytest.raises(RuntimeError, match="Unexpected internal error"):
+                    await try_llm_extraction(
+                        "Test",
+                        "Caption",
+                        "Author",
+                        try_candidate_fn=mock_try_candidate,
+                        extract_location_hints_fn=mock_extract_location_hints,
+                    )

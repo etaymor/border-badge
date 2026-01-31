@@ -10,6 +10,7 @@ import logging
 import re
 import unicodedata
 from collections.abc import Awaitable, Callable
+from typing import Literal, cast
 
 import httpx
 
@@ -64,6 +65,9 @@ _COMPILED_INJECTION_PATTERNS = [
 
 # Valid entry types that map to the app's entry categories (lowercase to match database enum)
 VALID_ENTRY_TYPES = {"place", "stay", "food", "experience"}
+
+# Type alias for entry type
+EntryType = Literal["place", "food", "stay", "experience"]
 
 # =============================================================================
 # Prompts
@@ -258,7 +262,7 @@ async def try_llm_extraction(
         )
 
         if response.status_code != 200:
-            logger.warning(
+            logger.debug(
                 "llm_extraction_http_error",
                 extra={"status_code": response.status_code},
             )
@@ -296,29 +300,24 @@ async def try_llm_extraction(
             location_parts = [p for p in [city, country] if p]
             search_query = f"{name}, {', '.join(location_parts)}"
 
-        # Format log message with city, country, and type in development mode
-        if settings.is_development:
-            parts = [f'place="{name[:30]}"']
-            if city:
-                parts.append(f'city="{city}"')
-            if country:
-                parts.append(f'country="{country}"')
-            parts.append(f'type="{entry_type}"')
-            log_message = f"llm_extraction_success: {' | '.join(parts)}"
-        else:
-            log_message = "llm_extraction_success"
-
-        logger.info(log_message)
+        logger.info(
+            "llm_extraction_success",
+            extra={
+                "place_name": name[:30] if name else None,
+                "entry_type": entry_type,
+            },
+        )
 
         # Resolve via Google Places API using location-enriched query
         detected = await try_candidate_fn(search_query, location_bias)
         if detected:
             # Attach the LLM-predicted entry type for automatic categorization
-            detected.llm_entry_type = entry_type
+            # We've already validated entry_type is in VALID_ENTRY_TYPES above
+            detected.llm_entry_type = cast(EntryType, entry_type)
         return detected
 
     except httpx.TimeoutException:
-        logger.warning("llm_extraction_timeout")
+        logger.info("place_extraction_timeout", extra={"source": "llm"})
         return None
     except (
         httpx.RequestError,
@@ -327,5 +326,5 @@ async def try_llm_extraction(
         KeyError,
         ValueError,
     ) as e:
-        logger.warning("llm_extraction_error", extra={"error": str(e)[:100]})
+        logger.debug("llm_extraction_error", extra={"error": str(e)[:100]})
         return None

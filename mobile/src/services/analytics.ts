@@ -448,4 +448,22 @@ export const Analytics = {
       to_status: props.to,
       plan: props.plan ?? null,
     }),
+
+  // Review Request Events
+  reviewSatisfactionShown: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_shown', { trigger }),
+  reviewSatisfactionPositive: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_positive', { trigger }),
+  reviewSatisfactionNegative: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_negative', { trigger }),
+  reviewSatisfactionDismissed: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_dismissed', { trigger }),
+  reviewNativeRequested: () => track('review_native_requested'),
+  reviewNativeUnavailable: () => track('review_native_unavailable'),
+  reviewNativeError: (error: string) => track('review_native_error', { error }),
+  reviewSupportLinkTapped: () => track('review_support_link_tapped'),
 };

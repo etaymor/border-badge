@@ -198,7 +198,7 @@ async def _extract_place_impl(
             KeyError,
             ValueError,
         ) as e:
-            logger.warning("llm_extraction_failed", extra={"error": str(e)[:100]})
+            logger.debug("llm_extraction_failed", extra={"error": str(e)[:100]})
             if not llm_task.done():
                 llm_task.cancel()
         finally:
@@ -234,7 +234,7 @@ async def _extract_place_impl(
     # Collect all valid results with scores (best-match selection, not first-wins)
     scored_results: list[tuple[float, int, DetectedPlace]] = []
     for i, result in enumerate(results):
-        if result is not None and not isinstance(result, Exception):
+        if isinstance(result, DetectedPlace):
             score = score_place_result(result, location_bias, i)
             scored_results.append((score, i, result))
 
@@ -304,7 +304,7 @@ async def extract_place_with_method(
             timeout=PLACE_EXTRACTION_TIMEOUT,
         )
     except TimeoutError:
-        logger.warning("place_extraction_timeout")
+        logger.info("place_extraction_timeout")
         return ExtractionResult(None, "none")
 
 
@@ -465,5 +465,5 @@ async def extract_place_from_profile(
         return detected
 
     except TimeoutError:
-        logger.warning("place_extraction_timeout", extra={"source": "profile"})
+        logger.info("place_extraction_timeout", extra={"source": "profile"})
         return None
