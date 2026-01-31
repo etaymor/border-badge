@@ -39,7 +39,13 @@ import type { ShareCaptureSource } from '@navigation/types';
 // Note: RootStackParamList would be imported here for type-safe navigation,
 // but during LAUNCH_SIMPLIFICATION the navigation structure doesn't match types
 import { queryClient } from './src/queryClient';
-import { clearTokens, getOnboardingComplete, setSignOutCallback, storeTokens } from '@services/api';
+import {
+  api,
+  clearTokens,
+  getOnboardingComplete,
+  setSignOutCallback,
+  storeTokens,
+} from '@services/api';
 import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
 import {
   initializeRevenueCat,
@@ -153,6 +159,27 @@ export default function App() {
       console.error('Countries sync failed:', syncState.error);
     }
   }, [syncState.error]);
+
+  // Helper to fetch usage limits from backend
+  // Defined outside useEffect to keep the effect clean
+  const fetchUsageLimits = useCallback(async () => {
+    try {
+      const response = await api.get<{
+        share_extension_count: number;
+        share_extension_period_start: string | null;
+        photo_import_count: number;
+      }>('/subscriptions/usage');
+      useSubscriptionStore.getState().setUsageLimits(
+        response.data.share_extension_count,
+        response.data.photo_import_count,
+        response.data.share_extension_period_start
+      );
+    } catch (error) {
+      // Silent failure - usage limits will remain at defaults
+      // Backend is source of truth; this is just for UX optimization
+      console.warn('Failed to fetch usage limits:', error);
+    }
+  }, []);
 
   // Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
   // Note: The share extension has a production URL fallback if this hasn't completed yet,
@@ -430,6 +457,8 @@ export default function App() {
           if (onboardingComplete) {
             setHasCompletedOnboarding(true);
           }
+          // Fetch usage limits from backend (for premium gating)
+          void fetchUsageLimits();
         }
       } catch (error) {
         console.error('Failed to restore session:', error);
@@ -458,12 +487,16 @@ export default function App() {
           identifyRevenueCatUser(session.user.id).catch((error) => {
             console.error('Failed to identify RevenueCat user:', error);
           });
+          // Fetch usage limits from backend (for premium gating)
+          void fetchUsageLimits();
         } else {
           // User signed out - clear tokens first, then reset onboarding state
           await clearTokens();
           setHasCompletedOnboarding(false);
           // Reset analytics user
           resetUser();
+          // Reset subscription store to clear cached premium status and usage limits
+          useSubscriptionStore.getState().reset();
           // Log out RevenueCat user (resets to anonymous)
           logOutRevenueCatUser().catch((error) => {
             console.error('Failed to log out RevenueCat user:', error);
@@ -479,7 +512,7 @@ export default function App() {
       isMounted = false;
       subscription?.unsubscribe();
     };
-  }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding]);
+  }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding, fetchUsageLimits]);
 
   // Restore navigation state on app launch (only for authenticated users)
   useEffect(() => {
