@@ -153,6 +153,7 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 
 - `authStore` (Zustand) - Session, onboarding status, loading states
 - `onboardingStore` (Zustand + AsyncStorage) - Persisted onboarding progress
+- `subscriptionStore` (Zustand) - Subscription status, usage tracking, App Group sync
 - React Query - Server state for trips, entries, countries, media
 
 **Data Fetching Hooks:**
@@ -168,6 +169,8 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 - `usePhotoPermissions()` - Photo library permission handling
 - `usePhotoTrips()` - Access photo-discovered trips from SQLite cache with search/filter
 - `useMultiClusterUpload()` - Concurrent photo uploads from multiple location clusters
+- `useSubscription()` - Subscription purchase/restore flows
+- `usePremiumGate()` - Feature gating based on subscription status
 
 **API Client (`mobile/src/services/api.ts`):**
 
@@ -201,6 +204,9 @@ WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 | `/lists` | Shareable curated lists |
 | `/profile` | User profile |
 | `/public` | Public trip/list views |
+| `/subscriptions/status` | Get user subscription status and usage |
+| `/subscriptions/verify` | Verify subscription with RevenueCat |
+| `/webhooks/revenuecat` | RevenueCat webhook endpoint |
 
 **Authentication:**
 
@@ -306,6 +312,7 @@ The `trip` table supports system trips (like "Saved Places") via the `is_system`
 | `docs/travel-prd.md`                      | Product requirements          |
 | `docs/travel-technical-design.md`         | Technical design              |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
+| `docs/SUBSCRIPTION.md`                    | Subscription system setup     |
 
 ## Share Extension Architecture (IMPORTANT)
 
@@ -539,6 +546,68 @@ The `useMultiClusterUpload` hook enables concurrent photo uploads from multiple 
 | `mobile/src/services/photoImport/photoClustering.ts` | Geohash clustering logic |
 | `backend/app/api/photos.py` | `/photos/suggest-places` endpoint |
 | `backend/app/services/place_matcher/matcher.py` | Google Places matching |
+
+## Subscription System
+
+The app uses RevenueCat for subscription management with a freemium model.
+
+### Architecture
+
+The subscription system has three main components:
+- **Mobile**: RevenueCat SDK + Zustand store + App Group sync for Share Extension
+- **Backend**: Webhook processing + usage tracking + entry limit enforcement
+- **Database**: Subscription fields on user_profile + atomic usage increment functions
+
+### Free Tier Limits
+
+| Feature | Limit |
+|---------|-------|
+| Share Extension Uses | 5 per month |
+| Photo Import Trips | 1 (lifetime) |
+| Entries per Trip | 10 |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `mobile/src/stores/subscriptionStore.ts` | Central subscription state (FREE_LIMITS constant) |
+| `mobile/src/hooks/useSubscription.ts` | Purchase/restore flows |
+| `mobile/src/hooks/usePremiumGate.ts` | Feature gating hook |
+| `mobile/src/services/revenueCat.ts` | SDK initialization and helpers |
+| `mobile/src/services/appGroupSync.ts` | App Group sync for Share Extension |
+| `backend/app/api/webhooks.py` | RevenueCat webhook endpoint |
+| `backend/app/api/subscriptions.py` | Status/usage endpoints |
+| `backend/app/api/entries.py` | Entry limit enforcement (403 for over-limit) |
+| `docs/SUBSCRIPTION.md` | Comprehensive setup and testing guide |
+
+### Environment Variables
+
+**Mobile (`mobile/.env.local`):**
+```
+EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=appl_xxx
+EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY=goog_xxx  # Optional
+```
+
+**Backend (`backend/.env`):**
+```
+REVENUECAT_WEBHOOK_AUTH_HEADER=secure-random-string
+REVENUECAT_API_KEY=sk_xxx
+```
+
+### Feature Gating Pattern
+
+Use the `usePremiumGate` hook to gate features:
+
+```typescript
+const { canCreateEntry, showPaywall } = usePremiumGate();
+
+if (!canCreateEntry) {
+  showPaywall('entry_limit');
+  return;
+}
+```
+
+---
 
 ## Pre-Commit Checklist (REQUIRED)
 
