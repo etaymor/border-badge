@@ -20,7 +20,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -160,11 +160,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.3)',
+    borderColor: withAlpha(colors.sunsetGold, 0.3),
   },
   containerUnlinked: {
     borderStyle: 'dashed',
-    backgroundColor: 'rgba(244, 194, 78, 0.05)',
+    backgroundColor: withAlpha(colors.sunsetGold, 0.05),
   },
   iconContainer: {
     marginRight: 12,
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    backgroundColor: withAlpha(colors.sunsetGold, 0.15),
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -195,11 +195,11 @@ const styles = StyleSheet.create({
     marginLeft: -14,
   },
   thumbnailPlaceholder: {
-    backgroundColor: 'rgba(244, 194, 78, 0.15)',
+    backgroundColor: withAlpha(colors.sunsetGold, 0.15),
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.3)',
+    borderColor: withAlpha(colors.sunsetGold, 0.3),
     borderStyle: 'dashed',
   },
   textContainer: {
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(244, 194, 78, 0.1)',
+    backgroundColor: withAlpha(colors.sunsetGold, 0.1),
     justifyContent: 'center',
     alignItems: 'center',
   },
