@@ -35,6 +35,13 @@ jest.mock('@services/appGroupSync', () => ({
   syncUsageToAppGroup: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Helper to create a period start date for the current month (not reset)
+const currentMonthPeriodStart = () => {
+  const now = new Date();
+  // Set to 1st of current month at noon UTC - within current period
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 12, 0, 0)).toISOString();
+};
+
 describe('usePremiumGate', () => {
   beforeEach(() => {
     // Reset store to free user state
@@ -43,6 +50,7 @@ describe('usePremiumGate', () => {
       plan: null,
       expirationDate: null,
       shareExtensionUsage: 0,
+      shareExtensionPeriodStart: null,
       photoImportUsage: 0,
     });
     jest.clearAllMocks();
@@ -123,7 +131,10 @@ describe('usePremiumGate', () => {
       });
 
       it('returns allowed=true when usage < 5', () => {
-        useSubscriptionStore.setState({ shareExtensionUsage: 3 });
+        useSubscriptionStore.setState({
+          shareExtensionUsage: 3,
+          shareExtensionPeriodStart: currentMonthPeriodStart(),
+        });
         const { result } = renderHook(() => usePremiumGate());
         const gate = result.current.checkAccess('shareExtension');
         expect(gate.allowed).toBe(true);
@@ -133,7 +144,10 @@ describe('usePremiumGate', () => {
       });
 
       it('returns allowed=false when usage >= 5', () => {
-        useSubscriptionStore.setState({ shareExtensionUsage: 5 });
+        useSubscriptionStore.setState({
+          shareExtensionUsage: 5,
+          shareExtensionPeriodStart: currentMonthPeriodStart(),
+        });
         const { result } = renderHook(() => usePremiumGate());
         const gate = result.current.checkAccess('shareExtension');
         expect(gate.allowed).toBe(false);
@@ -143,17 +157,39 @@ describe('usePremiumGate', () => {
       });
 
       it('returns correct remaining count (5 - usage)', () => {
-        useSubscriptionStore.setState({ shareExtensionUsage: 1 });
+        useSubscriptionStore.setState({
+          shareExtensionUsage: 1,
+          shareExtensionPeriodStart: currentMonthPeriodStart(),
+        });
         const { result } = renderHook(() => usePremiumGate());
         const gate = result.current.checkAccess('shareExtension');
         expect(gate.remaining).toBe(4);
       });
 
       it('returns remaining=0 when over limit (Math.max safety)', () => {
-        useSubscriptionStore.setState({ shareExtensionUsage: 10 });
+        useSubscriptionStore.setState({
+          shareExtensionUsage: 10,
+          shareExtensionPeriodStart: currentMonthPeriodStart(),
+        });
         const { result } = renderHook(() => usePremiumGate());
         const gate = result.current.checkAccess('shareExtension');
         expect(gate.remaining).toBe(0);
+      });
+
+      it('returns allowed=true when period has reset (previous month)', () => {
+        // Set usage at limit but with an old period start (previous month)
+        const lastMonth = new Date();
+        lastMonth.setMonth(lastMonth.getMonth() - 1);
+        useSubscriptionStore.setState({
+          shareExtensionUsage: 5,
+          shareExtensionPeriodStart: lastMonth.toISOString(),
+        });
+        const { result } = renderHook(() => usePremiumGate());
+        const gate = result.current.checkAccess('shareExtension');
+        // Should be allowed because period has reset - effective usage is 0
+        expect(gate.allowed).toBe(true);
+        expect(gate.remaining).toBe(5);
+        expect(gate.used).toBe(0);
       });
     });
 
@@ -241,7 +277,11 @@ describe('usePremiumGate', () => {
     });
 
     it('returns false and navigates to PaywallModal when access denied', () => {
-      useSubscriptionStore.setState({ status: 'free', shareExtensionUsage: 5 });
+      useSubscriptionStore.setState({
+        status: 'free',
+        shareExtensionUsage: 5,
+        shareExtensionPeriodStart: currentMonthPeriodStart(),
+      });
       const { result } = renderHook(() => usePremiumGate());
 
       const allowed = result.current.showPaywallIfNeeded('shareExtension');
@@ -276,7 +316,11 @@ describe('usePremiumGate', () => {
     });
 
     it('tracks Analytics.featureLimitHit when limit hit', () => {
-      useSubscriptionStore.setState({ status: 'free', shareExtensionUsage: 5 });
+      useSubscriptionStore.setState({
+        status: 'free',
+        shareExtensionUsage: 5,
+        shareExtensionPeriodStart: currentMonthPeriodStart(),
+      });
       const { result } = renderHook(() => usePremiumGate());
 
       result.current.showPaywallIfNeeded('shareExtension');
@@ -288,7 +332,11 @@ describe('usePremiumGate', () => {
     });
 
     it('does not track analytics when access allowed', () => {
-      useSubscriptionStore.setState({ status: 'free', shareExtensionUsage: 2 });
+      useSubscriptionStore.setState({
+        status: 'free',
+        shareExtensionUsage: 2,
+        shareExtensionPeriodStart: currentMonthPeriodStart(),
+      });
       const { result } = renderHook(() => usePremiumGate());
 
       result.current.showPaywallIfNeeded('shareExtension');

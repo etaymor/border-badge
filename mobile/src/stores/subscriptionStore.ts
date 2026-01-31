@@ -22,13 +22,13 @@ import {
 export type SubscriptionStatus = 'free' | 'trial' | 'premium' | 'loading';
 export type SubscriptionPlan = 'weekly' | 'monthly' | 'annual' | null;
 
-// Free tier limits (lifetime, not monthly)
+// Free tier limits (share extension is monthly, others are lifetime)
 // IMPORTANT: These values must stay in sync across all codebases!
 // - Python: backend/app/api/subscriptions.py (FREE_LIMITS)
 // - Swift: mobile/plugins/share-extension/Utilities/AppGroupStorage.swift (freeShareExtensionLimit)
 // - CI Test: backend/tests/test_limits_consistency.py
 export const FREE_LIMITS = {
-  shareExtension: 5,
+  shareExtension: 5, // 5 per month
   photoImport: 1,
   entriesPerTrip: 10,
 } as const;
@@ -41,11 +41,12 @@ interface SubscriptionState {
 
   // Usage limits (synced from backend - source of truth)
   shareExtensionUsage: number;
+  shareExtensionPeriodStart: string | null; // ISO timestamp for monthly reset
   photoImportUsage: number;
 
   // Actions
   setCustomerInfo: (info: CustomerInfo) => void;
-  setUsageLimits: (share: number, photo: number) => void;
+  setUsageLimits: (share: number, photo: number, sharePeriodStart?: string | null) => void;
   incrementShareExtensionUsage: () => void;
   incrementPhotoImportUsage: () => void;
   setStatus: (status: SubscriptionStatus) => void;
@@ -61,6 +62,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         plan: null,
         expirationDate: null,
         shareExtensionUsage: 0,
+        shareExtensionPeriodStart: null,
         photoImportUsage: 0,
 
         setCustomerInfo: (info: CustomerInfo) => {
@@ -76,9 +78,10 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           });
         },
 
-        setUsageLimits: (share: number, photo: number) => {
+        setUsageLimits: (share: number, photo: number, sharePeriodStart?: string | null) => {
           set({
             shareExtensionUsage: share,
+            shareExtensionPeriodStart: sharePeriodStart ?? null,
             photoImportUsage: photo,
           });
         },
@@ -127,6 +130,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             plan: null,
             expirationDate: null,
             shareExtensionUsage: 0,
+            shareExtensionPeriodStart: null,
             photoImportUsage: 0,
           });
         },
@@ -141,6 +145,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           plan: state.plan,
           expirationDate: state.expirationDate,
           shareExtensionUsage: state.shareExtensionUsage,
+          shareExtensionPeriodStart: state.shareExtensionPeriodStart,
           photoImportUsage: state.photoImportUsage,
         }),
       }
@@ -162,10 +167,30 @@ export const useSubscriptionPlan = () => useSubscriptionStore((s) => s.plan);
 const hasPremiumAccess = (status: SubscriptionStatus): boolean =>
   status === 'premium' || status === 'trial';
 
+// Helper to check if share extension period has reset (new month)
+const hasShareExtensionPeriodReset = (periodStart: string | null): boolean => {
+  if (!periodStart) return true; // No period = fresh start
+  const periodDate = new Date(periodStart);
+  const now = new Date();
+  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return periodDate < currentMonthStart;
+};
+
+// Helper to get effective share extension usage (0 if period reset)
+const getEffectiveShareExtensionUsage = (usage: number, periodStart: string | null): number => {
+  if (hasShareExtensionPeriodReset(periodStart)) return 0;
+  return usage;
+};
+
 export const useCanUseShareExtension = () =>
-  useSubscriptionStore(
-    (s) => hasPremiumAccess(s.status) || s.shareExtensionUsage < FREE_LIMITS.shareExtension
-  );
+  useSubscriptionStore((s) => {
+    if (hasPremiumAccess(s.status)) return true;
+    const effectiveUsage = getEffectiveShareExtensionUsage(
+      s.shareExtensionUsage,
+      s.shareExtensionPeriodStart
+    );
+    return effectiveUsage < FREE_LIMITS.shareExtension;
+  });
 
 export const useCanImportPhotos = () =>
   useSubscriptionStore(
@@ -173,11 +198,14 @@ export const useCanImportPhotos = () =>
   );
 
 export const useShareExtensionRemaining = () =>
-  useSubscriptionStore((s) =>
-    hasPremiumAccess(s.status)
-      ? Infinity
-      : Math.max(0, FREE_LIMITS.shareExtension - s.shareExtensionUsage)
-  );
+  useSubscriptionStore((s) => {
+    if (hasPremiumAccess(s.status)) return Infinity;
+    const effectiveUsage = getEffectiveShareExtensionUsage(
+      s.shareExtensionUsage,
+      s.shareExtensionPeriodStart
+    );
+    return Math.max(0, FREE_LIMITS.shareExtension - effectiveUsage);
+  });
 
 export const usePhotoImportRemaining = () =>
   useSubscriptionStore((s) =>
@@ -188,16 +216,27 @@ export const usePhotoImportRemaining = () =>
 
 // Subscribe to usage changes and sync to App Group for Share Extension access
 useSubscriptionStore.subscribe(
-  (state) => ({ share: state.shareExtensionUsage, photo: state.photoImportUsage }),
+  (state) => ({
+    share: state.shareExtensionUsage,
+    sharePeriod: state.shareExtensionPeriodStart,
+    photo: state.photoImportUsage,
+  }),
   (current, prev) => {
-    // Only sync if usage actually changed
-    if (current.share !== prev.share || current.photo !== prev.photo) {
-      syncUsageToAppGroup(current.share, current.photo).catch((err) => {
+    // Only sync if usage or period actually changed
+    if (
+      current.share !== prev.share ||
+      current.sharePeriod !== prev.sharePeriod ||
+      current.photo !== prev.photo
+    ) {
+      syncUsageToAppGroup(current.share, current.photo, current.sharePeriod).catch((err) => {
         console.error('[SubscriptionStore] Failed to sync usage to App Group:', err);
       });
     }
   },
-  { equalityFn: (a, b) => a.share === b.share && a.photo === b.photo }
+  {
+    equalityFn: (a, b) =>
+      a.share === b.share && a.sharePeriod === b.sharePeriod && a.photo === b.photo,
+  }
 );
 
 // Subscribe to subscription status changes for analytics

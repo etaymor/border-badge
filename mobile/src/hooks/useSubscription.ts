@@ -76,10 +76,15 @@ export function useSubscription() {
     try {
       const response = await api.get<{
         share_extension_count: number;
+        share_extension_period_start: string | null;
         photo_import_count: number;
       }>('/subscriptions/usage');
       if (isMountedRef.current) {
-        setUsageLimits(response.data.share_extension_count, response.data.photo_import_count);
+        setUsageLimits(
+          response.data.share_extension_count,
+          response.data.photo_import_count,
+          response.data.share_extension_period_start
+        );
       }
     } catch (error) {
       console.error('[useSubscription] Failed to fetch usage limits:', error);

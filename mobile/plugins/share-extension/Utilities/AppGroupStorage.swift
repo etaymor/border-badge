@@ -211,8 +211,9 @@ enum AppGroupStorage {
     /// Keys matching those in appGroupSync.ts
     private static let subscriptionStatusKey = "subscription_status"
     private static let usageShareExtensionKey = "usage_share_extension"
+    private static let usageShareExtensionPeriodStartKey = "usage_share_extension_period_start"
 
-    /// Free tier limit for share extension uses
+    /// Free tier limit for share extension uses (per month)
     /// IMPORTANT: This value must stay in sync across all codebases!
     /// - TypeScript: mobile/src/stores/subscriptionStore.ts (FREE_LIMITS.shareExtension)
     /// - Python: backend/app/api/subscriptions.py (FREE_LIMITS["share_extension"])
@@ -224,8 +225,43 @@ enum AppGroupStorage {
         return userDefaults?.string(forKey: subscriptionStatusKey) ?? "free"
     }
 
-    /// Get current share extension usage count
-    static func getShareExtensionUsage() -> Int {
+    /// Get share extension period start date (for monthly reset)
+    static func getShareExtensionPeriodStart() -> Date? {
+        guard let periodString = userDefaults?.string(forKey: usageShareExtensionPeriodStartKey),
+              !periodString.isEmpty else {
+            return nil
+        }
+        // Parse ISO 8601 date string
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: periodString) {
+            return date
+        }
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: periodString)
+    }
+
+    /// Check if the share extension period has reset (new month in UTC)
+    static func hasShareExtensionPeriodReset() -> Bool {
+        guard let periodStart = getShareExtensionPeriodStart() else {
+            return true  // No period = fresh start
+        }
+
+        let calendar = Calendar(identifier: .gregorian)
+        var utcCalendar = calendar
+        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+
+        let now = Date()
+        let currentMonthStart = utcCalendar.date(
+            from: utcCalendar.dateComponents([.year, .month], from: now)
+        )!
+
+        return periodStart < currentMonthStart
+    }
+
+    /// Get current share extension usage count (raw, not period-adjusted)
+    static func getShareExtensionUsageRaw() -> Int {
         guard let usageString = userDefaults?.string(forKey: usageShareExtensionKey),
               let usage = Int(usageString) else {
             return 0
@@ -233,24 +269,32 @@ enum AppGroupStorage {
         return usage
     }
 
-    /// Check if user can save (premium or has remaining free saves)
+    /// Get effective share extension usage count (0 if period has reset)
+    static func getShareExtensionUsage() -> Int {
+        if hasShareExtensionPeriodReset() {
+            return 0
+        }
+        return getShareExtensionUsageRaw()
+    }
+
+    /// Check if user can save (premium or has remaining free saves this month)
     static func canUseShareExtension() -> Bool {
         let status = getSubscriptionStatus()
         // Premium and trial users have unlimited access
         if status == "premium" || status == "trial" {
             return true
         }
-        // Free users: check usage limit
+        // Free users: check usage limit (period-adjusted)
         return getShareExtensionUsage() < freeShareExtensionLimit
     }
 
-    /// Get remaining free saves (returns -1 for unlimited/premium)
+    /// Get remaining free saves this month (returns -1 for unlimited/premium)
     static func getRemainingFreeSaves() -> Int {
         let status = getSubscriptionStatus()
         if status == "premium" || status == "trial" {
             return -1  // Unlimited
         }
-        let usage = getShareExtensionUsage()
+        let usage = getShareExtensionUsage()  // Period-adjusted
         return max(0, freeShareExtensionLimit - usage)
     }
 }

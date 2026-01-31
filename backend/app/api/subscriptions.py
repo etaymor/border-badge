@@ -79,7 +79,7 @@ async def get_usage_limits(
     result = await db.get(
         "user_profile",
         params={
-            "select": "usage_share_extension_count,usage_photo_import_count",
+            "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start",
             "id": f"eq.{user.id}",
         },
     )
@@ -88,9 +88,29 @@ async def get_usage_limits(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     profile = result[0]
+
+    # Calculate effective share extension count (reset if new month)
+    share_extension_count = profile.get("usage_share_extension_count") or 0
+    period_start_str = profile.get("usage_share_extension_period_start")
+    period_start: datetime | None = None
+
+    if period_start_str:
+        period_start = datetime.fromisoformat(
+            period_start_str.replace("Z", "+00:00")
+        )
+        current_month_start = datetime.now(UTC).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+
+        # If period is from previous month, count is effectively 0
+        if period_start < current_month_start:
+            share_extension_count = 0
+            period_start = None  # Signal that period has reset
+
     return UsageLimits(
-        share_extension_count=profile.get("usage_share_extension_count") or 0,
+        share_extension_count=share_extension_count,
         share_extension_limit=FREE_LIMITS["share_extension"],
+        share_extension_period_start=period_start,
         photo_import_count=profile.get("usage_photo_import_count") or 0,
         photo_import_limit=FREE_LIMITS["photo_import"],
         entries_per_trip_limit=FREE_LIMITS["entries_per_trip"],

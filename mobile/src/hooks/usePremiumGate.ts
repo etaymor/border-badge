@@ -19,6 +19,7 @@ import {
   useIsPremium,
   useCanUseShareExtension,
   useCanImportPhotos,
+  useShareExtensionRemaining,
   FREE_LIMITS,
 } from '@stores/subscriptionStore';
 import type { RootStackParamList, GatedFeature } from '@navigation/types';
@@ -37,7 +38,8 @@ export function usePremiumGate() {
   const isPremium = useIsPremium();
   const canUseShare = useCanUseShareExtension();
   const canImportPhotos = useCanImportPhotos();
-  const { shareExtensionUsage, photoImportUsage } = useSubscriptionStore();
+  const shareExtensionRemaining = useShareExtensionRemaining();
+  const { photoImportUsage } = useSubscriptionStore();
 
   /**
    * Check if user can access a feature
@@ -50,13 +52,21 @@ export function usePremiumGate() {
       }
 
       switch (feature) {
-        case 'shareExtension':
+        case 'shareExtension': {
+          // shareExtensionRemaining already accounts for monthly period reset
+          const effectiveRemaining =
+            shareExtensionRemaining === Infinity ? Infinity : shareExtensionRemaining;
+          const effectiveUsed =
+            shareExtensionRemaining === Infinity
+              ? 0
+              : FREE_LIMITS.shareExtension - shareExtensionRemaining;
           return {
             allowed: canUseShare,
-            remaining: Math.max(0, FREE_LIMITS.shareExtension - shareExtensionUsage),
+            remaining: effectiveRemaining,
             limit: FREE_LIMITS.shareExtension,
-            used: shareExtensionUsage,
+            used: effectiveUsed,
           };
+        }
         case 'photoImport':
           return {
             allowed: canImportPhotos,
@@ -77,7 +87,7 @@ export function usePremiumGate() {
           return { allowed: true, remaining: Infinity, limit: Infinity, used: 0 };
       }
     },
-    [isPremium, canUseShare, canImportPhotos, shareExtensionUsage, photoImportUsage]
+    [isPremium, canUseShare, canImportPhotos, shareExtensionRemaining, photoImportUsage]
   );
 
   /**

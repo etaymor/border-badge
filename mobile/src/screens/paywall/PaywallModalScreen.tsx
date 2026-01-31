@@ -19,7 +19,7 @@ type Props = RootStackScreenProps<'PaywallModal'>;
 
 const FEATURE_MESSAGES: Record<GatedFeature, string> = {
   shareExtension:
-    "You've used all 5 free saves. Upgrade to save unlimited places from social media.",
+    "You've used your 5 free saves this month. Upgrade for unlimited saves from social media.",
   photoImport: "You've already imported one trip from photos. Upgrade to import unlimited trips.",
   entries: 'This trip has reached 10 entries. Upgrade for unlimited entries per trip.',
 };
@@ -42,18 +42,29 @@ export function PaywallModalScreen({ navigation, route }: Props) {
 
     setIsLoading(true);
 
-    const { success } = await presentPaywall({ feature });
+    const { success, cancelled, error } = await presentPaywall({ feature });
 
     if (success) {
       // Navigate back without triggering dismiss analytics (purchase succeeded)
       navigation.goBack();
     } else {
-      // User cancelled or error - allow retry
-      hasPresented.current = false;
+      if (cancelled || error) {
+        Analytics.paywallDismissed({ location: 'modal', feature });
+      }
+      // Skip the intermediate modal screen on cancel/error
+      navigation.goBack();
     }
 
     setIsLoading(false);
   }, [presentPaywall, navigation, feature]);
+
+  useEffect(() => {
+    // Auto-present paywall when modal opens (matches onboarding behavior)
+    const timer = setTimeout(() => {
+      handlePresentPaywall();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [handlePresentPaywall]);
 
   // Reset presentation flag when screen is focused
   useEffect(() => {

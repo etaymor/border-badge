@@ -101,7 +101,7 @@ struct ShareCaptureError: Equatable {
 
     static func freeLimitReached() -> ShareCaptureError {
         ShareCaptureError(
-            message: "You've used all 5 free saves. Open Atlasi to upgrade and save unlimited places.",
+            message: "You've used your 5 free saves this month. Open Atlasi to upgrade for unlimited saves.",
             canRetry: false,
             canManualEntry: false,
             canSaveForLater: false
