@@ -28,6 +28,7 @@ import { env } from '@config/env';
 import { useResponsive } from '@hooks/useResponsive';
 import { useDeleteAccount, useSignOut } from '@hooks/useAuth';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
+import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 // LAUNCH_SIMPLIFICATION: useUpdateProfile only used for tracking preference
 import { useProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
@@ -51,6 +52,8 @@ import { ExportCountriesModal } from './components/ExportCountriesModal';
 import { ClipboardPermissionModal } from './components/ClipboardPermissionModal';
 import { ClipboardEnableModal } from './components/ClipboardEnableModal';
 import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
+import { PhotoLibraryEnableModal } from './components/PhotoLibraryEnableModal';
+import { PhotoLibraryInfoModal } from './components/PhotoLibraryInfoModal';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -97,6 +100,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const signOut = useSignOut();
   const deleteAccount = useDeleteAccount();
 
+  // Photo library permissions
+  const { status: photoPermissionStatus, requestPermission: requestPhotoPermission } =
+    usePhotoPermissionStatus();
+
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
@@ -116,6 +123,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const [clipboardEnableModalVisible, setClipboardEnableModalVisible] = useState(false);
   // Delete confirmation modal state (Android only)
   const [deleteConfirmModalVisible, setDeleteConfirmModalVisible] = useState(false);
+
+  // Photo library modal state
+  const [photoEnableModalVisible, setPhotoEnableModalVisible] = useState(false);
+  const [photoInfoModalVisible, setPhotoInfoModalVisible] = useState(false);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -308,6 +319,37 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
+
+  // Photo library permission handlers
+  const handleRequestPhotoPermission = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newStatus = await requestPhotoPermission();
+
+    if (newStatus === 'denied') {
+      // Permission was denied - show the enable modal with Settings instructions
+      setPhotoEnableModalVisible(true);
+    } else if (newStatus === 'granted' || newStatus === 'limited') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [requestPhotoPermission]);
+
+  const handleOpenPhotoEnableModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPhotoEnableModalVisible(true);
+  }, []);
+
+  const handleClosePhotoEnableModal = useCallback(() => {
+    setPhotoEnableModalVisible(false);
+  }, []);
+
+  const handleOpenPhotoInfoModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPhotoInfoModalVisible(true);
+  }, []);
+
+  const handleClosePhotoInfoModal = useCallback(() => {
+    setPhotoInfoModalVisible(false);
+  }, []);
 
   const handleConfirmDelete = useCallback(() => {
     setDeleteConfirmModalVisible(false);
@@ -546,6 +588,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenExportModal={handleOpenExportModal}
           onToggleClipboardDetection={handleToggleClipboardDetection}
           onOpenClipboardPermissionModal={handleOpenClipboardPermissionModal}
+          photoPermissionStatus={photoPermissionStatus}
+          onRequestPhotoPermission={handleRequestPhotoPermission}
+          onOpenPhotoEnableModal={handleOpenPhotoEnableModal}
+          onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
 
         <SignOutSection
@@ -587,6 +633,17 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         visible={deleteConfirmModalVisible}
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
+      />
+
+      <PhotoLibraryEnableModal
+        visible={photoEnableModalVisible}
+        onClose={handleClosePhotoEnableModal}
+      />
+
+      <PhotoLibraryInfoModal
+        visible={photoInfoModalVisible}
+        onClose={handleClosePhotoInfoModal}
+        isLimitedAccess={photoPermissionStatus === 'limited'}
       />
     </SafeAreaView>
   );

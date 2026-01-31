@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import type { PhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 
 interface ProfileInfoSectionProps {
   formattedEmail: string;
@@ -26,6 +27,11 @@ interface ProfileInfoSectionProps {
   onOpenExportModal: () => void;
   onToggleClipboardDetection: (enabled: boolean) => void;
   onOpenClipboardPermissionModal?: () => void;
+  // Photo library permission
+  photoPermissionStatus: PhotoPermissionStatus;
+  onRequestPhotoPermission: () => void;
+  onOpenPhotoEnableModal: () => void;
+  onOpenPhotoInfoModal: () => void;
 }
 
 export function ProfileInfoSection({
@@ -42,6 +48,10 @@ export function ProfileInfoSection({
   onOpenExportModal,
   onToggleClipboardDetection,
   onOpenClipboardPermissionModal,
+  photoPermissionStatus,
+  onRequestPhotoPermission,
+  onOpenPhotoEnableModal,
+  onOpenPhotoInfoModal,
 }: ProfileInfoSectionProps) {
   return (
     <View style={styles.container}>
@@ -201,6 +211,65 @@ export function ProfileInfoSection({
               </TouchableOpacity>
             )}
           </View>
+
+          <View style={styles.divider} />
+
+          {/* Photo Library Permission */}
+          <View style={styles.cardRow}>
+            <View style={styles.toggleLabelContainer}>
+              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                Photo Library
+              </Text>
+              <Text
+                style={[styles.toggleDescription, isSmallScreen && styles.toggleDescriptionSmall]}
+              >
+                Import trips from your photos
+              </Text>
+              {(photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+                Platform.OS === 'ios' && (
+                  <TouchableOpacity
+                    onPress={onOpenPhotoInfoModal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Learn about photo permissions"
+                    accessibilityHint="Opens a modal explaining how photo access is used"
+                  >
+                    <Text
+                      style={[styles.learnMoreLink, isSmallScreen && styles.learnMoreLinkSmall]}
+                    >
+                      {photoPermissionStatus === 'limited'
+                        ? 'Using selected photos only'
+                        : 'Learn about permissions'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+            </View>
+            {photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited' ? (
+              <View style={styles.permissionGrantedIndicator}>
+                <Ionicons name="checkmark-circle" size={24} color={colors.mossGreen} />
+              </View>
+            ) : photoPermissionStatus === 'denied' ? (
+              <TouchableOpacity
+                onPress={onOpenPhotoEnableModal}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable photo library access"
+                accessibilityHint="Opens instructions for enabling photo access in Settings"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={onRequestPhotoPermission}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable photo library access"
+                accessibilityHint="Requests permission to access your photo library"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -306,6 +375,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.cloudWhite,
+  },
+  permissionGrantedIndicator: {
+    paddingHorizontal: 8,
   },
   emailNote: {
     fontFamily: fonts.openSans.regular,
