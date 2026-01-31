@@ -362,7 +362,38 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 - Session persistence via secure storage
 - Auto-refresh of JWT tokens
 
-### 16. Photo Import (Automatic Trip Discovery)
+### 16. Premium Subscription (RevenueCat)
+
+**What it does:** Freemium model with feature gating and subscription management
+
+**Free tier limits:**
+| Feature | Limit |
+|---------|-------|
+| Share Extension Uses | 5 per month |
+| Photo Import Trips | 1 (lifetime) |
+| Entries per Trip | 10 |
+
+**Premium benefits:**
+- Unlimited entries per trip
+- Unlimited share extension saves
+- Unlimited photo import trips
+
+**Key capabilities:**
+- RevenueCat SDK integration for iOS (Android ready)
+- Remote paywall UI during onboarding and in-app
+- App Group sync for Share Extension subscription status
+- Backend webhook processing for subscription events
+- Atomic usage tracking with monthly resets
+- Timing-safe webhook authentication
+
+**Subscription options:**
+- Weekly: $3.99/week
+- Monthly: $9.99/month (7-day free trial)
+- Annual: $49.99/year (7-day free trial)
+
+**User value:** Core features free forever; power users can unlock unlimited access
+
+### 17. Photo Import (Automatic Trip Discovery)
 
 **What it does:** Scan your photo library to automatically discover and create trips from past travels
 
@@ -384,7 +415,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 
 **User value:** Retroactively document years of past travel from your existing photos
 
-### 17. Saved Places (Quick Save)
+### 18. Saved Places (Quick Save)
 
 **What it does:** Instantly save places without assigning them to a trip
 
@@ -401,7 +432,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 
 **User value:** Capture travel inspiration immediately; organize when you have time
 
-### 18. Country Rarity System
+### 19. Country Rarity System
 
 **What it does:** Scores countries by how rarely they're visited, enabling rarity-based achievements
 
@@ -423,7 +454,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 
 **User value:** Gamification that celebrates unique travel; bragging rights for rare destinations
 
-### 19. Tracking Preferences (Country Universe)
+### 20. Tracking Preferences (Country Universe)
 
 **What it does:** Let users choose which "universe" of countries to track
 
@@ -443,7 +474,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 
 **User value:** Flexibility for different travel tracking philosophies; credit for visiting territories
 
-### 20. Geographic Subregions
+### 21. Geographic Subregions
 
 **What it does:** Organizes countries into subregions for more granular geographic filtering
 
@@ -732,7 +763,7 @@ Choose "Iceland 2025" trip
 | Gemini 2.5 Flash-Lite | Place extraction, entry type classification, traveler classification |
 | Skimlinks | Affiliate link wrapping (fallback) |
 | Resend | Welcome email drip campaigns |
-| RevenueCat | Subscription management (infrastructure ready) |
+| RevenueCat | Subscription management and paywall |
 
 ### Data Flow
 
@@ -772,13 +803,26 @@ Supabase (PostgreSQL + Storage)
 
 ## Monetization Strategy
 
-### Current State
+### Freemium Model
 
-The app is **free** with all core features available.
+The app uses a **freemium model** powered by RevenueCat with the following free tier limits:
+
+| Feature | Free Tier Limit |
+|---------|-----------------|
+| Share Extension Uses | 5 per month |
+| Photo Import Trips | 1 (lifetime) |
+| Entries per Trip | 10 |
+
+Premium subscribers get unlimited access to all features.
+
+**Subscription Options:**
+- Weekly: $3.99/week
+- Monthly: $9.99/month (7-day free trial)
+- Annual: $49.99/year (7-day free trial)
 
 ### Affiliate Monetization
 
-Currently implemented:
+Additionally implemented:
 - Unique link IDs for each entry on public pages
 - HMAC-signed redirect URLs for security
 - Click tracking with attribution and analytics

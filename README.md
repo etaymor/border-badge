@@ -12,6 +12,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Shareable Lists** - Curate and share city-specific recommendations via public links
 - **Offline Support** - Local SQLite caching for country data
 - **Premium Animations** - Shared element transitions, micro-interactions, and staggered entrances with accessibility support
+- **Premium Subscription** - RevenueCat-powered freemium model with feature gating (entry limits, share extension usage, photo import trips)
 
 ## Architecture
 
@@ -113,6 +114,7 @@ border-badge/
 | [Technical Design](./docs/travel-technical-design.md) | Architecture and API contracts |
 | [MVP Blueprint](./docs/travel-mvp-blueprint.md) | Phase-by-phase implementation |
 | [API Reference](./docs/API.md) | Backend API documentation |
+| [Subscription System](./docs/SUBSCRIPTION.md) | RevenueCat subscription setup and testing |
 | [Mobile README](./mobile/README.md) | Mobile app development guide |
 | [Backend README](./backend/README.md) | Backend development guide |
 | [Contributing](./CONTRIBUTING.md) | Contribution guidelines |
@@ -155,6 +157,8 @@ poetry run ruff format --check .
 | `EXPO_PUBLIC_APP_ENV` | Environment (development/staging/production) |
 | `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | Google Places API key |
 | `EXPO_PUBLIC_WEB_BASE_URL` | Base URL for public web pages (Terms, Privacy) |
+| `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat iOS API key (for subscriptions) |
+| `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` | RevenueCat Android API key (optional) |
 
 ### Backend (`backend/.env`)
 
@@ -166,6 +170,8 @@ poetry run ruff format --check .
 | `SUPABASE_JWT_SECRET` | JWT secret for token validation |
 | `RESEND_API_KEY` | Resend API key for welcome emails (optional) |
 | `WELCOME_EMAIL_FROM` | From address for welcome emails (default: hello@atlasi.app) |
+| `REVENUECAT_WEBHOOK_AUTH_HEADER` | Auth header for RevenueCat webhook verification |
+| `REVENUECAT_API_KEY` | RevenueCat secret API key for server-side verification |
 
 ## CI/CD
 
