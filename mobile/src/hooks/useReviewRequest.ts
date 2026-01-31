@@ -37,12 +37,6 @@ interface UseReviewRequestReturn {
   startReviewFlow: (trigger: ReviewTrigger) => boolean;
 
   /**
-   * Request the native store review prompt.
-   * Call this AFTER user responds positively to satisfaction modal.
-   */
-  requestNativeReview: () => Promise<boolean>;
-
-  /**
    * Record that user responded positively.
    * This marks review as "completed" and triggers native prompt.
    */
@@ -72,6 +66,10 @@ export function useReviewRequest(): UseReviewRequestReturn {
   } = useReviewStore.getState();
 
   // Prevent multiple triggers in same render cycle
+  // NOTE: This lock is per-trigger type, not global. Multiple different triggers
+  // can fire in sequence (e.g., post_onboarding followed by first_social_save).
+  // The lock only prevents the SAME trigger from firing twice, which is appropriate
+  // since each trigger is designed to fire only once per lifecycle (except country_visited).
   const triggerLockRef = useRef<string | null>(null);
 
   // Pure eligibility check - NO SIDE EFFECTS
@@ -135,21 +133,19 @@ export function useReviewRequest(): UseReviewRequestReturn {
     [markPostOnboardingTriggered, markFirstSocialSaveTriggered, markFirstPhotoImportTriggered]
   );
 
-  const requestNativeReview = useCallback(async (): Promise<boolean> => {
+  const requestNativeReview = useCallback(async (): Promise<void> => {
     try {
       const hasAction = await StoreReview.hasAction();
       if (!hasAction) {
         Analytics.reviewNativeUnavailable();
-        return false;
+        return;
       }
 
       Analytics.reviewNativeRequested();
       await StoreReview.requestReview();
-      return true;
     } catch (error) {
       console.warn('Failed to request native review:', error);
       Analytics.reviewNativeError(error instanceof Error ? error.message : String(error));
-      return false;
     }
   }, []);
 
@@ -192,7 +188,6 @@ export function useReviewRequest(): UseReviewRequestReturn {
   return {
     checkEligibility,
     startReviewFlow,
-    requestNativeReview,
     handlePositiveResponse,
     handleNegativeResponse,
     handleDismiss,
