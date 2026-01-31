@@ -28,8 +28,12 @@ export function usePhotoPermissionStatus(): UsePhotoPermissionStatusResult {
   const [status, setStatus] = useState<PhotoPermissionStatus>('undetermined');
   const [isLoading, setIsLoading] = useState(true);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const checkInFlightRef = useRef(false);
 
   const checkPermission = useCallback(async () => {
+    // Guard against concurrent calls (e.g., rapid app state changes)
+    if (checkInFlightRef.current) return;
+    checkInFlightRef.current = true;
     try {
       const { status: permStatus, accessPrivileges } = await MediaLibrary.getPermissionsAsync();
 
@@ -42,6 +46,8 @@ export function usePhotoPermissionStatus(): UsePhotoPermissionStatusResult {
       }
     } catch {
       setStatus('undetermined');
+    } finally {
+      checkInFlightRef.current = false;
     }
   }, []);
 
