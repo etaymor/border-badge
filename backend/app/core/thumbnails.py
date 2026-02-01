@@ -103,3 +103,49 @@ def get_thumbnail_path(original_path: str) -> str:
     else:
         base = original_path
     return f"{base}_thumb.jpg"
+
+
+async def upload_thumbnail_to_storage(
+    thumbnail_data: bytes,
+    storage_path: str,
+    supabase_url: str,
+    service_role_key: str,
+) -> bool:
+    """Upload thumbnail to Supabase storage.
+
+    This is a shared utility used by both media_processing and google_photo_downloader.
+
+    Args:
+        thumbnail_data: JPEG thumbnail bytes
+        storage_path: Path in the media bucket (e.g., "user-id/file-id_thumb.jpg")
+        supabase_url: Supabase project URL
+        service_role_key: Service role key for authentication
+
+    Returns:
+        True on success, False on failure.
+        Handles 409 conflicts as success (idempotent uploads).
+    """
+    # Import here to avoid circular dependency (session imports config)
+    from app.db.session import get_http_client
+
+    client = get_http_client()
+    upload_url = f"{supabase_url}/storage/v1/object/media/{storage_path}"
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "image/jpeg",
+    }
+
+    response = await client.put(upload_url, headers=headers, content=thumbnail_data)
+
+    if response.status_code not in (200, 201, 409):
+        logger.error(
+            f"Failed to upload thumbnail {storage_path}: "
+            f"{response.status_code} - {response.text[:200]}"
+        )
+        return False
+
+    if response.status_code == 409:
+        logger.info(f"Thumbnail already exists: {storage_path}")
+
+    return True

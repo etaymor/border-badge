@@ -5,7 +5,7 @@ import time
 from typing import Literal
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.api.countries import get_country_name_by_code
 from app.api.utils import get_token_from_request
@@ -21,6 +21,10 @@ from app.schemas.social_ingest import (
     SocialIngestRequest,
     SocialIngestResponse,
     SocialProvider,
+)
+from app.services.google_photo_downloader import (
+    create_media_record_for_google_photo,
+    download_and_store_google_photo,
 )
 from app.services.oembed_adapters import fetch_oembed
 from app.services.place_extractor import (
@@ -241,6 +245,24 @@ async def ingest_social_url(
     )
 
 
+async def _download_google_photo_background(
+    photo_url: str,
+    user_id: str,
+    entry_id: str,
+    trip_id: str,
+) -> None:
+    """Background task to download and store a Google photo.
+
+    This runs after the response is sent to the client.
+    """
+    thumbnail_path = await download_and_store_google_photo(photo_url, user_id, entry_id)
+
+    if thumbnail_path:
+        await create_media_record_for_google_photo(
+            user_id, entry_id, trip_id, thumbnail_path
+        )
+
+
 @router.post(
     "/ingest/save-to-trip",
     response_model=EntryWithPlace,
@@ -251,6 +273,7 @@ async def save_to_trip(
     request: Request,
     data: SaveToTripRequest,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> EntryWithPlace:
     """Save social ingest data to a trip as an entry.
 
@@ -275,6 +298,24 @@ async def save_to_trip(
             detail="Trip not found",
         )
 
+    # Extract and validate Google photo URL BEFORE the RPC call
+    # We store the validated URL now and use it for the background task later
+    validated_google_photo_url: str | None = None
+    if data.place and data.place.google_photo_url:
+        validated_google_photo_url = safe_google_photo_url(data.place.google_photo_url)
+        if not validated_google_photo_url:
+            logger.warning(
+                "google_photo_url_rejected",
+                extra={
+                    "event": "invalid_google_photo_url",
+                    "user_id": str(user.id),
+                    "trip_id": str(data.trip_id),
+                    "url_prefix": data.place.google_photo_url[:100]
+                    if data.place.google_photo_url
+                    else None,
+                },
+            )
+
     # Build place data for atomic operation
     # Note: duplicate detection relies on the unique index (idx_place_unique_google_per_trip)
     # enforced atomically by the database, caught in the exception handler below
@@ -289,9 +330,8 @@ async def save_to_trip(
             "source_url": data.canonical_url,
         }
 
-        photo_url = safe_google_photo_url(data.place.google_photo_url)
-        if photo_url:
-            extra_data["google_photo_url"] = photo_url
+        if validated_google_photo_url:
+            extra_data["google_photo_url"] = validated_google_photo_url
 
         place_data = {
             "google_place_id": data.place.google_place_id,
@@ -410,6 +450,18 @@ async def save_to_trip(
                 "user_id": str(user.id),
                 "error": str(e)[:200],
             },
+        )
+
+    # Download and store Google photo if available (background task)
+    # This creates a permanent copy in Supabase storage since Google URLs expire
+    # We use the validated URL from earlier, not the RPC result, to avoid coupling
+    if validated_google_photo_url:
+        background_tasks.add_task(
+            _download_google_photo_background,
+            validated_google_photo_url,
+            str(user.id),
+            str(entry.id),
+            str(data.trip_id),
         )
 
     logger.info(
