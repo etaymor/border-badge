@@ -24,6 +24,7 @@ from app.schemas.social_ingest import (
     SocialIngestRequest,
     SocialIngestResponse,
     SocialProvider,
+    SuggestedTrip,
 )
 from app.services.extraction_orchestrator import ExtractionOrchestrator
 from app.services.google_photo_downloader import (
@@ -244,6 +245,47 @@ async def ingest_social_url(
                     f"INGEST country hint (no place): {hint.country_code} ({country_name})"
                 )
 
+    # Step 5: Fetch suggested trips for agent-native batch save
+    # Priority: country-matching trips first, then "Saved Places" system trip
+    suggested_trips: list[SuggestedTrip] = []
+    try:
+        db = _get_user_scoped_client(request)
+        trips_result = await db.get(
+            "trip",
+            {
+                "select": "id,name,country_code,is_system",
+                "deleted_at": "is.null",
+                "order": "created_at.desc",
+            },
+        )
+
+        if trips_result:
+            country_code = detected_country.country_code if detected_country else None
+            country_trips = []
+            saved_places_trip = None
+
+            for trip_data in trips_result:
+                trip = SuggestedTrip(
+                    id=trip_data["id"],
+                    name=trip_data["name"],
+                    country_code=trip_data.get("country_code"),
+                    is_system=trip_data.get("is_system", False),
+                )
+                # Prioritize country-matching trips
+                if country_code and trip.country_code == country_code:
+                    country_trips.append(trip)
+                # Track "Saved Places" system trip as fallback
+                elif trip.is_system and trip.name == "Saved Places":
+                    saved_places_trip = trip
+
+            # Return country trips first, then "Saved Places"
+            suggested_trips = country_trips[:3]  # Top 3 country trips
+            if saved_places_trip and saved_places_trip not in suggested_trips:
+                suggested_trips.append(saved_places_trip)
+    except Exception as e:
+        # Don't fail the request if trip fetch fails
+        logger.warning(f"Failed to fetch suggested trips: {e}")
+
     logger.info(
         "ingest_social_completed",
         extra={
@@ -256,6 +298,7 @@ async def ingest_social_url(
             "detected_country": detected_country.country_code
             if detected_country
             else None,
+            "suggested_trips_count": len(suggested_trips),
         },
     )
 
@@ -272,6 +315,7 @@ async def ingest_social_url(
         extraction_source=extraction_source,
         extraction_latency_ms=extraction_latency_ms,
         context_location=context_location,
+        suggested_trips=suggested_trips,
     )
 
 

@@ -29,6 +29,7 @@ import {
   selectedPlaceToDetectedPlace,
   createSelectionsFromPlaces,
   getSelectedPlacesToSave,
+  placesSpanMultipleCountries,
 } from './shareCaptureUtils';
 import {
   useSubscriptionStore,
@@ -59,6 +60,7 @@ export interface ShareCaptureState {
   userClearedPlace: boolean; // True when user explicitly cleared the place selection
   // Multi-place mode
   isMultiPlaceMode: boolean; // True when 2+ places detected
+  isMultiCountry: boolean; // True when places span multiple countries
   placeSelections: Record<string, PlaceSelection>; // Selection state per place
   selectedPlaceCount: number; // Count of selected places
   // Premium gating
@@ -193,9 +195,28 @@ export function useShareCapture({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Computed: check if multi-place selections span multiple countries
+  const isMultiCountry = isMultiPlaceMode && placesSpanMultipleCountries(placeSelections);
+
   // Auto-select trip: prioritize country-specific trip, then fall back to "Saved Places"
+  // For multi-country places, always use "Saved Places"
   // This effect runs whenever trips, uncategorizedTrip, or ingestResult changes
   useEffect(() => {
+    // Don't override user's selection
+    if (selectedTripId) {
+      console.log('[useShareCapture] Skipping - already have selection');
+      return;
+    }
+
+    // Multi-country places should default to "Saved Places" trip
+    if (isMultiCountry) {
+      if (uncategorizedTrip?.id) {
+        console.log('[useShareCapture] Multi-country detected - selecting Saved Places');
+        setSelectedTripId(uncategorizedTrip.id);
+      }
+      return;
+    }
+
     const countryCode =
       ingestResult?.detected_place?.country_code ?? ingestResult?.detected_country?.country_code;
     const matchingTrips = findMatchingTrips(trips, countryCode);
@@ -207,13 +228,8 @@ export function useShareCapture({
       countryCode,
       tripsCount: trips.length,
       matchingTripsCount: matchingTrips.length,
+      isMultiCountry,
     });
-
-    // Don't override user's selection
-    if (selectedTripId) {
-      console.log('[useShareCapture] Skipping - already have selection');
-      return;
-    }
 
     if (matchingTrips.length > 0) {
       // Use the most recent trip for the detected country
@@ -235,6 +251,7 @@ export function useShareCapture({
     trips,
     selectedTripId,
     uncategorizedTrip?.id,
+    isMultiCountry,
   ]);
 
   const handleTypeSelect = useCallback(
@@ -343,12 +360,27 @@ export function useShareCapture({
               incrementShareUsage();
             }
 
-            // Show result message
+            // Show result message for partial success or skipped items
+            const totalAttempted = response.saved_count + response.skipped_count;
             if (response.skipped_count > 0) {
-              Alert.alert(
-                'Saved',
-                `${response.saved_count} place${response.saved_count !== 1 ? 's' : ''} saved. ${response.skipped_count} already existed.`
-              );
+              const skippedNames =
+                response.skipped_place_names?.slice(0, 3).join(', ') || 'some places';
+              const moreCount =
+                response.skipped_count > 3 ? ` and ${response.skipped_count - 3} more` : '';
+
+              if (response.saved_count === 0) {
+                // All places were skipped (likely all duplicates)
+                Alert.alert(
+                  'Already Saved',
+                  `These places are already in your trip: ${skippedNames}${moreCount}`
+                );
+              } else {
+                // Partial success - show "X of Y saved"
+                Alert.alert(
+                  'Saved',
+                  `${response.saved_count} of ${totalAttempted} places saved. Skipped: ${skippedNames}${moreCount}`
+                );
+              }
             }
 
             // Clear App Group storage
@@ -619,6 +651,7 @@ export function useShareCapture({
     userClearedPlace,
     // State - multi-place
     isMultiPlaceMode,
+    isMultiCountry,
     placeSelections,
     selectedPlaceCount,
     // Premium gating

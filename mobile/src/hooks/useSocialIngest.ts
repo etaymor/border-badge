@@ -47,6 +47,14 @@ export interface DetectedCountry {
   longitude: number | null;
 }
 
+// Trip suggested for agent-native batch save
+export interface SuggestedTrip {
+  id: string;
+  name: string;
+  country_code: string | null;
+  is_system: boolean;
+}
+
 // Response from social ingest - supports multi-place extraction
 export interface SocialIngestResponse {
   provider: SocialProvider;
@@ -66,6 +74,8 @@ export interface SocialIngestResponse {
   extraction_latency_ms?: number;
   // Context location detected from content (e.g., "Thailand") - used as search bias
   context_location?: string | null;
+  // Suggested trips for agent-native batch save (matching country first, then "Saved Places")
+  suggested_trips?: SuggestedTrip[];
 }
 
 // Request to save ingest data to a trip (includes full ingest data)

@@ -335,3 +335,17 @@ export function getSelectedPlacesToSave(selections: Record<string, PlaceSelectio
     .filter((s) => s.isSelected)
     .map(selectionToPlaceToSave);
 }
+
+/**
+ * Check if places span multiple countries.
+ * Used to determine if we should default to "Saved Places" trip and show country chips.
+ */
+export function placesSpanMultipleCountries(selections: Record<string, PlaceSelection>): boolean {
+  const countryCodes = new Set<string>();
+  for (const selection of Object.values(selections)) {
+    if (selection.country_code) {
+      countryCodes.add(selection.country_code);
+    }
+  }
+  return countryCodes.size > 1;
+}

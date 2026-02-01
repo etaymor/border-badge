@@ -7,7 +7,7 @@
  * - Change entry types per place
  */
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -16,6 +16,19 @@ import { Text } from '@components/ui';
 import type { EntryType } from '@navigation/types';
 
 import { PlaceCheckboxItem } from './PlaceCheckboxItem';
+
+/**
+ * Check if places span multiple countries.
+ */
+function placesSpanMultipleCountries(selections: Record<string, PlaceSelection>): boolean {
+  const countryCodes = new Set<string>();
+  for (const selection of Object.values(selections)) {
+    if (selection.country_code) {
+      countryCodes.add(selection.country_code);
+    }
+  }
+  return countryCodes.size > 1;
+}
 
 // Selection state for a place
 export interface PlaceSelection {
@@ -49,6 +62,7 @@ export function MultiPlaceList({
 }: MultiPlaceListProps) {
   const placeKeys = Object.keys(selections);
   const selectedCount = Object.values(selections).filter((s) => s.isSelected).length;
+  const showCountryChips = useMemo(() => placesSpanMultipleCountries(selections), [selections]);
 
   const handleToggle = useCallback(
     (key: string) => {
@@ -92,6 +106,8 @@ export function MultiPlaceList({
               key={key}
               name={selection.name}
               address={selection.address}
+              countryCode={selection.country_code}
+              showCountryChip={showCountryChips}
               entryType={selection.entryType}
               isSelected={selection.isSelected}
               onToggle={() => handleToggle(key)}

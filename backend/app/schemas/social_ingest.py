@@ -69,6 +69,18 @@ class DetectedCountry(BaseModel):
     longitude: float | None = None
 
 
+class SuggestedTrip(BaseModel):
+    """A trip suggested for saving detected places.
+
+    Used by agents to batch-save without interactive trip selection.
+    """
+
+    id: UUID
+    name: str
+    country_code: str | None = None
+    is_system: bool = False  # True for "Saved Places" system trip
+
+
 class SocialIngestResponse(BaseModel):
     """Response from social media ingest.
 
@@ -97,6 +109,8 @@ class SocialIngestResponse(BaseModel):
     extraction_latency_ms: int | None = None
     # Context location detected from content (e.g., "Thailand") - used as search bias
     context_location: str | None = None
+    # Suggested trips for agent-native batch save (matching country first, then "Saved Places")
+    suggested_trips: list["SuggestedTrip"] = []
 
 
 class OEmbedCacheEntry(BaseModel):

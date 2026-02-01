@@ -25,6 +25,8 @@ const ENTRY_TYPE_CONFIG: Record<EntryType, { label: string; color: string }> = {
 export interface PlaceCheckboxItemProps {
   name: string;
   address: string | null;
+  countryCode: string | null;
+  showCountryChip: boolean; // True when places span multiple countries
   entryType: EntryType;
   isSelected: boolean;
   onToggle: () => void;
@@ -35,6 +37,8 @@ export interface PlaceCheckboxItemProps {
 export function PlaceCheckboxItem({
   name,
   address,
+  countryCode,
+  showCountryChip,
   entryType,
   isSelected,
   onToggle,
@@ -59,9 +63,16 @@ export function PlaceCheckboxItem({
 
       {/* Place Info */}
       <Pressable style={styles.content} onPress={onToggle}>
-        <Text style={styles.name} numberOfLines={1}>
-          {name}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {name}
+          </Text>
+          {showCountryChip && countryCode && (
+            <View style={styles.countryChip}>
+              <Text style={styles.countryLabel}>{countryCode}</Text>
+            </View>
+          )}
+        </View>
         {address && (
           <Text style={styles.address} numberOfLines={1}>
             {address}
@@ -121,11 +132,28 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   name: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 15,
     color: colors.textPrimary,
-    marginBottom: 2,
+    flexShrink: 1,
+  },
+  countryChip: {
+    backgroundColor: colors.midnightNavy,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  countryLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 10,
+    color: colors.white,
+    letterSpacing: 0.5,
   },
   address: {
     fontFamily: fonts.openSans.regular,

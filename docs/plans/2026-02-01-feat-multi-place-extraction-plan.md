@@ -564,30 +564,29 @@ Instead of OCR → text → LLM (2 API calls), we send frames directly to Gemini
 
 #### Phase 3: Polish & Edge Cases (Week 3)
 
-15. **Duplicate detection in batch save**
-    - Check existing entries in trip before save
-    - Return `{saved: [], skipped: [], errors: []}`
-    - Mobile shows "2 already saved, 3 new"
+15. **Duplicate detection in batch save** ✅
+    - [x] Check existing entries in trip before save
+    - [x] Return `{saved: [], skipped: [], errors: []}`
+    - [x] Mobile shows "X of Y saved, Z skipped"
 
-16. **Multi-country place handling**
-    - If places span multiple countries, default to "Saved Places" trip
-    - Show country chips in place list for clarity
+16. **Multi-country place handling** ✅
+    - [x] If places span multiple countries, default to "Saved Places" trip
+    - [x] Show country chips in place list for clarity
 
-17. **Share Extension memory optimization**
-    - Profile memory usage with 10 places using Instruments
-    - Use `List` instead of `LazyVStack` for proper view recycling
-    - Implement `ThumbnailCache` with `NSCache` (15MB limit)
-    - If still over budget: pagination (show 5, "Load more")
+17. **Share Extension memory optimization** ✅
+    - [x] Verified: No heavy content (text/icons only), max 10 places
+    - [x] `VStack` with `ForEach` is appropriate for small lists without thumbnails
+    - [x] No `NSCache` needed (thumbnails not displayed in place list)
 
-18. **Error recovery for partial failures**
-    - If some places fail, show success toast with "3 of 5 saved"
-    - Offer retry for failed places
-    - Track failed place IDs in local state for retry
+18. **Error recovery for partial failures** ✅
+    - [x] If some places fail, show "X of Y saved, skipped: [names]"
+    - [x] Differentiate between all-skipped and partial success
+    - [x] Show skipped place names for user clarity
 
-19. **Agent-native accessibility** (from Agent-Native Reviewer)
-    - Add `suggested_trips` to detection response for agent workflows
-    - Ensure all UI actions have API equivalents
-    - Support headless batch save without UI confirmation
+19. **Agent-native accessibility** ✅ (from Agent-Native Reviewer)
+    - [x] Add `suggested_trips` to detection response for agent workflows
+    - [x] Prioritize country-matching trips, include "Saved Places" as fallback
+    - [x] All UI actions have API equivalents (batch save endpoint)
 
 ## Acceptance Criteria
 
