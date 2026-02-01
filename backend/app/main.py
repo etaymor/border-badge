@@ -106,6 +106,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Photo import place suggestions will fail. "
             "Set this env var or disable the feature."
         )
+
+    # Startup validation - warn if RevenueCat config is missing in production
+    if settings.is_production and not settings.revenuecat_configured:
+        missing_fields = ", ".join(settings.revenuecat_missing_fields)
+        logger.error(
+            "REVENUECAT_MISCONFIGURATION: Missing %s. "
+            "Subscription verification and webhooks will fail until set.",
+            missing_fields,
+        )
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -129,18 +129,6 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",")]
         return v
 
-    @model_validator(mode="after")
-    def validate_production_revenuecat_config(self) -> "Settings":
-        """Ensure RevenueCat config is set in production."""
-        if self.env == "production":
-            if not self.revenuecat_webhook_auth_header:
-                raise ValueError(
-                    "revenuecat_webhook_auth_header is required in production"
-                )
-            if not self.revenuecat_api_key:
-                raise ValueError("revenuecat_api_key is required in production")
-        return self
-
     @property
     def is_development(self) -> bool:
         """Check if running in development mode."""
@@ -150,6 +138,21 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.env == "production"
+
+    @property
+    def revenuecat_configured(self) -> bool:
+        """Check if RevenueCat credentials are configured."""
+        return bool(self.revenuecat_webhook_auth_header and self.revenuecat_api_key)
+
+    @property
+    def revenuecat_missing_fields(self) -> list[str]:
+        """Return missing RevenueCat credential field names."""
+        missing: list[str] = []
+        if not self.revenuecat_webhook_auth_header:
+            missing.append("REVENUECAT_WEBHOOK_AUTH_HEADER")
+        if not self.revenuecat_api_key:
+            missing.append("REVENUECAT_API_KEY")
+        return missing
 
 
 @lru_cache
