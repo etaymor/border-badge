@@ -28,7 +28,7 @@ struct ShareCaptureView: View {
             // Content based on state
             switch viewModel.state {
             case .loading(let message):
-                LoadingStateView(message: message)
+                LoadingStateView(message: message, onCancel: onDismiss)
 
             case .error(let error):
                 ErrorStateView(
@@ -48,7 +48,7 @@ struct ShareCaptureView: View {
                 )
 
             case .saving:
-                LoadingStateView(message: "Saving...")
+                LoadingStateView(message: "Saving...", onCancel: nil)
 
             case .success:
                 SuccessStateView(onDismiss: onDismiss)

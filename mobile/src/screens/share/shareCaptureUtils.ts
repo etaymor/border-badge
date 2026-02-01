@@ -330,9 +330,7 @@ export function selectionToPlaceToSave(selection: PlaceSelection): PlaceToSave {
 /**
  * Get selected places as PlaceToSave array for batch save.
  */
-export function getSelectedPlacesToSave(
-  selections: Record<string, PlaceSelection>
-): PlaceToSave[] {
+export function getSelectedPlacesToSave(selections: Record<string, PlaceSelection>): PlaceToSave[] {
   return Object.values(selections)
     .filter((s) => s.isSelected)
     .map(selectionToPlaceToSave);

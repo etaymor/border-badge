@@ -551,14 +551,16 @@ Instead of OCR → text → LLM (2 API calls), we send frames directly to Gemini
 
 **Mobile Changes:**
 
-13. **Add screenshot sharing support**
+13. **Add screenshot sharing support** *(DEFERRED - backend `/ingest/screenshot` not yet implemented)*
     - Update Share Extension to detect image attachments
     - Upload image to new `/ingest/screenshot` endpoint
     - Same multi-place UI flow
 
-14. **Add processing progress UI**
-    - "Analyzing caption..." → "Processing video..." → "Finding places..."
-    - 15-second timeout with cancel option
+14. **Add processing progress UI** ✅
+    - Enhanced loading message: "Processing [Provider] link..."
+    - Progress bar with 15-second animation
+    - Timeout warning after 15 seconds with cancel option
+    - Implemented in both React Native and Swift Share Extension
 
 #### Phase 3: Polish & Edge Cases (Week 3)
 

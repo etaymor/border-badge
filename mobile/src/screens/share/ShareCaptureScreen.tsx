@@ -165,7 +165,12 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
 
   // Loading state
   if (isLoading) {
-    return <ShareCaptureLoadingState provider={detectProviderFromUrl(url)} />;
+    return (
+      <ShareCaptureLoadingState
+        provider={detectProviderFromUrl(url)}
+        onCancel={() => navigation.goBack()}
+      />
+    );
   }
 
   // Error state
@@ -209,9 +214,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           {/* Location Section */}
           {isMultiPlaceMode ? (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>
-                SELECT PLACES ({selectedPlaceCount} SELECTED)
-              </Text>
+              <Text style={styles.sectionLabel}>SELECT PLACES ({selectedPlaceCount} SELECTED)</Text>
               <MultiPlaceList
                 selections={placeSelections}
                 onTogglePlace={handleTogglePlace}
