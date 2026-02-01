@@ -1,16 +1,23 @@
 /**
  * Custom hook for ShareCaptureScreen state management and handlers.
  * Extracts all business logic from the screen component.
+ *
+ * Supports both single-place and multi-place extraction flows.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
 import type { EntryType } from '@navigation/types';
-import { useSocialIngest, useSaveToTrip, SocialIngestResponse } from '@hooks/useSocialIngest';
+import {
+  useSocialIngest,
+  useSaveToTrip,
+  useSavePlaces,
+  SocialIngestResponse,
+} from '@hooks/useSocialIngest';
 import { useCreateTrip, useTrips, useUncategorizedTrip, Trip } from '@hooks/useTrips';
 import { useCreateEntry, PlaceInput } from '@hooks/useEntries';
-import type { SelectedPlace } from '@components/places';
+import type { SelectedPlace, PlaceSelection } from '@components/places';
 import { Analytics } from '@services/analytics';
 import { enqueueFailedShare } from '@services/shareQueue';
 import { completeAppGroupShare } from '@services/shareExtensionBridge';
@@ -20,6 +27,8 @@ import {
   inferEntryTypeFromPlaceTypes,
   detectedPlaceToSelectedPlace,
   selectedPlaceToDetectedPlace,
+  createSelectionsFromPlaces,
+  getSelectedPlacesToSave,
 } from './shareCaptureUtils';
 import {
   useSubscriptionStore,
@@ -36,6 +45,7 @@ interface UseShareCaptureParams {
 
 export interface ShareCaptureState {
   ingestResult: SocialIngestResponse | null;
+  // Single-place mode (backward compat)
   selectedPlace: SelectedPlace | null;
   selectedTripId: string | null;
   entryType: EntryType;
@@ -47,15 +57,26 @@ export interface ShareCaptureState {
   isLoading: boolean;
   isSaving: boolean;
   userClearedPlace: boolean; // True when user explicitly cleared the place selection
+  // Multi-place mode
+  isMultiPlaceMode: boolean; // True when 2+ places detected
+  placeSelections: Record<string, PlaceSelection>; // Selection state per place
+  selectedPlaceCount: number; // Count of selected places
   // Premium gating
   isPremium: boolean;
   canSave: boolean; // True if user has remaining saves or is premium
 }
 
 export interface ShareCaptureHandlers {
+  // Single-place handlers
   handleTypeSelect: (type: EntryType) => void;
   handleChangeType: () => void;
   handlePlaceSelect: (place: SelectedPlace | null) => void;
+  // Multi-place handlers
+  handleTogglePlace: (placeKey: string) => void;
+  handleEditPlace: (placeKey: string) => void;
+  handleUpdatePlace: (placeKey: string, place: SelectedPlace) => void;
+  handlePlaceEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
+  // Common handlers
   handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
   handleSave: () => Promise<void>;
   handleRetry: () => void;
@@ -87,6 +108,7 @@ export function useShareCapture({
   // Mutations
   const socialIngest = useSocialIngest();
   const saveToTrip = useSaveToTrip();
+  const savePlaces = useSavePlaces();
   const createTrip = useCreateTrip();
   const createEntry = useCreateEntry();
 
@@ -94,7 +116,7 @@ export function useShareCapture({
   const { data: trips = [] } = useTrips();
   const { data: uncategorizedTrip } = useUncategorizedTrip();
 
-  // State
+  // State - single place mode (backward compat)
   const [ingestResult, setIngestResult] = useState<SocialIngestResponse | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -106,6 +128,13 @@ export function useShareCapture({
   const [error, setError] = useState<string | null>(null);
   const [saveCompleted, setSaveCompleted] = useState(false);
   const [userClearedPlace, setUserClearedPlace] = useState(false);
+
+  // State - multi-place mode
+  const [placeSelections, setPlaceSelections] = useState<Record<string, PlaceSelection>>({});
+
+  // Computed - multi-place mode detection
+  const isMultiPlaceMode = Object.keys(placeSelections).length > 1;
+  const selectedPlaceCount = Object.values(placeSelections).filter((s) => s.isSelected).length;
 
   // Premium subscription state
   const isPremium = useIsPremium();
@@ -134,7 +163,15 @@ export function useShareCapture({
         onSuccess: (result) => {
           setIngestResult(result);
 
-          if (result.detected_place) {
+          // Check for multi-place extraction (2+ places)
+          if (result.detected_places && result.detected_places.length > 1) {
+            // Multi-place mode: create selections from all places
+            const selections = createSelectionsFromPlaces(result.detected_places);
+            setPlaceSelections(selections);
+            // Also set first place for backward compat and country detection
+            setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_places[0]));
+          } else if (result.detected_place) {
+            // Single-place mode (backward compat)
             setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
             // Prefer LLM entry type, fall back to Google types inference
             const inferredType =
@@ -266,12 +303,80 @@ export function useShareCapture({
   );
 
   const handleSave = useCallback(async () => {
-    if (!selectedPlace) {
-      Alert.alert('Location Required', 'Please select or search for a location.');
-      return;
-    }
     if (!selectedTripId) {
       Alert.alert('Trip Required', 'Please select or create a trip.');
+      return;
+    }
+
+    // Multi-place mode: use batch save
+    if (isMultiPlaceMode) {
+      const placesToSave = getSelectedPlacesToSave(placeSelections);
+      if (placesToSave.length === 0) {
+        Alert.alert('No Places Selected', 'Please select at least one place to save.');
+        return;
+      }
+
+      if (!ingestResult) return;
+
+      savePlaces.mutate(
+        {
+          trip_id: selectedTripId,
+          places: placesToSave,
+          provider: ingestResult.provider,
+          canonical_url: ingestResult.canonical_url,
+          thumbnail_url: ingestResult.thumbnail_url,
+          author_handle: ingestResult.author_handle,
+          title: ingestResult.title,
+          notes: notes.trim() || undefined,
+        },
+        {
+          onSuccess: async (response) => {
+            // Track analytics
+            Analytics.shareCompleted({
+              provider: ingestResult.provider,
+              entryType: 'place', // Multi-place has mixed types
+              tripId: selectedTripId,
+            });
+
+            // Increment share extension usage for free users
+            if (!isPremium) {
+              incrementShareUsage();
+            }
+
+            // Show result message
+            if (response.skipped_count > 0) {
+              Alert.alert(
+                'Saved',
+                `${response.saved_count} place${response.saved_count !== 1 ? 's' : ''} saved. ${response.skipped_count} already existed.`
+              );
+            }
+
+            // Clear App Group storage
+            if (source === 'share_extension') {
+              await completeAppGroupShare(url);
+            }
+
+            setSaveCompleted(true);
+            onComplete(selectedTripId ?? undefined);
+          },
+          onError: (err) => {
+            const message = err instanceof Error ? err.message : 'Failed to save places';
+            console.error('savePlaces error:', err);
+            Alert.alert('Save Failed', message);
+            Analytics.shareFailed({
+              provider: ingestResult.provider,
+              error: message,
+              stage: 'save',
+            });
+          },
+        }
+      );
+      return;
+    }
+
+    // Single-place mode (original flow)
+    if (!selectedPlace) {
+      Alert.alert('Location Required', 'Please select or search for a location.');
       return;
     }
 
@@ -381,6 +486,8 @@ export function useShareCapture({
     selectedPlace,
     selectedTripId,
     isManualEntryMode,
+    isMultiPlaceMode,
+    placeSelections,
     createEntry,
     entryType,
     notes,
@@ -389,21 +496,27 @@ export function useShareCapture({
     onComplete,
     ingestResult,
     saveToTrip,
+    savePlaces,
     isPremium,
     incrementShareUsage,
   ]);
 
   const handleRetry = useCallback(() => {
     setError(null);
+    setPlaceSelections({}); // Reset multi-place state
     socialIngest.mutate(
       { url, caption },
       {
         onSuccess: (result) => {
           setIngestResult(result);
 
-          if (result.detected_place) {
+          // Check for multi-place extraction
+          if (result.detected_places && result.detected_places.length > 1) {
+            const selections = createSelectionsFromPlaces(result.detected_places);
+            setPlaceSelections(selections);
+            setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_places[0]));
+          } else if (result.detected_place) {
             setSelectedPlace(detectedPlaceToSelectedPlace(result.detected_place));
-            // Prefer LLM entry type, fall back to Google types inference
             const inferredType =
               (result.detected_place.llm_entry_type as EntryType) ??
               inferEntryTypeFromPlaceTypes(
@@ -422,6 +535,40 @@ export function useShareCapture({
     );
   }, [socialIngest, url, caption]);
 
+  // Multi-place handlers
+  const handleTogglePlace = useCallback((placeKey: string) => {
+    setPlaceSelections((prev) => {
+      if (!prev[placeKey]) return prev;
+      return {
+        ...prev,
+        [placeKey]: { ...prev[placeKey], isSelected: !prev[placeKey].isSelected },
+      };
+    });
+  }, []);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleEditPlace = useCallback((_placeKey: string) => {
+    // TODO: Implement place editing - show location search modal and call handleUpdatePlace
+    // setEditingPlaceKey(placeKey);
+    // For Phase 1, edit is not implemented
+  }, []);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleUpdatePlace = useCallback((_placeKey: string, _place: SelectedPlace) => {
+    // TODO: Implement place updating - called after user selects new place in search modal
+    // For Phase 1, edit is not implemented
+  }, []);
+
+  const handlePlaceEntryTypeChange = useCallback((placeKey: string, newEntryType: EntryType) => {
+    setPlaceSelections((prev) => {
+      if (!prev[placeKey]) return prev;
+      return {
+        ...prev,
+        [placeKey]: { ...prev[placeKey], entryType: newEntryType },
+      };
+    });
+  }, []);
+
   const handleManualEntry = useCallback(() => {
     const detectedProvider = detectProviderFromUrl(url);
     setIngestResult({
@@ -430,9 +577,11 @@ export function useShareCapture({
       thumbnail_url: null,
       author_handle: null,
       title: null,
+      detected_places: [],
       detected_place: null,
       detected_country: null,
     });
+    setPlaceSelections({}); // Reset multi-place state
     setIsManualEntryMode(true);
     setError(null);
   }, [url]);
@@ -455,7 +604,7 @@ export function useShareCapture({
   const checkCanSave = useCallback(() => canSave, [canSave]);
 
   return {
-    // State
+    // State - single place
     ingestResult,
     selectedPlace,
     selectedTripId,
@@ -466,15 +615,26 @@ export function useShareCapture({
     isManualEntryMode,
     error,
     isLoading: socialIngest.isPending && !ingestResult,
-    isSaving: saveToTrip.isPending || createEntry.isPending,
+    isSaving: saveToTrip.isPending || createEntry.isPending || savePlaces.isPending,
     userClearedPlace,
+    // State - multi-place
+    isMultiPlaceMode,
+    placeSelections,
+    selectedPlaceCount,
+    // Premium gating
     isPremium,
     canSave,
 
-    // Handlers
+    // Single-place handlers
     handleTypeSelect,
     handleChangeType,
     handlePlaceSelect,
+    // Multi-place handlers
+    handleTogglePlace,
+    handleEditPlace,
+    handleUpdatePlace,
+    handlePlaceEntryTypeChange,
+    // Common handlers
     handleCreateTrip,
     handleSave,
     handleRetry,

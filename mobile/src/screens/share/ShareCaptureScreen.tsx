@@ -3,10 +3,10 @@
  *
  * Flow:
  * 1. Receive URL from clipboard/share extension
- * 2. Call /ingest/social to process URL and detect place
- * 3. Show thumbnail, let user confirm/edit place
+ * 2. Call /ingest/social to process URL and detect place(s)
+ * 3. Show thumbnail, let user confirm/edit place(s)
  * 4. Select trip and entry type
- * 5. Save to trip via /ingest/save-to-trip
+ * 5. Save to trip via /ingest/save-to-trip or /ingest/save-places (multi-place)
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { PlacesAutocomplete } from '@components/places';
+import { PlacesAutocomplete, MultiPlaceList } from '@components/places';
 import { CategorySelector } from '@components/entries';
 import { SatisfactionModal } from '@components/review';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
@@ -71,10 +71,19 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     isLoading,
     isSaving,
     userClearedPlace,
+    // Multi-place state
+    isMultiPlaceMode,
+    placeSelections,
+    selectedPlaceCount,
+    // Premium gating
     canSave,
+    // Handlers
     handleTypeSelect,
     handleChangeType,
     handlePlaceSelect,
+    handleTogglePlace,
+    handleEditPlace,
+    handlePlaceEntryTypeChange,
     handleCreateTrip,
     handleSave,
     handleRetry,
@@ -198,31 +207,45 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           <ManualEntryBanner visible={isManualEntryMode && !ingestResult?.detected_place} />
 
           {/* Location Section */}
-          <View
-            style={[styles.section, styles.locationSection]}
-            onLayout={(event) => {
-              locationSectionY.current = event.nativeEvent.layout.y;
-            }}
-          >
-            <Text style={styles.sectionLabel}>
-              {ingestResult?.detected_place ? 'CONFIRM LOCATION' : 'SELECT LOCATION'}
-            </Text>
-            <PlacesAutocomplete
-              value={selectedPlace}
-              onSelect={handlePlaceSelect}
-              placeholder="Search for a place..."
-              countryCode={effectiveCountryCode}
-              onDropdownOpen={(isOpen) => {
-                setScrollEnabled(!isOpen);
-                if (isOpen) {
-                  scrollViewRef.current?.scrollTo({
-                    y: locationSectionY.current - 20,
-                    animated: true,
-                  });
-                }
+          {isMultiPlaceMode ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>
+                SELECT PLACES ({selectedPlaceCount} SELECTED)
+              </Text>
+              <MultiPlaceList
+                selections={placeSelections}
+                onTogglePlace={handleTogglePlace}
+                onEditPlace={handleEditPlace}
+                onEntryTypeChange={handlePlaceEntryTypeChange}
+              />
+            </View>
+          ) : (
+            <View
+              style={[styles.section, styles.locationSection]}
+              onLayout={(event) => {
+                locationSectionY.current = event.nativeEvent.layout.y;
               }}
-            />
-          </View>
+            >
+              <Text style={styles.sectionLabel}>
+                {ingestResult?.detected_place ? 'CONFIRM LOCATION' : 'SELECT LOCATION'}
+              </Text>
+              <PlacesAutocomplete
+                value={selectedPlace}
+                onSelect={handlePlaceSelect}
+                placeholder="Search for a place..."
+                countryCode={effectiveCountryCode}
+                onDropdownOpen={(isOpen) => {
+                  setScrollEnabled(!isOpen);
+                  if (isOpen) {
+                    scrollViewRef.current?.scrollTo({
+                      y: locationSectionY.current - 20,
+                      animated: true,
+                    });
+                  }
+                }}
+              />
+            </View>
+          )}
 
           {/* Trip Section */}
           <View style={styles.section}>
@@ -237,12 +260,15 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
             />
           </View>
 
-          <CategorySelector
-            entryType={entryType}
-            hasSelectedType={hasSelectedType}
-            onTypeSelect={handleTypeSelect}
-            onChangeType={handleChangeType}
-          />
+          {/* Only show CategorySelector in single-place mode */}
+          {!isMultiPlaceMode && (
+            <CategorySelector
+              entryType={entryType}
+              hasSelectedType={hasSelectedType}
+              onTypeSelect={handleTypeSelect}
+              onChangeType={handleChangeType}
+            />
+          )}
 
           <View style={styles.section}>
             <GlassInput
@@ -267,10 +293,20 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               </Text>
             )}
             <Button
-              title={canSave ? 'Save to Trip' : 'Upgrade to Save'}
+              title={
+                !canSave
+                  ? 'Upgrade to Save'
+                  : isMultiPlaceMode
+                    ? `Save ${selectedPlaceCount} Place${selectedPlaceCount !== 1 ? 's' : ''}`
+                    : 'Save to Trip'
+              }
               onPress={handleSaveWithGate}
               loading={isSaving}
-              disabled={isSaving || !selectedPlace || !selectedTripId}
+              disabled={
+                isSaving ||
+                !selectedTripId ||
+                (isMultiPlaceMode ? selectedPlaceCount === 0 : !selectedPlace)
+              }
             />
           </View>
         </ScrollView>

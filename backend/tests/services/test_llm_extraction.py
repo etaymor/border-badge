@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.place_extractor.llm_client import (
-    _parse_llm_places,
+    _parse_llm_response,
     _sanitize_content,
     try_llm_extraction,
 )
@@ -171,13 +171,13 @@ class TestSanitizeContent:
         assert "Japan" in result
 
 
-class TestParseLlmPlaces:
-    """Tests for _parse_llm_places function."""
+class TestParseLlmResponse:
+    """Tests for _parse_llm_response function."""
 
     def test_parses_valid_json_array(self):
         """Parses valid JSON array response."""
         content = '[{"name": "Cafe Central", "city": "Vienna", "country": "Austria", "type": "Food"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0] == ("Cafe Central", "Vienna", "Austria", "food")
@@ -188,27 +188,27 @@ class TestParseLlmPlaces:
             {"name": "Eiffel Tower", "city": "Paris", "country": "France", "type": "Place"},
             {"name": "Louvre Museum", "city": "Paris", "country": "France", "type": "Place"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 2
         assert result[0][0] == "Eiffel Tower"
         assert result[1][0] == "Louvre Museum"
 
-    def test_limits_to_5_places(self):
-        """Limits output to maximum 5 places."""
+    def test_limits_to_10_places(self):
+        """Limits output to maximum 10 places."""
         places = [
             {"name": f"Place{i}", "city": "City", "country": "Country", "type": "Place"}
-            for i in range(10)
+            for i in range(15)
         ]
         content = str(places).replace("'", '"')
-        result = _parse_llm_places(content)
-        assert len(result) == 5
+        result = _parse_llm_response(content).places
+        assert len(result) == 10
 
     def test_strips_code_fences(self):
         """Strips markdown code fences from response."""
         content = """```json
         [{"name": "Tokyo Tower", "city": "Tokyo", "country": "Japan", "type": "Place"}]
         ```"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Tokyo Tower"
 
@@ -217,27 +217,27 @@ class TestParseLlmPlaces:
         content = """```
         [{"name": "Big Ben", "city": "London", "country": "UK", "type": "Place"}]
         ```"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Big Ben"
 
     def test_fixes_trailing_commas(self):
         """Fixes common LLM JSON error of trailing commas."""
         content = '[{"name": "Colosseum", "city": "Rome", "country": "Italy", "type": "Place",}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Colosseum"
 
     def test_returns_empty_for_invalid_json(self):
         """Returns empty list for invalid JSON."""
         content = "This is not JSON at all"
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
     def test_returns_empty_for_non_array(self):
         """Returns empty list when response is not an array."""
         content = '{"name": "Single Place", "city": "City", "country": "Country"}'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
     def test_skips_items_without_name(self):
@@ -247,14 +247,14 @@ class TestParseLlmPlaces:
             {"city": "City", "type": "Place"},
             {"name": "", "city": "City", "type": "Place"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Valid Place"
 
     def test_handles_null_city_country(self):
         """Handles null/missing city and country fields."""
         content = '[{"name": "Mystery Place", "city": null, "country": null, "type": "Place"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0] == ("Mystery Place", None, None, "place")
@@ -262,7 +262,7 @@ class TestParseLlmPlaces:
     def test_handles_missing_type_defaults_to_place(self):
         """Defaults to 'place' type when not provided."""
         content = '[{"name": "Some Building", "city": "City"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0][3] == "place"
@@ -270,7 +270,7 @@ class TestParseLlmPlaces:
     def test_validates_entry_type(self):
         """Validates entry type against allowed values."""
         content = '[{"name": "Test", "city": "City", "type": "InvalidType"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Invalid type should default to "place" (lowercase)
         assert result[0][3] == "place"
@@ -283,7 +283,7 @@ class TestParseLlmPlaces:
             {"name": "Cafe Lomi", "type": "Food"},
             {"name": "City Tour", "type": "Experience"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 4
         # Entry types are normalized to lowercase to match database enum
         assert result[0][3] == "place"
@@ -298,14 +298,14 @@ class TestParseLlmPlaces:
         [{"name": "Cafe Central", "city": "Vienna", "type": "Food"}]
 
         """
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Cafe Central"
 
     def test_returns_empty_for_empty_array(self):
         """Returns empty list for empty JSON array."""
         content = "[]"
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
 
@@ -427,6 +427,8 @@ class TestTryLlmExtraction:
     @pytest.mark.asyncio
     async def test_successful_extraction(self, mock_extract_location_hints):
         """Tests successful LLM extraction with mocked API response."""
+        from app.schemas.social_ingest import DetectedPlace
+
         mock_settings = MagicMock()
         mock_settings.llm_place_extraction_enabled = True
         mock_settings.openrouter_api_key = "test-key"
@@ -446,10 +448,15 @@ class TestTryLlmExtraction:
             ]
         }
 
-        mock_detected_place = MagicMock()
-        mock_detected_place.confidence = 0.8
+        # Use actual DetectedPlace to pass isinstance check in multi-place resolution
+        resolved_place = DetectedPlace(
+            name="Cafe Central",
+            google_place_id="ChIJ123",
+            address="Some Address, Vienna",
+            confidence=0.8,
+        )
 
-        mock_try_candidate = AsyncMock(return_value=mock_detected_place)
+        mock_try_candidate = AsyncMock(return_value=resolved_place)
 
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = mock_place_response
@@ -477,8 +484,9 @@ class TestTryLlmExtraction:
                 assert call_args[0][0] == "Cafe Central, Vienna, Austria"
 
                 # Result should have the LLM entry type attached (normalized to lowercase)
-                assert result == mock_detected_place
-                assert mock_detected_place.llm_entry_type == "food"
+                assert result is not None
+                assert result.name == "Cafe Central"
+                assert result.llm_entry_type == "food"
 
     @pytest.mark.asyncio
     async def test_handles_http_error(

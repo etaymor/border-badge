@@ -92,8 +92,16 @@ actor APIClient {
     // MARK: - Public API
 
     /// Process a social URL via /ingest/social
-    func ingestSocial(url: String, caption: String?, extractionMethod: String? = nil) async throws -> SocialIngestResponse {
-        let request = SocialIngestRequest(url: url, caption: caption, extractionMethod: extractionMethod)
+    func ingestSocial(
+        url: String,
+        caption: String?,
+        extractionMethod: String? = nil
+    ) async throws -> SocialIngestResponse {
+        let request = SocialIngestRequest(
+            url: url,
+            caption: caption,
+            extractionMethod: extractionMethod
+        )
         return try await post(
             path: "/ingest/social",
             body: request,
@@ -105,6 +113,15 @@ actor APIClient {
     func saveToTrip(request: SaveToTripRequest) async throws -> SaveToTripResponse {
         return try await post(
             path: "/ingest/save-to-trip",
+            body: request,
+            timeout: defaultTimeout
+        )
+    }
+
+    /// Save multiple places to a trip via /ingest/save-places (batch save)
+    func savePlaces(request: SavePlacesRequest) async throws -> SavePlacesResponse {
+        return try await post(
+            path: "/ingest/save-places",
             body: request,
             timeout: defaultTimeout
         )

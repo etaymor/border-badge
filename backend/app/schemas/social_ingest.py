@@ -72,8 +72,8 @@ class DetectedCountry(BaseModel):
 class SocialIngestResponse(BaseModel):
     """Response from social media ingest.
 
-    Returns oEmbed metadata and detected place without persisting to saved_source.
-    The client should pass this data to /ingest/save-to-trip when saving.
+    Returns oEmbed metadata and detected place(s) without persisting to saved_source.
+    The client should pass this data to /ingest/save-to-trip or /ingest/save-places when saving.
     """
 
     provider: SocialProvider
@@ -81,13 +81,20 @@ class SocialIngestResponse(BaseModel):
     thumbnail_url: str | None = None
     author_handle: str | None = None
     title: str | None = None
+    # Multi-place extraction: array of all detected places (max 10)
+    detected_places: list[DetectedPlace] = []
+    # DEPRECATED: keep for backward compat, populated with first place from detected_places
     detected_place: DetectedPlace | None = None
     # Country hint even when place detection fails (for trip defaulting & autocomplete bias)
     detected_country: DetectedCountry | None = None
     # Extraction method used (llm, regex, or none if no place detected)
     extraction_method_used: Literal["llm", "regex", "none"] | None = None
+    # Extraction source for multi-place (caption, video_frames, slideshow, screenshot)
+    extraction_source: Literal["caption", "video_frames", "slideshow", "screenshot"] | None = None
     # Extraction latency in milliseconds
     extraction_latency_ms: int | None = None
+    # Context location detected from content (e.g., "Thailand") - used as search bias
+    context_location: str | None = None
 
 
 class OEmbedCacheEntry(BaseModel):
@@ -114,6 +121,48 @@ class OEmbedResponse(BaseModel):
     provider_name: str | None = None
     provider_url: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlaceToSave(BaseModel):
+    """A single place to be saved in a batch operation."""
+
+    google_place_id: str | None = Field(None, max_length=512)
+    name: str = Field(..., min_length=1, max_length=256)
+    entry_type: Literal["place", "food", "stay", "experience"] = Field("place")
+    address: str | None = Field(None, max_length=512)
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
+    city: str | None = Field(None, max_length=200)
+    country: str | None = Field(None, max_length=200)
+    country_code: str | None = Field(None, min_length=2, max_length=2)
+    google_photo_url: str | None = Field(None, max_length=2048)
+
+
+class SavePlacesRequest(BaseModel):
+    """Request to save multiple places from a social media post to a trip.
+
+    Used for multi-place extraction where a single post contains multiple places.
+    """
+
+    trip_id: UUID
+    places: list[PlaceToSave] = Field(..., min_length=1, max_length=20)
+    # Ingest data (from social media)
+    provider: SocialProvider
+    canonical_url: str = Field(..., max_length=2048)
+    thumbnail_url: str | None = Field(None, max_length=2048)
+    author_handle: str | None = Field(None, max_length=256)
+    title: str | None = Field(None, max_length=2200)
+    # Notes applied to all entries
+    notes: str | None = Field(None, max_length=5000)
+
+
+class SavePlacesResponse(BaseModel):
+    """Response from batch save operation."""
+
+    saved_count: int
+    skipped_count: int  # Duplicates that were skipped
+    saved_entry_ids: list[UUID]
+    skipped_place_names: list[str] = []  # Names of places that were skipped
 
 
 class SaveToTripRequest(BaseModel):

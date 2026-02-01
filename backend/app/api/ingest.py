@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Literal
 from urllib.parse import urlparse, urlunparse
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
@@ -17,6 +18,8 @@ from app.schemas.entries import Entry, EntryWithPlace, Place
 from app.schemas.social_ingest import (
     DetectedCountry,
     DetectedPlace,
+    SavePlacesRequest,
+    SavePlacesResponse,
     SaveToTripRequest,
     SocialIngestRequest,
     SocialIngestResponse,
@@ -32,7 +35,9 @@ from app.services.place_extractor import (
     extract_location_hints,
     extract_place_from_profile,
     extract_place_with_method,
+    try_llm_multi_place_extraction,
 )
+from app.services.place_extractor.extractor import _try_candidate
 from app.services.url_resolver import (
     canonicalize_url,
     detect_provider,
@@ -150,34 +155,58 @@ async def ingest_social_url(
         f"caption_len={len(data.caption) if data.caption else 0}, is_profile={is_profile}"
     )
 
-    # Step 3: Extract place from content
+    # Step 3: Extract place(s) from content
     # Profile URLs use a different extraction path that uses the profile name directly
     extraction_start = time.monotonic()
     extraction_method_used: Literal["llm", "regex", "none"] = "none"
+    detected_places: list[DetectedPlace] = []
     detected_place: DetectedPlace | None = None
+    context_location: str | None = None
 
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
         profile_name = clean_instagram_profile_name(oembed.title or "")
         # Bio may contain location hints (address, city)
         bio = oembed.raw.get("og:description") if oembed.raw else None
-        detected_place = await extract_place_from_profile(profile_name, bio)
-        # Profile extraction doesn't use LLM/regex, mark as "none" unless we found a place
-        if detected_place:
+        profile_place = await extract_place_from_profile(profile_name, bio)
+        if profile_place:
+            detected_places = [profile_place]
+            detected_place = profile_place
             extraction_method_used = "regex"  # Profile uses direct search
     else:
-        # Standard extraction from post title/caption with method tracking
-        extraction_result = await extract_place_with_method(
-            oembed, data.caption, data.extraction_method
+        # Try multi-place LLM extraction first
+        multi_result = await try_llm_multi_place_extraction(
+            title,
+            data.caption,
+            author_handle,
+            try_candidate_fn=_try_candidate,
+            extract_location_hints_fn=extract_location_hints,
         )
-        detected_place = extraction_result.place
-        extraction_method_used = extraction_result.method
+
+        if multi_result.places:
+            detected_places = multi_result.places
+            detected_place = multi_result.places[0]  # Backward compat
+            context_location = multi_result.context_location
+            extraction_method_used = "llm"
+        elif not multi_result.skip_to_video:
+            # LLM didn't find places and didn't signal to skip to video
+            # Fall back to single-place extraction (regex fallback)
+            extraction_result = await extract_place_with_method(
+                oembed, data.caption, data.extraction_method
+            )
+            if extraction_result.place:
+                detected_places = [extraction_result.place]
+                detected_place = extraction_result.place
+            extraction_method_used = extraction_result.method
+        # Note: if skip_to_video is True, we return empty places
+        # (Phase 2 will handle video frame extraction)
 
     extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
 
     logger.info(
         f"INGEST place extraction result: "
-        f"detected={detected_place.name if detected_place else None}, "
+        f"detected={len(detected_places)} places, "
+        f"first={detected_place.name if detected_place else None}, "
         f"confidence={detected_place.confidence if detected_place else None}, "
         f"source={'profile' if is_profile else 'post'}, "
         f"method={extraction_method_used}, latency_ms={extraction_latency_ms}"
@@ -238,10 +267,13 @@ async def ingest_social_url(
         thumbnail_url=thumbnail_url,
         author_handle=author_handle,
         title=title,
-        detected_place=detected_place,
+        detected_places=detected_places,
+        detected_place=detected_place,  # Backward compat
         detected_country=detected_country,
         extraction_method_used=extraction_method_used,
+        extraction_source="caption",  # Phase 1: caption only
         extraction_latency_ms=extraction_latency_ms,
+        context_location=context_location,
     )
 
 
@@ -476,3 +508,170 @@ async def save_to_trip(
     )
 
     return EntryWithPlace(**entry.model_dump(), place=place)
+
+
+@router.post(
+    "/ingest/save-places",
+    response_model=SavePlacesResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("30/minute")
+async def save_places(
+    request: Request,
+    data: SavePlacesRequest,
+    user: CurrentUser,
+    background_tasks: BackgroundTasks,
+) -> SavePlacesResponse:
+    """Save multiple places from a social media post to a trip.
+
+    Batch operation that creates entries for all selected places atomically.
+    Skips duplicates (based on google_place_id) rather than erroring.
+
+    Args:
+        request: FastAPI request object
+        data: Request containing trip_id, places array, and ingest metadata
+        user: Authenticated user
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        SavePlacesResponse with counts of saved/skipped places and entry IDs
+    """
+    db = _get_user_scoped_client(request)
+
+    # Verify trip exists and user owns it
+    trips = await db.get(
+        "trip",
+        {
+            "id": f"eq.{data.trip_id}",
+            "user_id": f"eq.{user.id}",
+            "select": "id",
+        },
+    )
+
+    if not trips:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found",
+        )
+
+    saved_entry_ids: list[str] = []
+    skipped_place_names: list[str] = []
+
+    for place in data.places:
+        # Validate Google photo URL if provided
+        validated_google_photo_url: str | None = None
+        if place.google_photo_url:
+            validated_google_photo_url = safe_google_photo_url(place.google_photo_url)
+
+        # Build place data for atomic operation
+        place_data = None
+        if place.google_place_id:
+            extra_data = {
+                "city": place.city,
+                "country": place.country,
+                "country_code": place.country_code,
+                "confidence": 1.0,  # User confirmed
+                "source": data.provider.value,
+                "source_url": data.canonical_url,
+            }
+            if validated_google_photo_url:
+                extra_data["google_photo_url"] = validated_google_photo_url
+
+            place_data = {
+                "google_place_id": place.google_place_id,
+                "place_name": place.name,
+                "lat": place.latitude,
+                "lng": place.longitude,
+                "address": place.address,
+                "extra_data": extra_data,
+            }
+
+        # Build entry data
+        entry_data = {
+            "type": place.entry_type,
+            "title": place.name,
+            "notes": data.notes,
+            "link": data.canonical_url,
+            "metadata": {
+                "source_type": "social_ingest",
+                "provider": data.provider.value,
+                "author_handle": data.author_handle,
+                "thumbnail_url": data.thumbnail_url,
+            },
+        }
+
+        try:
+            result = await db.rpc(
+                "atomic_create_entry_with_place",
+                {
+                    "p_trip_id": str(data.trip_id),
+                    "p_entry_data": entry_data,
+                    "p_place_data": place_data,
+                },
+            )
+
+            if result and len(result) > 0:
+                entry_row = result[0].get("entry_row")
+                if entry_row and entry_row.get("id"):
+                    saved_entry_ids.append(entry_row["id"])
+
+                    # Download Google photo in background
+                    if validated_google_photo_url:
+                        background_tasks.add_task(
+                            _download_google_photo_background,
+                            validated_google_photo_url,
+                            str(user.id),
+                            str(entry_row["id"]),
+                            str(data.trip_id),
+                        )
+
+        except HTTPException as e:
+            detail = str(e.detail).lower() if e.detail else ""
+            if "unique" in detail or "duplicate" in detail:
+                # Skip duplicates silently
+                skipped_place_names.append(place.name)
+                continue
+            raise
+        except Exception as e:
+            logger.error(
+                "batch_save_entry_failed",
+                extra={
+                    "event": "batch_save_error",
+                    "place_name": place.name[:50],
+                    "error": str(e)[:200],
+                },
+            )
+            skipped_place_names.append(place.name)
+            continue
+
+    # Increment share extension usage once for the batch
+    if saved_entry_ids:
+        try:
+            await db.rpc("increment_share_extension_usage", {"p_user_id": user.id})
+        except Exception as e:
+            logger.warning(
+                "share_extension_usage_increment_failed",
+                extra={
+                    "event": "usage_increment_error",
+                    "user_id": str(user.id),
+                    "error": str(e)[:200],
+                },
+            )
+
+    logger.info(
+        "save_places_completed",
+        extra={
+            "event": "save_places",
+            "user_id": str(user.id),
+            "trip_id": str(data.trip_id),
+            "saved_count": len(saved_entry_ids),
+            "skipped_count": len(skipped_place_names),
+        },
+    )
+
+    return SavePlacesResponse(
+        saved_count=len(saved_entry_ids),
+        skipped_count=len(skipped_place_names),
+        saved_entry_ids=[UUID(eid) for eid in saved_entry_ids],
+        skipped_place_names=skipped_place_names,
+    )

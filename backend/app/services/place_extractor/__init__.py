@@ -40,7 +40,9 @@ from app.services.place_extractor.google_places_client import (
 )
 from app.services.place_extractor.llm_client import (
     VALID_ENTRY_TYPES,
+    MultiPlaceExtractionResult,
     try_llm_extraction,
+    try_llm_multi_place_extraction,
 )
 from app.services.place_extractor.location_hints import (
     LocationHint,
@@ -99,5 +101,7 @@ __all__ = [
     "NOISE_WORDS",
     # LLM extraction
     "try_llm_extraction",
+    "try_llm_multi_place_extraction",
+    "MultiPlaceExtractionResult",
     "VALID_ENTRY_TYPES",
 ]

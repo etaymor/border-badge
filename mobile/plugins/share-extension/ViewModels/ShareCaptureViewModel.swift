@@ -125,6 +125,12 @@ class ShareCaptureViewModel: ObservableObject {
     @Published var isManualEntryMode: Bool = false
     @Published var userClearedPlace: Bool = false  // True when user explicitly cleared the place selection
 
+    // MARK: - Multi-Place State
+
+    @Published var placeSelections: [PlaceSelection] = []
+    /// Index of place being edited in location search, nil when not editing
+    @Published var editingPlaceIndex: Int?
+
     // MARK: - Subscription State
 
     /// Whether user has premium access (premium or trial)
@@ -184,7 +190,20 @@ class ShareCaptureViewModel: ObservableObject {
     }
 
     var canSave: Bool {
-        selectedPlace != nil && selectedTripId != nil && canUseShareExtension
+        if isMultiPlaceMode {
+            return selectedPlaceCount > 0 && selectedTripId != nil && canUseShareExtension
+        }
+        return selectedPlace != nil && selectedTripId != nil && canUseShareExtension
+    }
+
+    /// Whether we're in multi-place mode (more than one place detected)
+    var isMultiPlaceMode: Bool {
+        placeSelections.count > 1
+    }
+
+    /// Number of places currently selected
+    var selectedPlaceCount: Int {
+        placeSelections.selectedCount
     }
 
     var providerName: String {
@@ -284,12 +303,34 @@ class ShareCaptureViewModel: ObservableObject {
         hasSelectedType = false
     }
 
+    // MARK: - Multi-Place Handlers
+
+    /// Start editing a place at the given index (opens location search)
+    func startEditingPlace(at index: Int) {
+        guard index >= 0 && index < placeSelections.count else { return }
+        editingPlaceIndex = index
+    }
+
+    /// Update an edited place with a new selection
+    func updateEditedPlace(_ place: DetectedPlace) {
+        guard let index = editingPlaceIndex,
+              index >= 0 && index < placeSelections.count else { return }
+
+        placeSelections[index] = PlaceSelection(
+            place: place,
+            isSelected: placeSelections[index].isSelected
+        )
+        editingPlaceIndex = nil
+    }
+
+    /// Cancel place editing
+    func cancelEditingPlace() {
+        editingPlaceIndex = nil
+    }
+
     /// Save the entry to the selected trip
     func save() {
-        guard let place = selectedPlace,
-              let tripId = selectedTripId else {
-            return
-        }
+        guard let tripId = selectedTripId else { return }
 
         // Check subscription status before saving
         refreshSubscriptionStatus()
@@ -300,17 +341,39 @@ class ShareCaptureViewModel: ObservableObject {
             return
         }
 
-        // Track save initiated
-        AnalyticsQueue.track("share_extension_save_initiated", properties: [
-            "has_location": true,
-            "category": entryType.rawValue
-        ])
+        // Determine if multi-place or single-place save
+        if isMultiPlaceMode {
+            let placesToSave = placeSelections.placesToSave
+            guard !placesToSave.isEmpty else { return }
 
-        state = .saving
+            // Track save initiated
+            AnalyticsQueue.track("share_extension_save_initiated", properties: [
+                "has_location": true,
+                "place_count": placesToSave.count,
+                "multi_place": true
+            ])
 
-        currentTask?.cancel()
-        currentTask = Task {
-            await saveEntry(place: place, tripId: tripId)
+            state = .saving
+
+            currentTask?.cancel()
+            currentTask = Task {
+                await saveMultiplePlaces(places: placesToSave, tripId: tripId)
+            }
+        } else {
+            guard let place = selectedPlace else { return }
+
+            // Track save initiated
+            AnalyticsQueue.track("share_extension_save_initiated", properties: [
+                "has_location": true,
+                "category": entryType.rawValue
+            ])
+
+            state = .saving
+
+            currentTask?.cancel()
+            currentTask = Task {
+                await saveEntry(place: place, tripId: tripId)
+            }
         }
     }
 
@@ -321,8 +384,15 @@ class ShareCaptureViewModel: ObservableObject {
             let response = try await apiClient.ingestSocial(url: originalURL, caption: caption)
             ingestResult = response
 
-            // Auto-select detected place
-            if let detected = response.detectedPlace {
+            // Initialize multi-place selections if we have multiple places
+            if response.detectedPlaces.count > 1 {
+                placeSelections = .from(places: response.detectedPlaces)
+            } else {
+                placeSelections = []
+            }
+
+            // Auto-select detected place (backward compat - use first place)
+            if let detected = response.detectedPlace ?? response.detectedPlaces.first {
                 selectedPlace = detected
 
                 // Prefer LLM entry type, fall back to Google types inference
@@ -391,6 +461,69 @@ class ShareCaptureViewModel: ObservableObject {
             handleSaveError(error, place: place, tripId: tripId)
         } catch {
             handleSaveError(.networkError(error), place: place, tripId: tripId)
+        }
+    }
+
+    private func saveMultiplePlaces(places: [PlaceToSave], tripId: String) async {
+        guard let result = ingestResult else {
+            state = .success
+            return
+        }
+
+        do {
+            let request = SavePlacesRequest(
+                tripId: tripId,
+                places: places,
+                provider: result.provider,
+                canonicalUrl: result.canonicalUrl,
+                thumbnailUrl: result.thumbnailUrl,
+                authorHandle: result.authorHandle,
+                title: result.title,
+                notes: notes.isEmpty ? nil : notes
+            )
+
+            let response = try await apiClient.savePlaces(request: request)
+
+            // Clear the shared URL from App Group since we processed it
+            AppGroupStorage.clearSharedURL()
+
+            // Mark that user has used share extension (for tutorial dismissal in main app)
+            AppGroupStorage.markShareExtensionUsed()
+
+            // Increment local usage count (optimistic update for immediate UX feedback)
+            // Backend also increments; this ensures Share Extension shows correct remaining count
+            AppGroupStorage.incrementShareExtensionUsage()
+
+            // Track success
+            AnalyticsQueue.track("share_extension_success", properties: [
+                "multi_place": true,
+                "place_count": response.savedCount,
+                "skipped_duplicates": response.skippedDuplicates,
+                "has_location": true
+            ])
+
+            state = .success
+
+        } catch let error as APIError {
+            handleMultiPlaceSaveError(error, places: places, tripId: tripId)
+        } catch {
+            handleMultiPlaceSaveError(.networkError(error), places: places, tripId: tripId)
+        }
+    }
+
+    private func handleMultiPlaceSaveError(_ error: APIError, places: [PlaceToSave], tripId: String) {
+        // For multi-place, we don't queue - just show error
+        // Queueing multiple places is complex and best handled by the main app
+        AnalyticsQueue.track("share_extension_error", properties: [
+            "error_type": String(describing: error),
+            "stage": "multi_place_save",
+            "place_count": places.count
+        ])
+
+        if error.isRetryable {
+            state = .error(.serverError("Failed to save places. Try again."))
+        } else {
+            state = .error(.serverError(error.errorDescription))
         }
     }
 

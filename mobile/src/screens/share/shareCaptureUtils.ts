@@ -6,8 +6,8 @@
  */
 
 import type { EntryType } from '@navigation/types';
-import type { DetectedPlace, SocialProvider } from '@hooks/useSocialIngest';
-import type { SelectedPlace } from '@components/places';
+import type { DetectedPlace, SocialProvider, PlaceToSave } from '@hooks/useSocialIngest';
+import type { SelectedPlace, PlaceSelection } from '@components/places';
 
 // Provider badge colors
 export const PROVIDER_COLORS: Record<SocialProvider, string> = {
@@ -266,4 +266,74 @@ export function selectedPlaceToDetectedPlace(place: SelectedPlace): DetectedPlac
     types: [],
     google_photo_url: place.google_photo_url ?? null,
   };
+}
+
+/**
+ * Convert DetectedPlace to PlaceSelection for multi-place state management.
+ * Uses Record<string, PlaceSelection> instead of Map for React re-render compatibility.
+ */
+export function detectedPlaceToSelection(place: DetectedPlace): PlaceSelection {
+  // Infer entry type from LLM prediction or place types
+  const entryType: EntryType =
+    (place.llm_entry_type as EntryType) ??
+    inferEntryTypeFromPlaceTypes(place.primary_type, place.types ?? []);
+
+  return {
+    isSelected: true, // All places selected by default
+    entryType,
+    google_place_id: place.google_place_id,
+    name: place.name,
+    address: place.address,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    city: place.city,
+    country: place.country,
+    country_code: place.country_code,
+    google_photo_url: place.google_photo_url ?? null,
+  };
+}
+
+/**
+ * Create selections Record from array of DetectedPlaces.
+ * Keys are place names (unique within a single post).
+ */
+export function createSelectionsFromPlaces(
+  places: DetectedPlace[]
+): Record<string, PlaceSelection> {
+  const selections: Record<string, PlaceSelection> = {};
+  places.forEach((place) => {
+    // Use name as key - should be unique within a single social post
+    const key = place.name;
+    selections[key] = detectedPlaceToSelection(place);
+  });
+  return selections;
+}
+
+/**
+ * Convert PlaceSelection to PlaceToSave for batch save API.
+ */
+export function selectionToPlaceToSave(selection: PlaceSelection): PlaceToSave {
+  return {
+    google_place_id: selection.google_place_id,
+    name: selection.name,
+    entry_type: selection.entryType,
+    address: selection.address,
+    latitude: selection.latitude,
+    longitude: selection.longitude,
+    city: selection.city,
+    country: selection.country,
+    country_code: selection.country_code,
+    google_photo_url: selection.google_photo_url,
+  };
+}
+
+/**
+ * Get selected places as PlaceToSave array for batch save.
+ */
+export function getSelectedPlacesToSave(
+  selections: Record<string, PlaceSelection>
+): PlaceToSave[] {
+  return Object.values(selections)
+    .filter((s) => s.isSelected)
+    .map(selectionToPlaceToSave);
 }
