@@ -2,112 +2,14 @@
  * ShareCaptureViewModel - Main state management for share capture flow
  *
  * Manages the entire share extension flow from URL processing to save.
+ * Split across multiple files:
+ * - ShareCaptureState.swift: State enum and error types
+ * - ShareCaptureViewModel+MultiPlace.swift: Multi-place handling
+ * - ShareCaptureViewModel+Save.swift: Save logic and error handling
  */
 
 import SwiftUI
 import Combine
-
-// MARK: - State
-
-enum ShareCaptureState: Equatable {
-    case loading(message: String)
-    case error(ShareCaptureError)
-    case form
-    case saving
-    case success
-    case successQueued(reason: QueueReason)
-
-    /// Reason why the save was queued instead of completed immediately
-    enum QueueReason: Equatable {
-        case networkError
-        case serverError
-        case unauthenticated
-
-        var message: String {
-            switch self {
-            case .networkError:
-                return "Saved for later - will sync when online"
-            case .serverError:
-                return "Saved for later - will retry automatically"
-            case .unauthenticated:
-                return "Saved for later - sign in to sync"
-            }
-        }
-    }
-
-    static func == (lhs: ShareCaptureState, rhs: ShareCaptureState) -> Bool {
-        switch (lhs, rhs) {
-        case (.loading(let lhsMsg), .loading(let rhsMsg)): return lhsMsg == rhsMsg
-        case (.error(let lhsErr), .error(let rhsErr)): return lhsErr.message == rhsErr.message
-        case (.form, .form): return true
-        case (.saving, .saving): return true
-        case (.success, .success): return true
-        case (.successQueued(let lhsReason), .successQueued(let rhsReason)): return lhsReason == rhsReason
-        default: return false
-        }
-    }
-}
-
-struct ShareCaptureError: Equatable {
-    let message: String
-    let canRetry: Bool
-    let canManualEntry: Bool
-    let canSaveForLater: Bool
-
-    static func network() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Network error. Check your connection.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func timeout() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Request timed out. Try again.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func unauthorized() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Please sign in to Atlasi first.",
-            canRetry: false,
-            canManualEntry: false,
-            canSaveForLater: true
-        )
-    }
-
-    static func invalidURL() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Only TikTok and Instagram links are supported. You can still add the place manually.",
-            canRetry: false,
-            canManualEntry: true,
-            canSaveForLater: false
-        )
-    }
-
-    static func serverError(_ message: String?) -> ShareCaptureError {
-        ShareCaptureError(
-            message: message ?? "Something went wrong. Try again.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func freeLimitReached() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "You've used your 5 free saves this month. Open Atlasi to upgrade for unlimited saves.",
-            canRetry: false,
-            canManualEntry: false,
-            canSaveForLater: false
-        )
-    }
-}
 
 // MARK: - ViewModel
 
@@ -140,10 +42,10 @@ class ShareCaptureViewModel: ObservableObject {
     /// Remaining free saves (-1 for unlimited)
     @Published private(set) var remainingFreeSaves: Int = AppGroupStorage.freeShareExtensionLimit
 
-    // MARK: - Private State
+    // MARK: - Internal State (accessible to extensions)
 
-    private let apiClient = APIClient()
-    private var originalURL: String = ""
+    let apiClient = APIClient()
+    var originalURL: String = ""
     @Published private(set) var caption: String?
     private var currentTask: Task<Void, Never>?
     private var hasStartedProcessing: Bool = false
@@ -303,31 +205,6 @@ class ShareCaptureViewModel: ObservableObject {
         hasSelectedType = false
     }
 
-    // MARK: - Multi-Place Handlers
-
-    /// Start editing a place at the given index (opens location search)
-    func startEditingPlace(at index: Int) {
-        guard index >= 0 && index < placeSelections.count else { return }
-        editingPlaceIndex = index
-    }
-
-    /// Update an edited place with a new selection
-    func updateEditedPlace(_ place: DetectedPlace) {
-        guard let index = editingPlaceIndex,
-              index >= 0 && index < placeSelections.count else { return }
-
-        placeSelections[index] = PlaceSelection(
-            place: place,
-            isSelected: placeSelections[index].isSelected
-        )
-        editingPlaceIndex = nil
-    }
-
-    /// Cancel place editing
-    func cancelEditingPlace() {
-        editingPlaceIndex = nil
-    }
-
     /// Save the entry to the selected trip
     func save() {
         guard let tripId = selectedTripId else { return }
@@ -384,12 +261,8 @@ class ShareCaptureViewModel: ObservableObject {
             let response = try await apiClient.ingestSocial(url: originalURL, caption: caption)
             ingestResult = response
 
-            // Initialize multi-place selections if we have multiple places
-            if response.detectedPlaces.count > 1 {
-                placeSelections = .from(places: response.detectedPlaces)
-            } else {
-                placeSelections = []
-            }
+            // Initialize multi-place selections
+            initializeMultiPlaceSelections(from: response.detectedPlaces)
 
             // Auto-select detected place (backward compat - use first place)
             if let detected = response.detectedPlace ?? response.detectedPlaces.first {
@@ -413,186 +286,6 @@ class ShareCaptureViewModel: ObservableObject {
             handleAPIError(error)
         } catch {
             state = .error(.network())
-        }
-    }
-
-    private func saveEntry(place: DetectedPlace, tripId: String) async {
-        guard let result = ingestResult else {
-            // Manual entry mode - we don't have ingest result
-            // For now, just show success since manual entry would need different API
-            state = .success
-            return
-        }
-
-        do {
-            let request = SaveToTripRequest(
-                tripId: tripId,
-                provider: result.provider,
-                canonicalUrl: result.canonicalUrl,
-                thumbnailUrl: result.thumbnailUrl,
-                authorHandle: result.authorHandle,
-                title: result.title,
-                place: place,
-                entryType: entryType.rawValue,
-                notes: notes.isEmpty ? nil : notes
-            )
-
-            _ = try await apiClient.saveToTrip(request: request)
-
-            // Clear the shared URL from App Group since we processed it
-            AppGroupStorage.clearSharedURL()
-
-            // Mark that user has used share extension (for tutorial dismissal in main app)
-            AppGroupStorage.markShareExtensionUsed()
-
-            // Increment local usage count (optimistic update for immediate UX feedback)
-            // Backend also increments; this ensures Share Extension shows correct remaining count
-            AppGroupStorage.incrementShareExtensionUsage()
-
-            // Track success
-            AnalyticsQueue.track("share_extension_success", properties: [
-                "category": entryType.rawValue,
-                "has_location": true
-            ])
-
-            state = .success
-
-        } catch let error as APIError {
-            handleSaveError(error, place: place, tripId: tripId)
-        } catch {
-            handleSaveError(.networkError(error), place: place, tripId: tripId)
-        }
-    }
-
-    private func saveMultiplePlaces(places: [PlaceToSave], tripId: String) async {
-        guard let result = ingestResult else {
-            state = .success
-            return
-        }
-
-        do {
-            let request = SavePlacesRequest(
-                tripId: tripId,
-                places: places,
-                provider: result.provider,
-                canonicalUrl: result.canonicalUrl,
-                thumbnailUrl: result.thumbnailUrl,
-                authorHandle: result.authorHandle,
-                title: result.title,
-                notes: notes.isEmpty ? nil : notes
-            )
-
-            let response = try await apiClient.savePlaces(request: request)
-
-            // Clear the shared URL from App Group since we processed it
-            AppGroupStorage.clearSharedURL()
-
-            // Mark that user has used share extension (for tutorial dismissal in main app)
-            AppGroupStorage.markShareExtensionUsed()
-
-            // Increment local usage count (optimistic update for immediate UX feedback)
-            // Backend also increments; this ensures Share Extension shows correct remaining count
-            AppGroupStorage.incrementShareExtensionUsage()
-
-            // Track success
-            AnalyticsQueue.track("share_extension_success", properties: [
-                "multi_place": true,
-                "place_count": response.savedCount,
-                "skipped_duplicates": response.skippedDuplicates,
-                "has_location": true
-            ])
-
-            state = .success
-
-        } catch let error as APIError {
-            handleMultiPlaceSaveError(error, places: places, tripId: tripId)
-        } catch {
-            handleMultiPlaceSaveError(.networkError(error), places: places, tripId: tripId)
-        }
-    }
-
-    private func handleMultiPlaceSaveError(_ error: APIError, places: [PlaceToSave], tripId: String) {
-        // For multi-place, we don't queue - just show error
-        // Queueing multiple places is complex and best handled by the main app
-        AnalyticsQueue.track("share_extension_error", properties: [
-            "error_type": String(describing: error),
-            "stage": "multi_place_save",
-            "place_count": places.count
-        ])
-
-        if error.isRetryable {
-            state = .error(.serverError("Failed to save places. Try again."))
-        } else {
-            state = .error(.serverError(error.errorDescription))
-        }
-    }
-
-    private func handleAPIError(_ error: APIError) {
-        switch error {
-        case .noToken, .unauthorized:
-            state = .error(.unauthorized())
-        case .timeout:
-            state = .error(.timeout())
-        case .networkError:
-            state = .error(.network())
-        case .serverError(let code, let message):
-            // 400 = unsupported provider, 422 = validation error
-            if code == 400 || code == 422 {
-                state = .error(.invalidURL())
-            } else {
-                state = .error(.serverError(message))
-            }
-        case .invalidURL, .decodingError:
-            state = .error(.invalidURL())
-        }
-    }
-
-    private func handleSaveError(_ error: APIError, place: DetectedPlace, tripId: String) {
-        // Queue for later if it's a retryable error
-        if error.isRetryable {
-            // Determine the queue reason based on error type
-            let stateReason: ShareCaptureState.QueueReason
-            let queueReason: QueuedShare.QueueReason
-            switch error {
-            case .networkError:
-                stateReason = .networkError
-                queueReason = .networkError
-            case .timeout:
-                stateReason = .networkError
-                queueReason = .timeout
-            case .noToken, .unauthorized:
-                stateReason = .unauthenticated
-                queueReason = .unauthenticated
-            default:
-                stateReason = .serverError
-                queueReason = .serverError
-            }
-
-            OfflineQueueService.queueShare(
-                url: originalURL,
-                caption: caption,
-                reason: queueReason,
-                ingestResult: ingestResult,
-                selectedTripId: tripId,
-                selectedPlace: place,
-                entryType: entryType,
-                notes: notes.isEmpty ? nil : notes
-            )
-
-            // Track queued due to save error
-            AnalyticsQueue.track("share_extension_queued_offline", properties: [
-                "reason": queueReason.rawValue
-            ])
-
-            state = .successQueued(reason: stateReason)
-        } else {
-            // Track error
-            AnalyticsQueue.track("share_extension_error", properties: [
-                "error_type": String(describing: error),
-                "stage": "save"
-            ])
-
-            state = .error(.serverError(error.errorDescription))
         }
     }
 
