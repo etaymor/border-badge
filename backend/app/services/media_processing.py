@@ -9,6 +9,7 @@ from app.core.thumbnails import (
     SUPPORTED_EXTENSIONS,
     generate_thumbnail,
     get_thumbnail_path,
+    upload_thumbnail_to_storage,
 )
 from app.db.session import get_http_client, get_supabase_client
 
@@ -60,28 +61,14 @@ async def process_media_thumbnail(media_id: str, file_path: str) -> None:
 
         # 3. Upload thumbnail to Supabase Storage
         thumbnail_path = get_thumbnail_path(file_path)
-        upload_url = f"{settings.supabase_url}/storage/v1/object/media/{thumbnail_path}"
-        upload_headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            "Content-Type": "image/jpeg",
-        }
-
-        upload_response = await client.put(
-            upload_url,
-            headers=upload_headers,
-            content=thumbnail_data,
+        success = await upload_thumbnail_to_storage(
+            thumbnail_data,
+            thumbnail_path,
+            settings.supabase_url,
+            settings.supabase_service_role_key,
         )
-
-        if upload_response.status_code not in (200, 201, 409):
-            logger.error(
-                f"Failed to upload thumbnail {thumbnail_path}: "
-                f"{upload_response.status_code} - {upload_response.text[:200]}"
-            )
+        if not success:
             return
-
-        if upload_response.status_code == 409:
-            logger.info(f"Thumbnail already exists: {thumbnail_path}")
 
         # 4. Update media_files record with thumbnail_path
         db = get_supabase_client()  # Use service role (no user token)

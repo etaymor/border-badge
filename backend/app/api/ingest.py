@@ -298,6 +298,24 @@ async def save_to_trip(
             detail="Trip not found",
         )
 
+    # Extract and validate Google photo URL BEFORE the RPC call
+    # We store the validated URL now and use it for the background task later
+    validated_google_photo_url: str | None = None
+    if data.place and data.place.google_photo_url:
+        validated_google_photo_url = safe_google_photo_url(data.place.google_photo_url)
+        if not validated_google_photo_url:
+            logger.warning(
+                "google_photo_url_rejected",
+                extra={
+                    "event": "invalid_google_photo_url",
+                    "user_id": str(user.id),
+                    "trip_id": str(data.trip_id),
+                    "url_prefix": data.place.google_photo_url[:100]
+                    if data.place.google_photo_url
+                    else None,
+                },
+            )
+
     # Build place data for atomic operation
     # Note: duplicate detection relies on the unique index (idx_place_unique_google_per_trip)
     # enforced atomically by the database, caught in the exception handler below
@@ -312,9 +330,8 @@ async def save_to_trip(
             "source_url": data.canonical_url,
         }
 
-        photo_url = safe_google_photo_url(data.place.google_photo_url)
-        if photo_url:
-            extra_data["google_photo_url"] = photo_url
+        if validated_google_photo_url:
+            extra_data["google_photo_url"] = validated_google_photo_url
 
         place_data = {
             "google_place_id": data.place.google_place_id,
@@ -437,14 +454,11 @@ async def save_to_trip(
 
     # Download and store Google photo if available (background task)
     # This creates a permanent copy in Supabase storage since Google URLs expire
-    google_photo_url = None
-    if place_row and place_row.get("extra_data"):
-        google_photo_url = place_row["extra_data"].get("google_photo_url")
-
-    if google_photo_url:
+    # We use the validated URL from earlier, not the RPC result, to avoid coupling
+    if validated_google_photo_url:
         background_tasks.add_task(
             _download_google_photo_background,
-            google_photo_url,
+            validated_google_photo_url,
             str(user.id),
             str(entry.id),
             str(data.trip_id),

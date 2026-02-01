@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
-from app.core.thumbnails import generate_thumbnail
+from app.core.thumbnails import generate_thumbnail, upload_thumbnail_to_storage
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_http_client, get_supabase_client
 
@@ -62,46 +62,36 @@ async def download_and_store_google_photo(
             logger.warning("Empty response from Google photo URL")
             return None
 
-        # 2. Generate thumbnail (convert to JPEG, resize to max 800px)
-        # Use .jpg extension since we're generating a JPEG thumbnail
+        # 2. Generate thumbnail (resize to max 800px, convert to JPEG)
+        # generate_thumbnail() uses Pillow which auto-detects input format
+        # (JPEG, PNG, WebP, etc.) and converts to JPEG output regardless of source
         thumbnail_data = generate_thumbnail(image_data, ".jpg")
         if thumbnail_data is None:
             logger.warning("Failed to generate thumbnail from Google photo")
             return None
 
-        # 3. Upload to Supabase Storage
+        # 3. Upload to Supabase Storage using shared helper
         thumbnail_path = f"{user_id}/{entry_id}_google_thumb.jpg"
-        upload_url = f"{settings.supabase_url}/storage/v1/object/media/{thumbnail_path}"
-        upload_headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            "Content-Type": "image/jpeg",
-        }
-
-        upload_response = await client.put(
-            upload_url,
-            headers=upload_headers,
-            content=thumbnail_data,
+        success = await upload_thumbnail_to_storage(
+            thumbnail_data,
+            thumbnail_path,
+            settings.supabase_url,
+            settings.supabase_service_role_key,
         )
-
-        if upload_response.status_code not in (200, 201, 409):
-            logger.error(
-                f"Failed to upload Google photo thumbnail: "
-                f"{upload_response.status_code} - {upload_response.text[:200]}"
-            )
+        if not success:
             return None
-
-        if upload_response.status_code == 409:
-            logger.info(f"Google photo thumbnail already exists: {thumbnail_path}")
 
         logger.info(f"Successfully stored Google photo for entry {entry_id}")
         return thumbnail_path
 
     except httpx.TimeoutException:
+        # TimeoutException is a subclass of RequestError, so we catch it first
+        # to provide a more specific log message for timeout issues
         logger.warning(f"Timeout downloading Google photo for entry {entry_id}")
         return None
-    except httpx.RequestError as e:
-        logger.error(f"Network error downloading Google photo: {e}")
+    except httpx.HTTPError as e:
+        # HTTPError covers RequestError (network issues) and HTTPStatusError
+        logger.error(f"HTTP error downloading Google photo: {e}")
         return None
     except Exception as e:
         logger.error(f"Unexpected error storing Google photo: {e}", exc_info=True)
@@ -128,7 +118,7 @@ async def create_media_record_for_google_photo(
     try:
         db = get_supabase_client()  # Service role for insert
 
-        await db.post(
+        result = await db.post(
             "media_files",
             {
                 "owner_id": user_id,
@@ -139,6 +129,14 @@ async def create_media_record_for_google_photo(
                 "status": "uploaded",
             },
         )
+
+        # Verify the insert succeeded - db.post returns a list of created records
+        if not result:
+            logger.error(
+                f"Failed to create media record for Google photo: "
+                f"empty response from db.post, entry={entry_id}"
+            )
+            return False
 
         logger.info(f"Created media record for Google photo: entry={entry_id}")
         return True

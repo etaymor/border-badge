@@ -273,24 +273,32 @@ class TestDownloadAndStoreGooglePhoto:
             mock_settings.return_value.supabase_url = "https://test.supabase.co"
             mock_settings.return_value.supabase_service_role_key = "test-key"
 
-            with patch(
-                "app.services.google_photo_downloader.get_http_client"
-            ) as mock_client:
-                client = AsyncMock()
+            client = AsyncMock()
 
-                # Mock successful download
-                download_response = MagicMock()
-                download_response.status_code = 200
-                download_response.content = b"fake image data"
+            # Mock successful download
+            download_response = MagicMock()
+            download_response.status_code = 200
+            download_response.content = b"fake image data"
 
-                # Mock 409 conflict (file already exists)
-                upload_response = MagicMock()
-                upload_response.status_code = 409
+            # Mock 409 conflict (file already exists)
+            upload_response = MagicMock()
+            upload_response.status_code = 409
 
-                client.get = AsyncMock(return_value=download_response)
-                client.put = AsyncMock(return_value=upload_response)
-                mock_client.return_value = client
+            client.get = AsyncMock(return_value=download_response)
+            client.put = AsyncMock(return_value=upload_response)
 
+            # Patch get_http_client at its source (db.session) since it's imported
+            # at call time by both google_photo_downloader and thumbnails
+            with (
+                patch(
+                    "app.db.session.get_http_client",
+                    return_value=client,
+                ),
+                patch(
+                    "app.services.google_photo_downloader.get_http_client",
+                    return_value=client,
+                ),
+            ):
                 with patch(
                     "app.services.google_photo_downloader.generate_thumbnail"
                 ) as mock_thumb:
@@ -314,24 +322,32 @@ class TestDownloadAndStoreGooglePhoto:
             mock_settings.return_value.supabase_url = "https://test.supabase.co"
             mock_settings.return_value.supabase_service_role_key = "test-key"
 
-            with patch(
-                "app.services.google_photo_downloader.get_http_client"
-            ) as mock_client:
-                client = AsyncMock()
+            client = AsyncMock()
 
-                # Mock successful download
-                download_response = MagicMock()
-                download_response.status_code = 200
-                download_response.content = b"fake image data"
+            # Mock successful download
+            download_response = MagicMock()
+            download_response.status_code = 200
+            download_response.content = b"fake image data"
 
-                # Mock successful upload
-                upload_response = MagicMock()
-                upload_response.status_code = 201
+            # Mock successful upload
+            upload_response = MagicMock()
+            upload_response.status_code = 201
 
-                client.get = AsyncMock(return_value=download_response)
-                client.put = AsyncMock(return_value=upload_response)
-                mock_client.return_value = client
+            client.get = AsyncMock(return_value=download_response)
+            client.put = AsyncMock(return_value=upload_response)
 
+            # Patch get_http_client at its source (db.session) since it's imported
+            # at call time by both google_photo_downloader and thumbnails
+            with (
+                patch(
+                    "app.db.session.get_http_client",
+                    return_value=client,
+                ),
+                patch(
+                    "app.services.google_photo_downloader.get_http_client",
+                    return_value=client,
+                ),
+            ):
                 with patch(
                     "app.services.google_photo_downloader.generate_thumbnail"
                 ) as mock_thumb:
