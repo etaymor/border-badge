@@ -629,3 +629,289 @@ class TestIngestInstagramProfile:
                             assert bio == "Authentic Italian cuisine in Rome, Italy"
         finally:
             app.dependency_overrides.clear()
+
+
+class TestGooglePhotoDownload:
+    """Tests for Google Places photo download functionality in save_to_trip."""
+
+    def test_background_task_triggered_when_google_photo_url_present(
+        self, client, auth_override
+    ):
+        """Background task should be triggered when google_photo_url is present."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Test Place",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": {
+                                "id": "550e8400-e29b-41d4-a716-446655440011",
+                                "entry_id": TEST_ENTRY_ID,
+                                "google_place_id": "ChIJ123",
+                                "place_name": "Test Place",
+                                "lat": 40.7128,
+                                "lng": -74.006,
+                                "address": "New York, NY",
+                                "extra_data": {
+                                    "google_photo_url": "https://places.googleapis.com/v1/places/photo.jpg"
+                                },
+                            },
+                        }
+                    ]
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    with patch(
+                        "app.api.ingest._download_google_photo_background"
+                    ) as mock_download:
+                        response = client.post(
+                            "/ingest/save-to-trip",
+                            json={
+                                "trip_id": TEST_TRIP_ID,
+                                "provider": "tiktok",
+                                "canonical_url": "https://www.tiktok.com/@user/video/123",
+                                "place": {
+                                    "google_place_id": "ChIJ123",
+                                    "name": "Test Place",
+                                    "address": "New York, NY",
+                                    "latitude": 40.7128,
+                                    "longitude": -74.006,
+                                    "country": "United States",
+                                    "country_code": "US",
+                                    "confidence": 0.9,
+                                    "google_photo_url": "https://places.googleapis.com/v1/places/photo.jpg",
+                                },
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 201
+                        # Background task should have been called
+                        mock_download.assert_called_once_with(
+                            "https://places.googleapis.com/v1/places/photo.jpg",
+                            TEST_USER_ID,
+                            TEST_ENTRY_ID,
+                            TEST_TRIP_ID,
+                        )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_background_task_not_triggered_when_google_photo_url_absent(
+        self, client, auth_override
+    ):
+        """Background task should NOT be triggered when google_photo_url is absent."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Test Place",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": {
+                                "id": "550e8400-e29b-41d4-a716-446655440011",
+                                "entry_id": TEST_ENTRY_ID,
+                                "google_place_id": "ChIJ123",
+                                "place_name": "Test Place",
+                                "lat": 40.7128,
+                                "lng": -74.006,
+                                "address": "New York, NY",
+                                "extra_data": {},  # No google_photo_url
+                            },
+                        }
+                    ]
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    with patch(
+                        "app.api.ingest._download_google_photo_background"
+                    ) as mock_download:
+                        response = client.post(
+                            "/ingest/save-to-trip",
+                            json={
+                                "trip_id": TEST_TRIP_ID,
+                                "provider": "tiktok",
+                                "canonical_url": "https://www.tiktok.com/@user/video/123",
+                                "place": {
+                                    "google_place_id": "ChIJ123",
+                                    "name": "Test Place",
+                                    "address": "New York, NY",
+                                    "latitude": 40.7128,
+                                    "longitude": -74.006,
+                                    "country": "United States",
+                                    "country_code": "US",
+                                    "confidence": 0.9,
+                                    # No google_photo_url provided
+                                },
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 201
+                        # Background task should NOT have been called
+                        mock_download.assert_not_called()
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_background_task_not_triggered_when_place_row_is_null(
+        self, client, auth_override
+    ):
+        """Background task should NOT be triggered when place_row is null."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Test Entry",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": None,  # No place
+                        }
+                    ]
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    with patch(
+                        "app.api.ingest._download_google_photo_background"
+                    ) as mock_download:
+                        response = client.post(
+                            "/ingest/save-to-trip",
+                            json={
+                                "trip_id": TEST_TRIP_ID,
+                                "provider": "tiktok",
+                                "canonical_url": "https://www.tiktok.com/@user/video/123",
+                                # No place data
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 201
+                        # Background task should NOT have been called
+                        mock_download.assert_not_called()
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_invalid_google_photo_url_rejected_ssrf_protection(
+        self, client, auth_override
+    ):
+        """Invalid/malicious Google photo URLs should be stripped (SSRF protection)."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Test Place",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": {
+                                "id": "550e8400-e29b-41d4-a716-446655440011",
+                                "entry_id": TEST_ENTRY_ID,
+                                "google_place_id": "ChIJ123",
+                                "place_name": "Test Place",
+                                "lat": 40.7128,
+                                "lng": -74.006,
+                                "address": "New York, NY",
+                                "extra_data": {},  # URL was stripped
+                            },
+                        }
+                    ]
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    with patch(
+                        "app.api.ingest._download_google_photo_background"
+                    ) as mock_download:
+                        response = client.post(
+                            "/ingest/save-to-trip",
+                            json={
+                                "trip_id": TEST_TRIP_ID,
+                                "provider": "tiktok",
+                                "canonical_url": "https://www.tiktok.com/@user/video/123",
+                                "place": {
+                                    "google_place_id": "ChIJ123",
+                                    "name": "Test Place",
+                                    "address": "New York, NY",
+                                    "latitude": 40.7128,
+                                    "longitude": -74.006,
+                                    "country": "United States",
+                                    "country_code": "US",
+                                    "confidence": 0.9,
+                                    # Malicious URL that doesn't match allowed domains
+                                    "google_photo_url": "https://evil.com/steal-data.jpg",
+                                },
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 201
+                        # Background task should NOT be called for invalid URLs
+                        mock_download.assert_not_called()
+
+                        # Verify the RPC was called without google_photo_url in extra_data
+                        first_call = mock_client.rpc.call_args_list[0]
+                        assert first_call[0][0] == "atomic_create_entry_with_place"
+                        payload = first_call[0][1]
+                        assert (
+                            "google_photo_url"
+                            not in payload["p_place_data"]["extra_data"]
+                        )
+        finally:
+            app.dependency_overrides.clear()

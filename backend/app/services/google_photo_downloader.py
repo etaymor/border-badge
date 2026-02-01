@@ -37,7 +37,7 @@ async def download_and_store_google_photo(
     # Validate URL (SSRF protection)
     validated_url = safe_google_photo_url(photo_url)
     if not validated_url:
-        logger.warning(f"Invalid Google photo URL rejected: {photo_url[:100]}")
+        logger.warning(f"Invalid Google photo URL rejected: {str(photo_url)[:100]}")
         return None
 
     settings = get_settings()
