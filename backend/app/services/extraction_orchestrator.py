@@ -1,0 +1,436 @@
+"""Extraction orchestrator for multi-source place extraction.
+
+Coordinates the cascading extraction pipeline:
+1. Check cache first
+2. Try caption extraction (LLM + regex fallback)
+3. If caption fails or signals skip_to_video, try video frame extraction
+4. Cache results for future requests
+
+Key optimization: Starts video download speculatively while caption runs,
+then cancels if caption succeeds. This achieves 15s total timeout.
+"""
+
+import asyncio
+import logging
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
+from app.services.extraction_cache import (
+    ExtractionSource,
+    cache_extraction,
+    get_cached_extraction,
+)
+from app.services.multimodal_extractor import (
+    ExtractedPlace,
+    MultimodalExtractor,
+)
+from app.services.place_extractor import (
+    extract_location_hints,
+    extract_place_with_method,
+    try_llm_multi_place_extraction,
+)
+from app.services.place_extractor.extractor import _try_candidate
+from app.services.video_extractor import (
+    VideoDownloadError,
+    download_video,
+    extract_frames,
+)
+
+logger = logging.getLogger(__name__)
+
+# Type alias for extraction method
+ExtractionMethod = Literal["llm", "regex", "video", "none"]
+
+
+@dataclass
+class ExtractionResult:
+    """Result from extraction orchestrator."""
+
+    places: list[DetectedPlace]
+    method: ExtractionMethod
+    source: ExtractionSource
+    skip_to_video: bool
+    context_location: str | None
+    latency_ms: int
+    from_cache: bool
+
+
+class ExtractionOrchestrator:
+    """Coordinates multi-source place extraction with caching and parallel ops."""
+
+    def __init__(
+        self,
+        *,
+        video_download_timeout: float = 12.0,
+        total_timeout: float = 15.0,
+        max_video_frames: int = 15,
+        enable_video_fallback: bool = True,
+    ):
+        """Initialize the orchestrator.
+
+        Args:
+            video_download_timeout: Timeout for video download in seconds
+            total_timeout: Total timeout for entire extraction in seconds
+            max_video_frames: Maximum frames to extract from video
+            enable_video_fallback: Whether to try video extraction on caption failure
+        """
+        self.video_download_timeout = video_download_timeout
+        self.total_timeout = total_timeout
+        self.max_video_frames = max_video_frames
+        self.enable_video_fallback = enable_video_fallback
+        self.multimodal_extractor = MultimodalExtractor()
+
+    async def extract(
+        self,
+        canonical_url: str,
+        oembed: OEmbedResponse | None,
+        caption: str | None,
+        *,
+        use_cache: bool = True,
+        is_video_url: bool = True,
+    ) -> ExtractionResult:
+        """Extract places from social media content.
+
+        Implements cascading extraction:
+        1. Check cache
+        2. Try caption extraction (while speculatively downloading video)
+        3. If caption fails/skips, try video frame extraction
+        4. Cache results
+
+        Args:
+            canonical_url: Canonical URL of the content
+            oembed: oEmbed metadata (title, author, etc.)
+            caption: User-provided caption text
+            use_cache: Whether to use extraction cache
+            is_video_url: Whether this is a video URL (enables speculative download)
+
+        Returns:
+            ExtractionResult with places and metadata
+        """
+        start_time = time.monotonic()
+
+        # Extract text fields from oEmbed
+        title = oembed.title if oembed else None
+        author_handle = oembed.author_name if oembed else None
+
+        # Step 1: Check cache
+        if use_cache:
+            cached = await get_cached_extraction(canonical_url)
+            if cached:
+                return ExtractionResult(
+                    places=cached.places,
+                    method="llm" if cached.source == "caption" else "video",
+                    source=cached.source,
+                    skip_to_video=False,
+                    context_location=None,
+                    latency_ms=int((time.monotonic() - start_time) * 1000),
+                    from_cache=True,
+                )
+
+        # Step 2: Start speculative video download (if enabled and is video URL)
+        video_task: asyncio.Task | None = None
+        temp_dir: Path | None = None
+
+        if self.enable_video_fallback and is_video_url:
+            temp_dir = Path(tempfile.mkdtemp(prefix="extract_"))
+            video_task = asyncio.create_task(
+                self._download_video_safe(canonical_url, temp_dir)
+            )
+
+        try:
+            # Step 3: Try caption extraction (fast path)
+            caption_result = await self._extract_from_caption(
+                title, caption, author_handle
+            )
+
+            # If caption succeeded and didn't signal skip_to_video, use it
+            if caption_result.places and not caption_result.skip_to_video:
+                # Cancel speculative download
+                if video_task:
+                    video_task.cancel()
+                    try:
+                        await video_task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Cache the result
+                if use_cache:
+                    await self._cache_result(
+                        canonical_url, caption_result.places, "caption"
+                    )
+
+                return ExtractionResult(
+                    places=caption_result.places,
+                    method=caption_result.method,
+                    source="caption",
+                    skip_to_video=False,
+                    context_location=caption_result.context_location,
+                    latency_ms=int((time.monotonic() - start_time) * 1000),
+                    from_cache=False,
+                )
+
+            # Step 4: Caption failed or signaled skip_to_video - try video
+            if video_task and self.enable_video_fallback:
+                video_result = await self._extract_from_video(video_task, start_time)
+
+                if video_result.places:
+                    # Cache the video result
+                    if use_cache:
+                        await self._cache_result(
+                            canonical_url, video_result.places, "video_frames"
+                        )
+
+                    return ExtractionResult(
+                        places=video_result.places,
+                        method="video",
+                        source="video_frames",
+                        skip_to_video=caption_result.skip_to_video,
+                        context_location=caption_result.context_location,
+                        latency_ms=int((time.monotonic() - start_time) * 1000),
+                        from_cache=False,
+                    )
+
+            # Step 5: Both failed - return caption result (may have context_location)
+            return ExtractionResult(
+                places=caption_result.places,
+                method=caption_result.method,
+                source="caption",
+                skip_to_video=caption_result.skip_to_video,
+                context_location=caption_result.context_location,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
+                from_cache=False,
+            )
+
+        finally:
+            # Cleanup temp directory
+            if temp_dir and temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def _download_video_safe(self, url: str, output_dir: Path) -> Path | None:
+        """Download video with error handling.
+
+        Returns None on failure instead of raising.
+        """
+        try:
+            return await download_video(
+                url,
+                timeout=self.video_download_timeout,
+                output_dir=output_dir,
+            )
+        except VideoDownloadError as e:
+            logger.debug(f"video_download_failed: {e}")
+            return None
+        except TimeoutError:
+            logger.debug("video_download_timeout")
+            return None
+        except Exception as e:
+            logger.warning(f"video_download_unexpected_error: {e}")
+            return None
+
+    @dataclass
+    class _CaptionResult:
+        """Internal result from caption extraction."""
+
+        places: list[DetectedPlace]
+        method: ExtractionMethod
+        skip_to_video: bool
+        context_location: str | None
+
+    async def _extract_from_caption(
+        self,
+        title: str | None,
+        caption: str | None,
+        author_handle: str | None,
+    ) -> _CaptionResult:
+        """Extract places from caption text using LLM and regex fallback."""
+        # Try multi-place LLM extraction first
+        multi_result = await try_llm_multi_place_extraction(
+            title,
+            caption,
+            author_handle,
+            try_candidate_fn=_try_candidate,
+            extract_location_hints_fn=extract_location_hints,
+        )
+
+        if multi_result.places:
+            return self._CaptionResult(
+                places=multi_result.places,
+                method="llm",
+                skip_to_video=multi_result.skip_to_video,
+                context_location=multi_result.context_location,
+            )
+
+        if multi_result.skip_to_video:
+            # LLM signaled to skip to video extraction
+            return self._CaptionResult(
+                places=[],
+                method="none",
+                skip_to_video=True,
+                context_location=multi_result.context_location,
+            )
+
+        # LLM didn't find places and didn't signal skip_to_video
+        # Fall back to single-place regex extraction
+        # Create a minimal oEmbed-like object for the regex extractor
+        class MinimalOEmbed:
+            def __init__(self, title: str | None, author_name: str | None):
+                self.title = title
+                self.author_name = author_name
+
+        oembed_like = MinimalOEmbed(title, author_handle)
+        extraction_result = await extract_place_with_method(
+            oembed_like,
+            caption,
+            None,  # type: ignore
+        )
+
+        if extraction_result.place:
+            return self._CaptionResult(
+                places=[extraction_result.place],
+                method="regex",
+                skip_to_video=False,
+                context_location=multi_result.context_location,
+            )
+
+        return self._CaptionResult(
+            places=[],
+            method="none",
+            skip_to_video=False,
+            context_location=multi_result.context_location,
+        )
+
+    @dataclass
+    class _VideoResult:
+        """Internal result from video extraction."""
+
+        places: list[DetectedPlace]
+
+    async def _extract_from_video(
+        self,
+        video_task: asyncio.Task,
+        start_time: float,
+    ) -> _VideoResult:
+        """Extract places from video frames."""
+        # Calculate remaining time budget
+        elapsed = time.monotonic() - start_time
+        remaining = max(0, self.total_timeout - elapsed - 1)  # Leave 1s buffer
+
+        if remaining <= 0:
+            logger.debug("video_extraction_skipped: no_time_remaining")
+            video_task.cancel()
+            return self._VideoResult(places=[])
+
+        try:
+            # Wait for video download to complete (may already be done)
+            video_path = await asyncio.wait_for(video_task, timeout=remaining)
+
+            if not video_path:
+                return self._VideoResult(places=[])
+
+            # Extract frames
+            frames = await extract_frames(
+                video_path,
+                max_frames=self.max_video_frames,
+                timeout=remaining,
+            )
+
+            if not frames:
+                logger.debug("video_extraction_no_frames")
+                return self._VideoResult(places=[])
+
+            # Extract places from frames using multimodal LLM
+            multimodal_result = await self.multimodal_extractor.extract_places(
+                frames, source="video_frames"
+            )
+
+            if not multimodal_result.places:
+                return self._VideoResult(places=[])
+
+            # Convert ExtractedPlace to DetectedPlace
+            # Note: These need Google Places resolution for full data
+            places = await self._resolve_multimodal_places(multimodal_result.places)
+
+            logger.info(
+                "video_extraction_success",
+                extra={
+                    "frames_processed": multimodal_result.frames_processed,
+                    "places_found": len(places),
+                },
+            )
+
+            return self._VideoResult(places=places)
+
+        except TimeoutError:
+            logger.debug("video_extraction_timeout")
+            video_task.cancel()
+            return self._VideoResult(places=[])
+        except asyncio.CancelledError:
+            return self._VideoResult(places=[])
+        except Exception as e:
+            logger.warning(f"video_extraction_error: {e}")
+            return self._VideoResult(places=[])
+
+    async def _resolve_multimodal_places(
+        self,
+        extracted: list[ExtractedPlace],
+    ) -> list[DetectedPlace]:
+        """Resolve multimodal-extracted places via Google Places API.
+
+        Similar to LLM extraction, we need to resolve place names to full
+        DetectedPlace objects with Google Place IDs.
+        """
+        if not extracted:
+            return []
+
+        # Resolve all places in parallel with semaphore (max 5 concurrent)
+        semaphore = asyncio.Semaphore(5)
+
+        async def resolve_one(place: ExtractedPlace) -> DetectedPlace | None:
+            async with semaphore:
+                # Build search query with location context
+                search_query = place.name
+                if place.city or place.country:
+                    location_parts = [p for p in [place.city, place.country] if p]
+                    search_query = f"{place.name}, {', '.join(location_parts)}"
+
+                # Get location bias from city/country
+                location_bias = None
+                if place.city:
+                    bias_text = (
+                        f"{place.city}, {place.country}"
+                        if place.country
+                        else place.city
+                    )
+                    hints = extract_location_hints(bias_text)
+                    if hints:
+                        location_bias = hints[0]
+
+                detected = await _try_candidate(search_query, location_bias)
+                if detected:
+                    detected.llm_entry_type = place.entry_type
+                return detected
+
+        tasks = [resolve_one(place) for place in extracted[:10]]  # Max 10 places
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Filter successful results
+        return [r for r in results if isinstance(r, DetectedPlace) and r is not None]
+
+    async def _cache_result(
+        self,
+        canonical_url: str,
+        places: list[DetectedPlace],
+        source: ExtractionSource,
+    ) -> None:
+        """Cache extraction result, handling errors gracefully."""
+        try:
+            await cache_extraction(canonical_url, places, source)
+        except Exception as e:
+            # Log but don't fail - caching is best-effort
+            logger.warning(f"extraction_cache_error: {e}")

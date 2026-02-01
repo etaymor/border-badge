@@ -25,6 +25,7 @@ from app.schemas.social_ingest import (
     SocialIngestResponse,
     SocialProvider,
 )
+from app.services.extraction_orchestrator import ExtractionOrchestrator
 from app.services.google_photo_downloader import (
     create_media_record_for_google_photo,
     download_and_store_google_photo,
@@ -34,10 +35,7 @@ from app.services.place_extractor import (
     clean_instagram_profile_name,
     extract_location_hints,
     extract_place_from_profile,
-    extract_place_with_method,
-    try_llm_multi_place_extraction,
 )
-from app.services.place_extractor.extractor import _try_candidate
 from app.services.url_resolver import (
     canonicalize_url,
     detect_provider,
@@ -157,14 +155,18 @@ async def ingest_social_url(
 
     # Step 3: Extract place(s) from content
     # Profile URLs use a different extraction path that uses the profile name directly
-    extraction_start = time.monotonic()
-    extraction_method_used: Literal["llm", "regex", "none"] = "none"
+    extraction_method_used: Literal["llm", "regex", "video", "none"] = "none"
+    extraction_source: Literal["caption", "video_frames", "carousel", "screenshot"] = (
+        "caption"
+    )
     detected_places: list[DetectedPlace] = []
     detected_place: DetectedPlace | None = None
     context_location: str | None = None
+    extraction_latency_ms: int = 0
 
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
+        extraction_start = time.monotonic()
         profile_name = clean_instagram_profile_name(oembed.title or "")
         # Bio may contain location hints (address, city)
         bio = oembed.raw.get("og:description") if oembed.raw else None
@@ -173,35 +175,31 @@ async def ingest_social_url(
             detected_places = [profile_place]
             detected_place = profile_place
             extraction_method_used = "regex"  # Profile uses direct search
+        extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
     else:
-        # Try multi-place LLM extraction first
-        multi_result = await try_llm_multi_place_extraction(
-            title,
-            data.caption,
-            author_handle,
-            try_candidate_fn=_try_candidate,
-            extract_location_hints_fn=extract_location_hints,
+        # Use ExtractionOrchestrator for cascading extraction:
+        # 1. Check cache
+        # 2. Try caption extraction (LLM + regex fallback)
+        # 3. If caption fails or signals skip_to_video, try video frame extraction
+        # 4. Cache results
+        orchestrator = ExtractionOrchestrator(
+            enable_video_fallback=True,  # Enable video extraction when caption fails
         )
 
-        if multi_result.places:
-            detected_places = multi_result.places
-            detected_place = multi_result.places[0]  # Backward compat
-            context_location = multi_result.context_location
-            extraction_method_used = "llm"
-        elif not multi_result.skip_to_video:
-            # LLM didn't find places and didn't signal to skip to video
-            # Fall back to single-place extraction (regex fallback)
-            extraction_result = await extract_place_with_method(
-                oembed, data.caption, data.extraction_method
-            )
-            if extraction_result.place:
-                detected_places = [extraction_result.place]
-                detected_place = extraction_result.place
-            extraction_method_used = extraction_result.method
-        # Note: if skip_to_video is True, we return empty places
-        # (Phase 2 will handle video frame extraction)
+        extraction_result = await orchestrator.extract(
+            canonical_url,
+            oembed,
+            data.caption,
+            use_cache=True,
+            is_video_url=True,  # TikTok/Instagram URLs are typically video
+        )
 
-    extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
+        detected_places = extraction_result.places
+        detected_place = detected_places[0] if detected_places else None
+        context_location = extraction_result.context_location
+        extraction_method_used = extraction_result.method
+        extraction_source = extraction_result.source
+        extraction_latency_ms = extraction_result.latency_ms
 
     logger.info(
         f"INGEST place extraction result: "
@@ -270,8 +268,8 @@ async def ingest_social_url(
         detected_places=detected_places,
         detected_place=detected_place,  # Backward compat
         detected_country=detected_country,
-        extraction_method_used=extraction_method_used,
-        extraction_source="caption",  # Phase 1: caption only
+        extraction_method_used=extraction_method_used,  # type: ignore[arg-type]
+        extraction_source=extraction_source,
         extraction_latency_ms=extraction_latency_ms,
         context_location=context_location,
     )

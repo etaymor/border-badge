@@ -87,10 +87,12 @@ class SocialIngestResponse(BaseModel):
     detected_place: DetectedPlace | None = None
     # Country hint even when place detection fails (for trip defaulting & autocomplete bias)
     detected_country: DetectedCountry | None = None
-    # Extraction method used (llm, regex, or none if no place detected)
-    extraction_method_used: Literal["llm", "regex", "none"] | None = None
-    # Extraction source for multi-place (caption, video_frames, slideshow, screenshot)
-    extraction_source: Literal["caption", "video_frames", "slideshow", "screenshot"] | None = None
+    # Extraction method used (llm, regex, video, or none if no place detected)
+    extraction_method_used: Literal["llm", "regex", "video", "none"] | None = None
+    # Extraction source for multi-place (caption, video_frames, carousel, screenshot)
+    extraction_source: (
+        Literal["caption", "video_frames", "carousel", "screenshot"] | None
+    ) = None
     # Extraction latency in milliseconds
     extraction_latency_ms: int | None = None
     # Context location detected from content (e.g., "Thailand") - used as search bias

@@ -1,6 +1,6 @@
 """Tests for social ingest API endpoints."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +12,7 @@ from app.schemas.social_ingest import (
     OEmbedResponse,
     SocialProvider,
 )
-from app.services.place_extractor import ExtractionResult
+from app.services.extraction_orchestrator import ExtractionResult
 
 # Test constants
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -107,12 +107,22 @@ class TestIngestSocialUrl:
                     mock_fetch.return_value = mock_oembed
 
                     with patch(
-                        "app.api.ingest.extract_place_with_method"
-                    ) as mock_extract:
-                        # Return ExtractionResult wrapping the mock_place
-                        mock_extract.return_value = ExtractionResult(
-                            mock_place, "regex"
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        # Mock the orchestrator instance and its extract method
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[mock_place],
+                                method="regex",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
                         )
+                        mock_orchestrator_class.return_value = mock_orchestrator
 
                         response = client.post(
                             "/ingest/social",
@@ -158,10 +168,22 @@ class TestIngestSocialUrl:
                     mock_fetch.return_value = mock_oembed
 
                     with patch(
-                        "app.api.ingest.extract_place_with_method"
-                    ) as mock_extract:
-                        # Return ExtractionResult with no place detected
-                        mock_extract.return_value = ExtractionResult(None, "none")
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        # Mock the orchestrator instance - no place detected
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=50,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
 
                         response = client.post(
                             "/ingest/social",
@@ -197,10 +219,22 @@ class TestIngestSocialUrl:
                     mock_fetch.return_value = mock_oembed
 
                     with patch(
-                        "app.api.ingest.extract_place_with_method"
-                    ) as mock_extract:
-                        # Return ExtractionResult with no place detected
-                        mock_extract.return_value = ExtractionResult(None, "none")
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        # Mock the orchestrator instance - no place detected
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=50,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
 
                         response = client.post(
                             "/ingest/social",
