@@ -5,7 +5,7 @@ import time
 from typing import Literal
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.api.countries import get_country_name_by_code
 from app.api.utils import get_token_from_request
@@ -21,6 +21,10 @@ from app.schemas.social_ingest import (
     SocialIngestRequest,
     SocialIngestResponse,
     SocialProvider,
+)
+from app.services.google_photo_downloader import (
+    create_media_record_for_google_photo,
+    download_and_store_google_photo,
 )
 from app.services.oembed_adapters import fetch_oembed
 from app.services.place_extractor import (
@@ -241,6 +245,24 @@ async def ingest_social_url(
     )
 
 
+async def _download_google_photo_background(
+    photo_url: str,
+    user_id: str,
+    entry_id: str,
+    trip_id: str,
+) -> None:
+    """Background task to download and store a Google photo.
+
+    This runs after the response is sent to the client.
+    """
+    thumbnail_path = await download_and_store_google_photo(photo_url, user_id, entry_id)
+
+    if thumbnail_path:
+        await create_media_record_for_google_photo(
+            user_id, entry_id, trip_id, thumbnail_path
+        )
+
+
 @router.post(
     "/ingest/save-to-trip",
     response_model=EntryWithPlace,
@@ -251,6 +273,7 @@ async def save_to_trip(
     request: Request,
     data: SaveToTripRequest,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> EntryWithPlace:
     """Save social ingest data to a trip as an entry.
 
@@ -410,6 +433,21 @@ async def save_to_trip(
                 "user_id": str(user.id),
                 "error": str(e)[:200],
             },
+        )
+
+    # Download and store Google photo if available (background task)
+    # This creates a permanent copy in Supabase storage since Google URLs expire
+    google_photo_url = None
+    if place_row and place_row.get("extra_data"):
+        google_photo_url = place_row["extra_data"].get("google_photo_url")
+
+    if google_photo_url:
+        background_tasks.add_task(
+            _download_google_photo_background,
+            google_photo_url,
+            str(user.id),
+            str(entry.id),
+            str(data.trip_id),
         )
 
     logger.info(
