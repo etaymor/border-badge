@@ -38,8 +38,11 @@ export interface MultiPlaceListProps {
   // Selection state keyed by place name (unique identifier)
   selections: Record<string, PlaceSelection>;
   onTogglePlace: (placeKey: string) => void;
-  onEditPlace: (placeKey: string) => void;
+  /** Optional - edit flow not yet implemented */
+  onEditPlace?: (placeKey: string) => void;
   onEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
+  /** Show edit buttons on place items. Defaults to false until edit flow is implemented. */
+  showEditButtons?: boolean;
 }
 
 export function MultiPlaceList({
@@ -47,6 +50,7 @@ export function MultiPlaceList({
   onTogglePlace,
   onEditPlace,
   onEntryTypeChange,
+  showEditButtons = false,
 }: MultiPlaceListProps) {
   const placeKeys = Object.keys(selections);
   const selectedCount = Object.values(selections).filter((s) => s.isSelected).length;
@@ -61,7 +65,7 @@ export function MultiPlaceList({
 
   const handleEdit = useCallback(
     (key: string) => {
-      onEditPlace(key);
+      onEditPlace?.(key);
     },
     [onEditPlace]
   );
@@ -101,6 +105,7 @@ export function MultiPlaceList({
               onToggle={() => handleToggle(key)}
               onEdit={() => handleEdit(key)}
               onEntryTypeChange={(type) => handleEntryTypeChange(key, type)}
+              showEditButton={showEditButtons}
             />
           );
         })}

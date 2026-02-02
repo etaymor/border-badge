@@ -30,8 +30,10 @@ export interface PlaceCheckboxItemProps {
   entryType: EntryType;
   isSelected: boolean;
   onToggle: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onEntryTypeChange: (type: EntryType) => void;
+  /** Show the edit button. Defaults to false until edit flow is implemented. */
+  showEditButton?: boolean;
 }
 
 export function PlaceCheckboxItem({
@@ -44,6 +46,7 @@ export function PlaceCheckboxItem({
   onToggle,
   onEdit,
   onEntryTypeChange,
+  showEditButton = false,
 }: PlaceCheckboxItemProps) {
   const typeConfig = useMemo(() => ENTRY_TYPE_CONFIG[entryType], [entryType]);
 
@@ -94,10 +97,12 @@ export function PlaceCheckboxItem({
         <Text style={styles.typeLabel}>{typeConfig.label}</Text>
       </Pressable>
 
-      {/* Edit Button */}
-      <Pressable style={styles.editButton} onPress={onEdit} accessibilityLabel="Edit place">
-        <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
-      </Pressable>
+      {/* Edit Button - hidden until edit flow is implemented */}
+      {showEditButton && onEdit && (
+        <Pressable style={styles.editButton} onPress={onEdit} accessibilityLabel="Edit place">
+          <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -82,7 +82,6 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     handleChangeType,
     handlePlaceSelect,
     handleTogglePlace,
-    handleEditPlace,
     handlePlaceEntryTypeChange,
     handleCreateTrip,
     handleSave,
@@ -218,8 +217,8 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
               <MultiPlaceList
                 selections={placeSelections}
                 onTogglePlace={handleTogglePlace}
-                onEditPlace={handleEditPlace}
                 onEntryTypeChange={handlePlaceEntryTypeChange}
+                // Edit flow not yet implemented - showEditButtons defaults to false
               />
             </View>
           ) : (

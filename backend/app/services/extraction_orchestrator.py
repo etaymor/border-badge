@@ -356,6 +356,19 @@ class ExtractionOrchestrator:
 
         places: list[DetectedPlace]
 
+    def _get_remaining_time(self, start_time: float, buffer: float = 1.0) -> float:
+        """Calculate remaining time budget from start_time."""
+        elapsed = time.monotonic() - start_time
+        return max(0, self.total_timeout - elapsed - buffer)
+
+    async def _cancel_video_task(self, video_task: asyncio.Task) -> None:
+        """Cancel and await a video task to avoid orphaned tasks."""
+        video_task.cancel()
+        try:
+            await video_task
+        except asyncio.CancelledError:
+            pass
+
     async def _extract_from_video(
         self,
         video_task: asyncio.Task,
@@ -363,12 +376,11 @@ class ExtractionOrchestrator:
     ) -> _VideoResult:
         """Extract places from video frames."""
         # Calculate remaining time budget
-        elapsed = time.monotonic() - start_time
-        remaining = max(0, self.total_timeout - elapsed - 1)  # Leave 1s buffer
+        remaining = self._get_remaining_time(start_time)
 
         if remaining <= 0:
             logger.debug("video_extraction_skipped: no_time_remaining")
-            video_task.cancel()
+            await self._cancel_video_task(video_task)
             return self._VideoResult(places=[])
 
         try:
@@ -378,11 +390,23 @@ class ExtractionOrchestrator:
             if not video_path:
                 return self._VideoResult(places=[])
 
+            # Recalculate remaining time after video download
+            remaining = self._get_remaining_time(start_time)
+            if remaining <= 0:
+                logger.debug("video_extraction_skipped: no_time_after_download")
+                return self._VideoResult(places=[])
+
             # Determine dynamic frame count (1 frame every 2s, cap for short videos)
             duration = await get_video_duration(
                 video_path, timeout=min(5.0, max(0.5, remaining))
             )
             max_frames = self._calculate_max_frames(duration)
+
+            # Recalculate remaining time before frame extraction
+            remaining = self._get_remaining_time(start_time)
+            if remaining <= 0:
+                logger.debug("video_extraction_skipped: no_time_for_frames")
+                return self._VideoResult(places=[])
 
             # Extract frames
             frames = await extract_frames(
@@ -393,6 +417,12 @@ class ExtractionOrchestrator:
 
             if not frames:
                 logger.debug("video_extraction_no_frames")
+                return self._VideoResult(places=[])
+
+            # Recalculate remaining time before multimodal extraction
+            remaining = self._get_remaining_time(start_time)
+            if remaining <= 0:
+                logger.debug("video_extraction_skipped: no_time_for_multimodal")
                 return self._VideoResult(places=[])
 
             # Extract places from frames using multimodal LLM
@@ -419,7 +449,7 @@ class ExtractionOrchestrator:
 
         except TimeoutError:
             logger.debug("video_extraction_timeout")
-            video_task.cancel()
+            await self._cancel_video_task(video_task)
             return self._VideoResult(places=[])
         except asyncio.CancelledError:
             return self._VideoResult(places=[])

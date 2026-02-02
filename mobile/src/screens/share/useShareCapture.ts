@@ -75,8 +75,10 @@ export interface ShareCaptureHandlers {
   handlePlaceSelect: (place: SelectedPlace | null) => void;
   // Multi-place handlers
   handleTogglePlace: (placeKey: string) => void;
-  handleEditPlace: (placeKey: string) => void;
-  handleUpdatePlace: (placeKey: string, place: SelectedPlace) => void;
+  /** Not yet implemented - edit flow for multi-place mode */
+  handleEditPlace?: (placeKey: string) => void;
+  /** Not yet implemented - update place after edit */
+  handleUpdatePlace?: (placeKey: string, place: SelectedPlace) => void;
   handlePlaceEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
   // Common handlers
   handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
@@ -659,9 +661,8 @@ export function useShareCapture({
     handlePlaceSelect,
     // Multi-place handlers
     handleTogglePlace,
-    handleEditPlace,
-    handleUpdatePlace,
     handlePlaceEntryTypeChange,
+    // handleEditPlace and handleUpdatePlace not yet implemented - see stubs below
     // Common handlers
     handleCreateTrip,
     handleSave,

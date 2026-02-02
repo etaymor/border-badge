@@ -986,15 +986,19 @@ class TestExtractionMethodParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:
@@ -1042,15 +1046,19 @@ class TestExtractionMethodParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:
@@ -1098,15 +1106,19 @@ class TestExtractionMethodParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:
@@ -1158,15 +1170,19 @@ class TestSkipCacheParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:
@@ -1214,15 +1230,19 @@ class TestSkipCacheParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:
@@ -1270,15 +1290,19 @@ class TestSkipCacheParameter:
         )
 
         try:
-            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
-                mock_canonicalize.return_value = (
-                    "https://www.tiktok.com/@foodie123/video/123",
-                    SocialProvider.TIKTOK,
-                )
-
-                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
-                    mock_fetch.return_value = mock_oembed
-
+            with patch(
+                "app.api.ingest.canonicalize_url",
+                new=AsyncMock(
+                    return_value=(
+                        "https://www.tiktok.com/@foodie123/video/123",
+                        SocialProvider.TIKTOK,
+                    )
+                ),
+            ):
+                with patch(
+                    "app.api.ingest.fetch_oembed",
+                    new=AsyncMock(return_value=mock_oembed),
+                ):
                     with patch(
                         "app.api.ingest.ExtractionOrchestrator"
                     ) as mock_orchestrator_class:

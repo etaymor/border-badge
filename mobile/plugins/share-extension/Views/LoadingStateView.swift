@@ -60,7 +60,7 @@ struct LoadingStateView: View {
                     .frame(maxWidth: 200)
 
                     Text("Extracting place details")
-                        .font(Typography.regular(13))
+                        .font(Typography.body(13))
                         .foregroundColor(BrandColors.midnightNavy.opacity(0.6))
                 }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
