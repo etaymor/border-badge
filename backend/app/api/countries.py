@@ -91,7 +91,7 @@ async def get_country_name_by_code(country_code: str) -> str | None:
         country_code: Two-letter ISO country code (e.g., "JP", "AL")
 
     Returns:
-        Country name or None if not found
+        Country name or None if not found or on database error
     """
     code = country_code.upper()
 
@@ -111,11 +111,17 @@ async def get_country_name_by_code(country_code: str) -> str | None:
                 return name
             _country_name_cache.pop(code, None)
 
-        db = get_supabase_client()
-        rows = await db.get(
-            "country",
-            {"code": eq(code), "select": "name"},
-        )
+        try:
+            db = get_supabase_client()
+            rows = await db.get(
+                "country",
+                {"code": eq(code), "select": "name"},
+            )
+        except Exception as e:
+            # Log but don't fail - return None to allow caller to use fallback
+            logger.warning(f"Failed to fetch country name for {code}: {e}")
+            return None
+
         if not rows:
             _country_name_cache[code] = (None, datetime.now(UTC) + CACHE_TTL)
             return None
