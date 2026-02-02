@@ -463,10 +463,10 @@ class TestMultimodalExtractor:
                 assert result.places == []
 
     @pytest.mark.asyncio
-    async def test_limits_frames_to_15(
+    async def test_batches_frames_over_limit(
         self, small_jpeg_bytes, mock_openrouter_success_response
     ):
-        """Should process at most 15 frames."""
+        """Should process all frames by batching requests."""
         with patch("app.services.multimodal_extractor.get_settings") as mock_settings:
             mock_settings.return_value.openrouter_api_key = "test-key"
             mock_settings.return_value.openrouter_model = "test-model"
@@ -484,12 +484,12 @@ class TestMultimodalExtractor:
                 return_value=mock_client,
             ):
                 extractor = MultimodalExtractor()
-                # Pass 20 frames
+                # Pass 20 frames (should batch into 2 requests)
                 frames = [small_jpeg_bytes] * 20
                 result = await extractor.extract_places(frames)
 
-                # Should only process 15
-                assert result.frames_processed == 15
+                assert result.frames_processed == 20
+                assert mock_client.post.call_count == 2
 
     @pytest.mark.asyncio
     async def test_skips_invalid_frames(

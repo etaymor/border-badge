@@ -41,6 +41,9 @@ class ShareViewController: UIViewController {
     /// The caption text if available
     private var captionText: String?
 
+    /// The shared video file URL if available
+    private var sharedVideoURL: URL?
+
     /// SwiftUI hosting controller
     private var hostingController: UIHostingController<ShareCaptureView>?
 
@@ -76,55 +79,104 @@ class ShareViewController: UIViewController {
             return
         }
 
-        // Process attachments - try URL first, then plain text
-        processAttachments(attachments)
-    }
-
-    /// Process shared attachments looking for URLs
-    private func processAttachments(_ attachments: [NSItemProvider]) {
-        // Try to find a URL attachment first (most reliable)
-        for attachment in attachments where attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
-                    DispatchQueue.main.async {
-                        if let url = item as? URL {
-                            self?.processURL(url.absoluteString)
-                        } else {
-                            self?.tryTextAttachments(attachments)
-                        }
-                    }
+        Task { [weak self] in
+            guard let self else { return }
+            let payload = await self.extractSharePayload(from: attachments)
+            await MainActor.run {
+                self.captionText = payload.caption
+                self.sharedVideoURL = payload.videoFileURL
+                guard let urlString = payload.url else {
+                    self.showFallbackUI(error: "No URL found")
+                    return
+                }
+                self.processURL(urlString, videoFileURL: payload.videoFileURL)
             }
-            return
         }
-
-        // Fall back to text attachments (TikTok often shares text with URL embedded)
-        tryTextAttachments(attachments)
     }
 
-    /// Try to extract URL from text attachments
-    private func tryTextAttachments(_ attachments: [NSItemProvider]) {
-        let plainTextId = UTType.plainText.identifier
-        for attachment in attachments where attachment.hasItemConformingToTypeIdentifier(plainTextId) {
-            attachment.loadItem(forTypeIdentifier: plainTextId, options: nil) { [weak self] item, _ in
-                    DispatchQueue.main.async {
-                        if let text = item as? String {
-                            // Store the full text as potential caption
-                            self?.captionText = text
+    /// Extract URL, caption, and video file from shared attachments
+    private func extractSharePayload(from attachments: [NSItemProvider]) async -> SharePayload {
+        async let urlString = loadURL(from: attachments)
+        async let caption = loadCaption(from: attachments)
+        async let videoFileURL = loadVideoFileURL(from: attachments)
 
-                            if let url = self?.extractURL(from: text) {
-                                self?.processURL(url)
-                            } else {
-                                self?.showFallbackUI(error: "No URL found")
-                            }
-                        } else {
-                            self?.showFallbackUI(error: "No URL found")
-                        }
+        let (urlValue, captionValue, videoValue) = await (urlString, caption, videoFileURL)
+        let resolvedURL = urlValue ?? (captionValue.flatMap { extractURL(from: $0) })
+
+        return SharePayload(url: resolvedURL, caption: captionValue, videoFileURL: videoValue)
+    }
+
+    private func loadURL(from attachments: [NSItemProvider]) async -> String? {
+        for attachment in attachments
+        where attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+            if let url = await loadItemURL(from: attachment, typeIdentifier: UTType.url.identifier) {
+                return url.absoluteString
+            }
+        }
+        return nil
+    }
+
+    private func loadCaption(from attachments: [NSItemProvider]) async -> String? {
+        let plainTextId = UTType.plainText.identifier
+        for attachment in attachments
+        where attachment.hasItemConformingToTypeIdentifier(plainTextId) {
+            if let text = await loadItemText(from: attachment, typeIdentifier: plainTextId) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private func loadVideoFileURL(from attachments: [NSItemProvider]) async -> URL? {
+        let videoIdentifiers = [UTType.movie.identifier, UTType.video.identifier]
+        for attachment in attachments {
+            for identifier in videoIdentifiers
+            where attachment.hasItemConformingToTypeIdentifier(identifier) {
+                if let url = await loadVideoFile(from: attachment, typeIdentifier: identifier) {
+                    return url
                 }
             }
-            return
         }
+        return nil
+    }
 
-        // No usable content found
-        showFallbackUI(error: "No URL found")
+    private func loadItemURL(from provider: NSItemProvider, typeIdentifier: String) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+                continuation.resume(returning: item as? URL)
+            }
+        }
+    }
+
+    private func loadItemText(from provider: NSItemProvider, typeIdentifier: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+                continuation.resume(returning: item as? String)
+            }
+        }
+    }
+
+    private func loadVideoFile(from provider: NSItemProvider, typeIdentifier: String) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, _ in
+                guard let sourceURL = url else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let fileExtension = sourceURL.pathExtension.isEmpty ? "mov" : sourceURL.pathExtension
+                let destinationURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    "share_video_\(UUID().uuidString).\(fileExtension)"
+                )
+
+                do {
+                    try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                    continuation.resume(returning: destinationURL)
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     // MARK: - URL Extraction
@@ -149,8 +201,9 @@ class ShareViewController: UIViewController {
     // MARK: - URL Processing
 
     /// Process and show the capture form
-    private func processURL(_ urlString: String) {
+    private func processURL(_ urlString: String, videoFileURL: URL? = nil) {
         sharedURL = urlString
+        sharedVideoURL = videoFileURL
 
         // Save to App Group as backup
         saveToAppGroup(urlString)
@@ -164,7 +217,7 @@ class ShareViewController: UIViewController {
 
                 if hasToken {
                     // Show full SwiftUI capture form
-                    self.showCaptureForm(url: urlString)
+                    self.showCaptureForm(url: urlString, videoFileURL: videoFileURL)
                 } else {
                     // Track auth failure
                     AnalyticsQueue.track("share_extension_auth_failed")
@@ -210,10 +263,11 @@ class ShareViewController: UIViewController {
     // MARK: - SwiftUI Capture Form
 
     /// Show the full capture form
-    private func showCaptureForm(url: String) {
+    private func showCaptureForm(url: String, videoFileURL: URL? = nil) {
         let captureView = ShareCaptureView(
             url: url,
             caption: captionText,
+            videoFileURL: videoFileURL,
             onDismiss: { [weak self] in
                 self?.completeRequest()
             }
@@ -517,4 +571,10 @@ class ShareViewController: UIViewController {
         )
     }
 
+}
+
+private struct SharePayload {
+    let url: String?
+    let caption: String?
+    let videoFileURL: URL?
 }

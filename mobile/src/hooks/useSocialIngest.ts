@@ -37,6 +37,7 @@ export interface SocialIngestRequest {
   url: string;
   caption?: string;
   extraction_method?: 'auto' | 'llm' | 'regex';
+  video_frames?: string[];
 }
 
 // Country detected from location hints (when place detection fails)

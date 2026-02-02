@@ -232,11 +232,86 @@ class ExtractionOrchestrator:
             )
 
         finally:
+            # Cancel and await video task before cleanup to avoid deleting files
+            # while the download is still writing to them
+            if video_task and not video_task.done():
+                video_task.cancel()
+                try:
+                    await video_task
+                except asyncio.CancelledError:
+                    pass
+
             # Cleanup temp directory
             if temp_dir and temp_dir.exists():
                 import shutil
 
                 shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def extract_from_frames(
+        self,
+        canonical_url: str,
+        oembed: OEmbedResponse | None,
+        caption: str | None,
+        frames: list[bytes],
+        *,
+        use_cache: bool = True,
+    ) -> ExtractionResult:
+        """Extract places from client-provided video frames."""
+        start_time = time.monotonic()
+
+        if use_cache:
+            cached = await get_cached_extraction(canonical_url)
+            if cached:
+                cached_method: ExtractionMethod
+                if not cached.places:
+                    cached_method = "none"
+                else:
+                    cached_method = "llm" if cached.source == "caption" else "video"
+                return ExtractionResult(
+                    places=cached.places,
+                    method=cached_method,
+                    source=cached.source,
+                    skip_to_video=False,
+                    context_location=None,
+                    latency_ms=int((time.monotonic() - start_time) * 1000),
+                    from_cache=True,
+                )
+
+        if not frames:
+            return ExtractionResult(
+                places=[],
+                method="none",
+                source="video_frames",
+                skip_to_video=False,
+                context_location=None,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
+                from_cache=False,
+            )
+
+        title = oembed.title if oembed else None
+        author_handle = oembed.author_name if oembed else None
+        combined_text = " ".join(filter(None, [title, caption, author_handle]))
+        hints = extract_location_hints(combined_text)
+        context_location = hints[0].name if hints else None
+
+        multimodal_result = await self.multimodal_extractor.extract_places(
+            frames, source="video_frames"
+        )
+        places = await self._resolve_multimodal_places(multimodal_result.places)
+        method: ExtractionMethod = "video" if places else "none"
+
+        if use_cache:
+            await self._cache_result(canonical_url, places, "video_frames")
+
+        return ExtractionResult(
+            places=places,
+            method=method,
+            source="video_frames",
+            skip_to_video=False,
+            context_location=context_location,
+            latency_ms=int((time.monotonic() - start_time) * 1000),
+            from_cache=False,
+        )
 
     async def _download_video_safe(self, url: str, output_dir: Path) -> Path | None:
         """Download video with error handling.

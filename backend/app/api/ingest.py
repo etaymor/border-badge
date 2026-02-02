@@ -1,5 +1,7 @@
 """Social media ingest endpoints."""
 
+import base64
+import binascii
 import logging
 import time
 from typing import Literal
@@ -67,6 +69,24 @@ def _sanitize_url_for_logging(url: str, max_length: int = 200) -> str:
     except Exception:
         # If parsing fails, return truncated host portion only
         return url.split("?")[0][:max_length]
+
+
+def _decode_video_frames(frames: list[str]) -> list[bytes]:
+    """Decode base64-encoded video frames from the client."""
+    decoded: list[bytes] = []
+    for i, frame_b64 in enumerate(frames):
+        try:
+            payload = frame_b64
+            if payload.startswith("data:"):
+                payload = payload.split(",", 1)[-1]
+            decoded.append(base64.b64decode(payload, validate=True))
+        except (binascii.Error, ValueError) as e:
+            logger.info(
+                "ingest_video_frame_invalid",
+                extra={"frame_index": i, "error": str(e)[:120]},
+            )
+            continue
+    return decoded
 
 
 router = APIRouter()
@@ -179,30 +199,59 @@ async def ingest_social_url(
             extraction_method_used = "regex"  # Profile uses direct search
         extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
     else:
-        # Use ExtractionOrchestrator for cascading extraction:
-        # 1. Check cache
-        # 2. Try caption extraction (LLM + regex fallback)
-        # 3. If caption fails or signals skip_to_video, try video frame extraction
-        # 4. Cache results
-        orchestrator = ExtractionOrchestrator(
-            enable_video_fallback=True,  # Enable video extraction when caption fails
+        # Prefer client-provided video frames when available
+        frames_bytes = (
+            _decode_video_frames(data.video_frames) if data.video_frames else []
         )
+        if frames_bytes:
+            logger.info(
+                "ingest_video_frames_received",
+                extra={
+                    "frames_count": len(frames_bytes),
+                    "provider": provider.value,
+                    "user_id": str(user.id),
+                },
+            )
+            orchestrator = ExtractionOrchestrator(enable_video_fallback=False)
+            extraction_start = time.monotonic()
+            extraction_result = await orchestrator.extract_from_frames(
+                canonical_url,
+                oembed,
+                data.caption,
+                frames_bytes,
+                use_cache=not data.skip_cache,
+            )
+            detected_places = extraction_result.places
+            detected_place = detected_places[0] if detected_places else None
+            context_location = extraction_result.context_location
+            extraction_method_used = extraction_result.method
+            extraction_source = extraction_result.source
+            extraction_latency_ms = int((time.monotonic() - extraction_start) * 1000)
+        else:
+            # Use ExtractionOrchestrator for cascading extraction:
+            # 1. Check cache
+            # 2. Try caption extraction (LLM + regex fallback)
+            # 3. If caption fails or signals skip_to_video, try video frame extraction
+            # 4. Cache results
+            orchestrator = ExtractionOrchestrator(
+                enable_video_fallback=True,  # Enable video extraction when caption fails
+            )
 
-        extraction_result = await orchestrator.extract(
-            canonical_url,
-            oembed,
-            data.caption,
-            use_cache=not data.skip_cache,  # Honor skip_cache for cache invalidation
-            is_video_url=True,  # TikTok/Instagram URLs are typically video
-            extraction_method=data.extraction_method,
-        )
+            extraction_result = await orchestrator.extract(
+                canonical_url,
+                oembed,
+                data.caption,
+                use_cache=not data.skip_cache,  # Honor skip_cache for cache invalidation
+                is_video_url=True,  # TikTok/Instagram URLs are typically video
+                extraction_method=data.extraction_method,
+            )
 
-        detected_places = extraction_result.places
-        detected_place = detected_places[0] if detected_places else None
-        context_location = extraction_result.context_location
-        extraction_method_used = extraction_result.method
-        extraction_source = extraction_result.source
-        extraction_latency_ms = extraction_result.latency_ms
+            detected_places = extraction_result.places
+            detected_place = detected_places[0] if detected_places else None
+            context_location = extraction_result.context_location
+            extraction_method_used = extraction_result.method
+            extraction_source = extraction_result.source
+            extraction_latency_ms = extraction_result.latency_ms
 
     logger.info(
         f"INGEST place extraction result: "

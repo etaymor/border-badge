@@ -4,6 +4,7 @@
  * Manages state transitions between loading, error, form, and success states.
  */
 
+import Foundation
 import SwiftUI
 
 struct ShareCaptureView: View {
@@ -12,11 +13,18 @@ struct ShareCaptureView: View {
 
     let url: String
     let caption: String?
+    let videoFileURL: URL?
     let onDismiss: () -> Void
 
-    init(url: String, caption: String? = nil, onDismiss: @escaping () -> Void) {
+    init(
+        url: String,
+        caption: String? = nil,
+        videoFileURL: URL? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
         self.url = url
         self.caption = caption
+        self.videoFileURL = videoFileURL
         self.onDismiss = onDismiss
     }
 
@@ -58,7 +66,7 @@ struct ShareCaptureView: View {
             }
         }
         .onAppear {
-            viewModel.processURL(url, caption: caption)
+            viewModel.processURL(url, caption: caption, videoFileURL: videoFileURL)
             tripViewModel.load()
         }
     }

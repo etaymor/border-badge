@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
-from app.main import app
+from app.main import app, limiter
 from app.schemas.social_ingest import (
     DetectedPlace,
     OEmbedResponse,
@@ -976,6 +976,7 @@ class TestExtractionMethodParameter:
 
     def test_extraction_method_llm_only_uses_llm(self, client, auth_override):
         """When extraction_method=llm, only LLM extraction should be used."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(
@@ -1036,6 +1037,7 @@ class TestExtractionMethodParameter:
 
     def test_extraction_method_regex_only_uses_regex(self, client, auth_override):
         """When extraction_method=regex, only regex extraction should be used."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(
@@ -1096,6 +1098,7 @@ class TestExtractionMethodParameter:
 
     def test_extraction_method_auto_uses_cascade(self, client, auth_override):
         """When extraction_method=auto (default), cascade behavior should be used."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(
@@ -1160,6 +1163,7 @@ class TestSkipCacheParameter:
 
     def test_skip_cache_bypasses_cache_lookup(self, client, auth_override):
         """When skip_cache=true, cache should be bypassed for fresh extraction."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(
@@ -1220,6 +1224,7 @@ class TestSkipCacheParameter:
 
     def test_skip_cache_false_uses_cache(self, client, auth_override):
         """When skip_cache=false (default), cache should be used."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(
@@ -1280,6 +1285,7 @@ class TestSkipCacheParameter:
 
     def test_skip_cache_defaults_to_false(self, client, auth_override):
         """When skip_cache is not provided, it should default to false (cache enabled)."""
+        limiter.reset()
         app.dependency_overrides[get_current_user] = auth_override
 
         mock_oembed = OEmbedResponse(

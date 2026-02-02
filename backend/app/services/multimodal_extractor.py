@@ -65,6 +65,7 @@ ALLOWED_MAGIC = {
 # Output frame size for multimodal API (258 tokens per frame at LOW resolution)
 OUTPUT_WIDTH = 640
 OUTPUT_HEIGHT = 360
+MAX_FRAMES_PER_REQUEST = 15
 
 # =============================================================================
 # Entry Types
@@ -240,6 +241,28 @@ class ExtractedPlace:
     entry_type: EntryType
 
 
+def _place_key(place: ExtractedPlace) -> str:
+    """Create a stable dedupe key for extracted places."""
+    city = place.city.strip().lower() if place.city else ""
+    country = place.country.strip().lower() if place.country else ""
+    return f"{place.name.strip().lower()}|{city}|{country}"
+
+
+def _merge_places(
+    existing: list[ExtractedPlace],
+    new: list[ExtractedPlace],
+) -> list[ExtractedPlace]:
+    """Merge places while preserving order and removing duplicates."""
+    seen = {_place_key(place) for place in existing}
+    for place in new:
+        key = _place_key(place)
+        if key in seen:
+            continue
+        existing.append(place)
+        seen.add(key)
+    return existing
+
+
 def _parse_multimodal_response(content: str) -> list[ExtractedPlace]:
     """Parse multimodal LLM response into structured places.
 
@@ -384,12 +407,15 @@ class MultimodalExtractor:
         if not images:
             return empty_result
 
-        # Process and validate all images
-        processed_images: list[bytes] = []
-        for i, img_bytes in enumerate(images[:15]):  # Max 15 frames
+        processed_count = 0
+        merged_places: list[ExtractedPlace] = []
+        batch: list[bytes] = []
+
+        for i, img_bytes in enumerate(images):
             try:
                 processed = validate_and_resize_image(img_bytes)
-                processed_images.append(processed)
+                batch.append(processed)
+                processed_count += 1
             except ValueError as e:
                 logger.debug(
                     "multimodal_image_validation_failed",
@@ -397,11 +423,53 @@ class MultimodalExtractor:
                 )
                 continue
 
-        if not processed_images:
+            if len(batch) >= MAX_FRAMES_PER_REQUEST:
+                batch_places = await self._extract_places_from_batch(batch, source)
+                merged_places = _merge_places(merged_places, batch_places)
+                batch = []
+
+        if batch:
+            batch_places = await self._extract_places_from_batch(batch, source)
+            merged_places = _merge_places(merged_places, batch_places)
+
+        if not processed_count:
             logger.warning("multimodal_extraction_no_valid_images")
             return empty_result
 
-        # Build multimodal message content
+        if not merged_places:
+            return MultimodalExtractionResult(
+                places=[],
+                frames_processed=processed_count,
+                source=source,
+            )
+
+        # Cap to 10 places to match response schema
+        merged_places = merged_places[:10]
+
+        logger.info(
+            "multimodal_extraction_success",
+            extra={
+                "source": source,
+                "frames_processed": processed_count,
+                "places_found": len(merged_places),
+            },
+        )
+
+        return MultimodalExtractionResult(
+            places=merged_places,
+            frames_processed=processed_count,
+            source=source,
+        )
+
+    async def _extract_places_from_batch(
+        self,
+        processed_images: list[bytes],
+        source: Literal["video_frames", "carousel", "screenshot"],
+    ) -> list[ExtractedPlace]:
+        """Call the multimodal API for a batch of processed images."""
+        if not processed_images:
+            return []
+
         content: list[dict] = [{"type": "text", "text": MULTIMODAL_USER_PROMPT}]
         for img_bytes in processed_images:
             b64_image = base64.b64encode(img_bytes).decode("utf-8")
@@ -443,32 +511,17 @@ class MultimodalExtractor:
                     "multimodal_extraction_http_error",
                     extra={"status_code": response.status_code},
                 )
-                return empty_result
+                return []
 
             data = response.json()
             response_content = (
                 data.get("choices", [{}])[0].get("message", {}).get("content", "")
             )
-            places = _parse_multimodal_response(response_content)
-
-            logger.info(
-                "multimodal_extraction_success",
-                extra={
-                    "source": source,
-                    "frames_processed": len(processed_images),
-                    "places_found": len(places),
-                },
-            )
-
-            return MultimodalExtractionResult(
-                places=places,
-                frames_processed=len(processed_images),
-                source=source,
-            )
+            return _parse_multimodal_response(response_content)
 
         except httpx.TimeoutException:
             logger.warning("multimodal_extraction_timeout")
-            return empty_result
+            return []
         except (httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("multimodal_extraction_error", extra={"error": str(e)[:100]})
-            return empty_result
+            return []

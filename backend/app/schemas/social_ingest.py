@@ -21,6 +21,8 @@ class SocialIngestRequest(BaseModel):
 
     url: str = Field(..., min_length=10, max_length=2048)
     caption: str | None = Field(None, max_length=2000)
+    # Base64-encoded JPEG/PNG frames sampled on-device (optional)
+    video_frames: list[str] | None = None
     # Extraction method preference for agent-native control
     extraction_method: Literal["auto", "llm", "regex"] = "auto"
     # Skip cache lookup and force fresh extraction (for cache invalidation)

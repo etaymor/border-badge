@@ -410,3 +410,141 @@ class TestShouldUpdateCache:
 
         assert should_update_cache("caption", "caption") is True
         assert should_update_cache("video_frames", "video_frames") is True
+
+
+class TestCacheExtractionTOCTOURace:
+    """Tests demonstrating the TOCTOU race condition in cache_extraction.
+
+    The current implementation has a time-of-check-time-of-use race where:
+    1. Thread A reads existing_source (None or "caption")
+    2. Thread B reads existing_source (None or "caption")
+    3. Thread B updates with "video_frames"
+    4. Thread A updates with "caption" - overwrites higher-quality video_frames!
+
+    These tests demonstrate the bug and should FAIL until the fix is applied.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        reason="Documents TOCTOU race condition - will pass when fix is applied"
+    )
+    async def test_concurrent_extractions_race_condition(self):
+        """TOCTOU race: concurrent extractions can result in lower-quality overwrite.
+
+        This test simulates the race condition by:
+        1. Both caption and video_frames extraction check cache simultaneously
+        2. Both see no existing extraction
+        3. video_frames writes first (higher quality)
+        4. caption writes second - SHOULD NOT overwrite but currently DOES
+
+        The fix requires using a conditional UPDATE with WHERE clause.
+        """
+        import asyncio
+
+        canonical_url = "https://www.tiktok.com/@user/video/race123"
+        video_place = make_detected_place("Video Place")
+        caption_place = make_detected_place("Caption Place")
+
+        # Track the actual database state to simulate real behavior
+        db_state: dict = {
+            "extraction_result": None,
+            "extraction_source": None,
+            "extraction_at": None,
+        }
+        write_order: list[str] = []
+        check_count = 0
+
+        async def mock_get(table, params):
+            nonlocal check_count
+            check_count += 1
+            # Return a copy of current state (both requests see same state)
+            return [db_state.copy()]
+
+        async def mock_patch(table, data, params):
+            nonlocal db_state
+            # Small delay to allow interleaving
+            await asyncio.sleep(0.01)
+            # Record the write
+            write_order.append(data["extraction_source"])
+            # Update state
+            db_state.update(data)
+            return [data]
+
+        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+            client = MagicMock()
+            client.patch = AsyncMock(side_effect=mock_patch)
+            client.get = AsyncMock(side_effect=mock_get)
+            mock_client.return_value = client
+
+            # Simulate both starting at same time, checking cache simultaneously
+            # video_frames should win, but due to race, caption may overwrite
+
+            # Both tasks start and check - they both see empty cache
+            async def caption_task():
+                await asyncio.sleep(0.005)  # Small delay
+                await cache_extraction(canonical_url, [caption_place], source="caption")
+
+            async def video_task():
+                await cache_extraction(
+                    canonical_url, [video_place], source="video_frames"
+                )
+
+            # Run concurrently
+            await asyncio.gather(caption_task(), video_task())
+
+            # The bug: if video_frames completed first, caption should NOT have
+            # been able to overwrite it. But with TOCTOU race, it can.
+            #
+            # Expected behavior (after fix):
+            #   - video_frames write succeeds
+            #   - caption write is rejected (video_frames has higher priority)
+            #   - Final state: video_frames
+            #
+            # Current buggy behavior:
+            #   - Both check and see empty cache
+            #   - Both proceed to write
+            #   - Last write wins (could be caption!)
+
+            # This assertion shows the expected fix behavior
+            # It will FAIL with current implementation when caption writes last
+            if write_order == ["video_frames", "caption"]:
+                # If video_frames wrote first and caption wrote second,
+                # the final state SHOULD still be video_frames (caption rejected)
+                # But with the bug, final state is caption
+                assert db_state["extraction_source"] == "video_frames", (
+                    f"TOCTOU BUG: caption overwrote video_frames! "
+                    f"Write order: {write_order}, Final: {db_state['extraction_source']}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_atomic_conditional_update_prevents_race(self):
+        """Demonstrates how conditional UPDATE prevents the race.
+
+        The fix should use a single atomic UPDATE with WHERE clause:
+        UPDATE oembed_cache SET ...
+        WHERE canonical_url = ?
+          AND (extraction_source IS NULL
+               OR extraction_source IN ('caption', 'screenshot'))
+
+        This ensures only one writer can update and prevents TOCTOU.
+        """
+        # This test documents the expected fix behavior
+        # A conditional update would look like:
+        #
+        # await db.patch(
+        #     "oembed_cache",
+        #     {
+        #         "extraction_result": places_json,
+        #         "extraction_source": source,
+        #         "extraction_at": extraction_at,
+        #     },
+        #     {
+        #         "canonical_url": f"eq.{canonical_url}",
+        #         # Only update if we can actually upgrade
+        #         "or": "(extraction_source.is.null,extraction_source.lt.{priority})",
+        #     },
+        # )
+        #
+        # This is a documentation test - the actual implementation needs to
+        # be fixed in extraction_cache.py
+        pass

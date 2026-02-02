@@ -306,7 +306,7 @@ final class PlaceSelectionArrayTests: XCTestCase {
         let places = [
             DetectedPlace(googlePlaceId: "ChIJ1", name: "Place 1"),
             DetectedPlace(googlePlaceId: "ChIJ2", name: "Place 2"),
-            DetectedPlace(googlePlaceId: "ChIJ3", name: "Place 3"),
+            DetectedPlace(googlePlaceId: "ChIJ3", name: "Place 3")
         ]
 
         // When
@@ -322,7 +322,7 @@ final class PlaceSelectionArrayTests: XCTestCase {
         var selections = [
             PlaceSelection(place: DetectedPlace(name: "Place 1"), isSelected: true),
             PlaceSelection(place: DetectedPlace(name: "Place 2"), isSelected: false),
-            PlaceSelection(place: DetectedPlace(name: "Place 3"), isSelected: true),
+            PlaceSelection(place: DetectedPlace(name: "Place 3"), isSelected: true)
         ]
 
         // When
@@ -339,7 +339,7 @@ final class PlaceSelectionArrayTests: XCTestCase {
             PlaceSelection(place: DetectedPlace(name: "Place 1"), isSelected: true),
             PlaceSelection(place: DetectedPlace(name: "Place 2"), isSelected: false),
             PlaceSelection(place: DetectedPlace(name: "Place 3"), isSelected: true),
-            PlaceSelection(place: DetectedPlace(name: "Place 4"), isSelected: false),
+            PlaceSelection(place: DetectedPlace(name: "Place 4"), isSelected: false)
         ]
 
         // Then
@@ -352,7 +352,7 @@ final class PlaceSelectionArrayTests: XCTestCase {
             PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ1", name: "Place 1"), isSelected: true),
             PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ2", name: "Place 2"), isSelected: false),
             PlaceSelection(place: DetectedPlace(name: "No ID"), isSelected: true),  // No Google ID
-            PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ3", name: "Place 3"), isSelected: true),
+            PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ3", name: "Place 3"), isSelected: true)
         ]
 
         // When
@@ -368,7 +368,7 @@ final class PlaceSelectionArrayTests: XCTestCase {
         // Given
         let selections = [
             PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ1", name: "Place 1"), isSelected: false),
-            PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ2", name: "Place 2"), isSelected: false),
+            PlaceSelection(place: DetectedPlace(googlePlaceId: "ChIJ2", name: "Place 2"), isSelected: false)
         ]
 
         // When

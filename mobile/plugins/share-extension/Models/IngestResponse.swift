@@ -120,12 +120,14 @@ struct DetectedCountry: Codable, Equatable {
 struct SocialIngestRequest: Codable {
     let url: String
     let caption: String?
-    let extractionMethod: String?
+    let extractionMethod: String? = nil
+    let videoFrames: [String]? = nil
 
     enum CodingKeys: String, CodingKey {
         case url
         case caption
         case extractionMethod = "extraction_method"
+        case videoFrames = "video_frames"
     }
 }
 

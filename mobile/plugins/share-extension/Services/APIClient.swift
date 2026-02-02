@@ -58,6 +58,8 @@ actor APIClient {
 
     /// Timeout for ingest requests (longer due to oEmbed + Place extraction)
     private let ingestTimeout: TimeInterval = 15.0
+    /// Timeout for ingest requests with video frames
+    private let videoIngestTimeout: TimeInterval = 30.0
 
     /// Timeout for other requests
     private let defaultTimeout: TimeInterval = 10.0
@@ -95,17 +97,20 @@ actor APIClient {
     func ingestSocial(
         url: String,
         caption: String?,
-        extractionMethod: String? = nil
+        extractionMethod: String? = nil,
+        videoFrames: [String]? = nil
     ) async throws -> SocialIngestResponse {
         let request = SocialIngestRequest(
             url: url,
             caption: caption,
-            extractionMethod: extractionMethod
+            extractionMethod: extractionMethod,
+            videoFrames: videoFrames
         )
+        let timeout = videoFrames == nil ? ingestTimeout : videoIngestTimeout
         return try await post(
             path: "/ingest/social",
             body: request,
-            timeout: ingestTimeout
+            timeout: timeout
         )
     }
 

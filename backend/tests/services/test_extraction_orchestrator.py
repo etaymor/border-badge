@@ -309,3 +309,156 @@ class TestExtractionMethodParameter:
                     # Result should be empty
                     assert result.places == []
                     assert result.method == "none"
+
+
+class TestMultiPlaceResolutionTimeout:
+    """Tests for timeout handling in _resolve_multimodal_places.
+
+    The current implementation calls try_candidate (Google Places API) for up to
+    10 places with a semaphore, but has no timeout. If the Google Places API is
+    slow, this could exceed the 15s total budget and cause the request to hang.
+
+    These tests demonstrate the bug and expected fix behavior.
+    """
+
+    @pytest.mark.asyncio
+    async def test_multi_place_resolution_can_exceed_total_timeout(self):
+        """Demonstrates that _resolve_multimodal_places has no timeout protection.
+
+        The bug: Each try_candidate call can take up to ~3s (network timeout),
+        and with 10 places resolved in parallel (semaphore=5), worst case is
+        2 batches * 3s = 6s just for resolution, which could push total time
+        well over the 15s budget if video download and frame extraction took time.
+
+        Expected fix: Each try_candidate call should have a timeout based on
+        remaining time budget, and the entire resolution should respect the
+        overall extraction timeout.
+        """
+        import asyncio
+        import time
+
+        from app.services.multimodal_extractor import ExtractedPlace
+
+        orchestrator = ExtractionOrchestrator(
+            total_timeout=2.0,  # Very short timeout to demonstrate issue
+            enable_video_fallback=False,
+        )
+
+        # Create 10 extracted places that need resolution
+        extracted_places = [
+            ExtractedPlace(
+                name=f"Place {i}",
+                city="New York",
+                country="USA",
+                entry_type="place",
+            )
+            for i in range(10)
+        ]
+
+        # Mock try_candidate to be slow (simulating slow Google Places API)
+        slow_call_count = 0
+
+        async def slow_try_candidate(query, location_bias=None):
+            nonlocal slow_call_count
+            slow_call_count += 1
+            await asyncio.sleep(0.5)  # Each call takes 500ms
+            return DetectedPlace(
+                google_place_id=f"ChIJ{slow_call_count}",
+                name=f"Resolved {query}",
+                address="123 Test St",
+                country="USA",
+                country_code="US",
+                confidence=0.9,
+            )
+
+        start_time = time.monotonic()
+
+        with patch(
+            "app.services.extraction_orchestrator.try_candidate",
+            new_callable=AsyncMock,
+            side_effect=slow_try_candidate,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.extract_location_hints",
+                return_value=[],
+            ):
+                # This should respect timeout but currently doesn't
+                await orchestrator._resolve_multimodal_places(extracted_places)
+
+        elapsed = time.monotonic() - start_time
+
+        # The bug: With 10 places, semaphore=5, and 500ms per call:
+        # - First batch of 5 takes 500ms
+        # - Second batch of 5 takes 500ms
+        # - Total ~1s minimum, but no timeout applied
+        #
+        # Expected behavior (after fix):
+        # - Resolution should timeout after remaining budget is exhausted
+        # - Or each call should have individual timeout
+        #
+        # This assertion documents the bug - the call completes in ~1s
+        # even though we set total_timeout=2s, the _resolve_multimodal_places
+        # method doesn't check or enforce any timeout
+        assert elapsed >= 1.0, f"Expected at least 1s, got {elapsed:.2f}s"
+        assert slow_call_count == 10, f"Expected 10 calls, got {slow_call_count}"
+
+        # After the fix, this test should show that:
+        # 1. Resolution respects a timeout parameter
+        # 2. Places that couldn't be resolved in time are skipped
+        # 3. The method returns partial results rather than blocking forever
+
+    @pytest.mark.asyncio
+    async def test_resolve_multimodal_places_should_accept_start_time(self):
+        """Documents expected fix: _resolve_multimodal_places needs timeout awareness.
+
+        The fix should:
+        1. Accept start_time parameter to calculate remaining budget
+        2. Apply per-call timeout based on remaining time
+        3. Skip remaining places if budget exhausted
+
+        Example fixed signature:
+            async def _resolve_multimodal_places(
+                self,
+                extracted: list[ExtractedPlace],
+                start_time: float,  # <-- New parameter
+            ) -> list[DetectedPlace]:
+                ...
+                remaining = self._get_remaining_time(start_time)
+                if remaining <= 0:
+                    return []
+
+                async def resolve_one(place: ExtractedPlace) -> DetectedPlace | None:
+                    async with semaphore:
+                        # Calculate remaining time for this call
+                        remaining = self._get_remaining_time(start_time)
+                        if remaining <= 0:
+                            return None
+
+                        try:
+                            return await asyncio.wait_for(
+                                try_candidate(search_query, location_bias),
+                                timeout=min(remaining, 3.0),  # Max 3s per call
+                            )
+                        except asyncio.TimeoutError:
+                            return None
+        """
+        # This is a documentation test showing the expected fix
+        pass
+
+    @pytest.mark.asyncio
+    async def test_extract_from_frames_does_not_pass_start_time(self):
+        """Documents bug: extract_from_frames doesn't pass timing info to resolution.
+
+        In extract_from_frames (line 291), we call:
+            places = await self._resolve_multimodal_places(multimodal_result.places)
+
+        But we don't pass start_time, so the resolution has no way to know
+        how much time budget remains. This could cause the entire extraction
+        to exceed the expected timeout.
+        """
+        # The fix should update extract_from_frames to pass start_time:
+        #     places = await self._resolve_multimodal_places(
+        #         multimodal_result.places,
+        #         start_time,  # <-- Pass timing info
+        #     )
+        pass

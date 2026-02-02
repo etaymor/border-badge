@@ -8,6 +8,7 @@
  * - ShareCaptureViewModel+Save.swift: Save logic and error handling
  */
 
+import Foundation
 import SwiftUI
 import Combine
 
@@ -47,6 +48,7 @@ class ShareCaptureViewModel: ObservableObject {
     let apiClient = APIClient()
     var originalURL: String = ""
     @Published private(set) var caption: String?
+    private var videoFileURL: URL?
     private var currentTask: Task<Void, Never>?
     private var hasStartedProcessing: Bool = false
 
@@ -128,20 +130,22 @@ class ShareCaptureViewModel: ObservableObject {
     // MARK: - Public API
 
     /// Process a shared URL
-    func processURL(_ url: String, caption: String? = nil) {
+    func processURL(_ url: String, caption: String? = nil, videoFileURL: URL? = nil) {
         // Prevent re-processing if already started (onAppear can fire multiple times)
         guard !hasStartedProcessing else { return }
         hasStartedProcessing = true
 
         self.originalURL = url
         self.caption = caption
+        self.videoFileURL = videoFileURL
         let providerName = detectProviderName(url)
         let linkType = providerName.isEmpty ? "link" : providerName
-        self.state = .loading(message: "Processing \(linkType)...")
+        let message = videoFileURL == nil ? "Processing \(linkType)..." : "Processing video..."
+        self.state = .loading(message: message)
 
         currentTask?.cancel()
         currentTask = Task {
-            await ingestURL()
+            await ingestShare()
         }
     }
 
@@ -152,7 +156,7 @@ class ShareCaptureViewModel: ObservableObject {
         state = .loading(message: "Retrying...")
         currentTask?.cancel()
         currentTask = Task {
-            await ingestURL()
+            await ingestShare()
         }
     }
 
@@ -276,37 +280,74 @@ class ShareCaptureViewModel: ObservableObject {
 
     // MARK: - Private Helpers
 
-    private func ingestURL() async {
+    private func ingestShare() async {
+        if let videoURL = videoFileURL {
+            await ingestVideoFrames(from: videoURL)
+            return
+        }
+        await ingestLink()
+    }
+
+    private func ingestLink() async {
         do {
             let response = try await apiClient.ingestSocial(url: originalURL, caption: caption)
-            ingestResult = response
-
-            // Initialize multi-place selections
-            initializeMultiPlaceSelections(from: response.detectedPlaces)
-
-            // Auto-select detected place (backward compat - use first place)
-            if let detected = response.detectedPlace ?? response.detectedPlaces.first {
-                selectedPlace = detected
-
-                // Prefer LLM entry type, fall back to Google types inference
-                if let llmType = detected.llmEntryType,
-                   let type = EntryType(rawValue: llmType) {
-                    entryType = type
-                } else {
-                    entryType = EntryType.from(
-                        primaryType: detected.primaryType,
-                        types: detected.types
-                    )
-                }
-            }
-
-            state = .form
+            handleIngestResponse(response)
 
         } catch let error as APIError {
             handleAPIError(error)
         } catch {
             state = .error(.network())
         }
+    }
+
+    private func ingestVideoFrames(from videoURL: URL) async {
+        do {
+            let frames = try await VideoFrameSampler.extractFrames(from: videoURL, intervalSeconds: 2.0)
+            if frames.isEmpty {
+                await ingestLink()
+                return
+            }
+
+            let encodedFrames = frames.map { $0.base64EncodedString() }
+            let response = try await apiClient.ingestSocial(
+                url: originalURL,
+                caption: caption,
+                videoFrames: encodedFrames
+            )
+            handleIngestResponse(response)
+
+            // Clean up the temp video file after processing
+            try? FileManager.default.removeItem(at: videoURL)
+        } catch let error as APIError {
+            handleAPIError(error)
+        } catch {
+            state = .error(.network())
+        }
+    }
+
+    private func handleIngestResponse(_ response: SocialIngestResponse) {
+        ingestResult = response
+
+        // Initialize multi-place selections
+        initializeMultiPlaceSelections(from: response.detectedPlaces)
+
+        // Auto-select detected place (backward compat - use first place)
+        if let detected = response.detectedPlace ?? response.detectedPlaces.first {
+            selectedPlace = detected
+
+            // Prefer LLM entry type, fall back to Google types inference
+            if let llmType = detected.llmEntryType,
+               let type = EntryType(rawValue: llmType) {
+                entryType = type
+            } else {
+                entryType = EntryType.from(
+                    primaryType: detected.primaryType,
+                    types: detected.types
+                )
+            }
+        }
+
+        state = .form
     }
 
     private func detectProviderName(_ url: String) -> String {
