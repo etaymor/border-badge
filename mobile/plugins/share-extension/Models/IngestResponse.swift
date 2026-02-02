@@ -142,7 +142,9 @@ struct SocialIngestResponse: Codable, Equatable {
     let detectedCountry: DetectedCountry?
     // Extraction metrics
     let extractionMethodUsed: String?
+    let extractionSource: String?        // "caption", "video_frames", "carousel", "screenshot"
     let extractionLatencyMs: Int?
+    let contextLocation: String?         // Location context from extraction (e.g., "Thailand")
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -154,7 +156,9 @@ struct SocialIngestResponse: Codable, Equatable {
         case detectedPlace = "detected_place"
         case detectedCountry = "detected_country"
         case extractionMethodUsed = "extraction_method_used"
+        case extractionSource = "extraction_source"
         case extractionLatencyMs = "extraction_latency_ms"
+        case contextLocation = "context_location"
     }
 
     /// Check if this is a multi-place result (more than one place detected)

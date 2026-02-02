@@ -19,6 +19,56 @@ logger = logging.getLogger(__name__)
 # Type alias for extraction source
 ExtractionSource = Literal["caption", "video_frames", "carousel", "screenshot"]
 
+# Priority hierarchy for extraction sources (higher = better quality)
+# video_frames: Most reliable, from visual analysis of video content
+# carousel: Visual analysis of carousel images
+# screenshot: Visual analysis of screenshots
+# caption: Text-based extraction (lowest quality)
+SOURCE_PRIORITY: dict[str | None, int] = {
+    "video_frames": 4,
+    "carousel": 3,
+    "screenshot": 2,
+    "caption": 1,
+}
+
+
+def get_source_priority(source: str | None) -> int:
+    """Get the priority value for an extraction source.
+
+    Args:
+        source: The extraction source type
+
+    Returns:
+        Priority value (higher = better quality). Unknown sources return 0.
+    """
+    return SOURCE_PRIORITY.get(source, 0)
+
+
+def should_update_cache(existing_source: str | None, new_source: str) -> bool:
+    """Determine if cache should be updated based on source quality hierarchy.
+
+    Update rules:
+    - Always update if no existing extraction (existing_source is None)
+    - Update if new source has higher priority than existing
+    - Update if same source type (allow re-extraction with fresh data)
+    - Do NOT update if new source has lower priority (preserve higher quality)
+
+    Args:
+        existing_source: The current cached extraction source (None if no cache)
+        new_source: The new extraction source attempting to cache
+
+    Returns:
+        True if cache should be updated, False otherwise
+    """
+    if existing_source is None:
+        return True
+
+    existing_priority = get_source_priority(existing_source)
+    new_priority = get_source_priority(new_source)
+
+    # Update if new source is equal or higher quality
+    return new_priority >= existing_priority
+
 
 @dataclass
 class CachedExtractionResult:
@@ -132,9 +182,19 @@ async def cache_extraction(
 ) -> None:
     """Cache extraction result for a URL.
 
-    Updates the existing oembed_cache row with extraction results.
-    If no row exists, creates one (shouldn't happen normally since
-    oEmbed is fetched first).
+    Updates the existing oembed_cache row with extraction results, but only if:
+    - No existing extraction result exists, OR
+    - The new source is equal or higher quality than the existing source
+
+    This prevents race conditions where a lower-quality extraction (e.g., caption)
+    could overwrite a higher-quality extraction (e.g., video_frames) that
+    completed first.
+
+    Quality hierarchy (highest to lowest):
+    1. video_frames - Most reliable, from visual analysis
+    2. carousel - Visual analysis of carousel images
+    3. screenshot - Visual analysis of screenshots
+    4. caption - Text-based extraction
 
     Args:
         canonical_url: The canonical URL
@@ -143,10 +203,36 @@ async def cache_extraction(
     """
     db = get_supabase_client()
 
+    # Check existing cache to determine if we should update
+    rows = await db.get(
+        "oembed_cache",
+        {
+            "canonical_url": f"eq.{canonical_url}",
+            "select": "extraction_source",
+        },
+    )
+
+    if not rows:
+        # Row doesn't exist - this is unusual but handle it
+        logger.warning(
+            f"extraction_cache_no_row: url={canonical_url[:50]} - oEmbed should be cached first"
+        )
+        return
+
+    existing_source = rows[0].get("extraction_source")
+
+    # Check if we should update based on source quality hierarchy
+    if not should_update_cache(existing_source, source):
+        logger.debug(
+            f"extraction_cache_skip: url={canonical_url[:50]} existing={existing_source} "
+            f"new={source} - preserving higher quality extraction"
+        )
+        return
+
     extraction_at = datetime.now(UTC).isoformat()
     places_json = _places_to_json(places)
 
-    # Try to update existing row first (uses PATCH for PostgREST)
+    # Update the cache with new extraction result
     updated = await db.patch(
         "oembed_cache",
         {
@@ -162,9 +248,8 @@ async def cache_extraction(
             f"extraction_cache_stored: url={canonical_url[:50]} places={len(places)} source={source}"
         )
     else:
-        # Row doesn't exist - this is unusual but handle it
         logger.warning(
-            f"extraction_cache_no_row: url={canonical_url[:50]} - oEmbed should be cached first"
+            f"extraction_cache_update_failed: url={canonical_url[:50]} - row may have been deleted"
         )
 
 

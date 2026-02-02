@@ -665,6 +665,598 @@ class TestIngestInstagramProfile:
             app.dependency_overrides.clear()
 
 
+class TestSavePlaces:
+    """Tests for POST /ingest/save-places endpoint."""
+
+    def test_returns_per_place_results_on_success(self, client, auth_override):
+        """Test that the response includes per-place results with status."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(
+                    return_value=[
+                        {
+                            "entry_row": {
+                                "id": TEST_ENTRY_ID,
+                                "trip_id": TEST_TRIP_ID,
+                                "type": "place",
+                                "title": "Test Place",
+                                "notes": None,
+                                "link": "https://www.tiktok.com/@user/video/123",
+                                "metadata": {},
+                                "date": None,
+                                "created_at": "2024-01-01T00:00:00Z",
+                                "deleted_at": None,
+                            },
+                            "place_row": None,
+                        }
+                    ]
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-places",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "places": [
+                                {"name": "Test Place", "entry_type": "place"},
+                            ],
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 201
+                    data = response.json()
+                    assert data["saved_count"] == 1
+                    assert data["skipped_count"] == 0
+                    assert len(data["results"]) == 1
+                    assert data["results"][0]["place_name"] == "Test Place"
+                    assert data["results"][0]["status"] == "saved"
+                    assert data["results"][0]["entry_id"] == TEST_ENTRY_ID
+                    assert data["results"][0]["error_message"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_returns_duplicate_status_for_duplicate_places(self, client, auth_override):
+        """Test that duplicates are marked with 'duplicate' status."""
+        from fastapi import HTTPException
+
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+
+                # Simulate duplicate key error
+                mock_client.rpc = AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=409, detail="Unique constraint violated: duplicate"
+                    )
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-places",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "places": [
+                                {"name": "Duplicate Place", "entry_type": "place"},
+                            ],
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 201
+                    data = response.json()
+                    assert data["saved_count"] == 0
+                    assert data["skipped_count"] == 1
+                    assert len(data["results"]) == 1
+                    assert data["results"][0]["place_name"] == "Duplicate Place"
+                    assert data["results"][0]["status"] == "duplicate"
+                    assert data["results"][0]["entry_id"] is None
+                    assert "already exists" in data["results"][0]["error_message"]
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_returns_error_status_for_failed_places(self, client, auth_override):
+        """Test that failures are marked with 'error' status and error message."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+
+                # Simulate a general error
+                mock_client.rpc = AsyncMock(
+                    side_effect=Exception("Database connection failed")
+                )
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-places",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "places": [
+                                {"name": "Failed Place", "entry_type": "place"},
+                            ],
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 201
+                    data = response.json()
+                    assert data["saved_count"] == 0
+                    assert data["skipped_count"] == 1
+                    assert len(data["results"]) == 1
+                    assert data["results"][0]["place_name"] == "Failed Place"
+                    assert data["results"][0]["status"] == "error"
+                    assert data["results"][0]["entry_id"] is None
+                    assert (
+                        "Database connection failed"
+                        in data["results"][0]["error_message"]
+                    )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_handles_mixed_results(self, client, auth_override):
+        """Test handling of mixed success/duplicate/error results."""
+        from fastapi import HTTPException
+
+        app.dependency_overrides[get_current_user] = auth_override
+
+        entry_id_2 = "550e8400-e29b-41d4-a716-446655440004"
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+
+                # Set up side effects for 3 places:
+                # 1. Success
+                # 2. Duplicate
+                # 3. Error
+                call_count = 0
+
+                async def mock_rpc(name, params):
+                    nonlocal call_count
+                    if name == "increment_share_extension_usage":
+                        return None
+                    call_count += 1
+                    if call_count == 1:
+                        return [
+                            {
+                                "entry_row": {
+                                    "id": entry_id_2,
+                                    "trip_id": TEST_TRIP_ID,
+                                    "type": "place",
+                                    "title": "Success Place",
+                                    "notes": None,
+                                    "link": "https://www.tiktok.com/@user/video/123",
+                                    "metadata": {},
+                                    "date": None,
+                                    "created_at": "2024-01-01T00:00:00Z",
+                                    "deleted_at": None,
+                                },
+                                "place_row": None,
+                            }
+                        ]
+                    elif call_count == 2:
+                        raise HTTPException(
+                            status_code=409, detail="duplicate key constraint"
+                        )
+                    else:
+                        raise Exception("Network error")
+
+                mock_client.rpc = mock_rpc
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-places",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "places": [
+                                {"name": "Success Place", "entry_type": "place"},
+                                {"name": "Duplicate Place", "entry_type": "food"},
+                                {"name": "Error Place", "entry_type": "stay"},
+                            ],
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 201
+                    data = response.json()
+
+                    # Verify counts
+                    assert data["saved_count"] == 1
+                    assert data["skipped_count"] == 2
+
+                    # Verify per-place results
+                    assert len(data["results"]) == 3
+
+                    # First place: success
+                    assert data["results"][0]["place_name"] == "Success Place"
+                    assert data["results"][0]["status"] == "saved"
+                    assert data["results"][0]["entry_id"] == entry_id_2
+
+                    # Second place: duplicate
+                    assert data["results"][1]["place_name"] == "Duplicate Place"
+                    assert data["results"][1]["status"] == "duplicate"
+                    assert data["results"][1]["entry_id"] is None
+
+                    # Third place: error
+                    assert data["results"][2]["place_name"] == "Error Place"
+                    assert data["results"][2]["status"] == "error"
+                    assert data["results"][2]["entry_id"] is None
+                    assert "Network error" in data["results"][2]["error_message"]
+
+                    # Verify backward compatibility: skipped_place_names still works
+                    assert "Duplicate Place" in data["skipped_place_names"]
+                    assert "Error Place" in data["skipped_place_names"]
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestExtractionMethodParameter:
+    """Tests for extraction_method parameter in POST /ingest/social endpoint."""
+
+    def test_extraction_method_llm_only_uses_llm(self, client, auth_override):
+        """When extraction_method=llm, only LLM extraction should be used."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                "extraction_method": "llm",
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify extraction_method was passed to orchestrator.extract
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("extraction_method") == "llm"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_extraction_method_regex_only_uses_regex(self, client, auth_override):
+        """When extraction_method=regex, only regex extraction should be used."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                "extraction_method": "regex",
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify extraction_method was passed to orchestrator.extract
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("extraction_method") == "regex"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_extraction_method_auto_uses_cascade(self, client, auth_override):
+        """When extraction_method=auto (default), cascade behavior should be used."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                # extraction_method defaults to "auto"
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify extraction_method was passed to orchestrator.extract
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("extraction_method") == "auto"
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestSkipCacheParameter:
+    """Tests for skip_cache parameter in POST /ingest/social endpoint."""
+
+    def test_skip_cache_bypasses_cache_lookup(self, client, auth_override):
+        """When skip_cache=true, cache should be bypassed for fresh extraction."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                "skip_cache": True,
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify use_cache=False was passed to orchestrator.extract
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("use_cache") is False
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_skip_cache_false_uses_cache(self, client, auth_override):
+        """When skip_cache=false (default), cache should be used."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                "skip_cache": False,
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify use_cache=True was passed to orchestrator.extract
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("use_cache") is True
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_skip_cache_defaults_to_false(self, client, auth_override):
+        """When skip_cache is not provided, it should default to false (cache enabled)."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Amazing restaurant in Bali",
+            author_name="foodie123",
+            thumbnail_url="https://p16-sign.tiktokcdn.com/123.jpg",
+            raw={"title": "Amazing restaurant in Bali"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@foodie123/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://vm.tiktok.com/short",
+                                # skip_cache not provided - should default to False
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+
+                        # Verify use_cache=True was passed (default behavior)
+                        mock_orchestrator.extract.assert_called_once()
+                        call_kwargs = mock_orchestrator.extract.call_args.kwargs
+                        assert call_kwargs.get("use_cache") is True
+        finally:
+            app.dependency_overrides.clear()
+
+
 class TestGooglePhotoDownload:
     """Tests for Google Places photo download functionality in save_to_trip."""
 

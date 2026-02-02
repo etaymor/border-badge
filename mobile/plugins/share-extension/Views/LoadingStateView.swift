@@ -74,19 +74,22 @@ struct LoadingStateView: View {
                         .foregroundColor(BrandColors.midnightNavy.opacity(0.6))
                         .multilineTextAlignment(.center)
 
-                    Button(action: {
-                        // Clean up timer before canceling
-                        cleanupTimers()
-                        onCancel()
-                    }) {
-                        Text("Cancel")
+                    Button(
+                        action: {
+                            // Clean up timer before canceling
+                            cleanupTimers()
+                            onCancel()
+                        },
+                        label: {
+                            Text("Cancel")
                             .font(Typography.semibold(16))
                             .foregroundColor(BrandColors.midnightNavy)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 12)
                             .background(BrandColors.midnightNavy.opacity(0.1))
                             .cornerRadius(8)
-                    }
+                        }
+                    )
                 }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }

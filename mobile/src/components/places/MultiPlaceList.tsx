@@ -14,21 +14,9 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { Text } from '@components/ui';
 import type { EntryType } from '@navigation/types';
+import { placesSpanMultipleCountries } from '@screens/share/shareCaptureUtils';
 
 import { PlaceCheckboxItem } from './PlaceCheckboxItem';
-
-/**
- * Check if places span multiple countries.
- */
-function placesSpanMultipleCountries(selections: Record<string, PlaceSelection>): boolean {
-  const countryCodes = new Set<string>();
-  for (const selection of Object.values(selections)) {
-    if (selection.country_code) {
-      countryCodes.add(selection.country_code);
-    }
-  }
-  return countryCodes.size > 1;
-}
 
 // Selection state for a place
 export interface PlaceSelection {

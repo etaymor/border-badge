@@ -204,14 +204,12 @@ export function useShareCapture({
   useEffect(() => {
     // Don't override user's selection
     if (selectedTripId) {
-      console.log('[useShareCapture] Skipping - already have selection');
       return;
     }
 
     // Multi-country places should default to "Saved Places" trip
     if (isMultiCountry) {
       if (uncategorizedTrip?.id) {
-        console.log('[useShareCapture] Multi-country detected - selecting Saved Places');
         setSelectedTripId(uncategorizedTrip.id);
       }
       return;
@@ -221,29 +219,15 @@ export function useShareCapture({
       ingestResult?.detected_place?.country_code ?? ingestResult?.detected_country?.country_code;
     const matchingTrips = findMatchingTrips(trips, countryCode);
 
-    // Debug logging
-    console.log('[useShareCapture] Auto-select effect:', {
-      selectedTripId,
-      uncategorizedTripId: uncategorizedTrip?.id,
-      countryCode,
-      tripsCount: trips.length,
-      matchingTripsCount: matchingTrips.length,
-      isMultiCountry,
-    });
-
     if (matchingTrips.length > 0) {
       // Use the most recent trip for the detected country
-      console.log('[useShareCapture] Selecting country trip:', matchingTrips[0].id);
       setSelectedTripId(matchingTrips[0].id);
       return;
     }
 
     // Default to "Saved Places" if available
     if (uncategorizedTrip?.id) {
-      console.log('[useShareCapture] Selecting Saved Places:', uncategorizedTrip.id);
       setSelectedTripId(uncategorizedTrip.id);
-    } else {
-      console.log('[useShareCapture] No uncategorized trip available yet');
     }
   }, [
     ingestResult?.detected_place?.country_code,

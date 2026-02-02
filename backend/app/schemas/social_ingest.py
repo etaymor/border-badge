@@ -23,6 +23,8 @@ class SocialIngestRequest(BaseModel):
     caption: str | None = Field(None, max_length=2000)
     # Extraction method preference for agent-native control
     extraction_method: Literal["auto", "llm", "regex"] = "auto"
+    # Skip cache lookup and force fresh extraction (for cache invalidation)
+    skip_cache: bool = False
 
     @field_validator("url")
     @classmethod
@@ -172,6 +174,15 @@ class SavePlacesRequest(BaseModel):
     notes: str | None = Field(None, max_length=5000)
 
 
+class SavePlaceResult(BaseModel):
+    """Result for a single place in a batch save operation."""
+
+    place_name: str
+    status: Literal["saved", "duplicate", "error"]
+    entry_id: UUID | None = None
+    error_message: str | None = None
+
+
 class SavePlacesResponse(BaseModel):
     """Response from batch save operation."""
 
@@ -179,6 +190,8 @@ class SavePlacesResponse(BaseModel):
     skipped_count: int  # Duplicates that were skipped
     saved_entry_ids: list[UUID]
     skipped_place_names: list[str] = []  # Names of places that were skipped
+    # Per-place status for detailed error handling
+    results: list[SavePlaceResult] = []
 
 
 class SaveToTripRequest(BaseModel):

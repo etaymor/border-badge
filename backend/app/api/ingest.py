@@ -18,6 +18,7 @@ from app.schemas.entries import Entry, EntryWithPlace, Place
 from app.schemas.social_ingest import (
     DetectedCountry,
     DetectedPlace,
+    SavePlaceResult,
     SavePlacesRequest,
     SavePlacesResponse,
     SaveToTripRequest,
@@ -191,8 +192,9 @@ async def ingest_social_url(
             canonical_url,
             oembed,
             data.caption,
-            use_cache=True,
+            use_cache=not data.skip_cache,  # Honor skip_cache for cache invalidation
             is_video_url=True,  # TikTok/Instagram URLs are typically video
+            extraction_method=data.extraction_method,
         )
 
         detected_places = extraction_result.places
@@ -598,6 +600,7 @@ async def save_places(
 
     saved_entry_ids: list[str] = []
     skipped_place_names: list[str] = []
+    results: list[SavePlaceResult] = []
 
     for place in data.places:
         # Validate Google photo URL if provided
@@ -655,7 +658,15 @@ async def save_places(
             if result and len(result) > 0:
                 entry_row = result[0].get("entry_row")
                 if entry_row and entry_row.get("id"):
-                    saved_entry_ids.append(entry_row["id"])
+                    entry_id = entry_row["id"]
+                    saved_entry_ids.append(entry_id)
+                    results.append(
+                        SavePlaceResult(
+                            place_name=place.name,
+                            status="saved",
+                            entry_id=UUID(entry_id),
+                        )
+                    )
 
                     # Download Google photo in background
                     if validated_google_photo_url:
@@ -663,7 +674,7 @@ async def save_places(
                             _download_google_photo_background,
                             validated_google_photo_url,
                             str(user.id),
-                            str(entry_row["id"]),
+                            entry_id,
                             str(data.trip_id),
                         )
 
@@ -672,18 +683,33 @@ async def save_places(
             if "unique" in detail or "duplicate" in detail:
                 # Skip duplicates silently
                 skipped_place_names.append(place.name)
+                results.append(
+                    SavePlaceResult(
+                        place_name=place.name,
+                        status="duplicate",
+                        error_message="Place already exists in this trip",
+                    )
+                )
                 continue
             raise
         except Exception as e:
+            error_msg = str(e)[:200]
             logger.error(
                 "batch_save_entry_failed",
                 extra={
                     "event": "batch_save_error",
                     "place_name": place.name[:50],
-                    "error": str(e)[:200],
+                    "error": error_msg,
                 },
             )
             skipped_place_names.append(place.name)
+            results.append(
+                SavePlaceResult(
+                    place_name=place.name,
+                    status="error",
+                    error_message=error_msg,
+                )
+            )
             continue
 
     # Increment share extension usage once for the batch
@@ -716,4 +742,5 @@ async def save_places(
         skipped_count=len(skipped_place_names),
         saved_entry_ids=[UUID(eid) for eid in saved_entry_ids],
         skipped_place_names=skipped_place_names,
+        results=results,
     )

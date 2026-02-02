@@ -24,12 +24,14 @@ import base64
 import io
 import json
 import logging
+import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
 import httpx
 from PIL import Image
+from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
@@ -70,6 +72,48 @@ OUTPUT_HEIGHT = 360
 
 EntryType = Literal["place", "food", "stay", "experience"]
 VALID_ENTRY_TYPES = {"place", "stay", "food", "experience"}
+
+# =============================================================================
+# Response Validation Schemas
+# =============================================================================
+# Defense in depth against potential prompt injection via image content.
+# Validates LLM response structure and sanitizes extracted place data.
+
+# Suspicious patterns that might indicate prompt injection attempts
+SUSPICIOUS_PATTERNS = re.compile(
+    r"(system:|instruction:|ignore\s+previous|<script|javascript:|data:text/html)",
+    re.IGNORECASE,
+)
+
+
+class ExtractedPlaceSchema(BaseModel):
+    """Pydantic schema for validating extracted place data."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    city: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    type: Literal["place", "stay", "food", "experience"] = "place"
+
+
+class ExtractionResponseSchema(BaseModel):
+    """Pydantic schema for validating complete extraction response."""
+
+    places: list[ExtractedPlaceSchema] = Field(default_factory=list, max_length=10)
+
+
+def _contains_suspicious_content(text: str | None) -> bool:
+    """Check if text contains patterns that might indicate prompt injection.
+
+    Args:
+        text: String to check
+
+    Returns:
+        True if suspicious patterns found
+    """
+    if not text:
+        return False
+    return bool(SUSPICIOUS_PATTERNS.search(text))
+
 
 # =============================================================================
 # Prompt
@@ -199,11 +243,15 @@ class ExtractedPlace:
 def _parse_multimodal_response(content: str) -> list[ExtractedPlace]:
     """Parse multimodal LLM response into structured places.
 
+    Uses Pydantic validation to ensure response structure is valid and
+    place data is reasonable. This provides defense in depth against
+    potential prompt injection via image content.
+
     Args:
         content: Raw LLM response content
 
     Returns:
-        List of ExtractedPlace objects
+        List of ExtractedPlace objects (empty list if validation fails)
     """
     # Normalize and clean content
     content = unicodedata.normalize("NFKC", content)
@@ -213,34 +261,64 @@ def _parse_multimodal_response(content: str) -> list[ExtractedPlace]:
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
+        logger.debug("multimodal_parse_failed: invalid_json")
         return []
 
-    places_data = []
-    if isinstance(data, dict):
-        places_data = data.get("places", [])
-    elif isinstance(data, list):
-        places_data = data
-
-    if not isinstance(places_data, list):
+    # Handle both {"places": [...]} and direct [...] formats
+    if isinstance(data, list):
+        data = {"places": data}
+    elif not isinstance(data, dict):
+        logger.debug("multimodal_parse_failed: invalid_structure")
         return []
 
+    # Truncate places list before validation (max 10 places)
+    if "places" in data and isinstance(data["places"], list):
+        data["places"] = data["places"][:10]
+
+    # Validate response structure with Pydantic
+    try:
+        validated = ExtractionResponseSchema.model_validate(data)
+    except ValidationError as e:
+        logger.debug(
+            "multimodal_parse_failed: validation_error",
+            extra={"errors": str(e.errors())[:200]},
+        )
+        return []
+
+    # Convert validated places to ExtractedPlace objects with security checks
     results = []
-    for item in places_data[:10]:  # Max 10 places
-        if isinstance(item, dict) and item.get("name"):
-            # Validate and normalize entry_type
-            raw_type = item.get("type", "place")
-            entry_type = raw_type.lower() if isinstance(raw_type, str) else "place"
-            if entry_type not in VALID_ENTRY_TYPES:
-                entry_type = "place"
-
-            results.append(
-                ExtractedPlace(
-                    name=str(item["name"]),
-                    city=item.get("city"),
-                    country=item.get("country"),
-                    entry_type=entry_type,  # type: ignore[arg-type]
-                )
+    for place in validated.places:
+        # Check for suspicious content that might indicate prompt injection
+        if _contains_suspicious_content(place.name):
+            logger.warning(
+                "multimodal_suspicious_content",
+                extra={"field": "name", "value": place.name[:50]},
             )
+            continue
+        if _contains_suspicious_content(place.city):
+            logger.warning(
+                "multimodal_suspicious_content",
+                extra={"field": "city", "value": place.city[:50] if place.city else ""},
+            )
+            continue
+        if _contains_suspicious_content(place.country):
+            logger.warning(
+                "multimodal_suspicious_content",
+                extra={
+                    "field": "country",
+                    "value": place.country[:50] if place.country else "",
+                },
+            )
+            continue
+
+        results.append(
+            ExtractedPlace(
+                name=place.name,
+                city=place.city,
+                country=place.country,
+                entry_type=place.type,
+            )
+        )
 
     return results
 

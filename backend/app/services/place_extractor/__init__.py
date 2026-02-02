@@ -32,6 +32,7 @@ from app.services.place_extractor.extractor import (
     extract_place,
     extract_place_from_profile,
     extract_place_with_method,
+    try_candidate,
 )
 from app.services.place_extractor.google_places_client import (
     get_place_details,
@@ -72,6 +73,7 @@ __all__ = [
     "extract_place_from_profile",
     "clean_instagram_profile_name",
     "ExtractionResult",
+    "try_candidate",
     # Location data
     "MAJOR_CITIES",
     "COUNTRIES",
