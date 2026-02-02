@@ -245,7 +245,10 @@ class ExtractionOrchestrator:
             if temp_dir and temp_dir.exists():
                 import shutil
 
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.debug(f"temp_cleanup_failed: {e}")
 
     async def extract_from_frames(
         self,
