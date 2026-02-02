@@ -655,6 +655,21 @@ async def save_places(
                 },
             )
 
+            if not result or len(result) == 0:
+                logger.warning(
+                    "rpc_atomic_create_empty_result",
+                    extra={
+                        "event": "rpc_empty_result",
+                        "function": "atomic_create_entry_with_place",
+                        "trip_id": str(data.trip_id),
+                        "user_id": str(user.id),
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to add entries to this trip",
+                )
+
             if result and len(result) > 0:
                 entry_row = result[0].get("entry_row")
                 if entry_row and entry_row.get("id"):

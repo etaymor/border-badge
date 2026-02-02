@@ -117,6 +117,11 @@ async def download_video(
 
     try:
         _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        logger.warning("yt-dlp_download_cancelled", extra={"url": url[:100]})
+        raise
     except TimeoutError:
         proc.kill()
         await proc.wait()  # Wait for process to be reaped

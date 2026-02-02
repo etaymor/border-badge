@@ -216,7 +216,7 @@ struct SaveToTripResponse: Codable {
 // MARK: - Place To Save (for batch save)
 
 struct PlaceToSave: Codable {
-    let googlePlaceId: String?
+    let googlePlaceId: String
     let name: String
     let entryType: String
     let address: String?
@@ -241,9 +241,12 @@ struct PlaceToSave: Codable {
     }
 
     /// Create from DetectedPlace with specified entry type
-    static func from(place: DetectedPlace, entryType: String) -> PlaceToSave {
-        PlaceToSave(
-            googlePlaceId: place.googlePlaceId,
+    static func from(place: DetectedPlace, entryType: String) -> PlaceToSave? {
+        guard let placeId = place.googlePlaceId, !placeId.isEmpty else {
+            return nil
+        }
+        return PlaceToSave(
+            googlePlaceId: placeId,
             name: place.name,
             entryType: entryType,
             address: place.address,

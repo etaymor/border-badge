@@ -1,11 +1,80 @@
-"""Tests for the extraction orchestrator."""
+"""Tests for ExtractionOrchestrator behaviors."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.schemas.social_ingest import DetectedPlace
+from app.services.extraction_cache import CachedExtractionResult
 from app.services.extraction_orchestrator import ExtractionOrchestrator
+
+
+@pytest.mark.asyncio
+async def test_cached_empty_result_returns_none_method():
+    orchestrator = ExtractionOrchestrator(enable_video_fallback=False)
+    orchestrator._extract_from_caption = AsyncMock()
+
+    cached = CachedExtractionResult(
+        places=[],
+        source="caption",
+        extraction_at=datetime.now(UTC),
+    )
+
+    with patch(
+        "app.services.extraction_orchestrator.get_cached_extraction",
+        return_value=cached,
+    ):
+        result = await orchestrator.extract(
+            "https://example.com/post",
+            oembed=None,
+            caption=None,
+            use_cache=True,
+            is_video_url=False,
+        )
+
+    assert result.from_cache is True
+    assert result.places == []
+    assert result.method == "none"
+    orchestrator._extract_from_caption.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_negative_cache_saved_when_no_places():
+    orchestrator = ExtractionOrchestrator(enable_video_fallback=False)
+    orchestrator._cache_result = AsyncMock()
+    orchestrator._extract_from_caption = AsyncMock(
+        return_value=orchestrator._CaptionResult(
+            places=[], method="none", skip_to_video=False, context_location=None
+        )
+    )
+
+    with patch(
+        "app.services.extraction_orchestrator.get_cached_extraction",
+        return_value=None,
+    ):
+        result = await orchestrator.extract(
+            "https://example.com/post",
+            oembed=None,
+            caption="",
+            use_cache=True,
+            is_video_url=False,
+        )
+
+    assert result.places == []
+    assert result.method == "none"
+    orchestrator._cache_result.assert_awaited_once_with(
+        "https://example.com/post", [], "caption"
+    )
+
+
+def test_calculate_max_frames_duration_based():
+    orchestrator = ExtractionOrchestrator(max_video_frames=15)
+
+    assert orchestrator._calculate_max_frames(None) == 15
+    assert orchestrator._calculate_max_frames(20.0) == 10
+    assert orchestrator._calculate_max_frames(12.0) == 6
+    assert orchestrator._calculate_max_frames(5.0) == 2
 
 
 @pytest.fixture

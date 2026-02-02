@@ -144,7 +144,7 @@ class OEmbedResponse(BaseModel):
 class PlaceToSave(BaseModel):
     """A single place to be saved in a batch operation."""
 
-    google_place_id: str | None = Field(None, max_length=512)
+    google_place_id: str = Field(..., min_length=1, max_length=512)
     name: str = Field(..., min_length=1, max_length=256)
     entry_type: Literal["place", "food", "stay", "experience"] = Field("place")
     address: str | None = Field(None, max_length=512)

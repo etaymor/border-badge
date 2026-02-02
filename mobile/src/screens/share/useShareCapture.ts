@@ -311,6 +311,17 @@ export function useShareCapture({
 
     // Multi-place mode: use batch save
     if (isMultiPlaceMode) {
+      const selectedPlaces = Object.values(placeSelections).filter((s) => s.isSelected);
+      const missingGooglePlaceId = selectedPlaces.filter((s) => !s.google_place_id);
+
+      if (missingGooglePlaceId.length > 0) {
+        Alert.alert(
+          'Missing Place Details',
+          'One or more places need a valid Google Places match before saving. Please edit those places.'
+        );
+        return;
+      }
+
       const placesToSave = getSelectedPlacesToSave(placeSelections);
       if (placesToSave.length === 0) {
         Alert.alert('No Places Selected', 'Please select at least one place to save.');

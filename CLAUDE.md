@@ -6,13 +6,13 @@ Border Badge is a travel tracking mobile application that lets users mark countr
 
 ## Tech Stack
 
-| Layer    | Technology                                    |
-| -------- | --------------------------------------------- |
-| Mobile   | React Native 0.81.5, Expo 54, TypeScript      |
-| State    | Zustand (auth), React Query (server state)    |
-| Backend  | FastAPI (Python 3.12+), Uvicorn               |
-| Database | Supabase (PostgreSQL with Row-Level Security) |
-| Storage  | Supabase Storage (media files)                |
+| Layer    | Technology                                       |
+| -------- | ------------------------------------------------ |
+| Mobile   | React Native 0.81.5, Expo 54, TypeScript         |
+| State    | Zustand (auth), React Query (server state)       |
+| Backend  | FastAPI (Python 3.12+), Uvicorn                  |
+| Database | Supabase (PostgreSQL with Row-Level Security)    |
+| Storage  | Supabase Storage (media files)                   |
 | Auth     | Supabase Email/Password + Social (Apple, Google) |
 
 ## Repository Structure
@@ -83,6 +83,8 @@ poetry run ruff check .        # Lint code
 poetry run ruff format .       # Format code
 ```
 
+When I report a bug, don't start by trying to fix it. Instead, start by writing a test that reproduces the bug. Then, have subagents try to fix the bug and prove it with a passing test.
+
 ### Database
 
 ```bash
@@ -103,11 +105,13 @@ eas update --branch production --message "Description of changes"
 Users receive updates on next app restart (no active update prompts implemented).
 
 **When you can use EAS Update:**
+
 - JavaScript/TypeScript code changes
 - Asset changes (images, fonts)
 - Style changes
 
 **When you need a new build (`eas build`):**
+
 - Bump `version` in `app.config.js` (runtime version is tied to `appVersion`)
 - Add/remove native packages
 - Modify `plugins` array
@@ -318,14 +322,15 @@ The `trip` table supports system trips (like "Saved Places") via the `is_system`
 
 The share capture flow has **TWO implementations** that must be kept in sync:
 
-| Platform | Location | Language |
-|----------|----------|----------|
-| React Native (in-app) | `mobile/src/screens/share/` | TypeScript |
-| iOS Share Extension | `mobile/plugins/share-extension/` | Swift |
+| Platform              | Location                          | Language   |
+| --------------------- | --------------------------------- | ---------- |
+| React Native (in-app) | `mobile/src/screens/share/`       | TypeScript |
+| iOS Share Extension   | `mobile/plugins/share-extension/` | Swift      |
 
 **CRITICAL:** The iOS Share Extension source files are in `mobile/plugins/share-extension/`, NOT in `mobile/ios/ShareExtension/`. The `mobile/ios/` directory is gitignored and regenerated during builds - any changes there will be lost!
 
 **When modifying share capture behavior:**
+
 1. Update React Native code in `mobile/src/screens/share/`
 2. Update Swift code in `mobile/plugins/share-extension/`
 3. Ensure both implementations have the same behavior
@@ -334,12 +339,12 @@ The share capture flow has **TWO implementations** that must be kept in sync:
 
 **Key parallel files:**
 
-| React Native | Swift (in `mobile/plugins/share-extension/`) |
-|--------------|-------|
-| `useShareCapture.ts` | `ViewModels/ShareCaptureViewModel.swift` |
-| `TripSelector.tsx` | `Views/TripSelectorView.swift` + `ViewModels/TripSelectorViewModel.swift` |
-| `useTrips.ts` (Trip interface) | `Models/Trip.swift` |
-| `api.ts` | `Services/APIClient.swift` |
+| React Native                   | Swift (in `mobile/plugins/share-extension/`)                              |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `useShareCapture.ts`           | `ViewModels/ShareCaptureViewModel.swift`                                  |
+| `TripSelector.tsx`             | `Views/TripSelectorView.swift` + `ViewModels/TripSelectorViewModel.swift` |
+| `useTrips.ts` (Trip interface) | `Models/Trip.swift`                                                       |
+| `api.ts`                       | `Services/APIClient.swift`                                                |
 
 ## Authentication System (IMPORTANT)
 
@@ -347,14 +352,15 @@ The app uses **email/password authentication** for all users. Magic links are NO
 
 ### Authentication Screens
 
-| Screen | File | Purpose |
-|--------|------|---------|
+| Screen                    | File                                           | Purpose                                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **AccountCreationScreen** | `screens/onboarding/AccountCreationScreen.tsx` | **New user sign-up** during onboarding. Collects email + password (password appears after valid email). Uses `useSignUpWithPassword` hook. Also supports Apple/Google social sign-in. |
-| **AuthScreen** | `screens/auth/AuthScreen.tsx` | **Returning user sign-in**. Collects email + password (password appears after valid email). Uses `useSignInWithPassword` hook. Also supports Apple/Google social sign-in. |
+| **AuthScreen**            | `screens/auth/AuthScreen.tsx`                  | **Returning user sign-in**. Collects email + password (password appears after valid email). Uses `useSignInWithPassword` hook. Also supports Apple/Google social sign-in.             |
 
 ### Authentication Flow
 
 1. **New Users (Onboarding)**:
+
    - Complete onboarding steps → `AccountCreationScreen`
    - Enter email → password field appears when email is valid
    - Submit → `useSignUpWithPassword` creates account with displayName from onboarding
@@ -366,11 +372,11 @@ The app uses **email/password authentication** for all users. Magic links are NO
 
 ### Auth Hooks (`mobile/src/hooks/useAuth.ts`)
 
-| Hook | Purpose |
-|------|---------|
+| Hook                    | Purpose                                           |
+| ----------------------- | ------------------------------------------------- |
 | `useSignUpWithPassword` | Create new account (email, password, displayName) |
-| `useSignInWithPassword` | Sign in existing account (email, password) |
-| `useSignOut` | Sign out and clear session |
+| `useSignInWithPassword` | Sign in existing account (email, password)        |
+| `useSignOut`            | Sign out and clear session                        |
 
 ### Key Implementation Details
 
@@ -386,14 +392,14 @@ The app has been simplified for initial launch. Several features are **temporari
 
 ### Hidden Features
 
-| Feature | Status | Location | How to Re-enable |
-|---------|--------|----------|------------------|
-| **Tab Bar** | Hidden | `RootNavigator.tsx` | Replace `PassportNavigator` with `MainTabNavigator` |
-| **Dreams Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
-| **Trips List Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
-| **Friends Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
+| Feature            | Status | Location                  | How to Re-enable                                                          |
+| ------------------ | ------ | ------------------------- | ------------------------------------------------------------------------- |
+| **Tab Bar**        | Hidden | `RootNavigator.tsx`       | Replace `PassportNavigator` with `MainTabNavigator`                       |
+| **Dreams Tab**     | Hidden | `MainTabNavigator.tsx`    | Part of tab bar - will return when tabs enabled                           |
+| **Trips List Tab** | Hidden | `MainTabNavigator.tsx`    | Part of tab bar - will return when tabs enabled                           |
+| **Friends Tab**    | Hidden | `MainTabNavigator.tsx`    | Part of tab bar - will return when tabs enabled                           |
 | **Paywall Screen** | Hidden | `OnboardingNavigator.tsx` | Uncomment PaywallScreen route and update ProgressSummaryScreen navigation |
-| **Welcome Screen** | Hidden | `AuthNavigator.tsx` | Uncomment WelcomeScreen route and remove initialRouteName |
+| **Welcome Screen** | Hidden | `AuthNavigator.tsx`       | Uncomment WelcomeScreen route and remove initialRouteName                 |
 
 ### Current Launch Navigation
 
@@ -418,6 +424,7 @@ To restore all features after launch, update `mobile/src/navigation/RootNavigato
 ### Code Markers
 
 All launch simplification changes are marked with:
+
 - `// LAUNCH_SIMPLIFICATION:` - Indicates temporarily disabled code
 - `// TODO:` - Describes what to do when re-enabling
 
@@ -450,6 +457,7 @@ The extraction pipeline runs LLM and regex extraction in parallel for optimal la
 ### Entry Type Classification
 
 The LLM automatically classifies places into entry types:
+
 - `Place` - Landmarks, attractions, museums, parks
 - `Stay` - Hotels, Airbnbs, hostels
 - `Food` - Restaurants, cafes, bars
@@ -458,6 +466,7 @@ The LLM automatically classifies places into entry types:
 ### Configuration
 
 LLM extraction is opt-in via environment variable:
+
 ```bash
 LLM_PLACE_EXTRACTION_ENABLED=true  # Enable LLM-first extraction
 ```
@@ -466,16 +475,17 @@ Requires `OPENROUTER_API_KEY` to be set (reuses existing OpenRouter config).
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `backend/app/services/place_extractor/extractor.py` | Main extraction orchestration + LLM extraction |
-| `backend/app/services/place_extractor/llm_client.py` | OpenRouter API client |
-| `backend/app/api/ingest.py` | Social ingest endpoints |
-| `docs/place-extraction-algorithm.md` | Detailed algorithm documentation |
+| File                                                 | Purpose                                        |
+| ---------------------------------------------------- | ---------------------------------------------- |
+| `backend/app/services/place_extractor/extractor.py`  | Main extraction orchestration + LLM extraction |
+| `backend/app/services/place_extractor/llm_client.py` | OpenRouter API client                          |
+| `backend/app/api/ingest.py`                          | Social ingest endpoints                        |
+| `docs/place-extraction-algorithm.md`                 | Detailed algorithm documentation               |
 
 ### API Response Fields
 
 The `/ingest/social` endpoint returns extraction metadata:
+
 - `extraction_method_used`: `"llm"`, `"regex"`, or `"none"`
 - `extraction_latency_ms`: Time taken for extraction
 - `detected_place.llm_entry_type`: LLM-predicted entry type (when LLM succeeds)
@@ -489,21 +499,25 @@ The photo import feature allows users to scan their device photo library and aut
 ### Architecture
 
 **Mobile Services (`mobile/src/services/photoImport/`):**
+
 - `photoImportService.ts` - Photo extraction with permission handling and batch paging
 - `photoClustering.ts` - Geohash-based clustering (precision 7 ~153m) with centroid geocoding
 - `photoCacheDb.ts` - SQLite caching for incremental imports
 
 **Mobile Hooks (`mobile/src/screens/photos/`):**
+
 - `usePhotoScan.ts` - Scan workflow with progress tracking
 - `usePlaceSuggestions.ts` - Fetch place suggestions with chunking and caching
 - `useEntryCreation.ts` - Create entries from confirmed suggestions
 - `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
 
 **Mobile Hooks (`mobile/src/hooks/`):**
+
 - `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
 - `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters with per-cluster progress, cancellation, and state tracking
 
 **Backend (`backend/app/services/place_matcher/`):**
+
 - `matcher.py` - PlaceMatcher with tiered radius searches and quality filtering; returns cluster objects with `places` array (empty when no matches found)
 - `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
 - `utils.py` - Haversine distance calculation and coordinate utilities
@@ -520,6 +534,7 @@ The photo import feature allows users to scan their device photo library and aut
 The Photo Trips screen (`PhotoTripsScreen.tsx`) displays all photo-discovered trips from the SQLite cache, allowing users to browse and select trips for import without re-scanning their photo library.
 
 **Key Features:**
+
 - FlashList for performant rendering with year-based section headers
 - Animated search bar for country filtering
 - Pull-to-refresh for cache reload
@@ -530,6 +545,7 @@ The Photo Trips screen (`PhotoTripsScreen.tsx`) displays all photo-discovered tr
 ### Multi-Cluster Upload
 
 The `useMultiClusterUpload` hook enables concurrent photo uploads from multiple location clusters:
+
 - Per-cluster upload state with progress tracking
 - AbortController support for per-cluster cancellation
 - Automatic URI conversion from `ph://` to `file://` for upload
@@ -537,15 +553,15 @@ The `useMultiClusterUpload` hook enables concurrent photo uploads from multiple 
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `mobile/src/screens/photos/PhotoImportScreen.tsx` | Main photo import UI |
-| `mobile/src/screens/photos/PhotoTripsScreen.tsx` | Browse photo-discovered trips |
-| `mobile/src/hooks/usePhotoTrips.ts` | SQLite cache access for photo trips |
-| `mobile/src/hooks/useMultiClusterUpload.ts` | Concurrent cluster uploads |
-| `mobile/src/services/photoImport/photoClustering.ts` | Geohash clustering logic |
-| `backend/app/api/photos.py` | `/photos/suggest-places` endpoint |
-| `backend/app/services/place_matcher/matcher.py` | Google Places matching |
+| File                                                 | Purpose                             |
+| ---------------------------------------------------- | ----------------------------------- |
+| `mobile/src/screens/photos/PhotoImportScreen.tsx`    | Main photo import UI                |
+| `mobile/src/screens/photos/PhotoTripsScreen.tsx`     | Browse photo-discovered trips       |
+| `mobile/src/hooks/usePhotoTrips.ts`                  | SQLite cache access for photo trips |
+| `mobile/src/hooks/useMultiClusterUpload.ts`          | Concurrent cluster uploads          |
+| `mobile/src/services/photoImport/photoClustering.ts` | Geohash clustering logic            |
+| `backend/app/api/photos.py`                          | `/photos/suggest-places` endpoint   |
+| `backend/app/services/place_matcher/matcher.py`      | Google Places matching              |
 
 ## Subscription System
 
@@ -554,41 +570,44 @@ The app uses RevenueCat for subscription management with a freemium model.
 ### Architecture
 
 The subscription system has three main components:
+
 - **Mobile**: RevenueCat SDK + Zustand store + App Group sync for Share Extension
 - **Backend**: Webhook processing + usage tracking + entry limit enforcement
 - **Database**: Subscription fields on user_profile + atomic usage increment functions
 
 ### Free Tier Limits
 
-| Feature | Limit |
-|---------|-------|
-| Share Extension Uses | 5 per month |
-| Photo Import Trips | 1 (lifetime) |
-| Entries per Trip | 10 |
+| Feature              | Limit        |
+| -------------------- | ------------ |
+| Share Extension Uses | 5 per month  |
+| Photo Import Trips   | 1 (lifetime) |
+| Entries per Trip     | 10           |
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
+| File                                     | Purpose                                           |
+| ---------------------------------------- | ------------------------------------------------- |
 | `mobile/src/stores/subscriptionStore.ts` | Central subscription state (FREE_LIMITS constant) |
-| `mobile/src/hooks/useSubscription.ts` | Purchase/restore flows |
-| `mobile/src/hooks/usePremiumGate.ts` | Feature gating hook |
-| `mobile/src/services/revenueCat.ts` | SDK initialization and helpers |
-| `mobile/src/services/appGroupSync.ts` | App Group sync for Share Extension |
-| `backend/app/api/webhooks.py` | RevenueCat webhook endpoint |
-| `backend/app/api/subscriptions.py` | Status/usage endpoints |
-| `backend/app/api/entries.py` | Entry limit enforcement (403 for over-limit) |
-| `docs/SUBSCRIPTION.md` | Comprehensive setup and testing guide |
+| `mobile/src/hooks/useSubscription.ts`    | Purchase/restore flows                            |
+| `mobile/src/hooks/usePremiumGate.ts`     | Feature gating hook                               |
+| `mobile/src/services/revenueCat.ts`      | SDK initialization and helpers                    |
+| `mobile/src/services/appGroupSync.ts`    | App Group sync for Share Extension                |
+| `backend/app/api/webhooks.py`            | RevenueCat webhook endpoint                       |
+| `backend/app/api/subscriptions.py`       | Status/usage endpoints                            |
+| `backend/app/api/entries.py`             | Entry limit enforcement (403 for over-limit)      |
+| `docs/SUBSCRIPTION.md`                   | Comprehensive setup and testing guide             |
 
 ### Environment Variables
 
 **Mobile (`mobile/.env.local`):**
+
 ```
 EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=appl_xxx
 EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY=goog_xxx  # Optional
 ```
 
 **Backend (`backend/.env`):**
+
 ```
 REVENUECAT_WEBHOOK_AUTH_HEADER=secure-random-string
 REVENUECAT_API_KEY=sk_xxx
@@ -602,7 +621,7 @@ Use the `usePremiumGate` hook to gate features:
 const { canCreateEntry, showPaywall } = usePremiumGate();
 
 if (!canCreateEntry) {
-  showPaywall('entry_limit');
+  showPaywall("entry_limit");
   return;
 }
 ```
@@ -649,6 +668,7 @@ git diff app/static/css/       # Verify generated files are committed
 **Note:** The CSS source files are in `backend/app/static/css/src/`. After editing, run the build script to regenerate `styles.css` and `styles.min.css`. Always commit the generated files.
 
 **Common lint issues to avoid:**
+
 - Unused imports (remove them)
 - `require()` style imports in TypeScript (use ES6 `import` instead)
 - Missing type annotations

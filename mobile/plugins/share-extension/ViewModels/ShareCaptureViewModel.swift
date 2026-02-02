@@ -88,6 +88,9 @@ class ShareCaptureViewModel: ObservableObject {
         if userClearedPlace {
             return nil
         }
+        if isMultiCountry {
+            return nil
+        }
         return selectedPlace?.countryCode ?? detectedCountryCode
     }
 
@@ -101,6 +104,12 @@ class ShareCaptureViewModel: ObservableObject {
     /// Whether we're in multi-place mode (more than one place detected)
     var isMultiPlaceMode: Bool {
         placeSelections.count > 1
+    }
+
+    /// Whether detected places span multiple countries (use Saved Places by default)
+    var isMultiCountry: Bool {
+        let countryCodes = Set(placeSelections.compactMap { $0.place.countryCode })
+        return countryCodes.count > 1
     }
 
     /// Number of places currently selected
@@ -220,6 +229,17 @@ class ShareCaptureViewModel: ObservableObject {
 
         // Determine if multi-place or single-place save
         if isMultiPlaceMode {
+            let selectedPlaces = placeSelections.selected
+            let missingIds = selectedPlaces.filter {
+                $0.place.googlePlaceId == nil || $0.place.googlePlaceId?.isEmpty == true
+            }
+            if !missingIds.isEmpty {
+                state = .error(
+                    .serverError("Some places need a Google Places match before saving. Edit them.")
+                )
+                return
+            }
+
             let placesToSave = placeSelections.placesToSave
             guard !placesToSave.isEmpty else { return }
 

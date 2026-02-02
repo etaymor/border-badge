@@ -8,13 +8,13 @@ import Foundation
 
 /// Tracks selection state and entry type for a detected place
 struct PlaceSelection: Identifiable, Equatable {
-    let id: String  // Use place name as unique identifier within a post
+    let id: String  // Stable identity within a post
     var isSelected: Bool
     var entryType: EntryType
     let place: DetectedPlace
 
     init(place: DetectedPlace, isSelected: Bool = true) {
-        self.id = place.name
+        self.id = PlaceSelection.identityKey(for: place)
         self.isSelected = isSelected
         self.place = place
         // Infer entry type from LLM prediction or Google Places types
@@ -29,8 +29,26 @@ struct PlaceSelection: Identifiable, Equatable {
         }
     }
 
+    /// Stable identity key for a place selection.
+    static func identityKey(for place: DetectedPlace) -> String {
+        if let placeId = place.googlePlaceId, !placeId.isEmpty {
+            return placeId
+        }
+        return [
+            normalizeKeyPart(place.name),
+            normalizeKeyPart(place.city),
+            normalizeKeyPart(place.country),
+            normalizeKeyPart(place.address)
+        ].joined(separator: "|")
+    }
+
+    private static func normalizeKeyPart(_ value: String?) -> String {
+        guard let value else { return "" }
+        return value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Convert to PlaceToSave for API request
-    func toPlaceToSave() -> PlaceToSave {
+    func toPlaceToSave() -> PlaceToSave? {
         PlaceToSave.from(place: place, entryType: entryType.rawValue)
     }
 
@@ -58,7 +76,7 @@ extension Array where Element == PlaceSelection {
 
     /// Get selected places as PlaceToSave array for batch save
     var placesToSave: [PlaceToSave] {
-        selected.map { $0.toPlaceToSave() }
+        selected.compactMap { $0.toPlaceToSave() }
     }
 
     /// Count of selected places

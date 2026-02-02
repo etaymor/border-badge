@@ -363,11 +363,27 @@ async def try_llm_multi_place_extraction(
                 places=[], skip_to_video=llm_response.skip_to_video
             )
 
-        # Deduplicate by normalized name
+        def _normalize_identity_part(value: str | None) -> str:
+            if not value:
+                return ""
+            return " ".join(value.lower().split()).strip()
+
+        def _place_identity_key(
+            name: str, city: str | None, country: str | None
+        ) -> str:
+            return "|".join(
+                [
+                    _normalize_identity_part(name),
+                    _normalize_identity_part(city),
+                    _normalize_identity_part(country),
+                ]
+            )
+
+        # Deduplicate by place identity (name + city + country)
         seen: set[str] = set()
         unique_places: list[tuple[str, str | None, str | None, str]] = []
         for place in llm_response.places:
-            key = place[0].lower().strip()
+            key = _place_identity_key(place[0], place[1], place[2])
             if key not in seen:
                 seen.add(key)
                 unique_places.append(place)

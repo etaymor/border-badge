@@ -293,6 +293,27 @@ export function detectedPlaceToSelection(place: DetectedPlace): PlaceSelection {
   };
 }
 
+function normalizePlaceKeyPart(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.toLowerCase().trim();
+}
+
+/**
+ * Stable identity key for a place selection.
+ * Prefer Google Place ID; fall back to name + location metadata.
+ */
+export function placeKey(place: DetectedPlace): string {
+  if (place.google_place_id) {
+    return place.google_place_id;
+  }
+  return [
+    normalizePlaceKeyPart(place.name),
+    normalizePlaceKeyPart(place.city),
+    normalizePlaceKeyPart(place.country),
+    normalizePlaceKeyPart(place.address),
+  ].join('|');
+}
+
 /**
  * Create selections Record from array of DetectedPlaces.
  * Keys are place names (unique within a single post).
@@ -302,8 +323,7 @@ export function createSelectionsFromPlaces(
 ): Record<string, PlaceSelection> {
   const selections: Record<string, PlaceSelection> = {};
   places.forEach((place) => {
-    // Use name as key - should be unique within a single social post
-    const key = place.name;
+    const key = placeKey(place);
     selections[key] = detectedPlaceToSelection(place);
   });
   return selections;
@@ -313,6 +333,9 @@ export function createSelectionsFromPlaces(
  * Convert PlaceSelection to PlaceToSave for batch save API.
  */
 export function selectionToPlaceToSave(selection: PlaceSelection): PlaceToSave {
+  if (!selection.google_place_id) {
+    throw new Error('google_place_id is required for batch save');
+  }
   return {
     google_place_id: selection.google_place_id,
     name: selection.name,

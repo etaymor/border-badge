@@ -40,6 +40,7 @@ from app.services.video_extractor import (
     download_video,
     extract_frames,
 )
+from app.services.video_extractor.frame_extractor import get_video_duration
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +126,14 @@ class ExtractionOrchestrator:
         if use_cache:
             cached = await get_cached_extraction(canonical_url)
             if cached:
+                cached_method: ExtractionMethod
+                if not cached.places:
+                    cached_method = "none"
+                else:
+                    cached_method = "llm" if cached.source == "caption" else "video"
                 return ExtractionResult(
                     places=cached.places,
-                    method="llm" if cached.source == "caption" else "video",
+                    method=cached_method,
                     source=cached.source,
                     skip_to_video=False,
                     context_location=None,
@@ -206,7 +212,15 @@ class ExtractionOrchestrator:
                         from_cache=False,
                     )
 
-            # Step 5: Both failed - return caption result (may have context_location)
+            # Step 5: Both failed - cache negative result and return caption result
+            if use_cache:
+                negative_source: ExtractionSource = (
+                    "video_frames"
+                    if video_task and self.enable_video_fallback
+                    else "caption"
+                )
+                await self._cache_result(canonical_url, [], negative_source)
+
             return ExtractionResult(
                 places=caption_result.places,
                 method=caption_result.method,
@@ -364,10 +378,16 @@ class ExtractionOrchestrator:
             if not video_path:
                 return self._VideoResult(places=[])
 
+            # Determine dynamic frame count (1 frame every 2s, cap for short videos)
+            duration = await get_video_duration(
+                video_path, timeout=min(5.0, max(0.5, remaining))
+            )
+            max_frames = self._calculate_max_frames(duration)
+
             # Extract frames
             frames = await extract_frames(
                 video_path,
-                max_frames=self.max_video_frames,
+                max_frames=max_frames,
                 timeout=remaining,
             )
 
@@ -406,6 +426,19 @@ class ExtractionOrchestrator:
         except Exception as e:
             logger.warning(f"video_extraction_error: {e}")
             return self._VideoResult(places=[])
+
+    def _calculate_max_frames(self, duration_seconds: float | None) -> int:
+        """Calculate max frames based on duration (1 frame every 2s)."""
+        if not duration_seconds or duration_seconds <= 0:
+            return self.max_video_frames
+
+        max_frames = max(1, int(duration_seconds / 2))
+
+        # Short-video heuristic to avoid oversampling
+        if duration_seconds <= 12:
+            max_frames = min(max_frames, 6)
+
+        return min(self.max_video_frames, max_frames)
 
     async def _resolve_multimodal_places(
         self,

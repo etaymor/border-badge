@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.llm_client import (
     _parse_llm_response,
     _sanitize_content,
     try_llm_extraction,
+    try_llm_multi_place_extraction,
 )
 
 
@@ -744,6 +746,96 @@ class TestTryLlmExtraction:
                 )
                 # Should return None on malformed response, not raise
                 assert result is None
+
+
+class TestTryLlmMultiPlaceExtraction:
+    """Tests for try_llm_multi_place_extraction function."""
+
+    @pytest.fixture
+    def mock_try_candidate(self):
+        """Fixture for mock try_candidate callback."""
+        return AsyncMock(return_value=None)
+
+    @pytest.fixture
+    def mock_extract_location_hints(self):
+        """Fixture for mock extract_location_hints callback."""
+        return MagicMock(return_value=[])
+
+    @pytest.mark.asyncio
+    async def test_preserves_same_name_different_locations(self):
+        """Does not dedupe distinct places that share a name."""
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": """
+                        {
+                          "places": [
+                            {"name": "Cafe Central", "city": "Vienna", "country": "Austria", "type": "Food"},
+                            {"name": "Cafe Central", "city": "Budapest", "country": "Hungary", "type": "Food"}
+                          ],
+                          "skip_to_video": false
+                        }
+                        """
+                    }
+                }
+            ]
+        }
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        async def mock_try_candidate(query, _location_bias):
+            if "Vienna" in query:
+                return DetectedPlace(
+                    google_place_id="ChIJVIENNA",
+                    name="Cafe Central",
+                    city="Vienna",
+                    country="Austria",
+                    country_code="AT",
+                    confidence=0.9,
+                )
+            if "Budapest" in query:
+                return DetectedPlace(
+                    google_place_id="ChIJBUDAPEST",
+                    name="Cafe Central",
+                    city="Budapest",
+                    country="Hungary",
+                    country_code="HU",
+                    confidence=0.9,
+                )
+            return None
+
+        def mock_extract_location_hints(_text):
+            return []
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_multi_place_extraction(
+                    "Title",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+
+                assert len(result.places) == 2
+                ids = {p.google_place_id for p in result.places}
+                assert ids == {"ChIJVIENNA", "ChIJBUDAPEST"}
 
     @pytest.mark.asyncio
     async def test_unexpected_exception_bubbles_up(

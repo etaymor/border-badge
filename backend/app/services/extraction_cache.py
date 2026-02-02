@@ -150,8 +150,8 @@ async def get_cached_extraction(
 
     row = rows[0]
 
-    # Check if extraction result exists
-    if not row.get("extraction_result") or not row.get("extraction_source"):
+    # Check if extraction result exists (allow empty list for negative cache)
+    if row.get("extraction_result") is None or not row.get("extraction_source"):
         logger.debug(f"extraction_cache_miss: no_result url={canonical_url[:50]}")
         return None
 

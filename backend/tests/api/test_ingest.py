@@ -705,7 +705,11 @@ class TestSavePlaces:
                             "provider": "tiktok",
                             "canonical_url": "https://www.tiktok.com/@user/video/123",
                             "places": [
-                                {"name": "Test Place", "entry_type": "place"},
+                                {
+                                    "google_place_id": "ChIJTESTPLACE",
+                                    "name": "Test Place",
+                                    "entry_type": "place",
+                                },
                             ],
                         },
                         headers={"Authorization": "Bearer test-token"},
@@ -720,6 +724,40 @@ class TestSavePlaces:
                     assert data["results"][0]["status"] == "saved"
                     assert data["results"][0]["entry_id"] == TEST_ENTRY_ID
                     assert data["results"][0]["error_message"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_returns_error_on_empty_rpc_result(self, client, auth_override):
+        """Test that empty RPC results return a 403 error."""
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            with patch("app.api.ingest.get_supabase_client") as mock_db:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=[{"id": TEST_TRIP_ID}])
+                mock_client.rpc = AsyncMock(return_value=[])
+                mock_db.return_value = mock_client
+
+                with patch("app.api.ingest.get_token_from_request"):
+                    response = client.post(
+                        "/ingest/save-places",
+                        json={
+                            "trip_id": TEST_TRIP_ID,
+                            "provider": "tiktok",
+                            "canonical_url": "https://www.tiktok.com/@user/video/123",
+                            "places": [
+                                {
+                                    "google_place_id": "ChIJEMPTY",
+                                    "name": "Empty Result Place",
+                                    "entry_type": "place",
+                                },
+                            ],
+                        },
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+
+                    assert response.status_code == 403
+                    assert "Not authorized" in response.json()["detail"]
         finally:
             app.dependency_overrides.clear()
 
@@ -750,7 +788,11 @@ class TestSavePlaces:
                             "provider": "tiktok",
                             "canonical_url": "https://www.tiktok.com/@user/video/123",
                             "places": [
-                                {"name": "Duplicate Place", "entry_type": "place"},
+                                {
+                                    "google_place_id": "ChIJDUPLICATE",
+                                    "name": "Duplicate Place",
+                                    "entry_type": "place",
+                                },
                             ],
                         },
                         headers={"Authorization": "Bearer test-token"},
@@ -791,7 +833,11 @@ class TestSavePlaces:
                             "provider": "tiktok",
                             "canonical_url": "https://www.tiktok.com/@user/video/123",
                             "places": [
-                                {"name": "Failed Place", "entry_type": "place"},
+                                {
+                                    "google_place_id": "ChIJFAILED",
+                                    "name": "Failed Place",
+                                    "entry_type": "place",
+                                },
                             ],
                         },
                         headers={"Authorization": "Bearer test-token"},
@@ -872,9 +918,21 @@ class TestSavePlaces:
                             "provider": "tiktok",
                             "canonical_url": "https://www.tiktok.com/@user/video/123",
                             "places": [
-                                {"name": "Success Place", "entry_type": "place"},
-                                {"name": "Duplicate Place", "entry_type": "food"},
-                                {"name": "Error Place", "entry_type": "stay"},
+                                {
+                                    "google_place_id": "ChIJSUCCESS",
+                                    "name": "Success Place",
+                                    "entry_type": "place",
+                                },
+                                {
+                                    "google_place_id": "ChIJDUPLICATE2",
+                                    "name": "Duplicate Place",
+                                    "entry_type": "food",
+                                },
+                                {
+                                    "google_place_id": "ChIJERROR",
+                                    "name": "Error Place",
+                                    "entry_type": "stay",
+                                },
                             ],
                         },
                         headers={"Authorization": "Bearer test-token"},

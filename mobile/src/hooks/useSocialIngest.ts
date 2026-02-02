@@ -69,8 +69,8 @@ export interface SocialIngestResponse {
   // Country hint even when place detection fails (for trip defaulting & autocomplete bias)
   detected_country: DetectedCountry | null;
   // Extraction metrics
-  extraction_method_used?: 'llm' | 'regex' | 'none';
-  extraction_source?: 'caption' | 'video_frames' | 'slideshow' | 'screenshot';
+  extraction_method_used?: 'llm' | 'regex' | 'video' | 'none';
+  extraction_source?: 'caption' | 'video_frames' | 'carousel' | 'slideshow' | 'screenshot';
   extraction_latency_ms?: number;
   // Context location detected from content (e.g., "Thailand") - used as search bias
   context_location?: string | null;
@@ -95,7 +95,7 @@ export interface SaveToTripRequest {
 
 // A single place to save in a batch operation
 export interface PlaceToSave {
-  google_place_id: string | null;
+  google_place_id: string;
   name: string;
   entry_type: EntryType;
   address: string | null;
