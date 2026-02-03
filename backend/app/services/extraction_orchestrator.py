@@ -25,6 +25,10 @@ from app.services.extraction_cache import (
     cache_extraction,
     get_cached_extraction,
 )
+from app.services.instagram_carousel import (
+    InstagramPostLocation,
+    fetch_instagram_carousel,
+)
 from app.services.multimodal_extractor import (
     ExtractedPlace,
     MultimodalExtractor,
@@ -35,10 +39,12 @@ from app.services.place_extractor import (
     try_candidate,
     try_llm_multi_place_extraction,
 )
+from app.services.place_extractor.location_hints import LocationHint
 from app.services.tiktok_slideshow import (
     DEFAULT_TIMEOUT_SECONDS,
     fetch_tiktok_slideshow,
 )
+from app.services.url_resolver import is_instagram_carousel, is_tiktok_photo
 from app.services.video_extractor import (
     VideoDownloadError,
     download_video,
@@ -50,6 +56,61 @@ logger = logging.getLogger(__name__)
 
 # Type alias for extraction method
 ExtractionMethod = Literal["llm", "regex", "video", "none"]
+
+# Generic location patterns that indicate city/region level (not a specific POI)
+_GENERIC_LOCATION_PATTERNS = [
+    r"^[A-Z][a-z]+$",  # Single capitalized word (likely city: "Paris", "Tokyo")
+    r"^[A-Z][a-z]+,\s*[A-Z]{2}$",  # City, State: "Austin, TX"
+    r"^[A-Z][a-z]+,\s*[A-Z][a-z]+$",  # City, Country: "Paris, France"
+]
+
+# Keywords that indicate a specific POI rather than a generic location
+_SPECIFIC_PLACE_KEYWORDS = [
+    "restaurant",
+    "cafe",
+    "hotel",
+    "museum",
+    "tower",
+    "palace",
+    "park",
+    "beach",
+    "airport",
+    "station",
+    "mall",
+    "market",
+    "church",
+    "temple",
+    "mosque",
+    "cathedral",
+    "bridge",
+]
+
+
+def _is_specific_place_name(name: str) -> bool:
+    """Check if a location name is specific enough to use directly.
+
+    Generic locations like city/country names should fall back to image analysis.
+    Specific places (restaurants, hotels, landmarks) can be used directly.
+
+    Args:
+        name: Location name from Instagram geotag
+
+    Returns:
+        True if the name appears to be a specific POI
+    """
+    import re
+
+    for pattern in _GENERIC_LOCATION_PATTERNS:
+        if re.match(pattern, name.strip()):
+            return False
+
+    # Check for specific POI keywords
+    name_lower = name.lower()
+    if any(kw in name_lower for kw in _SPECIFIC_PLACE_KEYWORDS):
+        return True
+
+    # Multiple words usually indicate a specific place (e.g., "The Ritz Paris")
+    return len(name.split()) >= 3
 
 
 @dataclass
@@ -677,23 +738,73 @@ class ExtractionOrchestrator:
         canonical_url: str,
         start_time: float,
     ) -> _CarouselResult:
-        """Extract places from TikTok photo slideshow images."""
+        """Extract places from TikTok slideshow or Instagram carousel images."""
         remaining = self._get_remaining_time(start_time)
         if remaining <= 0:
             logger.debug("carousel_extraction_skipped: no_time_remaining")
             return self._CarouselResult(places=[], frames_processed=0)
 
-        try:
-            slideshow = await fetch_tiktok_slideshow(
-                canonical_url,
-                max_images=self.max_video_frames,
-                timeout=min(DEFAULT_TIMEOUT_SECONDS, max(2.0, remaining)),
-            )
-        except Exception as e:
-            logger.warning(f"carousel_extraction_error: {e}")
-            return self._CarouselResult(places=[], frames_processed=0)
+        images: list[bytes] = []
+        instagram_location: InstagramPostLocation | None = None
 
-        if not slideshow or not slideshow.images:
+        # Try TikTok slideshow
+        if is_tiktok_photo(canonical_url):
+            try:
+                slideshow = await fetch_tiktok_slideshow(
+                    canonical_url,
+                    max_images=self.max_video_frames,
+                    timeout=min(DEFAULT_TIMEOUT_SECONDS, max(2.0, remaining)),
+                )
+                if slideshow and slideshow.images:
+                    images = slideshow.images
+            except Exception as e:
+                logger.warning(f"tiktok_slideshow_error: {e}")
+
+        # Try Instagram carousel
+        if not images and is_instagram_carousel(canonical_url):
+            remaining = self._get_remaining_time(start_time)
+            if remaining > 0:
+                carousel = await fetch_instagram_carousel(
+                    canonical_url,
+                    max_images=self.max_video_frames,
+                    timeout=min(12.0, max(2.0, remaining)),
+                )
+                if carousel:
+                    if carousel.images:
+                        images = carousel.images
+                    instagram_location = carousel.location
+                    logger.info(
+                        "instagram_carousel_images_fetched",
+                        extra={
+                            "count": len(carousel.images),
+                            "post_type": carousel.post_type,
+                            "has_geotag": carousel.location is not None,
+                        },
+                    )
+
+        # PRIORITY: If we have a specific Instagram geotag, use it directly
+        if instagram_location and instagram_location.name:
+            is_specific = instagram_location.lat is not None or _is_specific_place_name(
+                instagram_location.name
+            )
+            if is_specific:
+                geotag_place = await self._resolve_geotag_place(
+                    instagram_location, start_time
+                )
+                if geotag_place:
+                    logger.info(
+                        "instagram_geotag_resolved",
+                        extra={
+                            "location_name": instagram_location.name,
+                            "resolved_place": geotag_place.name,
+                        },
+                    )
+                    return self._CarouselResult(
+                        places=[geotag_place],
+                        frames_processed=0,
+                    )
+
+        if not images:
             logger.debug("carousel_extraction_no_images")
             return self._CarouselResult(places=[], frames_processed=0)
 
@@ -704,9 +815,7 @@ class ExtractionOrchestrator:
 
         try:
             multimodal_result = await asyncio.wait_for(
-                self.multimodal_extractor.extract_places(
-                    slideshow.images, source="carousel"
-                ),
+                self.multimodal_extractor.extract_places(images, source="carousel"),
                 timeout=remaining,
             )
         except TimeoutError:
@@ -723,9 +832,11 @@ class ExtractionOrchestrator:
             multimodal_result.places, start_time
         )
 
+        source_type = "instagram" if is_instagram_carousel(canonical_url) else "tiktok"
         logger.info(
             "carousel_extraction_success",
             extra={
+                "source": source_type,
                 "frames_processed": multimodal_result.frames_processed,
                 "places_found": len(places),
             },
@@ -735,6 +846,58 @@ class ExtractionOrchestrator:
             places=places,
             frames_processed=multimodal_result.frames_processed,
         )
+
+    async def _resolve_geotag_place(
+        self,
+        location: InstagramPostLocation,
+        start_time: float,
+    ) -> DetectedPlace | None:
+        """Resolve Instagram geotag to a DetectedPlace via Google Places API.
+
+        If coordinates are available, uses them for biased search.
+        Otherwise falls back to text search with location name.
+
+        Args:
+            location: Instagram post location data
+            start_time: Monotonic time when extraction started (for time-budget)
+
+        Returns:
+            DetectedPlace if resolved, None otherwise
+        """
+        remaining = self._get_remaining_time(start_time)
+        if remaining <= 0:
+            return None
+
+        try:
+            # Build location bias from coordinates if available
+            location_bias: LocationHint | None = None
+            if location.lat is not None and location.lng is not None:
+                location_bias = LocationHint(
+                    name=location.name,
+                    latitude=location.lat,
+                    longitude=location.lng,
+                )
+
+            # Resolve via Google Places
+            detected = await asyncio.wait_for(
+                try_candidate(location.name, location_bias),
+                timeout=min(3.0, remaining),
+            )
+
+            if detected:
+                # Set high confidence for explicit geotag
+                detected.confidence = 0.95
+                return detected
+
+        except TimeoutError:
+            logger.debug(
+                "geotag_resolution_timeout",
+                extra={"location_name": location.name},
+            )
+        except Exception as e:
+            logger.warning(f"geotag_resolution_error: {e}")
+
+        return None
 
     def _calculate_max_frames(self, duration_seconds: float | None) -> int:
         """Calculate max frames based on duration (1 frame every 2s)."""

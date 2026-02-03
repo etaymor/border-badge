@@ -43,6 +43,7 @@ from app.services.place_extractor import (
 from app.services.url_resolver import (
     canonicalize_url,
     detect_provider,
+    is_instagram_carousel,
     is_instagram_profile,
     is_tiktok_photo,
 )
@@ -190,8 +191,13 @@ async def ingest_social_url(
     extraction_latency_ms: int = 0
     extraction_error: str | None = None
 
-    # Detect TikTok photo slideshows early - they have limited extraction support
-    is_photo_slideshow = is_tiktok_photo(canonical_url)
+    # Detect TikTok photo slideshows or Instagram carousels early
+    # These use multimodal extraction instead of video extraction
+    is_photo_slideshow = is_tiktok_photo(canonical_url) or (
+        provider == SocialProvider.INSTAGRAM
+        and is_instagram_carousel(canonical_url)
+        and not is_profile
+    )
 
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
@@ -273,12 +279,18 @@ async def ingest_social_url(
         f"method={extraction_method_used}, latency_ms={extraction_latency_ms}"
     )
 
-    # Set user-facing error for TikTok photo slideshows when extraction fails
+    # Set user-facing error for photo slideshows/carousels when extraction fails
     if is_photo_slideshow and not detected_places:
-        extraction_error = (
-            "TikTok photo slideshows don't provide metadata we can read. "
-            "You can still save this manually by searching for the place."
-        )
+        if is_tiktok_photo(canonical_url):
+            extraction_error = (
+                "TikTok photo slideshows don't provide metadata we can read. "
+                "You can still save this manually by searching for the place."
+            )
+        else:
+            extraction_error = (
+                "We couldn't identify a place from this Instagram post. "
+                "You can still save it manually by searching for the place."
+            )
 
     # Step 4: Extract country hint even if place detection failed
     # This allows the client to default trips to this country and bias autocomplete

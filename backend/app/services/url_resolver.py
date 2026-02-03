@@ -585,3 +585,22 @@ def extract_instagram_username(url: str) -> str | None:
         return match.group(1)
 
     return None
+
+
+def is_instagram_carousel(url: str) -> bool:
+    """Check if a URL is an Instagram post that could be a carousel.
+
+    Instagram posts at /p/, /reel/, /reels/, /tv/ can be carousels.
+    We treat all Instagram posts as potential carousels since we can't
+    distinguish single images from carousels without fetching metadata.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL is an Instagram post (potentially a carousel)
+    """
+    parsed = urlparse(url)
+    if "instagram.com" not in parsed.netloc:
+        return False
+    return bool(re.search(r"/(?:p|reel|reels|tv)/[\w-]+", parsed.path))
