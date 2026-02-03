@@ -51,9 +51,9 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_url_for_logging(url: str, max_length: int = 200) -> str:
-    """Sanitize a URL for logging by removing query parameters.
+    """Sanitize a URL for logging by removing query parameters and fragments.
 
-    Query parameters may contain auth tokens, session IDs, or PII.
+    Query parameters and fragments may contain auth tokens, session IDs, or PII.
 
     Args:
         url: URL to sanitize
@@ -68,8 +68,10 @@ def _sanitize_url_for_logging(url: str, max_length: int = 200) -> str:
         sanitized = urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
         return sanitized[:max_length]
     except Exception:
-        # If parsing fails, return truncated host portion only
-        return url.split("?")[0][:max_length]
+        # If parsing fails, remove both query params AND fragments
+        # Split on '?' first, then on '#' to remove both
+        base_url = url.split("?")[0].split("#")[0]
+        return base_url[:max_length]
 
 
 def _decode_video_frames(frames: list[str]) -> list[bytes]:

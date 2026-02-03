@@ -1345,6 +1345,176 @@ class TestSkipCacheParameter:
             app.dependency_overrides.clear()
 
 
+class TestSanitizeUrlForLogging:
+    """Tests for _sanitize_url_for_logging function."""
+
+    def test_removes_query_parameters(self):
+        """Query parameters should be removed from URLs."""
+        from app.api.ingest import _sanitize_url_for_logging
+
+        url = "https://example.com/path?token=secret&session=abc123"
+        result = _sanitize_url_for_logging(url)
+        assert result == "https://example.com/path"
+        assert "token" not in result
+        assert "secret" not in result
+
+    def test_removes_fragment(self):
+        """URL fragments should be removed (may contain tokens)."""
+        from app.api.ingest import _sanitize_url_for_logging
+
+        url = "https://example.com/path#access_token=secret123"
+        result = _sanitize_url_for_logging(url)
+        assert result == "https://example.com/path"
+        assert "access_token" not in result
+        assert "secret123" not in result
+
+    def test_removes_both_query_and_fragment(self):
+        """Both query parameters and fragments should be removed."""
+        from app.api.ingest import _sanitize_url_for_logging
+
+        url = "https://example.com/path?query=value#fragment=token"
+        result = _sanitize_url_for_logging(url)
+        assert result == "https://example.com/path"
+        assert "query" not in result
+        assert "fragment" not in result
+
+    def test_truncates_to_max_length(self):
+        """URLs should be truncated to max_length."""
+        from app.api.ingest import _sanitize_url_for_logging
+
+        url = "https://example.com/" + "a" * 300
+        result = _sanitize_url_for_logging(url, max_length=50)
+        assert len(result) == 50
+
+    def test_handles_malformed_url_without_fragment_leak(self):
+        """Even malformed URLs should not leak fragments in exception handler."""
+        from app.api.ingest import _sanitize_url_for_logging
+
+        # This URL has an invalid scheme that might cause urlparse issues
+        # but fragments should still be removed in the fallback
+        url = "not-a-valid-url-but-has#secret_token=abc123"
+        result = _sanitize_url_for_logging(url)
+        assert "secret_token" not in result
+        assert "abc123" not in result
+
+
+class TestVideoFrameValidation:
+    """Tests for video frame validation in ingest endpoint."""
+
+    def test_rejects_too_many_frames(self, client, auth_override):
+        """Requests with too many video frames should be rejected."""
+        from app.main import limiter
+
+        limiter.reset()
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            # Create 25 frames (should exceed MAX_FRAMES_FROM_CLIENT=20)
+            too_many_frames = ["aGVsbG8="] * 25  # "hello" in base64
+
+            response = client.post(
+                "/ingest/social",
+                json={
+                    "url": "https://www.tiktok.com/@user/video/123",
+                    "video_frames": too_many_frames,
+                },
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+            # Should be rejected with 422 validation error
+            assert response.status_code == 422
+            error_detail = response.json()["detail"]
+            # Check that the error mentions frames or max
+            assert any(
+                "frame" in str(d).lower() or "20" in str(d) for d in error_detail
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_rejects_oversized_frame(self, client, auth_override):
+        """Individual frames that are too large should be rejected."""
+        from app.main import limiter
+
+        limiter.reset()
+        app.dependency_overrides[get_current_user] = auth_override
+
+        try:
+            # Create a frame that exceeds MAX_FRAME_BASE64_LENGTH (2MB base64 = ~2.7M chars)
+            # 3 million characters should definitely exceed any reasonable limit
+            oversized_frame = "A" * 3_000_000
+
+            response = client.post(
+                "/ingest/social",
+                json={
+                    "url": "https://www.tiktok.com/@user/video/123",
+                    "video_frames": [oversized_frame],
+                },
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+            # Should be rejected with 422 validation error
+            assert response.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_accepts_valid_frames(self, client, auth_override):
+        """Valid frames within limits should be accepted."""
+        from app.main import limiter
+
+        limiter.reset()
+        app.dependency_overrides[get_current_user] = auth_override
+
+        mock_oembed = OEmbedResponse(
+            title="Test video",
+            author_name="test_user",
+            thumbnail_url="https://example.com/thumb.jpg",
+            raw={"title": "Test video"},
+        )
+
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (
+                    "https://www.tiktok.com/@test_user/video/123",
+                    SocialProvider.TIKTOK,
+                )
+
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract_from_frames = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="video",
+                                source="video_frames",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=100,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+
+                        # 5 valid frames (well under limit)
+                        valid_frames = ["aGVsbG8="] * 5  # "hello" in base64
+
+                        response = client.post(
+                            "/ingest/social",
+                            json={
+                                "url": "https://www.tiktok.com/@user/video/123",
+                                "video_frames": valid_frames,
+                            },
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+
+                        assert response.status_code == 200
+        finally:
+            app.dependency_overrides.clear()
+
+
 class TestGooglePhotoDownload:
     """Tests for Google Places photo download functionality in save_to_trip."""
 

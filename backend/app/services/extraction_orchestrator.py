@@ -351,10 +351,40 @@ class ExtractionOrchestrator:
         hints = extract_location_hints(combined_text)
         context_location = hints[0].name if hints else None
 
-        multimodal_result = await self.multimodal_extractor.extract_places(
-            frames, source="video_frames"
+        # Calculate remaining time for extraction (same timeout semantics as _extract_from_carousel)
+        remaining = self._get_remaining_time(start_time)
+        if remaining <= 0:
+            logger.debug("extract_from_frames_skipped: no_time_remaining")
+            return ExtractionResult(
+                places=[],
+                method="none",
+                source="video_frames",
+                skip_to_video=False,
+                context_location=context_location,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
+                from_cache=False,
+            )
+
+        try:
+            multimodal_result = await asyncio.wait_for(
+                self.multimodal_extractor.extract_places(frames, source="video_frames"),
+                timeout=remaining,
+            )
+        except TimeoutError:
+            logger.debug("extract_from_frames_skipped: multimodal_timeout")
+            return ExtractionResult(
+                places=[],
+                method="none",
+                source="video_frames",
+                skip_to_video=False,
+                context_location=context_location,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
+                from_cache=False,
+            )
+
+        places = await self._resolve_multimodal_places(
+            multimodal_result.places, start_time
         )
-        places = await self._resolve_multimodal_places(multimodal_result.places)
         method: ExtractionMethod = "video" if places else "none"
 
         if use_cache:
@@ -618,7 +648,9 @@ class ExtractionOrchestrator:
 
             # Convert ExtractedPlace to DetectedPlace
             # Note: These need Google Places resolution for full data
-            places = await self._resolve_multimodal_places(multimodal_result.places)
+            places = await self._resolve_multimodal_places(
+                multimodal_result.places, start_time
+            )
 
             logger.info(
                 "video_extraction_success",
@@ -687,7 +719,9 @@ class ExtractionOrchestrator:
                 frames_processed=multimodal_result.frames_processed,
             )
 
-        places = await self._resolve_multimodal_places(multimodal_result.places)
+        places = await self._resolve_multimodal_places(
+            multimodal_result.places, start_time
+        )
 
         logger.info(
             "carousel_extraction_success",
@@ -718,19 +752,44 @@ class ExtractionOrchestrator:
     async def _resolve_multimodal_places(
         self,
         extracted: list[ExtractedPlace],
+        start_time: float,
     ) -> list[DetectedPlace]:
         """Resolve multimodal-extracted places via Google Places API.
 
         Similar to LLM extraction, we need to resolve place names to full
         DetectedPlace objects with Google Place IDs.
+
+        Args:
+            extracted: List of places extracted by multimodal LLM
+            start_time: Monotonic time when extraction started (for time-budget)
+
+        Returns:
+            List of resolved DetectedPlace objects
         """
         if not extracted:
             return []
+
+        # Check remaining time budget before starting resolution
+        remaining = self._get_remaining_time(start_time)
+        if remaining <= 0:
+            logger.debug("resolve_multimodal_places_skipped: no_time_remaining")
+            return []
+
+        # Per-call timeout: divide remaining time among places, with min/max bounds
+        per_call_max = 3.0  # Max 3s per Google Places call
+        per_call_timeout = min(
+            per_call_max, max(0.5, remaining / max(1, len(extracted[:10])))
+        )
 
         # Resolve all places in parallel with semaphore (max 5 concurrent)
         semaphore = asyncio.Semaphore(5)
 
         async def resolve_one(place: ExtractedPlace) -> DetectedPlace | None:
+            # Check if time budget is exhausted before starting
+            current_remaining = self._get_remaining_time(start_time)
+            if current_remaining <= 0:
+                return None
+
             async with semaphore:
                 # Build search query with location context
                 search_query = place.name
@@ -750,16 +809,28 @@ class ExtractionOrchestrator:
                     if hints:
                         location_bias = hints[0]
 
-                detected = await try_candidate(search_query, location_bias)
-                if detected:
-                    detected.llm_entry_type = place.entry_type
-                return detected
+                try:
+                    detected = await asyncio.wait_for(
+                        try_candidate(search_query, location_bias),
+                        timeout=min(
+                            per_call_timeout, self._get_remaining_time(start_time)
+                        ),
+                    )
+                    if detected:
+                        detected.llm_entry_type = place.entry_type
+                    return detected
+                except TimeoutError:
+                    logger.debug(
+                        "resolve_multimodal_place_timeout",
+                        extra={"place": place.name},
+                    )
+                    return None
 
         tasks = [resolve_one(place) for place in extracted[:10]]  # Max 10 places
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Filter successful results
-        return [r for r in results if isinstance(r, DetectedPlace) and r is not None]
+        # Filter successful results (isinstance check already excludes None and exceptions)
+        return [r for r in results if isinstance(r, DetectedPlace)]
 
     async def _cache_result(
         self,

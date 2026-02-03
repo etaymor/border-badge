@@ -122,36 +122,24 @@ struct SocialIngestRequest: Codable {
     let caption: String?
     let extractionMethod: String?
     let videoFrames: [String]?
-    let clientImageCount: Int?
-    let clientImageFramesCount: Int?
-    let clientVideoAttachmentPresent: Bool?
 
     enum CodingKeys: String, CodingKey {
         case url
         case caption
         case extractionMethod = "extraction_method"
         case videoFrames = "video_frames"
-        case clientImageCount = "client_image_count"
-        case clientImageFramesCount = "client_image_frames_count"
-        case clientVideoAttachmentPresent = "client_video_attachment_present"
     }
 
     init(
         url: String,
         caption: String?,
         extractionMethod: String? = nil,
-        videoFrames: [String]? = nil,
-        clientImageCount: Int? = nil,
-        clientImageFramesCount: Int? = nil,
-        clientVideoAttachmentPresent: Bool? = nil
+        videoFrames: [String]? = nil
     ) {
         self.url = url
         self.caption = caption
         self.extractionMethod = extractionMethod
         self.videoFrames = videoFrames
-        self.clientImageCount = clientImageCount
-        self.clientImageFramesCount = clientImageFramesCount
-        self.clientVideoAttachmentPresent = clientVideoAttachmentPresent
     }
 }
 

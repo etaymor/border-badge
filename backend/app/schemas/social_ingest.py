@@ -16,21 +16,36 @@ class SocialProvider(str, Enum):
     INSTAGRAM = "instagram"
 
 
+# Video frame validation limits (DoS prevention)
+MAX_FRAMES_FROM_CLIENT = 20  # Max number of frames client can send
+MAX_FRAME_BASE64_LENGTH = 2_000_000  # ~1.5MB decoded (base64 is ~4/3 original size)
+
+
 class SocialIngestRequest(BaseModel):
     """Request to ingest a social media URL."""
 
     url: str = Field(..., min_length=10, max_length=2048)
     caption: str | None = Field(None, max_length=2000)
     # Base64-encoded JPEG/PNG frames sampled on-device (optional)
-    video_frames: list[str] | None = None
+    # Limited to prevent DoS via memory/CPU exhaustion
+    video_frames: list[str] | None = Field(None, max_length=MAX_FRAMES_FROM_CLIENT)
     # Extraction method preference for agent-native control
     extraction_method: Literal["auto", "llm", "regex"] = "auto"
     # Skip cache lookup and force fresh extraction (for cache invalidation)
     skip_cache: bool = False
-    # Client-side media hints (debug only)
-    client_image_count: int | None = Field(None, ge=0, le=50)
-    client_image_frames_count: int | None = Field(None, ge=0, le=50)
-    client_video_attachment_present: bool | None = None
+
+    @field_validator("video_frames")
+    @classmethod
+    def validate_frame_sizes(cls, v: list[str] | None) -> list[str] | None:
+        """Validate individual frame sizes to prevent DoS via oversized payloads."""
+        if v is None:
+            return v
+        for i, frame in enumerate(v):
+            if len(frame) > MAX_FRAME_BASE64_LENGTH:
+                raise ValueError(
+                    f"Frame {i} exceeds maximum size of {MAX_FRAME_BASE64_LENGTH} characters"
+                )
+        return v
 
     @field_validator("url")
     @classmethod
