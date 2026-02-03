@@ -170,8 +170,33 @@ class ExtractionOrchestrator:
                 title, caption, author_handle, extraction_method
             )
 
-            # If caption succeeded and didn't signal skip_to_video, use it
-            if caption_result.places and not caption_result.skip_to_video:
+            # Check for country mismatch between location hints and extracted place
+            # This catches false positives like "ROMA IS ALWAYS a GOOD IDEA" (Italy)
+            # when the caption mentions Tbilisi (Georgia)
+            country_mismatch = self._has_country_mismatch(
+                caption_result.places,
+                caption_result.location_hint_country_codes,
+            )
+
+            if country_mismatch:
+                logger.info(
+                    "caption_country_mismatch_skip_to_video",
+                    extra={
+                        "place_country": caption_result.places[0].country_code
+                        if caption_result.places
+                        else None,
+                        "hint_countries": caption_result.location_hint_country_codes,
+                    },
+                )
+
+            # If caption succeeded, didn't signal skip_to_video, and country matches hints
+            should_use_caption = (
+                caption_result.places
+                and not caption_result.skip_to_video
+                and not country_mismatch
+            )
+
+            if should_use_caption:
                 # Cancel speculative download
                 if video_task:
                     video_task.cancel()
@@ -196,7 +221,7 @@ class ExtractionOrchestrator:
                     from_cache=False,
                 )
 
-            # Step 4: Caption failed or signaled skip_to_video - try carousel for slideshows
+            # Step 4: Caption failed, signaled skip_to_video, or country mismatch - try carousel for slideshows
             if is_photo_slideshow:
                 carousel_result = await self._extract_from_carousel(
                     canonical_url, start_time
@@ -374,6 +399,7 @@ class ExtractionOrchestrator:
         method: ExtractionMethod
         skip_to_video: bool
         context_location: str | None
+        location_hint_country_codes: list[str]  # Country codes from location hints
 
     async def _extract_from_caption(
         self,
@@ -396,6 +422,13 @@ class ExtractionOrchestrator:
         """
         context_location: str | None = None
 
+        # Extract location hints early for country mismatch detection
+        combined_text = " ".join(filter(None, [title, caption]))
+        location_hints = extract_location_hints(combined_text)
+        hint_country_codes = list(
+            {h.country_code for h in location_hints if h.country_code}
+        )
+
         # Try LLM extraction (unless regex-only mode)
         if extraction_method in ("auto", "llm"):
             multi_result = await try_llm_multi_place_extraction(
@@ -413,6 +446,7 @@ class ExtractionOrchestrator:
                     method="llm",
                     skip_to_video=multi_result.skip_to_video,
                     context_location=context_location,
+                    location_hint_country_codes=hint_country_codes,
                 )
 
             if multi_result.skip_to_video:
@@ -422,6 +456,7 @@ class ExtractionOrchestrator:
                     method="none",
                     skip_to_video=True,
                     context_location=context_location,
+                    location_hint_country_codes=hint_country_codes,
                 )
 
             # If LLM-only mode, don't fall back to regex
@@ -431,6 +466,7 @@ class ExtractionOrchestrator:
                     method="none",
                     skip_to_video=False,
                     context_location=context_location,
+                    location_hint_country_codes=hint_country_codes,
                 )
 
         # Try regex extraction (for "auto" fallback or "regex" mode)
@@ -448,6 +484,7 @@ class ExtractionOrchestrator:
                 method="regex",
                 skip_to_video=False,
                 context_location=context_location,
+                location_hint_country_codes=hint_country_codes,
             )
 
         return self._CaptionResult(
@@ -455,6 +492,7 @@ class ExtractionOrchestrator:
             method="none",
             skip_to_video=False,
             context_location=context_location,
+            location_hint_country_codes=hint_country_codes,
         )
 
     @dataclass
@@ -469,6 +507,37 @@ class ExtractionOrchestrator:
 
         places: list[DetectedPlace]
         frames_processed: int
+
+    def _has_country_mismatch(
+        self,
+        places: list[DetectedPlace],
+        hint_country_codes: list[str],
+    ) -> bool:
+        """Check if extracted places don't match the location hint countries.
+
+        This detects false positive matches where the extracted place is in a
+        completely different country than what was mentioned in the caption.
+        For example: caption mentions "Tbilisi" (Georgia) but regex matched
+        "ROMA IS ALWAYS a GOOD IDEA" (Italy).
+
+        Args:
+            places: Extracted places from caption
+            hint_country_codes: Country codes from location hints
+
+        Returns:
+            True if there's a mismatch that warrants video fallback
+        """
+        # No mismatch if we have no places or no hints to compare against
+        if not places or not hint_country_codes:
+            return False
+
+        # Check if any place matches any hint country
+        for place in places:
+            if place.country_code and place.country_code in hint_country_codes:
+                return False  # Found a match, no mismatch
+
+        # All places are in countries not mentioned in hints - this is suspicious
+        return True
 
     def _get_remaining_time(self, start_time: float, buffer: float = 1.0) -> float:
         """Calculate remaining time budget from start_time."""
@@ -601,9 +670,16 @@ class ExtractionOrchestrator:
             logger.debug("carousel_extraction_skipped: no_time_for_multimodal")
             return self._CarouselResult(places=[], frames_processed=0)
 
-        multimodal_result = await self.multimodal_extractor.extract_places(
-            slideshow.images, source="carousel"
-        )
+        try:
+            multimodal_result = await asyncio.wait_for(
+                self.multimodal_extractor.extract_places(
+                    slideshow.images, source="carousel"
+                ),
+                timeout=remaining,
+            )
+        except TimeoutError:
+            logger.debug("carousel_extraction_skipped: multimodal_timeout")
+            return self._CarouselResult(places=[], frames_processed=0)
 
         if not multimodal_result.places:
             return self._CarouselResult(

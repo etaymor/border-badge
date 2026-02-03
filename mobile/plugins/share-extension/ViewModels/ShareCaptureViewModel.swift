@@ -50,6 +50,7 @@ class ShareCaptureViewModel: ObservableObject {
     @Published private(set) var caption: String?
     private var videoFileURL: URL?
     private var imageDataList: [Data] = []
+    private var imageFramesCount: Int?
     private var currentTask: Task<Void, Never>?
     private var hasStartedProcessing: Bool = false
 
@@ -187,6 +188,7 @@ class ShareCaptureViewModel: ObservableObject {
         self.caption = caption
         self.videoFileURL = videoFileURL
         self.imageDataList = imageDataList
+        self.imageFramesCount = nil
         let providerName = detectProviderName(url)
         let linkType = providerName.isEmpty ? "link" : providerName
         let message = videoFileURL == nil ? "Processing \(linkType)..." : "Processing video..."
@@ -343,7 +345,13 @@ class ShareCaptureViewModel: ObservableObject {
 
     private func ingestLink() async {
         do {
-            let response = try await apiClient.ingestSocial(url: originalURL, caption: caption)
+            let response = try await apiClient.ingestSocial(
+                url: originalURL,
+                caption: caption,
+                clientImageCount: imageDataList.count,
+                clientImageFramesCount: imageFramesCount,
+                clientVideoAttachmentPresent: videoFileURL != nil
+            )
             handleIngestResponse(response)
 
         } catch let error as APIError {
@@ -365,7 +373,10 @@ class ShareCaptureViewModel: ObservableObject {
             let response = try await apiClient.ingestSocial(
                 url: originalURL,
                 caption: caption,
-                videoFrames: encodedFrames
+                videoFrames: encodedFrames,
+                clientImageCount: imageDataList.count,
+                clientImageFramesCount: imageFramesCount,
+                clientVideoAttachmentPresent: true
             )
             handleIngestResponse(response)
 
@@ -381,6 +392,7 @@ class ShareCaptureViewModel: ObservableObject {
     private func ingestImageFrames(from images: [Data]) async {
         do {
             let frames = try await ImageFrameSampler.prepareFrames(from: images)
+            imageFramesCount = frames.count
             if frames.isEmpty {
                 await ingestLink()
                 return
@@ -390,7 +402,10 @@ class ShareCaptureViewModel: ObservableObject {
             let response = try await apiClient.ingestSocial(
                 url: originalURL,
                 caption: caption,
-                videoFrames: encodedFrames
+                videoFrames: encodedFrames,
+                clientImageCount: images.count,
+                clientImageFramesCount: frames.count,
+                clientVideoAttachmentPresent: videoFileURL != nil
             )
             handleIngestResponse(response)
         } catch let error as APIError {

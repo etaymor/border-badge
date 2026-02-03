@@ -45,7 +45,11 @@ async def test_negative_cache_saved_when_no_places():
     orchestrator._cache_result = AsyncMock()
     orchestrator._extract_from_caption = AsyncMock(
         return_value=orchestrator._CaptionResult(
-            places=[], method="none", skip_to_video=False, context_location=None
+            places=[],
+            method="none",
+            skip_to_video=False,
+            context_location=None,
+            location_hint_country_codes=[],
         )
     )
 
@@ -462,3 +466,181 @@ class TestMultiPlaceResolutionTimeout:
         #         start_time,  # <-- Pass timing info
         #     )
         pass
+
+
+class TestCountryMismatchFallback:
+    """Tests for country mismatch detection triggering video fallback."""
+
+    def test_has_country_mismatch_no_places(self):
+        """No mismatch when there are no places."""
+        orchestrator = ExtractionOrchestrator()
+        assert orchestrator._has_country_mismatch([], ["GE"]) is False
+
+    def test_has_country_mismatch_no_hints(self):
+        """No mismatch when there are no hints to compare."""
+        orchestrator = ExtractionOrchestrator()
+        place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Test Place",
+            country_code="US",
+            confidence=0.9,
+        )
+        assert orchestrator._has_country_mismatch([place], []) is False
+
+    def test_has_country_mismatch_country_matches(self):
+        """No mismatch when place country matches a hint."""
+        orchestrator = ExtractionOrchestrator()
+        place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Tbilisi Restaurant",
+            country_code="GE",
+            confidence=0.9,
+        )
+        assert orchestrator._has_country_mismatch([place], ["GE"]) is False
+
+    def test_has_country_mismatch_country_does_not_match(self):
+        """Mismatch when place country doesn't match any hint."""
+        orchestrator = ExtractionOrchestrator()
+        # Place in Italy but hints mention Georgia
+        place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="ROMA IS ALWAYS a GOOD IDEA",
+            country_code="IT",
+            confidence=0.74,
+        )
+        assert orchestrator._has_country_mismatch([place], ["GE"]) is True
+
+    def test_has_country_mismatch_multiple_hints_one_matches(self):
+        """No mismatch when place matches at least one hint country."""
+        orchestrator = ExtractionOrchestrator()
+        place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Test Place",
+            country_code="GE",
+            confidence=0.9,
+        )
+        # Hints mention both Georgia and Turkey
+        assert orchestrator._has_country_mismatch([place], ["GE", "TR"]) is False
+
+    def test_has_country_mismatch_multiple_places_one_matches(self):
+        """No mismatch when at least one place matches a hint."""
+        orchestrator = ExtractionOrchestrator()
+        places = [
+            DetectedPlace(
+                google_place_id="ChIJ1",
+                name="Place in Italy",
+                country_code="IT",
+                confidence=0.8,
+            ),
+            DetectedPlace(
+                google_place_id="ChIJ2",
+                name="Place in Georgia",
+                country_code="GE",
+                confidence=0.9,
+            ),
+        ]
+        assert orchestrator._has_country_mismatch(places, ["GE"]) is False
+
+    @pytest.mark.asyncio
+    async def test_country_mismatch_triggers_video_fallback(self):
+        """When regex finds a place in wrong country, should try video extraction."""
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+
+        # Mock caption extraction returning a place in Italy when hints say Georgia
+        italy_place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="ROMA IS ALWAYS a GOOD IDEA",
+            country_code="IT",
+            confidence=0.74,
+        )
+
+        # Mock the caption extraction to return Italy place with Georgia hints
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=orchestrator._CaptionResult(
+                places=[italy_place],
+                method="regex",
+                skip_to_video=False,
+                context_location="Tbilisi",
+                location_hint_country_codes=["GE"],  # Georgia
+            )
+        )
+
+        # Mock video extraction to return correct Georgian place
+        georgia_place = DetectedPlace(
+            google_place_id="ChIJ456",
+            name="Tbilisi Restaurant",
+            country_code="GE",
+            confidence=0.95,
+        )
+        orchestrator._extract_from_video = AsyncMock(
+            return_value=orchestrator._VideoResult(places=[georgia_place])
+        )
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.download_video",
+                new_callable=AsyncMock,
+                return_value="/tmp/video.mp4",
+            ):
+                result = await orchestrator.extract(
+                    "https://www.instagram.com/reel/ABC123",
+                    oembed=None,
+                    caption="Tbilisi is always a good idea",
+                    use_cache=True,
+                    is_video_url=True,
+                )
+
+        # Should have tried video extraction due to country mismatch
+        orchestrator._extract_from_video.assert_awaited_once()
+        # Should return the video result (Georgian place)
+        assert len(result.places) == 1
+        assert result.places[0].country_code == "GE"
+        assert result.method == "video"
+
+    @pytest.mark.asyncio
+    async def test_country_match_does_not_trigger_video_fallback(self):
+        """When regex finds a place in correct country, should NOT try video."""
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+
+        # Mock caption extraction returning a place in Georgia matching hints
+        georgia_place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Tbilisi Restaurant",
+            country_code="GE",
+            confidence=0.85,
+        )
+
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=orchestrator._CaptionResult(
+                places=[georgia_place],
+                method="regex",
+                skip_to_video=False,
+                context_location="Tbilisi",
+                location_hint_country_codes=["GE"],  # Georgia matches
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock()
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            result = await orchestrator.extract(
+                "https://www.instagram.com/reel/ABC123",
+                oembed=None,
+                caption="Tbilisi Restaurant review",
+                use_cache=True,
+                is_video_url=True,
+            )
+
+        # Should NOT have tried video extraction
+        orchestrator._extract_from_video.assert_not_awaited()
+        # Should return the caption result
+        assert len(result.places) == 1
+        assert result.places[0].country_code == "GE"
+        assert result.method == "regex"

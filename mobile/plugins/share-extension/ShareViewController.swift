@@ -44,6 +44,8 @@ class ShareViewController: UIViewController {
     /// The shared video file URL if available
     private var sharedVideoURL: URL?
 
+    private let debugLogPath = "/Users/emerson/Sites/border-badge/.cursor/debug.log"
+
     /// SwiftUI hosting controller
     private var hostingController: UIHostingController<ShareCaptureView>?
 
@@ -73,15 +75,66 @@ class ShareViewController: UIViewController {
 
     /// Main entry point for processing shared content
     private func handleSharedContent() {
-        guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
+        guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem],
+              let extensionItem = extensionItems.first,
               let attachments = extensionItem.attachments else {
             showFallbackUI(error: "No content to share")
             return
         }
 
+        let imageIdentifier = UTType.image.identifier
+        let urlIdentifier = UTType.url.identifier
+        let textIdentifier = UTType.plainText.identifier
+        let movieIdentifier = UTType.movie.identifier
+        let videoIdentifier = UTType.video.identifier
+        let registeredTypes = Array(
+            Set(attachments.flatMap { $0.registeredTypeIdentifiers })
+        )
+        // #region agent log
+        debugLog(
+            hypothesisId: "H5",
+            location: "ShareViewController.swift:handleSharedContent",
+            message: "attachments_type_summary",
+            data: [
+                "extension_items_count": extensionItems.count,
+                "attachment_count": attachments.count,
+                "unique_type_count": registeredTypes.count,
+                "unique_types_sample": Array(registeredTypes.prefix(12)),
+                "providers_with_url": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(urlIdentifier)
+                }.count,
+                "providers_with_text": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(textIdentifier)
+                }.count,
+                "providers_with_image": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(imageIdentifier)
+                }.count,
+                "providers_with_movie": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(movieIdentifier)
+                }.count,
+                "providers_with_video": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(videoIdentifier)
+                }.count
+            ]
+        )
+        // #endregion
+
         Task { [weak self] in
             guard let self else { return }
             let payload = await self.extractSharePayload(from: attachments)
+            // #region agent log
+            self.debugLog(
+                hypothesisId: "H3",
+                location: "ShareViewController.swift:extractSharePayload",
+                message: "payload_summary",
+                data: [
+                    "has_url": payload.url != nil,
+                    "caption_len": payload.caption?.count ?? 0,
+                    "has_video_file_url": payload.videoFileURL != nil,
+                    "image_data_count": payload.imageDataList.count
+                ]
+            )
+            // #endregion
             await MainActor.run {
                 self.captionText = payload.caption
                 self.sharedVideoURL = payload.videoFileURL
@@ -169,7 +222,55 @@ class ShareViewController: UIViewController {
             }
         }
 
+        // #region agent log
+        debugLog(
+            hypothesisId: "H5",
+            location: "ShareViewController.swift:loadImageData",
+            message: "image_data_load_result",
+            data: [
+                "attachment_count": attachments.count,
+                "image_candidate_count": attachments.filter {
+                    $0.hasItemConformingToTypeIdentifier(imageIdentifier)
+                }.count,
+                "image_data_count": results.count
+            ]
+        )
+        // #endregion
         return results
+    }
+
+    private func debugLog(
+        hypothesisId: String,
+        location: String,
+        message: String,
+        data: [String: Any]
+    ) {
+        let payload: [String: Any] = [
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": hypothesisId,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: payload) else {
+            return
+        }
+        if let handle = FileHandle(forWritingAtPath: debugLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(json)
+            handle.write(Data("\n".utf8))
+            handle.closeFile()
+            return
+        }
+        if let text = String(data: json, encoding: .utf8) {
+            try? (text + "\n").write(
+                toFile: debugLogPath,
+                atomically: true,
+                encoding: .utf8
+            )
+        }
     }
 
     private func loadItemURL(from provider: NSItemProvider, typeIdentifier: String) async -> URL? {

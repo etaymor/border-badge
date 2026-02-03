@@ -27,6 +27,10 @@ class SocialIngestRequest(BaseModel):
     extraction_method: Literal["auto", "llm", "regex"] = "auto"
     # Skip cache lookup and force fresh extraction (for cache invalidation)
     skip_cache: bool = False
+    # Client-side media hints (debug only)
+    client_image_count: int | None = Field(None, ge=0, le=50)
+    client_image_frames_count: int | None = Field(None, ge=0, le=50)
+    client_video_attachment_present: bool | None = None
 
     @field_validator("url")
     @classmethod

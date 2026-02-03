@@ -98,13 +98,19 @@ actor APIClient {
         url: String,
         caption: String?,
         extractionMethod: String? = nil,
-        videoFrames: [String]? = nil
+        videoFrames: [String]? = nil,
+        clientImageCount: Int? = nil,
+        clientImageFramesCount: Int? = nil,
+        clientVideoAttachmentPresent: Bool? = nil
     ) async throws -> SocialIngestResponse {
         let request = SocialIngestRequest(
             url: url,
             caption: caption,
             extractionMethod: extractionMethod,
-            videoFrames: videoFrames
+            videoFrames: videoFrames,
+            clientImageCount: clientImageCount,
+            clientImageFramesCount: clientImageFramesCount,
+            clientVideoAttachmentPresent: clientVideoAttachmentPresent
         )
         let timeout = videoFrames == nil ? ingestTimeout : videoIngestTimeout
         return try await post(
