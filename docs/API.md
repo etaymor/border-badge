@@ -811,7 +811,9 @@ Process a social media URL (TikTok or Instagram) and extract metadata including 
 {
   "url": "https://www.instagram.com/p/ABC123/",
   "caption": "Optional additional caption text",
-  "extraction_method": "auto"
+  "extraction_method": "auto",
+  "video_frames": ["base64-encoded-frame-1", "base64-encoded-frame-2"],
+  "skip_cache": false
 }
 ```
 
@@ -820,6 +822,8 @@ Process a social media URL (TikTok or Instagram) and extract metadata including 
 | `url` | string | Yes | TikTok or Instagram URL (10-2048 characters) |
 | `caption` | string | No | Additional caption text (max 2000 characters) |
 | `extraction_method` | string | No | Extraction method: `auto` (default), `llm`, or `regex` |
+| `video_frames` | array | No | Base64-encoded JPEG/PNG frames sampled on-device (max 20 frames, ~1.5MB each) |
+| `skip_cache` | boolean | No | Skip cache lookup and force fresh extraction (default: false) |
 
 **Extraction Methods:**
 
@@ -837,6 +841,23 @@ Process a social media URL (TikTok or Instagram) and extract metadata including 
   "thumbnail_url": "https://...",
   "author_handle": "traveler_jane",
   "title": "Amazing dinner at Cafe Lomi in Paris!",
+  "detected_places": [
+    {
+      "google_place_id": "ChIJ...",
+      "name": "Cafe Lomi",
+      "address": "3 Rue Marcadet, 75018 Paris, France",
+      "latitude": 48.8912,
+      "longitude": 2.3522,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR",
+      "confidence": 0.85,
+      "primary_type": "cafe",
+      "types": ["cafe", "restaurant"],
+      "google_photo_url": "https://...",
+      "llm_entry_type": "food"
+    }
+  ],
   "detected_place": {
     "google_place_id": "ChIJ...",
     "name": "Cafe Lomi",
@@ -859,7 +880,24 @@ Process a social media URL (TikTok or Instagram) and extract metadata including 
     "longitude": 2.3522
   },
   "extraction_method_used": "llm",
-  "extraction_latency_ms": 450
+  "extraction_source": "caption",
+  "extraction_latency_ms": 450,
+  "context_location": "Paris",
+  "suggested_trips": [
+    {
+      "id": "uuid",
+      "name": "Paris Trip 2026",
+      "country_code": "FR",
+      "is_system": false
+    },
+    {
+      "id": "uuid",
+      "name": "Saved Places",
+      "country_code": null,
+      "is_system": true
+    }
+  ],
+  "extraction_error": null
 }
 ```
 
@@ -870,11 +908,16 @@ Process a social media URL (TikTok or Instagram) and extract metadata including 
 | `thumbnail_url` | string | Post thumbnail URL (if available) |
 | `author_handle` | string | Author's username/handle |
 | `title` | string | Post title or caption |
-| `detected_place` | object | Detected place information (if found) |
+| `detected_places` | array | Array of all detected places (max 10) for multi-place extraction |
+| `detected_place` | object | First detected place (deprecated, use `detected_places` for multi-place support) |
 | `detected_place.llm_entry_type` | string | LLM-predicted entry type: `place`, `food`, `stay`, or `experience` |
 | `detected_country` | object | Country hint (even when place detection fails) |
-| `extraction_method_used` | string | Method that succeeded: `llm`, `regex`, or `none` |
+| `extraction_method_used` | string | Method that succeeded: `llm`, `regex`, `video`, or `none` |
+| `extraction_source` | string | Source of extraction: `caption`, `video_frames`, `carousel`, or `screenshot` |
 | `extraction_latency_ms` | integer | Extraction time in milliseconds |
+| `context_location` | string | Context location detected from content (e.g., "Thailand") used as search bias |
+| `suggested_trips` | array | Trips suggested for saving (matching country first, then "Saved Places") |
+| `extraction_error` | string | User-facing error message when extraction fails due to platform limitations |
 
 **Error Responses:**
 
@@ -941,6 +984,122 @@ Returns the created entry with place data (same format as `POST /trips/{trip_id}
 | 403 | `Forbidden` | Not authorized to add entries to this trip |
 | 404 | `NotFound` | Trip not found |
 | 409 | `Conflict` | This place has already been saved to this trip |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
+#### `POST /ingest/save-places`
+
+Save multiple places from a social media post to a trip in a single batch operation. This endpoint is designed for multi-place extraction where a single post contains multiple places (e.g., a "Top 10 restaurants in Paris" video).
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid",
+  "places": [
+    {
+      "google_place_id": "ChIJ...",
+      "name": "Cafe Lomi",
+      "entry_type": "food",
+      "address": "3 Rue Marcadet, 75018 Paris, France",
+      "latitude": 48.8912,
+      "longitude": 2.3522,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR",
+      "google_photo_url": "https://..."
+    },
+    {
+      "google_place_id": "ChIK...",
+      "name": "Le Comptoir",
+      "entry_type": "food",
+      "address": "9 Carrefour de l'Odéon, 75006 Paris, France",
+      "latitude": 48.8520,
+      "longitude": 2.3387,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR"
+    }
+  ],
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Top 10 restaurants in Paris!",
+  "notes": "From my Paris food tour"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID |
+| `places` | array | Yes | Array of places to save (1-20 places) |
+| `places[].google_place_id` | string | Yes | Google Place ID (1-512 chars) |
+| `places[].name` | string | Yes | Place name (1-256 chars) |
+| `places[].entry_type` | string | No | Entry type: `place`, `food`, `stay`, `experience` (default: `place`) |
+| `places[].address` | string | No | Place address (max 512 chars) |
+| `places[].latitude` | float | No | Latitude (-90 to 90) |
+| `places[].longitude` | float | No | Longitude (-180 to 180) |
+| `places[].city` | string | No | City name (max 200 chars) |
+| `places[].country` | string | No | Country name (max 200 chars) |
+| `places[].country_code` | string | No | ISO 3166-1 alpha-2 country code |
+| `places[].google_photo_url` | string | No | Google Places photo URL (max 2048 chars) |
+| `provider` | string | Yes | Social provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Yes | Canonical URL (max 2048 chars) |
+| `thumbnail_url` | string | No | Thumbnail URL |
+| `author_handle` | string | No | Author handle (max 256 chars) |
+| `title` | string | No | Post title (max 2200 chars) |
+| `notes` | string | No | Notes applied to all entries (max 5000 chars) |
+
+**Response:** `201 Created`
+```json
+{
+  "saved_count": 2,
+  "skipped_count": 1,
+  "saved_entry_ids": ["uuid-1", "uuid-2"],
+  "skipped_place_names": ["Already Saved Place"],
+  "results": [
+    {
+      "place_name": "Cafe Lomi",
+      "status": "saved",
+      "entry_id": "uuid-1"
+    },
+    {
+      "place_name": "Le Comptoir",
+      "status": "saved",
+      "entry_id": "uuid-2"
+    },
+    {
+      "place_name": "Already Saved Place",
+      "status": "duplicate",
+      "error_message": "Place already exists in this trip"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `saved_count` | integer | Number of places successfully saved |
+| `skipped_count` | integer | Number of places skipped (duplicates or errors) |
+| `saved_entry_ids` | array | UUIDs of created entries |
+| `skipped_place_names` | array | Names of places that were skipped |
+| `results` | array | Per-place status for detailed error handling |
+| `results[].place_name` | string | Name of the place |
+| `results[].status` | string | Status: `saved`, `duplicate`, or `error` |
+| `results[].entry_id` | uuid | Entry ID if saved successfully |
+| `results[].error_message` | string | Error message if skipped |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 403 | `Forbidden` | Not authorized to add entries to this trip |
+| 404 | `NotFound` | Trip not found |
 | 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
 
 ---
