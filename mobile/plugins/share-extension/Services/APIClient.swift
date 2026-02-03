@@ -58,6 +58,8 @@ actor APIClient {
 
     /// Timeout for ingest requests (longer due to oEmbed + Place extraction)
     private let ingestTimeout: TimeInterval = 15.0
+    /// Timeout for ingest requests with video frames
+    private let videoIngestTimeout: TimeInterval = 30.0
 
     /// Timeout for other requests
     private let defaultTimeout: TimeInterval = 10.0
@@ -92,12 +94,23 @@ actor APIClient {
     // MARK: - Public API
 
     /// Process a social URL via /ingest/social
-    func ingestSocial(url: String, caption: String?, extractionMethod: String? = nil) async throws -> SocialIngestResponse {
-        let request = SocialIngestRequest(url: url, caption: caption, extractionMethod: extractionMethod)
+    func ingestSocial(
+        url: String,
+        caption: String?,
+        extractionMethod: String? = nil,
+        videoFrames: [String]? = nil
+    ) async throws -> SocialIngestResponse {
+        let request = SocialIngestRequest(
+            url: url,
+            caption: caption,
+            extractionMethod: extractionMethod,
+            videoFrames: videoFrames
+        )
+        let timeout = videoFrames == nil ? ingestTimeout : videoIngestTimeout
         return try await post(
             path: "/ingest/social",
             body: request,
-            timeout: ingestTimeout
+            timeout: timeout
         )
     }
 
@@ -105,6 +118,15 @@ actor APIClient {
     func saveToTrip(request: SaveToTripRequest) async throws -> SaveToTripResponse {
         return try await post(
             path: "/ingest/save-to-trip",
+            body: request,
+            timeout: defaultTimeout
+        )
+    }
+
+    /// Save multiple places to a trip via /ingest/save-places (batch save)
+    func savePlaces(request: SavePlacesRequest) async throws -> SavePlacesResponse {
+        return try await post(
+            path: "/ingest/save-places",
             body: request,
             timeout: defaultTimeout
         )

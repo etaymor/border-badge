@@ -266,3 +266,33 @@ class TestFetchOembed:
 
                         assert result.title == "Fallback Title"
                         mock_og.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_tiktok_falls_back_to_opengraph(self):
+        with patch("app.services.oembed_adapters.get_cached_oembed") as mock_cache:
+            mock_cache.return_value = None
+
+            with patch(
+                "app.services.oembed_adapters.fetch_tiktok_oembed"
+            ) as mock_tiktok:
+                mock_tiktok.return_value = None
+
+                with patch(
+                    "app.services.oembed_adapters.fetch_opengraph_fallback"
+                ) as mock_og:
+                    mock_og.return_value = OEmbedResponse(
+                        title="Fallback Title",
+                        thumbnail_url="https://example.com/og.jpg",
+                    )
+
+                    with patch(
+                        "app.services.oembed_adapters.cache_oembed"
+                    ) as mock_save:
+                        result = await fetch_oembed(
+                            "https://www.tiktok.com/@user/photo/123",
+                            SocialProvider.TIKTOK,
+                        )
+
+                        assert result.title == "Fallback Title"
+                        mock_og.assert_called_once()
+                        mock_save.assert_called_once()

@@ -11,6 +11,17 @@ struct CaptureFormView: View {
     let onSave: () -> Void
     let onCancel: () -> Void
 
+    private var saveButtonText: String {
+        if !viewModel.canUseShareExtension {
+            return "Upgrade to Save"
+        }
+        if viewModel.isMultiPlaceMode {
+            let count = viewModel.selectedPlaceCount
+            return "Save \(count) Place\(count == 1 ? "" : "s")"
+        }
+        return "Save to Trip"
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -19,21 +30,81 @@ struct CaptureFormView: View {
                     providerName: viewModel.providerName,
                     title: viewModel.ingestResult?.title,
                     isManualEntry: viewModel.isManualEntryMode,
+                    isMultiPlace: viewModel.isMultiPlaceMode,
+                    selectedCount: viewModel.selectedPlaceCount,
                     onClose: onCancel
                 )
 
-                // Location search
-                LocationSearchView(
-                    selectedPlace: $viewModel.selectedPlace,
-                    countryCode: viewModel.effectiveCountryCode,
-                    onPlaceSelected: { place in
-                        viewModel.selectPlace(place)
-                    },
-                    onPlaceCleared: {
-                        viewModel.clearPlace()
-                    },
-                    viewModel: locationViewModel
-                )
+                // Extraction error banner (e.g., TikTok photo slideshows)
+                if let error = viewModel.extractionError {
+                    HStack(spacing: 12) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(BrandColors.sunsetGold)
+                        Text(error)
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.midnightNavy)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(16)
+                    .background(BrandColors.sunsetGold.opacity(0.15))
+                    .cornerRadius(12)
+                }
+
+                // Multi-place or single-place selection
+                if let editingIndex = viewModel.editingPlaceIndex,
+                   editingIndex < viewModel.placeSelections.count {
+                    // Editing a place from the multi-place list
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            SectionLabel(text: "Edit Place")
+                            Spacer()
+                            Button("Cancel") {
+                                viewModel.cancelEditingPlace()
+                            }
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.sunsetGold)
+                        }
+
+                        LocationSearchView(
+                            selectedPlace: Binding(
+                                get: { viewModel.placeSelections[editingIndex].place },
+                                set: { _ in }
+                            ),
+                            countryCode: viewModel.effectiveCountryCode,
+                            onPlaceSelected: { place in
+                                viewModel.updateEditedPlace(place)
+                            },
+                            onPlaceCleared: {
+                                viewModel.cancelEditingPlace()
+                            },
+                            viewModel: locationViewModel
+                        )
+                    }
+                } else if viewModel.isMultiPlaceMode {
+                    // Multi-place list with checkboxes
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionLabel(text: "Select Places (\(viewModel.selectedPlaceCount) selected)")
+                        MultiPlaceListView(
+                            selections: $viewModel.placeSelections,
+                            onEditPlace: { index in
+                                viewModel.startEditingPlace(at: index)
+                            }
+                        )
+                    }
+                } else {
+                    // Single place location search
+                    LocationSearchView(
+                        selectedPlace: $viewModel.selectedPlace,
+                        countryCode: viewModel.effectiveCountryCode,
+                        onPlaceSelected: { place in
+                            viewModel.selectPlace(place)
+                        },
+                        onPlaceCleared: {
+                            viewModel.clearPlace()
+                        },
+                        viewModel: locationViewModel
+                    )
+                }
 
                 // Trip selector
                 TripSelectorView(
@@ -45,17 +116,19 @@ struct CaptureFormView: View {
                     }
                 )
 
-                // Category selector
-                CategorySelectorView(
-                    entryType: viewModel.entryType,
-                    hasSelectedType: viewModel.hasSelectedType,
-                    onTypeSelect: { type in
-                        viewModel.selectEntryType(type)
-                    },
-                    onChangeType: {
-                        viewModel.resetEntryType()
-                    }
-                )
+                // Category selector - only show for single place mode
+                if !viewModel.isMultiPlaceMode {
+                    CategorySelectorView(
+                        entryType: viewModel.entryType,
+                        hasSelectedType: viewModel.hasSelectedType,
+                        onTypeSelect: { type in
+                            viewModel.selectEntryType(type)
+                        },
+                        onChangeType: {
+                            viewModel.resetEntryType()
+                        }
+                    )
+                }
 
                 // Notes field
                 NotesField(notes: $viewModel.notes)
@@ -78,7 +151,7 @@ struct CaptureFormView: View {
 
                 // Save button
                 Button(action: onSave) {
-                    Text(viewModel.canUseShareExtension ? "Save to Trip" : "Upgrade to Save")
+                    Text(saveButtonText)
                 }
                 .buttonStyle(PrimaryButtonStyle(isEnabled: viewModel.canSave))
                 .disabled(!viewModel.canSave)
@@ -94,6 +167,8 @@ private struct HeaderCard: View {
     let providerName: String
     let title: String?
     let isManualEntry: Bool
+    let isMultiPlace: Bool
+    let selectedCount: Int
     let onClose: () -> Void
 
     @State private var isExpanded: Bool = false
@@ -108,12 +183,19 @@ private struct HeaderCard: View {
             }
     }
 
+    private var headerTitle: String {
+        if isMultiPlace {
+            return "Save Places"
+        }
+        return "Save Place"
+    }
+
     private var content: some View {
         HStack {
             Spacer()
 
             VStack(spacing: 8) {
-                Text("Save Place")
+                Text(headerTitle)
                     .font(Typography.header(24))
                     .foregroundColor(BrandColors.midnightNavy)
 

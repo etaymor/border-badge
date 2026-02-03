@@ -2,112 +2,15 @@
  * ShareCaptureViewModel - Main state management for share capture flow
  *
  * Manages the entire share extension flow from URL processing to save.
+ * Split across multiple files:
+ * - ShareCaptureState.swift: State enum and error types
+ * - ShareCaptureViewModel+MultiPlace.swift: Multi-place handling
+ * - ShareCaptureViewModel+Save.swift: Save logic and error handling
  */
 
+import Foundation
 import SwiftUI
 import Combine
-
-// MARK: - State
-
-enum ShareCaptureState: Equatable {
-    case loading(message: String)
-    case error(ShareCaptureError)
-    case form
-    case saving
-    case success
-    case successQueued(reason: QueueReason)
-
-    /// Reason why the save was queued instead of completed immediately
-    enum QueueReason: Equatable {
-        case networkError
-        case serverError
-        case unauthenticated
-
-        var message: String {
-            switch self {
-            case .networkError:
-                return "Saved for later - will sync when online"
-            case .serverError:
-                return "Saved for later - will retry automatically"
-            case .unauthenticated:
-                return "Saved for later - sign in to sync"
-            }
-        }
-    }
-
-    static func == (lhs: ShareCaptureState, rhs: ShareCaptureState) -> Bool {
-        switch (lhs, rhs) {
-        case (.loading(let lhsMsg), .loading(let rhsMsg)): return lhsMsg == rhsMsg
-        case (.error(let lhsErr), .error(let rhsErr)): return lhsErr.message == rhsErr.message
-        case (.form, .form): return true
-        case (.saving, .saving): return true
-        case (.success, .success): return true
-        case (.successQueued(let lhsReason), .successQueued(let rhsReason)): return lhsReason == rhsReason
-        default: return false
-        }
-    }
-}
-
-struct ShareCaptureError: Equatable {
-    let message: String
-    let canRetry: Bool
-    let canManualEntry: Bool
-    let canSaveForLater: Bool
-
-    static func network() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Network error. Check your connection.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func timeout() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Request timed out. Try again.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func unauthorized() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Please sign in to Atlasi first.",
-            canRetry: false,
-            canManualEntry: false,
-            canSaveForLater: true
-        )
-    }
-
-    static func invalidURL() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "Only TikTok and Instagram links are supported. You can still add the place manually.",
-            canRetry: false,
-            canManualEntry: true,
-            canSaveForLater: false
-        )
-    }
-
-    static func serverError(_ message: String?) -> ShareCaptureError {
-        ShareCaptureError(
-            message: message ?? "Something went wrong. Try again.",
-            canRetry: true,
-            canManualEntry: true,
-            canSaveForLater: true
-        )
-    }
-
-    static func freeLimitReached() -> ShareCaptureError {
-        ShareCaptureError(
-            message: "You've used your 5 free saves this month. Open Atlasi to upgrade for unlimited saves.",
-            canRetry: false,
-            canManualEntry: false,
-            canSaveForLater: false
-        )
-    }
-}
 
 // MARK: - ViewModel
 
@@ -125,6 +28,12 @@ class ShareCaptureViewModel: ObservableObject {
     @Published var isManualEntryMode: Bool = false
     @Published var userClearedPlace: Bool = false  // True when user explicitly cleared the place selection
 
+    // MARK: - Multi-Place State
+
+    @Published var placeSelections: [PlaceSelection] = []
+    /// Index of place being edited in location search, nil when not editing
+    @Published var editingPlaceIndex: Int?
+
     // MARK: - Subscription State
 
     /// Whether user has premium access (premium or trial)
@@ -134,11 +43,13 @@ class ShareCaptureViewModel: ObservableObject {
     /// Remaining free saves (-1 for unlimited)
     @Published private(set) var remainingFreeSaves: Int = AppGroupStorage.freeShareExtensionLimit
 
-    // MARK: - Private State
+    // MARK: - Internal State (accessible to extensions)
 
-    private let apiClient = APIClient()
-    private var originalURL: String = ""
+    let apiClient = APIClient()
+    var originalURL: String = ""
     @Published private(set) var caption: String?
+    private var videoFileURL: URL?
+    private var imageDataList: [Data] = []
     private var currentTask: Task<Void, Never>?
     private var hasStartedProcessing: Bool = false
 
@@ -172,19 +83,76 @@ class ShareCaptureViewModel: ObservableObject {
     }
 
     var detectedCountryCode: String? {
-        ingestResult?.detectedPlace?.countryCode ?? ingestResult?.detectedCountry?.countryCode
+        ingestResult?.detectedPlace?.countryCode
+            ?? ingestResult?.detectedPlaces.first?.countryCode
+            ?? ingestResult?.detectedCountry?.countryCode
     }
 
     /// Effective country code for filtering - nil if user cleared the place (search worldwide)
+    /// For multi-country results, prefer a dominant country when it exists.
     var effectiveCountryCode: String? {
         if userClearedPlace {
             return nil
+        }
+        if isMultiCountry {
+            return dominantCountryCode ?? detectedCountryCode
         }
         return selectedPlace?.countryCode ?? detectedCountryCode
     }
 
     var canSave: Bool {
-        selectedPlace != nil && selectedTripId != nil && canUseShareExtension
+        if isMultiPlaceMode {
+            return selectedPlaceCount > 0 && selectedTripId != nil && canUseShareExtension
+        }
+        return selectedPlace != nil && selectedTripId != nil && canUseShareExtension
+    }
+
+    /// Whether we're in multi-place mode (more than one place detected)
+    var isMultiPlaceMode: Bool {
+        placeSelections.count > 1
+    }
+
+    /// Whether detected places span multiple countries (no single-country default)
+    var isMultiCountry: Bool {
+        Set(normalizedCountryCodes).count > 1
+    }
+
+    private var normalizedCountryCodes: [String] {
+        placeSelections.compactMap { selection in
+            guard let code = selection.place.countryCode?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !code.isEmpty else { return nil }
+            return code.uppercased()
+        }
+    }
+
+    private var dominantCountryCode: String? {
+        let codes = normalizedCountryCodes
+        guard !codes.isEmpty else { return nil }
+
+        var counts: [String: Int] = [:]
+        for code in codes {
+            counts[code, default: 0] += 1
+        }
+
+        let sorted = counts.sorted {
+            if $0.value == $1.value {
+                return $0.key < $1.key
+            }
+            return $0.value > $1.value
+        }
+
+        guard let best = sorted.first else { return nil }
+        if sorted.count == 1 || (sorted.count > 1 && best.value > sorted[1].value) {
+            return best.key
+        }
+
+        return nil
+    }
+
+    /// Number of places currently selected
+    var selectedPlaceCount: Int {
+        placeSelections.selectedCount
     }
 
     var providerName: String {
@@ -195,23 +163,38 @@ class ShareCaptureViewModel: ObservableObject {
         }
     }
 
+    /// User-facing extraction error message (e.g., for TikTok photo slideshows)
+    var extractionError: String? {
+        // Only show error if no places were detected and there's an error message
+        guard selectedPlace == nil && placeSelections.isEmpty else { return nil }
+        return ingestResult?.extractionError
+    }
+
     // MARK: - Public API
 
     /// Process a shared URL
-    func processURL(_ url: String, caption: String? = nil) {
+    func processURL(
+        _ url: String,
+        caption: String? = nil,
+        videoFileURL: URL? = nil,
+        imageDataList: [Data] = []
+    ) {
         // Prevent re-processing if already started (onAppear can fire multiple times)
         guard !hasStartedProcessing else { return }
         hasStartedProcessing = true
 
         self.originalURL = url
         self.caption = caption
+        self.videoFileURL = videoFileURL
+        self.imageDataList = imageDataList
         let providerName = detectProviderName(url)
         let linkType = providerName.isEmpty ? "link" : providerName
-        self.state = .loading(message: "Processing \(linkType)...")
+        let message = videoFileURL == nil ? "Processing \(linkType)..." : "Processing video..."
+        self.state = .loading(message: message)
 
         currentTask?.cancel()
         currentTask = Task {
-            await ingestURL()
+            await ingestShare()
         }
     }
 
@@ -222,7 +205,7 @@ class ShareCaptureViewModel: ObservableObject {
         state = .loading(message: "Retrying...")
         currentTask?.cancel()
         currentTask = Task {
-            await ingestURL()
+            await ingestShare()
         }
     }
 
@@ -286,10 +269,7 @@ class ShareCaptureViewModel: ObservableObject {
 
     /// Save the entry to the selected trip
     func save() {
-        guard let place = selectedPlace,
-              let tripId = selectedTripId else {
-            return
-        }
+        guard let tripId = selectedTripId else { return }
 
         // Check subscription status before saving
         refreshSubscriptionStatus()
@@ -300,44 +280,71 @@ class ShareCaptureViewModel: ObservableObject {
             return
         }
 
-        // Track save initiated
-        AnalyticsQueue.track("share_extension_save_initiated", properties: [
-            "has_location": true,
-            "category": entryType.rawValue
-        ])
+        // Determine if multi-place or single-place save
+        if isMultiPlaceMode {
+            let selectedPlaces = placeSelections.selected
+            let missingIds = selectedPlaces.filter {
+                $0.place.googlePlaceId == nil || $0.place.googlePlaceId?.isEmpty == true
+            }
+            if !missingIds.isEmpty {
+                state = .error(
+                    .serverError("Some places need a Google Places match before saving. Edit them.")
+                )
+                return
+            }
 
-        state = .saving
+            let placesToSave = placeSelections.placesToSave
+            guard !placesToSave.isEmpty else { return }
 
-        currentTask?.cancel()
-        currentTask = Task {
-            await saveEntry(place: place, tripId: tripId)
+            // Track save initiated
+            AnalyticsQueue.track("share_extension_save_initiated", properties: [
+                "has_location": true,
+                "place_count": placesToSave.count,
+                "multi_place": true
+            ])
+
+            state = .saving
+
+            currentTask?.cancel()
+            currentTask = Task {
+                await saveMultiplePlaces(places: placesToSave, tripId: tripId)
+            }
+        } else {
+            guard let place = selectedPlace else { return }
+
+            // Track save initiated
+            AnalyticsQueue.track("share_extension_save_initiated", properties: [
+                "has_location": true,
+                "category": entryType.rawValue
+            ])
+
+            state = .saving
+
+            currentTask?.cancel()
+            currentTask = Task {
+                await saveEntry(place: place, tripId: tripId)
+            }
         }
     }
 
     // MARK: - Private Helpers
 
-    private func ingestURL() async {
+    private func ingestShare() async {
+        if let videoURL = videoFileURL {
+            await ingestVideoFrames(from: videoURL)
+            return
+        }
+        if !imageDataList.isEmpty {
+            await ingestImageFrames(from: imageDataList)
+            return
+        }
+        await ingestLink()
+    }
+
+    private func ingestLink() async {
         do {
             let response = try await apiClient.ingestSocial(url: originalURL, caption: caption)
-            ingestResult = response
-
-            // Auto-select detected place
-            if let detected = response.detectedPlace {
-                selectedPlace = detected
-
-                // Prefer LLM entry type, fall back to Google types inference
-                if let llmType = detected.llmEntryType,
-                   let type = EntryType(rawValue: llmType) {
-                    entryType = type
-                } else {
-                    entryType = EntryType.from(
-                        primaryType: detected.primaryType,
-                        types: detected.types
-                    )
-                }
-            }
-
-            state = .form
+            handleIngestResponse(response)
 
         } catch let error as APIError {
             handleAPIError(error)
@@ -346,121 +353,76 @@ class ShareCaptureViewModel: ObservableObject {
         }
     }
 
-    private func saveEntry(place: DetectedPlace, tripId: String) async {
-        guard let result = ingestResult else {
-            // Manual entry mode - we don't have ingest result
-            // For now, just show success since manual entry would need different API
-            state = .success
-            return
-        }
-
+    private func ingestVideoFrames(from videoURL: URL) async {
         do {
-            let request = SaveToTripRequest(
-                tripId: tripId,
-                provider: result.provider,
-                canonicalUrl: result.canonicalUrl,
-                thumbnailUrl: result.thumbnailUrl,
-                authorHandle: result.authorHandle,
-                title: result.title,
-                place: place,
-                entryType: entryType.rawValue,
-                notes: notes.isEmpty ? nil : notes
-            )
-
-            _ = try await apiClient.saveToTrip(request: request)
-
-            // Clear the shared URL from App Group since we processed it
-            AppGroupStorage.clearSharedURL()
-
-            // Mark that user has used share extension (for tutorial dismissal in main app)
-            AppGroupStorage.markShareExtensionUsed()
-
-            // Increment local usage count (optimistic update for immediate UX feedback)
-            // Backend also increments; this ensures Share Extension shows correct remaining count
-            AppGroupStorage.incrementShareExtensionUsage()
-
-            // Track success
-            AnalyticsQueue.track("share_extension_success", properties: [
-                "category": entryType.rawValue,
-                "has_location": true
-            ])
-
-            state = .success
-
-        } catch let error as APIError {
-            handleSaveError(error, place: place, tripId: tripId)
-        } catch {
-            handleSaveError(.networkError(error), place: place, tripId: tripId)
-        }
-    }
-
-    private func handleAPIError(_ error: APIError) {
-        switch error {
-        case .noToken, .unauthorized:
-            state = .error(.unauthorized())
-        case .timeout:
-            state = .error(.timeout())
-        case .networkError:
-            state = .error(.network())
-        case .serverError(let code, let message):
-            // 400 = unsupported provider, 422 = validation error
-            if code == 400 || code == 422 {
-                state = .error(.invalidURL())
-            } else {
-                state = .error(.serverError(message))
-            }
-        case .invalidURL, .decodingError:
-            state = .error(.invalidURL())
-        }
-    }
-
-    private func handleSaveError(_ error: APIError, place: DetectedPlace, tripId: String) {
-        // Queue for later if it's a retryable error
-        if error.isRetryable {
-            // Determine the queue reason based on error type
-            let stateReason: ShareCaptureState.QueueReason
-            let queueReason: QueuedShare.QueueReason
-            switch error {
-            case .networkError:
-                stateReason = .networkError
-                queueReason = .networkError
-            case .timeout:
-                stateReason = .networkError
-                queueReason = .timeout
-            case .noToken, .unauthorized:
-                stateReason = .unauthenticated
-                queueReason = .unauthenticated
-            default:
-                stateReason = .serverError
-                queueReason = .serverError
+            let frames = try await VideoFrameSampler.extractFrames(from: videoURL, intervalSeconds: 2.0)
+            if frames.isEmpty {
+                await ingestLink()
+                return
             }
 
-            OfflineQueueService.queueShare(
+            let encodedFrames = frames.map { $0.base64EncodedString() }
+            let response = try await apiClient.ingestSocial(
                 url: originalURL,
                 caption: caption,
-                reason: queueReason,
-                ingestResult: ingestResult,
-                selectedTripId: tripId,
-                selectedPlace: place,
-                entryType: entryType,
-                notes: notes.isEmpty ? nil : notes
+                videoFrames: encodedFrames
             )
+            handleIngestResponse(response)
 
-            // Track queued due to save error
-            AnalyticsQueue.track("share_extension_queued_offline", properties: [
-                "reason": queueReason.rawValue
-            ])
-
-            state = .successQueued(reason: stateReason)
-        } else {
-            // Track error
-            AnalyticsQueue.track("share_extension_error", properties: [
-                "error_type": String(describing: error),
-                "stage": "save"
-            ])
-
-            state = .error(.serverError(error.errorDescription))
+            // Clean up the temp video file after processing
+            try? FileManager.default.removeItem(at: videoURL)
+        } catch let error as APIError {
+            handleAPIError(error)
+        } catch {
+            state = .error(.network())
         }
+    }
+
+    private func ingestImageFrames(from images: [Data]) async {
+        do {
+            let frames = try await ImageFrameSampler.prepareFrames(from: images)
+            if frames.isEmpty {
+                await ingestLink()
+                return
+            }
+
+            let encodedFrames = frames.map { $0.base64EncodedString() }
+            let response = try await apiClient.ingestSocial(
+                url: originalURL,
+                caption: caption,
+                videoFrames: encodedFrames
+            )
+            handleIngestResponse(response)
+        } catch let error as APIError {
+            handleAPIError(error)
+        } catch {
+            state = .error(.network())
+        }
+    }
+
+    private func handleIngestResponse(_ response: SocialIngestResponse) {
+        ingestResult = response
+
+        // Initialize multi-place selections
+        initializeMultiPlaceSelections(from: response.detectedPlaces)
+
+        // Auto-select detected place (backward compat - use first place)
+        if let detected = response.detectedPlace ?? response.detectedPlaces.first {
+            selectedPlace = detected
+
+            // Prefer LLM entry type, fall back to Google types inference
+            if let llmType = detected.llmEntryType,
+               let type = EntryType(rawValue: llmType) {
+                entryType = type
+            } else {
+                entryType = EntryType.from(
+                    primaryType: detected.primaryType,
+                    types: detected.types
+                )
+            }
+        }
+
+        state = .form
     }
 
     private func detectProviderName(_ url: String) -> String {

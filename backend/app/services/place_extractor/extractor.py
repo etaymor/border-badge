@@ -45,7 +45,7 @@ PLACE_EXTRACTION_TIMEOUT = 5.0
 LLM_EXTRACTION_TIMEOUT = 3.0
 
 
-async def _try_candidate(
+async def try_candidate(
     candidate: str,
     location_bias: LocationHint | None = None,
 ) -> DetectedPlace | None:
@@ -61,7 +61,7 @@ async def _try_candidate(
     results = await search_places(candidate, location_bias=location_bias)
 
     if not results:
-        logger.debug("_try_candidate: no results", extra={"candidate": candidate[:50]})
+        logger.debug("try_candidate: no results", extra={"candidate": candidate[:50]})
         return None
 
     # Take the first result
@@ -69,14 +69,14 @@ async def _try_candidate(
     place_id = first_result.get("place_id")
 
     if not place_id:
-        logger.debug("_try_candidate: no place_id", extra={"candidate": candidate[:50]})
+        logger.debug("try_candidate: no place_id", extra={"candidate": candidate[:50]})
         return None
 
     # Fetch full details
     details = await get_place_details(place_id)
 
     if not details:
-        logger.debug("_try_candidate: no details", extra={"place_id": place_id})
+        logger.debug("try_candidate: no details", extra={"place_id": place_id})
         return None
 
     # Calculate confidence
@@ -151,7 +151,7 @@ async def _extract_place_impl(
                 title,
                 caption,
                 author_name,
-                try_candidate_fn=_try_candidate,
+                try_candidate_fn=try_candidate,
                 extract_location_hints_fn=extract_location_hints,
                 timeout=LLM_EXTRACTION_TIMEOUT,
             )
@@ -228,7 +228,7 @@ async def _extract_place_impl(
 
     # NOW call Google Places API - only in the fallback path
     top_candidates = filtered_candidates[:MAX_PARALLEL_CANDIDATES]
-    tasks = [_try_candidate(c, location_bias=location_bias) for c in top_candidates]
+    tasks = [try_candidate(c, location_bias=location_bias) for c in top_candidates]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Collect all valid results with scores (best-match selection, not first-wins)
@@ -430,7 +430,7 @@ async def extract_place_from_profile(
 
     try:
         detected = await asyncio.wait_for(
-            _try_candidate(profile_name, location_bias=location_bias),
+            try_candidate(profile_name, location_bias=location_bias),
             timeout=PLACE_EXTRACTION_TIMEOUT,
         )
 

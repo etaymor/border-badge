@@ -14,6 +14,7 @@ from app.services.url_resolver import (
     follow_redirect,
     is_instagram_profile,
     is_supported_url,
+    is_tiktok_photo,
     normalize_url,
 )
 
@@ -148,6 +149,26 @@ class TestExtractTiktokVideoId:
     def test_returns_none_for_no_id(self):
         url = "https://www.tiktok.com/@username"
         assert extract_tiktok_video_id(url) is None
+
+
+class TestIsTiktokPhoto:
+    """Tests for is_tiktok_photo function."""
+
+    def test_detects_photo_url(self):
+        url = "https://www.tiktok.com/@username/photo/9876543210987654321"
+        assert is_tiktok_photo(url) is True
+
+    def test_rejects_video_url(self):
+        url = "https://www.tiktok.com/@username/video/1234567890123456789"
+        assert is_tiktok_photo(url) is False
+
+    def test_rejects_profile_url(self):
+        url = "https://www.tiktok.com/@username"
+        assert is_tiktok_photo(url) is False
+
+    def test_rejects_short_url(self):
+        url = "https://vm.tiktok.com/ZMJxxxxxxx/"
+        assert is_tiktok_photo(url) is False
 
 
 class TestExtractInstagramShortcode:

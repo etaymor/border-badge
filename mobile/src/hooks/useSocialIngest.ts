@@ -37,6 +37,7 @@ export interface SocialIngestRequest {
   url: string;
   caption?: string;
   extraction_method?: 'auto' | 'llm' | 'regex';
+  video_frames?: string[];
 }
 
 // Country detected from location hints (when place detection fails)
@@ -47,19 +48,35 @@ export interface DetectedCountry {
   longitude: number | null;
 }
 
-// Response from social ingest (no longer includes saved_source_id)
+// Trip suggested for agent-native batch save
+export interface SuggestedTrip {
+  id: string;
+  name: string;
+  country_code: string | null;
+  is_system: boolean;
+}
+
+// Response from social ingest - supports multi-place extraction
 export interface SocialIngestResponse {
   provider: SocialProvider;
   canonical_url: string;
   thumbnail_url: string | null;
   author_handle: string | null;
   title: string | null;
+  // Multi-place extraction: array of all detected places (max 10)
+  detected_places: DetectedPlace[];
+  // DEPRECATED: keep for backward compat, populated with first place from detected_places
   detected_place: DetectedPlace | null;
   // Country hint even when place detection fails (for trip defaulting & autocomplete bias)
   detected_country: DetectedCountry | null;
   // Extraction metrics
-  extraction_method_used?: 'llm' | 'regex' | 'none';
+  extraction_method_used?: 'llm' | 'regex' | 'video' | 'none';
+  extraction_source?: 'caption' | 'video_frames' | 'carousel' | 'slideshow' | 'screenshot';
   extraction_latency_ms?: number;
+  // Context location detected from content (e.g., "Thailand") - used as search bias
+  context_location?: string | null;
+  // Suggested trips for agent-native batch save (matching country first, then "Saved Places")
+  suggested_trips?: SuggestedTrip[];
 }
 
 // Request to save ingest data to a trip (includes full ingest data)
@@ -75,6 +92,42 @@ export interface SaveToTripRequest {
   place: DetectedPlace | null;
   entry_type: EntryType;
   notes?: string;
+}
+
+// A single place to save in a batch operation
+export interface PlaceToSave {
+  google_place_id: string;
+  name: string;
+  entry_type: EntryType;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  city: string | null;
+  country: string | null;
+  country_code: string | null;
+  google_photo_url?: string | null;
+}
+
+// Request to save multiple places from a social post
+export interface SavePlacesRequest {
+  trip_id: string;
+  places: PlaceToSave[];
+  // Ingest data
+  provider: SocialProvider;
+  canonical_url: string;
+  thumbnail_url?: string | null;
+  author_handle?: string | null;
+  title?: string | null;
+  // Notes applied to all entries
+  notes?: string | null;
+}
+
+// Response from batch save operation
+export interface SavePlacesResponse {
+  saved_count: number;
+  skipped_count: number;
+  saved_entry_ids: string[];
+  skipped_place_names: string[];
 }
 
 // Place attached to an entry
@@ -200,6 +253,40 @@ export function useSaveToTrip() {
 
       // Invalidate entries for the trip
       queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, data.trip_id] });
+
+      // Invalidate trips list (entry count may have changed)
+      queryClient.invalidateQueries({ queryKey: ['trips'] });
+    },
+    onError: (error) => {
+      const message = getErrorMessage(error);
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+/**
+ * Mutation to save multiple places from a social post to a trip.
+ * Used for multi-place extraction where a single post contains multiple places.
+ */
+export function useSavePlaces() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: SavePlacesRequest): Promise<SavePlacesResponse> => {
+      const response = await api.post('/ingest/save-places', input);
+      return response.data;
+    },
+    onSuccess: (data, variables) => {
+      // Track analytics for each saved entry
+      data.saved_entry_ids.forEach((entryId) => {
+        Analytics.shareSaved({
+          entryId,
+          tripId: variables.trip_id,
+        });
+      });
+
+      // Invalidate entries for the trip
+      queryClient.invalidateQueries({ queryKey: [...ENTRIES_QUERY_KEY, variables.trip_id] });
 
       // Invalidate trips list (entry count may have changed)
       queryClient.invalidateQueries({ queryKey: ['trips'] });

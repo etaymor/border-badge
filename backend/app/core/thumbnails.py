@@ -9,6 +9,13 @@ from PIL import Image
 
 pillow_heif.register_heif_opener()
 
+# =============================================================================
+# Security: Pillow Decompression Bomb Protection
+# =============================================================================
+# Set BEFORE any image operations - limits decompressed image size
+# 50M pixels = ~8.2GB decompressed at 32bpp - safe for server memory
+Image.MAX_IMAGE_PIXELS = 50_000_000
+
 logger = logging.getLogger(__name__)
 
 # Thumbnail configuration

@@ -32,6 +32,22 @@ LOCATION_EMOJIS_SECONDARY = [
     "\U0001f30f",  # 🌏 Earth Globe Asia-Australia
 ]
 
+# Number emojis used for listing multiple places (1️⃣ 2️⃣ 3️⃣ etc.)
+# These are keycap sequences: digit + U+FE0F + U+20E3
+NUMBER_EMOJIS = [
+    "1\ufe0f\u20e3",  # 1️⃣
+    "2\ufe0f\u20e3",  # 2️⃣
+    "3\ufe0f\u20e3",  # 3️⃣
+    "4\ufe0f\u20e3",  # 4️⃣
+    "5\ufe0f\u20e3",  # 5️⃣
+    "6\ufe0f\u20e3",  # 6️⃣
+    "7\ufe0f\u20e3",  # 7️⃣
+    "8\ufe0f\u20e3",  # 8️⃣
+    "9\ufe0f\u20e3",  # 9️⃣
+    "0\ufe0f\u20e3",  # 0️⃣
+    "\U0001f51f",  # 🔟 (keycap ten)
+]
+
 # All location emojis in priority order
 LOCATION_EMOJIS = LOCATION_EMOJIS_PRIMARY + LOCATION_EMOJIS_SECONDARY
 
@@ -46,6 +62,17 @@ _LOCATION_EMOJI_REGEX = re.compile(
     + r"\uFE0F?"  # Optional variation selector after emoji
     + r"\s*"  # Optional whitespace after emoji
     + r"([^\n#\U0001F300-\U0001FAFF\U0001F1E0-\U0001F1FF\u2600-\u27BF\uFE0F]{3,60})"
+)
+
+# Pre-compile regex for number emoji extraction
+# Number emojis indicate multi-place lists: "1️⃣ Shibuya Sky 2️⃣ Sensoji Temple"
+_ESCAPED_NUMBER_EMOJIS = [re.escape(emoji) for emoji in NUMBER_EMOJIS]
+_NUMBER_EMOJI_PATTERN = "(?:" + "|".join(_ESCAPED_NUMBER_EMOJIS) + ")"
+# Capture text after number emoji until next number emoji, newline, or hashtag
+_NUMBER_EMOJI_REGEX = re.compile(
+    _NUMBER_EMOJI_PATTERN
+    + r"\s*"  # Optional whitespace after emoji
+    + r"([^\n#0-9\uFE0F\u20E3\U0001F51F]{3,80})"  # Capture place text (longer than location)
 )
 
 
@@ -122,6 +149,63 @@ def extract_emoji_locations(text: str) -> list[str]:
         return run_with_timeout(_extract)
     except TimeoutError:
         logger.warning("emoji_extraction_timeout: returning empty list")
+        return []
+
+
+def extract_number_emoji_locations(text: str) -> list[str]:
+    """Extract location text following number emojis (1️⃣ 2️⃣ 3️⃣ etc.).
+
+    Social media users often use number emojis to create numbered lists of places,
+    e.g., "1️⃣ Shibuya Sky 2️⃣ Sensoji Temple 3️⃣ Tokyo Tower"
+
+    This function extracts the text immediately following number emojis,
+    which typically contains place names.
+
+    Uses timeout protection to prevent ReDoS attacks on untrusted input.
+
+    Args:
+        text: Caption or title text to search
+
+    Returns:
+        List of location strings found after number emojis, in order of appearance
+    """
+    if not text:
+        return []
+
+    # Truncate to prevent ReDoS attacks
+    if len(text) > MAX_TEXT_LENGTH:
+        text = text[:MAX_TEXT_LENGTH]
+
+    def _extract() -> list[str]:
+        locations: list[str] = []
+
+        # Use pre-compiled regex pattern for better performance
+        matches = _NUMBER_EMOJI_REGEX.findall(text)
+
+        for match in matches:
+            # Clean up the match
+            cleaned = match.strip()
+
+            # Remove trailing punctuation
+            cleaned = re.sub(r"[,.:;!?\-]+$", "", cleaned).strip()
+
+            # Skip if too short after cleaning
+            if len(cleaned) < 3:
+                continue
+
+            # Skip if it's just common words/noise
+            lower_cleaned = cleaned.lower()
+            if lower_cleaned in {"here", "location", "place", "spot", "check", "this"}:
+                continue
+
+            locations.append(cleaned)
+
+        return locations
+
+    try:
+        return run_with_timeout(_extract)
+    except TimeoutError:
+        logger.warning("number_emoji_extraction_timeout: returning empty list")
         return []
 
 
@@ -459,6 +543,7 @@ def extract_place_candidates(
     Extraction priority:
     1. Emoji-marked locations (📍) - highest confidence, users explicitly mark places
     1b. Flag emoji locations (🇴🇲) - country flag + place name
+    1c. Number emoji locations (1️⃣ 2️⃣) - numbered lists of places
     2. "Location:" prefix patterns - explicit user labeling
     3. Country-prefixed places ("Oman - Wadi Shab")
     4. Landmark patterns ("Karnak temple", "the Temple of Poseidon")
@@ -512,6 +597,15 @@ def extract_place_candidates(
     if title:
         flag_places, _ = extract_flag_emoji_locations(title)
         candidates.extend(flag_places)
+
+    # PRIORITY 1c: Extract number emoji locations (e.g., "1️⃣ Shibuya Sky 2️⃣ Sensoji")
+    # Users often create numbered lists of places with number emojis
+    if caption:
+        number_locations = extract_number_emoji_locations(caption)
+        candidates.extend(number_locations)
+    if title:
+        number_locations = extract_number_emoji_locations(title)
+        candidates.extend(number_locations)
 
     # PRIORITY 2: Extract "Location:" prefix patterns (explicit user labeling)
     if caption:

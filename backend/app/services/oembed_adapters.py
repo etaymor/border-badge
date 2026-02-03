@@ -498,6 +498,8 @@ async def fetch_oembed(
 
     if provider == SocialProvider.TIKTOK:
         oembed = await fetch_tiktok_oembed(url)
+        if not oembed:
+            oembed = await fetch_opengraph_fallback(url)
     elif provider == SocialProvider.INSTAGRAM:
         if is_profile:
             # Profile URLs don't support oEmbed - go directly to OpenGraph

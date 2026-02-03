@@ -157,6 +157,25 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(decoded["caption"], testCaption)
     }
 
+    func testIngestSocialRequestWithVideoFrames() async throws {
+        // Given: A URL with sampled video frames
+        let testURL = "https://www.tiktok.com/@user/video/123"
+        let frames = ["frame1base64", "frame2base64"]
+        let request = SocialIngestRequest(url: testURL, caption: nil, videoFrames: frames)
+
+        // When: Encoding the request
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        // Then: Verify encoding
+        XCTAssertEqual(json?["url"] as? String, testURL)
+        XCTAssertNil(json?["caption"])
+
+        let encodedFrames = json?["video_frames"] as? [String]
+        XCTAssertEqual(encodedFrames, frames)
+    }
+
     func testSaveToTripRequestFormat() async throws {
         // Given: A save to trip request
         let place = DetectedPlace(

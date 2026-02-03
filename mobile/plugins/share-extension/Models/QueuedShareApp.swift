@@ -85,11 +85,16 @@ struct SocialIngestResponse: Codable, Equatable {
     let thumbnailUrl: String?
     let authorHandle: String?
     let title: String?
-    let detectedPlace: DetectedPlace?
+    let detectedPlaces: [DetectedPlace]  // Multi-place extraction results
+    let detectedPlace: DetectedPlace?    // DEPRECATED: backward compat, use detectedPlaces[0]
     let detectedCountry: DetectedCountry?
     // Extraction metrics
     let extractionMethodUsed: String?
+    let extractionSource: String?        // "caption", "video_frames", "carousel", "screenshot"
     let extractionLatencyMs: Int?
+    let contextLocation: String?         // Location context from extraction (e.g., "Thailand")
+    // User-facing error when extraction fails due to platform limitations
+    let extractionError: String?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -97,10 +102,14 @@ struct SocialIngestResponse: Codable, Equatable {
         case thumbnailUrl = "thumbnail_url"
         case authorHandle = "author_handle"
         case title
+        case detectedPlaces = "detected_places"
         case detectedPlace = "detected_place"
         case detectedCountry = "detected_country"
         case extractionMethodUsed = "extraction_method_used"
+        case extractionSource = "extraction_source"
         case extractionLatencyMs = "extraction_latency_ms"
+        case contextLocation = "context_location"
+        case extractionError = "extraction_error"
     }
 }
 

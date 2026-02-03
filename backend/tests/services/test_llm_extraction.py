@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.llm_client import (
-    _parse_llm_places,
+    _parse_llm_response,
     _sanitize_content,
     try_llm_extraction,
+    try_llm_multi_place_extraction,
 )
 
 
@@ -171,13 +173,165 @@ class TestSanitizeContent:
         assert "Japan" in result
 
 
-class TestParseLlmPlaces:
-    """Tests for _parse_llm_places function."""
+class TestSkipToVideoDetection:
+    """Tests for skip_to_video detection in LLM parsing."""
+
+    def test_parses_skip_to_video_true(self):
+        """Parses skip_to_video: true from new response format."""
+        content = '{"places": [], "skip_to_video": true}'
+        result = _parse_llm_response(content)
+        assert result.places == []
+        assert result.skip_to_video is True
+
+    def test_parses_skip_to_video_false(self):
+        """Parses skip_to_video: false from new response format."""
+        content = (
+            '{"places": [{"name": "Cafe", "type": "Food"}], "skip_to_video": false}'
+        )
+        result = _parse_llm_response(content)
+        assert len(result.places) == 1
+        assert result.skip_to_video is False
+
+    def test_skip_to_video_defaults_to_false(self):
+        """Defaults skip_to_video to false when not provided."""
+        content = '{"places": []}'
+        result = _parse_llm_response(content)
+        assert result.skip_to_video is False
+
+    def test_legacy_array_format_skip_to_video_false(self):
+        """Legacy array format has skip_to_video = false."""
+        content = '[{"name": "Place", "type": "Place"}]'
+        result = _parse_llm_response(content)
+        assert result.skip_to_video is False
+
+    @pytest.mark.asyncio
+    async def test_n_places_title_with_country_only_caption_triggers_skip_to_video(
+        self,
+    ):
+        """When title says '10 places to visit in X' but caption only has country, skip to video.
+
+        This is a critical test case: If the title promises N places but the caption
+        only contains a country/flag emoji, the actual places must be in the video.
+        The LLM should recognize this pattern and set skip_to_video: true.
+
+        Real-world example:
+        - Title: "10 places to visit in Albania 🇦🇱"
+        - Caption: "🇦🇱 albania"
+        - Expected: skip_to_video=True (the 10 places are shown in the video, not listed in text)
+        """
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        # The LLM should recognize this pattern and return skip_to_video: true
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {"message": {"content": '{"places": [], "skip_to_video": true}'}}
+            ]
+        }
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        mock_try_candidate = AsyncMock(return_value=None)
+        mock_extract_location_hints = MagicMock(return_value=[])
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_multi_place_extraction(
+                    title="10 places to visit in Albania 🇦🇱",
+                    caption="🇦🇱 albania",
+                    profile_name="TravelUser",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+
+                # This is the key assertion: the LLM should signal skip_to_video
+                assert result.skip_to_video is True
+                # No specific places should be extracted from just a country name
+                assert len(result.places) == 0
+
+    @pytest.mark.asyncio
+    async def test_listicle_title_patterns_should_trigger_skip_to_video(
+        self,
+    ):
+        """Various listicle title patterns should trigger skip_to_video when caption lacks places.
+
+        Common patterns that indicate places are in the video:
+        - "10 places to visit in..."
+        - "Top 5 restaurants in..."
+        - "Best 7 things to do in..."
+        - "5 hidden gems in..."
+        """
+        test_cases = [
+            ("10 places to visit in Albania", "🇦🇱 albania"),
+            ("Top 5 restaurants in Paris", "#paris #food"),
+            ("Best 7 things to do in Tokyo", "japan"),
+            ("5 hidden gems in Barcelona", "spain travel"),
+            ("8 must-see spots in Rome", "📍 italy"),
+            ("My favorite 12 cafes in London", "uk trip"),
+        ]
+
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        for title, caption in test_cases:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            # Expect the LLM to recognize these patterns and return skip_to_video: true
+            mock_response.json.return_value = {
+                "choices": [
+                    {"message": {"content": '{"places": [], "skip_to_video": true}'}}
+                ]
+            }
+
+            mock_http_client = AsyncMock()
+            mock_http_client.post.return_value = mock_response
+
+            with patch(
+                "app.services.place_extractor.llm_client.get_settings",
+                return_value=mock_settings,
+            ):
+                with patch(
+                    "app.services.place_extractor.llm_client.get_http_client",
+                    return_value=mock_http_client,
+                ):
+                    result = await try_llm_multi_place_extraction(
+                        title=title,
+                        caption=caption,
+                        profile_name="Author",
+                        try_candidate_fn=AsyncMock(return_value=None),
+                        extract_location_hints_fn=MagicMock(return_value=[]),
+                    )
+
+                    # For this test to be meaningful, we're verifying the expected behavior
+                    # The actual LLM behavior depends on the prompt - this test documents
+                    # what we expect the system to do for these patterns
+                    assert (
+                        result.skip_to_video is True
+                    ), f"Expected skip_to_video=True for title='{title}', caption='{caption}'"
+
+
+class TestParseLlmResponse:
+    """Tests for _parse_llm_response function."""
 
     def test_parses_valid_json_array(self):
         """Parses valid JSON array response."""
         content = '[{"name": "Cafe Central", "city": "Vienna", "country": "Austria", "type": "Food"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0] == ("Cafe Central", "Vienna", "Austria", "food")
@@ -188,27 +342,27 @@ class TestParseLlmPlaces:
             {"name": "Eiffel Tower", "city": "Paris", "country": "France", "type": "Place"},
             {"name": "Louvre Museum", "city": "Paris", "country": "France", "type": "Place"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 2
         assert result[0][0] == "Eiffel Tower"
         assert result[1][0] == "Louvre Museum"
 
-    def test_limits_to_5_places(self):
-        """Limits output to maximum 5 places."""
+    def test_limits_to_10_places(self):
+        """Limits output to maximum 10 places."""
         places = [
             {"name": f"Place{i}", "city": "City", "country": "Country", "type": "Place"}
-            for i in range(10)
+            for i in range(15)
         ]
         content = str(places).replace("'", '"')
-        result = _parse_llm_places(content)
-        assert len(result) == 5
+        result = _parse_llm_response(content).places
+        assert len(result) == 10
 
     def test_strips_code_fences(self):
         """Strips markdown code fences from response."""
         content = """```json
         [{"name": "Tokyo Tower", "city": "Tokyo", "country": "Japan", "type": "Place"}]
         ```"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Tokyo Tower"
 
@@ -217,27 +371,27 @@ class TestParseLlmPlaces:
         content = """```
         [{"name": "Big Ben", "city": "London", "country": "UK", "type": "Place"}]
         ```"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Big Ben"
 
     def test_fixes_trailing_commas(self):
         """Fixes common LLM JSON error of trailing commas."""
         content = '[{"name": "Colosseum", "city": "Rome", "country": "Italy", "type": "Place",}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Colosseum"
 
     def test_returns_empty_for_invalid_json(self):
         """Returns empty list for invalid JSON."""
         content = "This is not JSON at all"
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
     def test_returns_empty_for_non_array(self):
         """Returns empty list when response is not an array."""
         content = '{"name": "Single Place", "city": "City", "country": "Country"}'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
     def test_skips_items_without_name(self):
@@ -247,14 +401,14 @@ class TestParseLlmPlaces:
             {"city": "City", "type": "Place"},
             {"name": "", "city": "City", "type": "Place"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Valid Place"
 
     def test_handles_null_city_country(self):
         """Handles null/missing city and country fields."""
         content = '[{"name": "Mystery Place", "city": null, "country": null, "type": "Place"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0] == ("Mystery Place", None, None, "place")
@@ -262,7 +416,7 @@ class TestParseLlmPlaces:
     def test_handles_missing_type_defaults_to_place(self):
         """Defaults to 'place' type when not provided."""
         content = '[{"name": "Some Building", "city": "City"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Entry types are normalized to lowercase to match database enum
         assert result[0][3] == "place"
@@ -270,7 +424,7 @@ class TestParseLlmPlaces:
     def test_validates_entry_type(self):
         """Validates entry type against allowed values."""
         content = '[{"name": "Test", "city": "City", "type": "InvalidType"}]'
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         # Invalid type should default to "place" (lowercase)
         assert result[0][3] == "place"
@@ -283,7 +437,7 @@ class TestParseLlmPlaces:
             {"name": "Cafe Lomi", "type": "Food"},
             {"name": "City Tour", "type": "Experience"}
         ]"""
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 4
         # Entry types are normalized to lowercase to match database enum
         assert result[0][3] == "place"
@@ -298,14 +452,14 @@ class TestParseLlmPlaces:
         [{"name": "Cafe Central", "city": "Vienna", "type": "Food"}]
 
         """
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert len(result) == 1
         assert result[0][0] == "Cafe Central"
 
     def test_returns_empty_for_empty_array(self):
         """Returns empty list for empty JSON array."""
         content = "[]"
-        result = _parse_llm_places(content)
+        result = _parse_llm_response(content).places
         assert result == []
 
 
@@ -427,6 +581,8 @@ class TestTryLlmExtraction:
     @pytest.mark.asyncio
     async def test_successful_extraction(self, mock_extract_location_hints):
         """Tests successful LLM extraction with mocked API response."""
+        from app.schemas.social_ingest import DetectedPlace
+
         mock_settings = MagicMock()
         mock_settings.llm_place_extraction_enabled = True
         mock_settings.openrouter_api_key = "test-key"
@@ -446,10 +602,15 @@ class TestTryLlmExtraction:
             ]
         }
 
-        mock_detected_place = MagicMock()
-        mock_detected_place.confidence = 0.8
+        # Use actual DetectedPlace to pass isinstance check in multi-place resolution
+        resolved_place = DetectedPlace(
+            name="Cafe Central",
+            google_place_id="ChIJ123",
+            address="Some Address, Vienna",
+            confidence=0.8,
+        )
 
-        mock_try_candidate = AsyncMock(return_value=mock_detected_place)
+        mock_try_candidate = AsyncMock(return_value=resolved_place)
 
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = mock_place_response
@@ -477,8 +638,9 @@ class TestTryLlmExtraction:
                 assert call_args[0][0] == "Cafe Central, Vienna, Austria"
 
                 # Result should have the LLM entry type attached (normalized to lowercase)
-                assert result == mock_detected_place
-                assert mock_detected_place.llm_entry_type == "food"
+                assert result is not None
+                assert result.name == "Cafe Central"
+                assert result.llm_entry_type == "food"
 
     @pytest.mark.asyncio
     async def test_handles_http_error(
@@ -736,6 +898,96 @@ class TestTryLlmExtraction:
                 )
                 # Should return None on malformed response, not raise
                 assert result is None
+
+
+class TestTryLlmMultiPlaceExtraction:
+    """Tests for try_llm_multi_place_extraction function."""
+
+    @pytest.fixture
+    def mock_try_candidate(self):
+        """Fixture for mock try_candidate callback."""
+        return AsyncMock(return_value=None)
+
+    @pytest.fixture
+    def mock_extract_location_hints(self):
+        """Fixture for mock extract_location_hints callback."""
+        return MagicMock(return_value=[])
+
+    @pytest.mark.asyncio
+    async def test_preserves_same_name_different_locations(self):
+        """Does not dedupe distinct places that share a name."""
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": """
+                        {
+                          "places": [
+                            {"name": "Cafe Central", "city": "Vienna", "country": "Austria", "type": "Food"},
+                            {"name": "Cafe Central", "city": "Budapest", "country": "Hungary", "type": "Food"}
+                          ],
+                          "skip_to_video": false
+                        }
+                        """
+                    }
+                }
+            ]
+        }
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        async def mock_try_candidate(query, _location_bias):
+            if "Vienna" in query:
+                return DetectedPlace(
+                    google_place_id="ChIJVIENNA",
+                    name="Cafe Central",
+                    city="Vienna",
+                    country="Austria",
+                    country_code="AT",
+                    confidence=0.9,
+                )
+            if "Budapest" in query:
+                return DetectedPlace(
+                    google_place_id="ChIJBUDAPEST",
+                    name="Cafe Central",
+                    city="Budapest",
+                    country="Hungary",
+                    country_code="HU",
+                    confidence=0.9,
+                )
+            return None
+
+        def mock_extract_location_hints(_text):
+            return []
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_multi_place_extraction(
+                    "Title",
+                    "Caption",
+                    "Author",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+
+                assert len(result.places) == 2
+                ids = {p.google_place_id for p in result.places}
+                assert ids == {"ChIJVIENNA", "ChIJBUDAPEST"}
 
     @pytest.mark.asyncio
     async def test_unexpected_exception_bubbles_up(

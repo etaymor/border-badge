@@ -2,6 +2,7 @@
 
 from app.services.place_extractor.candidate_extraction import (
     extract_emoji_locations,
+    extract_number_emoji_locations,
     extract_place_candidates,
 )
 from app.services.place_extractor.text_utils import clean_instagram_title
@@ -123,6 +124,85 @@ class TestExtractEmojiLocations:
         # Verify no FE0F in captured text
         for loc in locations:
             assert "\ufe0f" not in loc
+
+
+class TestExtractNumberEmojiLocations:
+    """Tests for number emoji-based location extraction."""
+
+    def test_extracts_single_number_emoji_location(self):
+        """Extracts location after 1️⃣ number emoji."""
+        text = "1️⃣ Shibuya Sky"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Shibuya Sky" in locations[0]
+
+    def test_extracts_multiple_number_emoji_locations(self):
+        """Extracts multiple locations from numbered list."""
+        text = "1️⃣ Shibuya Sky 2️⃣ Sensoji Temple 3️⃣ Tokyo Tower"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 3
+        assert any("Shibuya Sky" in loc for loc in locations)
+        assert any("Sensoji Temple" in loc for loc in locations)
+        assert any("Tokyo Tower" in loc for loc in locations)
+
+    def test_extracts_locations_with_newlines(self):
+        """Extracts locations when separated by newlines."""
+        text = """1️⃣ Shibuya Sky
+2️⃣ Sensoji Temple
+3️⃣ Tokyo Tower"""
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 3
+
+    def test_extracts_keycap_ten_emoji(self):
+        """Extracts location after 🔟 keycap ten emoji."""
+        text = "🔟 Fushimi Inari Shrine"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 1
+        assert "Fushimi Inari Shrine" in locations[0]
+
+    def test_skips_short_text(self):
+        """Skips text shorter than 3 characters."""
+        text = "1️⃣ NY"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 0
+
+    def test_skips_noise_words(self):
+        """Skips common noise words after emoji."""
+        text = "1️⃣ here 2️⃣ place"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 0
+
+    def test_removes_trailing_punctuation(self):
+        """Removes trailing punctuation from location."""
+        text = "1️⃣ Shibuya Sky!!!"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 1
+        assert locations[0] == "Shibuya Sky"
+
+    def test_empty_input(self):
+        """Handles empty input."""
+        assert extract_number_emoji_locations("") == []
+
+    def test_no_number_emoji(self):
+        """Returns empty list when no number emojis present."""
+        text = "Visit Shibuya Sky in Tokyo"
+        locations = extract_number_emoji_locations(text)
+        assert len(locations) == 0
+
+    def test_real_tiktok_caption_with_numbers(self):
+        """Handles real-world TikTok caption with number emojis."""
+        caption = """Tokyo travel guide 🇯🇵
+
+1️⃣ Shibuya Sky - best views
+2️⃣ Shibuya Crossing
+3️⃣ Harry Potter Studio Tour
+4️⃣ Nakamise Street
+5️⃣ Sensoji Temple
+6️⃣ Tokyo Disney"""
+        locations = extract_number_emoji_locations(caption)
+        assert len(locations) >= 5
+        assert any("Shibuya Sky" in loc for loc in locations)
+        assert any("Sensoji Temple" in loc for loc in locations)
 
 
 class TestCleanInstagramTitle:

@@ -32,6 +32,7 @@ from app.services.place_extractor.extractor import (
     extract_place,
     extract_place_from_profile,
     extract_place_with_method,
+    try_candidate,
 )
 from app.services.place_extractor.google_places_client import (
     get_place_details,
@@ -40,7 +41,9 @@ from app.services.place_extractor.google_places_client import (
 )
 from app.services.place_extractor.llm_client import (
     VALID_ENTRY_TYPES,
+    MultiPlaceExtractionResult,
     try_llm_extraction,
+    try_llm_multi_place_extraction,
 )
 from app.services.place_extractor.location_hints import (
     LocationHint,
@@ -70,6 +73,7 @@ __all__ = [
     "extract_place_from_profile",
     "clean_instagram_profile_name",
     "ExtractionResult",
+    "try_candidate",
     # Location data
     "MAJOR_CITIES",
     "COUNTRIES",
@@ -99,5 +103,7 @@ __all__ = [
     "NOISE_WORDS",
     # LLM extraction
     "try_llm_extraction",
+    "try_llm_multi_place_extraction",
+    "MultiPlaceExtractionResult",
     "VALID_ENTRY_TYPES",
 ]
