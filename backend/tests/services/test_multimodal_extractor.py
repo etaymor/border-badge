@@ -606,7 +606,7 @@ class TestMultimodalExtractorRequestFormat:
         """Request should use the configured model."""
         with patch("app.services.multimodal_extractor.get_settings") as mock_settings:
             mock_settings.return_value.openrouter_api_key = "test-key"
-            mock_settings.return_value.openrouter_model = "google/gemini-2.0-flash"
+            mock_settings.return_value.multimodal_model = "google/gemini-2.0-flash"
             mock_settings.return_value.base_url = "http://test.com"
 
             mock_response = MagicMock()

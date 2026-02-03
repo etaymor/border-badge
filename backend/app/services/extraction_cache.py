@@ -175,6 +175,19 @@ async def get_cached_extraction(
     )
 
 
+def _get_lower_priority_sources(source: ExtractionSource) -> list[str]:
+    """Get all source types with strictly lower priority than the given source.
+
+    Args:
+        source: The extraction source to compare against
+
+    Returns:
+        List of source type strings with lower priority
+    """
+    priority = get_source_priority(source)
+    return [s for s, p in SOURCE_PRIORITY.items() if s is not None and p < priority]
+
+
 async def cache_extraction(
     canonical_url: str,
     places: list[DetectedPlace],
@@ -182,13 +195,14 @@ async def cache_extraction(
 ) -> None:
     """Cache extraction result for a URL.
 
-    Updates the existing oembed_cache row with extraction results, but only if:
-    - No existing extraction result exists, OR
-    - The new source is equal or higher quality than the existing source
+    Uses an atomic conditional UPDATE to prevent TOCTOU race conditions.
+    The UPDATE only succeeds when:
+    - No existing extraction source (IS NULL), OR
+    - The existing source is the same type (re-extraction), OR
+    - The existing source has strictly lower priority
 
-    This prevents race conditions where a lower-quality extraction (e.g., caption)
-    could overwrite a higher-quality extraction (e.g., video_frames) that
-    completed first.
+    This is done in a single PATCH call with WHERE filters, so concurrent
+    requests cannot interleave between a check and an update.
 
     Quality hierarchy (highest to lowest):
     1. video_frames - Most reliable, from visual analysis
@@ -203,36 +217,20 @@ async def cache_extraction(
     """
     db = get_supabase_client()
 
-    # Check existing cache to determine if we should update
-    rows = await db.get(
-        "oembed_cache",
-        {
-            "canonical_url": f"eq.{canonical_url}",
-            "select": "extraction_source",
-        },
-    )
-
-    if not rows:
-        # Row doesn't exist - this is unusual but handle it
-        logger.warning(
-            f"extraction_cache_no_row: url={canonical_url[:50]} - oEmbed should be cached first"
-        )
-        return
-
-    existing_source = rows[0].get("extraction_source")
-
-    # Check if we should update based on source quality hierarchy
-    if not should_update_cache(existing_source, source):
-        logger.debug(
-            f"extraction_cache_skip: url={canonical_url[:50]} existing={existing_source} "
-            f"new={source} - preserving higher quality extraction"
-        )
-        return
-
     extraction_at = datetime.now(UTC).isoformat()
     places_json = _places_to_json(places)
 
-    # Update the cache with new extraction result
+    # Build atomic conditional UPDATE filter.
+    # Only update if: source IS NULL, source matches (re-extraction),
+    # or source is strictly lower priority.
+    lower_sources = _get_lower_priority_sources(source)
+    or_conditions = [
+        "extraction_source.is.null",
+        f"extraction_source.eq.{source}",
+    ]
+    for ls in lower_sources:
+        or_conditions.append(f"extraction_source.eq.{ls}")
+
     updated = await db.patch(
         "oembed_cache",
         {
@@ -240,7 +238,10 @@ async def cache_extraction(
             "extraction_source": source,
             "extraction_at": extraction_at,
         },
-        {"canonical_url": f"eq.{canonical_url}"},
+        {
+            "canonical_url": f"eq.{canonical_url}",
+            "or": f"({','.join(or_conditions)})",
+        },
     )
 
     if updated:
@@ -248,8 +249,9 @@ async def cache_extraction(
             f"extraction_cache_stored: url={canonical_url[:50]} places={len(places)} source={source}"
         )
     else:
-        logger.warning(
-            f"extraction_cache_update_failed: url={canonical_url[:50]} - row may have been deleted"
+        logger.debug(
+            f"extraction_cache_skip: url={canonical_url[:50]} source={source} "
+            f"- preserved higher quality extraction or row missing"
         )
 
 

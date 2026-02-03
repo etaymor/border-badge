@@ -376,7 +376,7 @@ class MultimodalExtractor:
             timeout: Request timeout in seconds
         """
         settings = get_settings()
-        self.model = model or settings.openrouter_model
+        self.model = model or settings.multimodal_model
         self.timeout = timeout
         self.api_key = settings.openrouter_api_key
         self.base_url = settings.base_url

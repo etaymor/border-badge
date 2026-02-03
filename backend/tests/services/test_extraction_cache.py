@@ -1,12 +1,17 @@
 """Tests for extraction cache service."""
 
-from datetime import UTC, datetime
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.schemas.social_ingest import DetectedPlace
-from app.services.extraction_cache import cache_extraction
+from app.services.extraction_cache import (
+    _get_lower_priority_sources,
+    cache_extraction,
+    get_source_priority,
+    should_update_cache,
+)
 
 
 def make_detected_place(name: str = "Test Place") -> DetectedPlace:
@@ -27,347 +32,242 @@ def make_detected_place(name: str = "Test Place") -> DetectedPlace:
     )
 
 
-class TestCacheExtractionRaceCondition:
-    """Tests for race condition handling in cache_extraction."""
+class TestGetLowerPrioritySources:
+    """Tests for _get_lower_priority_sources helper."""
+
+    def test_video_frames_lower_sources(self):
+        """video_frames should list all other sources as lower priority."""
+        lower = _get_lower_priority_sources("video_frames")
+        assert set(lower) == {"carousel", "screenshot", "caption"}
+
+    def test_carousel_lower_sources(self):
+        lower = _get_lower_priority_sources("carousel")
+        assert set(lower) == {"screenshot", "caption"}
+
+    def test_screenshot_lower_sources(self):
+        lower = _get_lower_priority_sources("screenshot")
+        assert set(lower) == {"caption"}
+
+    def test_caption_lower_sources(self):
+        lower = _get_lower_priority_sources("caption")
+        assert lower == []
+
+
+class TestCacheExtractionConditionalUpdate:
+    """Tests for the atomic conditional UPDATE in cache_extraction.
+
+    The implementation uses a single PATCH with WHERE filters to prevent
+    TOCTOU race conditions. These tests verify the correct filter params
+    are sent to PostgREST.
+    """
 
     @pytest.mark.asyncio
-    async def test_video_frames_not_overwritten_by_caption(self):
-        """Video frame extraction should not be overwritten by caption extraction.
-
-        This tests the race condition where two concurrent requests both miss the cache.
-        If video_frames extraction completes first, a slower caption extraction should
-        not overwrite it since video_frames is higher quality.
-        """
+    async def test_video_frames_includes_all_lower_sources_in_filter(self):
+        """video_frames PATCH should allow overwrite of NULL, caption, screenshot, carousel."""
         canonical_url = "https://www.tiktok.com/@user/video/123"
-        video_place = make_detected_place("Video Extracted Place")
-        caption_place = make_detected_place("Caption Extracted Place")
+        place = make_detected_place("Video Place")
 
-        # Track patch calls to verify conditional update logic
         patch_calls = []
 
         async def mock_patch(table, data, params):
-            patch_calls.append(
-                {"table": table, "data": data.copy(), "params": params.copy()}
-            )
-            # Return updated rows to indicate success
+            patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
-
-        async def mock_get(table, params):
-            # For the first call (video_frames), no existing extraction
-            # For the second call (caption), video_frames already exists
-            if len(patch_calls) == 0:
-                # First check - no existing extraction
-                return [
-                    {
-                        "extraction_result": None,
-                        "extraction_source": None,
-                        "extraction_at": None,
-                    }
-                ]
-            else:
-                # Second check - video_frames already cached
-                return [
-                    {
-                        "extraction_result": [
-                            {
-                                "google_place_id": "ChIJ123",
-                                "name": "Video Extracted Place",
-                                "address": "123 Test St",
-                                "latitude": 40.7128,
-                                "longitude": -74.0060,
-                                "city": "New York",
-                                "country": "United States",
-                                "country_code": "US",
-                                "confidence": 0.9,
-                                "primary_type": "restaurant",
-                                "types": ["restaurant"],
-                                "llm_entry_type": "Food",
-                            }
-                        ],
-                        "extraction_source": "video_frames",
-                        "extraction_at": datetime.now(UTC).isoformat(),
-                    }
-                ]
 
         with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
             mock_client.return_value = client
 
-            # First: Cache video_frames extraction (should succeed)
-            await cache_extraction(canonical_url, [video_place], source="video_frames")
+            await cache_extraction(canonical_url, [place], source="video_frames")
 
-            # Second: Try to cache caption extraction (should be skipped)
-            await cache_extraction(canonical_url, [caption_place], source="caption")
-
-            # Verify video_frames was cached
             assert len(patch_calls) == 1
-            assert patch_calls[0]["data"]["extraction_source"] == "video_frames"
-            assert patch_calls[0]["data"]["extraction_result"][0]["name"] == (
-                "Video Extracted Place"
-            )
+            params = patch_calls[0]["params"]
+            or_filter = params["or"]
+            assert "extraction_source.is.null" in or_filter
+            assert "extraction_source.eq.video_frames" in or_filter
+            assert "extraction_source.eq.carousel" in or_filter
+            assert "extraction_source.eq.screenshot" in or_filter
+            assert "extraction_source.eq.caption" in or_filter
 
     @pytest.mark.asyncio
-    async def test_caption_can_overwrite_empty_cache(self):
-        """Caption extraction should be cached when no existing result."""
+    async def test_caption_filter_only_allows_null_and_self(self):
+        """caption PATCH should only allow overwrite of NULL or existing caption."""
         canonical_url = "https://www.tiktok.com/@user/video/456"
-        caption_place = make_detected_place("Caption Place")
+        place = make_detected_place("Caption Place")
 
         patch_calls = []
 
         async def mock_patch(table, data, params):
-            patch_calls.append(
-                {"table": table, "data": data.copy(), "params": params.copy()}
-            )
+            patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
-
-        async def mock_get(table, params):
-            # No existing extraction
-            return [
-                {
-                    "extraction_result": None,
-                    "extraction_source": None,
-                    "extraction_at": None,
-                }
-            ]
 
         with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
             mock_client.return_value = client
 
-            await cache_extraction(canonical_url, [caption_place], source="caption")
+            await cache_extraction(canonical_url, [place], source="caption")
 
             assert len(patch_calls) == 1
-            assert patch_calls[0]["data"]["extraction_source"] == "caption"
+            or_filter = patch_calls[0]["params"]["or"]
+            assert "extraction_source.is.null" in or_filter
+            assert "extraction_source.eq.caption" in or_filter
+            # Should NOT include higher-priority sources
+            assert "extraction_source.eq.video_frames" not in or_filter
+            assert "extraction_source.eq.carousel" not in or_filter
+            assert "extraction_source.eq.screenshot" not in or_filter
 
     @pytest.mark.asyncio
-    async def test_video_frames_can_overwrite_caption(self):
-        """Video frames should overwrite caption extraction (higher quality)."""
-        canonical_url = "https://www.tiktok.com/@user/video/789"
-        video_place = make_detected_place("Video Place")
-
-        patch_calls = []
-
-        async def mock_patch(table, data, params):
-            patch_calls.append(
-                {"table": table, "data": data.copy(), "params": params.copy()}
-            )
-            return [data]
-
-        async def mock_get(table, params):
-            # Caption already cached
-            return [
-                {
-                    "extraction_result": [
-                        {
-                            "google_place_id": "ChIJ456",
-                            "name": "Old Caption Place",
-                            "address": "456 Old St",
-                            "latitude": 40.0,
-                            "longitude": -74.0,
-                            "city": "NYC",
-                            "country": "USA",
-                            "country_code": "US",
-                            "confidence": 0.7,
-                            "primary_type": "cafe",
-                            "types": ["cafe"],
-                            "llm_entry_type": "Food",
-                        }
-                    ],
-                    "extraction_source": "caption",
-                    "extraction_at": datetime.now(UTC).isoformat(),
-                }
-            ]
-
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
-            client = MagicMock()
-            client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
-            mock_client.return_value = client
-
-            await cache_extraction(canonical_url, [video_place], source="video_frames")
-
-            assert len(patch_calls) == 1
-            assert patch_calls[0]["data"]["extraction_source"] == "video_frames"
-            assert patch_calls[0]["data"]["extraction_result"][0]["name"] == (
-                "Video Place"
-            )
-
-    @pytest.mark.asyncio
-    async def test_same_source_can_overwrite(self):
-        """Same source type can overwrite existing cache (re-extraction)."""
-        canonical_url = "https://www.tiktok.com/@user/video/999"
-        new_caption_place = make_detected_place("New Caption Place")
-
-        patch_calls = []
-
-        async def mock_patch(table, data, params):
-            patch_calls.append(
-                {"table": table, "data": data.copy(), "params": params.copy()}
-            )
-            return [data]
-
-        async def mock_get(table, params):
-            # Old caption already cached
-            return [
-                {
-                    "extraction_result": [
-                        {
-                            "google_place_id": "ChIJ111",
-                            "name": "Old Caption Place",
-                            "address": "111 Old St",
-                            "latitude": 40.0,
-                            "longitude": -74.0,
-                            "city": "NYC",
-                            "country": "USA",
-                            "country_code": "US",
-                            "confidence": 0.5,
-                            "primary_type": "shop",
-                            "types": ["shop"],
-                            "llm_entry_type": "Place",
-                        }
-                    ],
-                    "extraction_source": "caption",
-                    "extraction_at": datetime.now(UTC).isoformat(),
-                }
-            ]
-
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
-            client = MagicMock()
-            client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
-            mock_client.return_value = client
-
-            await cache_extraction(canonical_url, [new_caption_place], source="caption")
-
-            # Same source should allow overwrite
-            assert len(patch_calls) == 1
-            assert patch_calls[0]["data"]["extraction_source"] == "caption"
-            assert patch_calls[0]["data"]["extraction_result"][0]["name"] == (
-                "New Caption Place"
-            )
-
-    @pytest.mark.asyncio
-    async def test_carousel_not_overwritten_by_caption(self):
-        """Carousel extraction (higher quality) should not be overwritten by caption."""
+    async def test_carousel_filter_includes_lower_sources(self):
+        """carousel PATCH should allow overwrite of NULL, self, screenshot, caption."""
         canonical_url = "https://www.instagram.com/p/abc123"
-        caption_place = make_detected_place("Caption Place")
+        place = make_detected_place("Carousel Place")
 
         patch_calls = []
 
         async def mock_patch(table, data, params):
-            patch_calls.append(
-                {"table": table, "data": data.copy(), "params": params.copy()}
-            )
+            patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
-
-        async def mock_get(table, params):
-            # Carousel already cached
-            return [
-                {
-                    "extraction_result": [
-                        {
-                            "google_place_id": "ChIJ222",
-                            "name": "Carousel Place",
-                            "address": "222 Carousel St",
-                            "latitude": 40.0,
-                            "longitude": -74.0,
-                            "city": "NYC",
-                            "country": "USA",
-                            "country_code": "US",
-                            "confidence": 0.95,
-                            "primary_type": "restaurant",
-                            "types": ["restaurant"],
-                            "llm_entry_type": "Food",
-                        }
-                    ],
-                    "extraction_source": "carousel",
-                    "extraction_at": datetime.now(UTC).isoformat(),
-                }
-            ]
 
         with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
             mock_client.return_value = client
 
-            await cache_extraction(canonical_url, [caption_place], source="caption")
+            await cache_extraction(canonical_url, [place], source="carousel")
 
-            # Caption should not overwrite carousel
-            assert len(patch_calls) == 0
+            assert len(patch_calls) == 1
+            or_filter = patch_calls[0]["params"]["or"]
+            assert "extraction_source.is.null" in or_filter
+            assert "extraction_source.eq.carousel" in or_filter
+            assert "extraction_source.eq.screenshot" in or_filter
+            assert "extraction_source.eq.caption" in or_filter
+            # Should NOT include video_frames (higher priority)
+            assert "extraction_source.eq.video_frames" not in or_filter
 
     @pytest.mark.asyncio
-    async def test_screenshot_not_overwritten_by_caption(self):
-        """Screenshot extraction should not be overwritten by caption."""
-        canonical_url = "https://www.tiktok.com/@user/video/111"
+    async def test_patch_called_with_correct_data(self):
+        """Verify the PATCH sends correct extraction data."""
+        canonical_url = "https://www.tiktok.com/@user/video/789"
+        place = make_detected_place("My Place")
+
+        patch_calls = []
+
+        async def mock_patch(table, data, params):
+            patch_calls.append({"table": table, "data": data, "params": params})
+            return [data]
+
+        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+            client = MagicMock()
+            client.patch = AsyncMock(side_effect=mock_patch)
+            mock_client.return_value = client
+
+            await cache_extraction(canonical_url, [place], source="video_frames")
+
+            data = patch_calls[0]["data"]
+            assert data["extraction_source"] == "video_frames"
+            assert data["extraction_result"][0]["name"] == "My Place"
+            assert "extraction_at" in data
+
+    @pytest.mark.asyncio
+    async def test_empty_patch_result_logs_skip(self):
+        """When PATCH returns empty (no rows matched), it should log skip."""
+        canonical_url = "https://www.tiktok.com/@user/video/no-match"
+        place = make_detected_place("Place")
+
+        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+            client = MagicMock()
+            # Empty result = no rows matched the WHERE filter
+            client.patch = AsyncMock(return_value=[])
+            mock_client.return_value = client
+
+            # Should not raise
+            await cache_extraction(canonical_url, [place], source="caption")
+
+    @pytest.mark.asyncio
+    async def test_no_get_call_made(self):
+        """Verify cache_extraction does NOT make a GET call (atomic update)."""
+        canonical_url = "https://www.tiktok.com/@user/video/no-get"
+        place = make_detected_place("Place")
+
+        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+            client = MagicMock()
+            client.patch = AsyncMock(return_value=[{"ok": True}])
+            client.get = AsyncMock()
+            mock_client.return_value = client
+
+            await cache_extraction(canonical_url, [place], source="caption")
+
+            # No GET should be called — the update is atomic
+            client.get.assert_not_called()
+
+
+class TestCacheExtractionConcurrency:
+    """Tests verifying the atomic approach prevents TOCTOU race conditions."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_extractions_both_send_conditional_patch(self):
+        """Concurrent caption and video_frames both send atomic conditional PATCHes.
+
+        With PostgREST, the database handles the conflict atomically.
+        Both calls should send a PATCH — the DB WHERE clause determines the winner.
+        """
+        canonical_url = "https://www.tiktok.com/@user/video/race123"
+        video_place = make_detected_place("Video Place")
         caption_place = make_detected_place("Caption Place")
 
         patch_calls = []
 
         async def mock_patch(table, data, params):
+            await asyncio.sleep(0.01)  # Simulate network latency
             patch_calls.append(
                 {"table": table, "data": data.copy(), "params": params.copy()}
             )
             return [data]
 
-        async def mock_get(table, params):
-            # Screenshot already cached
-            return [
-                {
-                    "extraction_result": [
-                        {
-                            "google_place_id": "ChIJ333",
-                            "name": "Screenshot Place",
-                            "address": "333 Screenshot St",
-                            "latitude": 40.0,
-                            "longitude": -74.0,
-                            "city": "NYC",
-                            "country": "USA",
-                            "country_code": "US",
-                            "confidence": 0.85,
-                            "primary_type": "hotel",
-                            "types": ["hotel"],
-                            "llm_entry_type": "Stay",
-                        }
-                    ],
-                    "extraction_source": "screenshot",
-                    "extraction_at": datetime.now(UTC).isoformat(),
-                }
-            ]
-
         with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
             mock_client.return_value = client
 
-            await cache_extraction(canonical_url, [caption_place], source="caption")
+            await asyncio.gather(
+                cache_extraction(canonical_url, [caption_place], source="caption"),
+                cache_extraction(canonical_url, [video_place], source="video_frames"),
+            )
 
-            # Caption should not overwrite screenshot
-            assert len(patch_calls) == 0
+            # Both should issue a PATCH — the DB handles atomicity
+            assert len(patch_calls) == 2
+            sources = {call["data"]["extraction_source"] for call in patch_calls}
+            assert sources == {"caption", "video_frames"}
+
+            # caption filter should NOT include video_frames
+            caption_call = next(
+                c for c in patch_calls if c["data"]["extraction_source"] == "caption"
+            )
+            assert (
+                "extraction_source.eq.video_frames" not in caption_call["params"]["or"]
+            )
+
+            # video_frames filter SHOULD include caption
+            video_call = next(
+                c
+                for c in patch_calls
+                if c["data"]["extraction_source"] == "video_frames"
+            )
+            assert "extraction_source.eq.caption" in video_call["params"]["or"]
 
 
 class TestSourceQualityHierarchy:
     """Tests for source quality hierarchy."""
 
-    @pytest.mark.asyncio
-    async def test_quality_hierarchy_order(self):
+    def test_quality_hierarchy_order(self):
         """Verify the quality hierarchy is: video_frames > carousel > screenshot > caption."""
-        from app.services.extraction_cache import get_source_priority
-
         assert get_source_priority("video_frames") > get_source_priority("carousel")
         assert get_source_priority("carousel") > get_source_priority("screenshot")
         assert get_source_priority("screenshot") > get_source_priority("caption")
 
-    @pytest.mark.asyncio
-    async def test_unknown_source_has_lowest_priority(self):
+    def test_unknown_source_has_lowest_priority(self):
         """Unknown sources should have lowest priority."""
-        from app.services.extraction_cache import get_source_priority
-
         assert get_source_priority("caption") > get_source_priority("unknown")
         assert get_source_priority("caption") > get_source_priority(None)
 
@@ -375,176 +275,26 @@ class TestSourceQualityHierarchy:
 class TestShouldUpdateCache:
     """Tests for should_update_cache helper function."""
 
-    @pytest.mark.asyncio
-    async def test_should_update_when_no_existing(self):
+    def test_should_update_when_no_existing(self):
         """Should update when no existing extraction."""
-        from app.services.extraction_cache import should_update_cache
-
         assert should_update_cache(None, "caption") is True
         assert should_update_cache(None, "video_frames") is True
 
-    @pytest.mark.asyncio
-    async def test_should_update_when_higher_quality(self):
+    def test_should_update_when_higher_quality(self):
         """Should update when new source is higher quality."""
-        from app.services.extraction_cache import should_update_cache
-
         assert should_update_cache("caption", "video_frames") is True
         assert should_update_cache("caption", "carousel") is True
         assert should_update_cache("caption", "screenshot") is True
         assert should_update_cache("screenshot", "video_frames") is True
 
-    @pytest.mark.asyncio
-    async def test_should_not_update_when_lower_quality(self):
+    def test_should_not_update_when_lower_quality(self):
         """Should not update when new source is lower quality."""
-        from app.services.extraction_cache import should_update_cache
-
         assert should_update_cache("video_frames", "caption") is False
         assert should_update_cache("carousel", "caption") is False
         assert should_update_cache("screenshot", "caption") is False
         assert should_update_cache("video_frames", "screenshot") is False
 
-    @pytest.mark.asyncio
-    async def test_should_update_when_same_source(self):
+    def test_should_update_when_same_source(self):
         """Should update when same source (allow re-extraction)."""
-        from app.services.extraction_cache import should_update_cache
-
         assert should_update_cache("caption", "caption") is True
         assert should_update_cache("video_frames", "video_frames") is True
-
-
-class TestCacheExtractionTOCTOURace:
-    """Tests demonstrating the TOCTOU race condition in cache_extraction.
-
-    The current implementation has a time-of-check-time-of-use race where:
-    1. Thread A reads existing_source (None or "caption")
-    2. Thread B reads existing_source (None or "caption")
-    3. Thread B updates with "video_frames"
-    4. Thread A updates with "caption" - overwrites higher-quality video_frames!
-
-    These tests demonstrate the bug and should FAIL until the fix is applied.
-    """
-
-    @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="Documents TOCTOU race condition - will pass when fix is applied"
-    )
-    async def test_concurrent_extractions_race_condition(self):
-        """TOCTOU race: concurrent extractions can result in lower-quality overwrite.
-
-        This test simulates the race condition by:
-        1. Both caption and video_frames extraction check cache simultaneously
-        2. Both see no existing extraction
-        3. video_frames writes first (higher quality)
-        4. caption writes second - SHOULD NOT overwrite but currently DOES
-
-        The fix requires using a conditional UPDATE with WHERE clause.
-        """
-        import asyncio
-
-        canonical_url = "https://www.tiktok.com/@user/video/race123"
-        video_place = make_detected_place("Video Place")
-        caption_place = make_detected_place("Caption Place")
-
-        # Track the actual database state to simulate real behavior
-        db_state: dict = {
-            "extraction_result": None,
-            "extraction_source": None,
-            "extraction_at": None,
-        }
-        write_order: list[str] = []
-        check_count = 0
-
-        async def mock_get(table, params):
-            nonlocal check_count
-            check_count += 1
-            # Return a copy of current state (both requests see same state)
-            return [db_state.copy()]
-
-        async def mock_patch(table, data, params):
-            nonlocal db_state
-            # Small delay to allow interleaving
-            await asyncio.sleep(0.01)
-            # Record the write
-            write_order.append(data["extraction_source"])
-            # Update state
-            db_state.update(data)
-            return [data]
-
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
-            client = MagicMock()
-            client.patch = AsyncMock(side_effect=mock_patch)
-            client.get = AsyncMock(side_effect=mock_get)
-            mock_client.return_value = client
-
-            # Simulate both starting at same time, checking cache simultaneously
-            # video_frames should win, but due to race, caption may overwrite
-
-            # Both tasks start and check - they both see empty cache
-            async def caption_task():
-                await asyncio.sleep(0.005)  # Small delay
-                await cache_extraction(canonical_url, [caption_place], source="caption")
-
-            async def video_task():
-                await cache_extraction(
-                    canonical_url, [video_place], source="video_frames"
-                )
-
-            # Run concurrently
-            await asyncio.gather(caption_task(), video_task())
-
-            # The bug: if video_frames completed first, caption should NOT have
-            # been able to overwrite it. But with TOCTOU race, it can.
-            #
-            # Expected behavior (after fix):
-            #   - video_frames write succeeds
-            #   - caption write is rejected (video_frames has higher priority)
-            #   - Final state: video_frames
-            #
-            # Current buggy behavior:
-            #   - Both check and see empty cache
-            #   - Both proceed to write
-            #   - Last write wins (could be caption!)
-
-            # This assertion shows the expected fix behavior
-            # It will FAIL with current implementation when caption writes last
-            if write_order == ["video_frames", "caption"]:
-                # If video_frames wrote first and caption wrote second,
-                # the final state SHOULD still be video_frames (caption rejected)
-                # But with the bug, final state is caption
-                assert db_state["extraction_source"] == "video_frames", (
-                    f"TOCTOU BUG: caption overwrote video_frames! "
-                    f"Write order: {write_order}, Final: {db_state['extraction_source']}"
-                )
-
-    @pytest.mark.asyncio
-    async def test_atomic_conditional_update_prevents_race(self):
-        """Demonstrates how conditional UPDATE prevents the race.
-
-        The fix should use a single atomic UPDATE with WHERE clause:
-        UPDATE oembed_cache SET ...
-        WHERE canonical_url = ?
-          AND (extraction_source IS NULL
-               OR extraction_source IN ('caption', 'screenshot'))
-
-        This ensures only one writer can update and prevents TOCTOU.
-        """
-        # This test documents the expected fix behavior
-        # A conditional update would look like:
-        #
-        # await db.patch(
-        #     "oembed_cache",
-        #     {
-        #         "extraction_result": places_json,
-        #         "extraction_source": source,
-        #         "extraction_at": extraction_at,
-        #     },
-        #     {
-        #         "canonical_url": f"eq.{canonical_url}",
-        #         # Only update if we can actually upgrade
-        #         "or": "(extraction_source.is.null,extraction_source.lt.{priority})",
-        #     },
-        # )
-        #
-        # This is a documentation test - the actual implementation needs to
-        # be fixed in extraction_cache.py
-        pass
