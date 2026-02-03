@@ -93,7 +93,6 @@ async def download_video(
         "yt-dlp",
         "--no-exec",  # CRITICAL: Disable post-processing hooks
         "--no-playlist",  # Prevent batch downloads
-        "--no-call-home",  # No telemetry
         "--socket-timeout",
         "10",
         "--retries",

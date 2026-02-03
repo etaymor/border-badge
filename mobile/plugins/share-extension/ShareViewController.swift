@@ -85,11 +85,18 @@ class ShareViewController: UIViewController {
             await MainActor.run {
                 self.captionText = payload.caption
                 self.sharedVideoURL = payload.videoFileURL
+                if !payload.imageDataList.isEmpty {
+                    NSLog("[Atlasi ShareExtension] Loaded %d image attachments", payload.imageDataList.count)
+                }
                 guard let urlString = payload.url else {
                     self.showFallbackUI(error: "No URL found")
                     return
                 }
-                self.processURL(urlString, videoFileURL: payload.videoFileURL)
+                self.processURL(
+                    urlString,
+                    videoFileURL: payload.videoFileURL,
+                    imageDataList: payload.imageDataList
+                )
             }
         }
     }
@@ -99,11 +106,22 @@ class ShareViewController: UIViewController {
         async let urlString = loadURL(from: attachments)
         async let caption = loadCaption(from: attachments)
         async let videoFileURL = loadVideoFileURL(from: attachments)
+        async let imageDataList = loadImageData(from: attachments)
 
-        let (urlValue, captionValue, videoValue) = await (urlString, caption, videoFileURL)
+        let (urlValue, captionValue, videoValue, imagesValue) = await (
+            urlString,
+            caption,
+            videoFileURL,
+            imageDataList
+        )
         let resolvedURL = urlValue ?? (captionValue.flatMap { extractURL(from: $0) })
 
-        return SharePayload(url: resolvedURL, caption: captionValue, videoFileURL: videoValue)
+        return SharePayload(
+            url: resolvedURL,
+            caption: captionValue,
+            videoFileURL: videoValue,
+            imageDataList: imagesValue
+        )
     }
 
     private func loadURL(from attachments: [NSItemProvider]) async -> String? {
@@ -138,6 +156,20 @@ class ShareViewController: UIViewController {
             }
         }
         return nil
+    }
+
+    private func loadImageData(from attachments: [NSItemProvider]) async -> [Data] {
+        let imageIdentifier = UTType.image.identifier
+        var results: [Data] = []
+
+        for attachment in attachments
+        where attachment.hasItemConformingToTypeIdentifier(imageIdentifier) {
+            if let data = await loadImageData(from: attachment, typeIdentifier: imageIdentifier) {
+                results.append(data)
+            }
+        }
+
+        return results
     }
 
     private func loadItemURL(from provider: NSItemProvider, typeIdentifier: String) async -> URL? {
@@ -179,6 +211,33 @@ class ShareViewController: UIViewController {
         }
     }
 
+    private func loadImageData(from provider: NSItemProvider, typeIdentifier: String) async -> Data? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+                if let image = item as? UIImage {
+                    continuation.resume(returning: image.jpegData(compressionQuality: 0.9))
+                    return
+                }
+                if let data = item as? Data {
+                    continuation.resume(returning: data)
+                    return
+                }
+                if let url = item as? URL, let data = try? Data(contentsOf: url) {
+                    continuation.resume(returning: data)
+                    return
+                }
+
+                provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, _ in
+                    guard let fileURL = url, let data = try? Data(contentsOf: fileURL) else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: data)
+                }
+            }
+        }
+    }
+
     // MARK: - URL Extraction
 
     /// Extract the first URL from a text string
@@ -201,7 +260,11 @@ class ShareViewController: UIViewController {
     // MARK: - URL Processing
 
     /// Process and show the capture form
-    private func processURL(_ urlString: String, videoFileURL: URL? = nil) {
+    private func processURL(
+        _ urlString: String,
+        videoFileURL: URL? = nil,
+        imageDataList: [Data] = []
+    ) {
         sharedURL = urlString
         sharedVideoURL = videoFileURL
 
@@ -217,7 +280,11 @@ class ShareViewController: UIViewController {
 
                 if hasToken {
                     // Show full SwiftUI capture form
-                    self.showCaptureForm(url: urlString, videoFileURL: videoFileURL)
+                    self.showCaptureForm(
+                        url: urlString,
+                        videoFileURL: videoFileURL,
+                        imageDataList: imageDataList
+                    )
                 } else {
                     // Track auth failure
                     AnalyticsQueue.track("share_extension_auth_failed")
@@ -263,11 +330,16 @@ class ShareViewController: UIViewController {
     // MARK: - SwiftUI Capture Form
 
     /// Show the full capture form
-    private func showCaptureForm(url: String, videoFileURL: URL? = nil) {
+    private func showCaptureForm(
+        url: String,
+        videoFileURL: URL? = nil,
+        imageDataList: [Data] = []
+    ) {
         let captureView = ShareCaptureView(
             url: url,
             caption: captionText,
             videoFileURL: videoFileURL,
+            imageDataList: imageDataList,
             onDismiss: { [weak self] in
                 self?.completeRequest()
             }
@@ -577,4 +649,5 @@ private struct SharePayload {
     let url: String?
     let caption: String?
     let videoFileURL: URL?
+    let imageDataList: [Data]
 }

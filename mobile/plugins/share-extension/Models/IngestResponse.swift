@@ -120,14 +120,26 @@ struct DetectedCountry: Codable, Equatable {
 struct SocialIngestRequest: Codable {
     let url: String
     let caption: String?
-    let extractionMethod: String? = nil
-    let videoFrames: [String]? = nil
+    let extractionMethod: String?
+    let videoFrames: [String]?
 
     enum CodingKeys: String, CodingKey {
         case url
         case caption
         case extractionMethod = "extraction_method"
         case videoFrames = "video_frames"
+    }
+
+    init(
+        url: String,
+        caption: String?,
+        extractionMethod: String? = nil,
+        videoFrames: [String]? = nil
+    ) {
+        self.url = url
+        self.caption = caption
+        self.extractionMethod = extractionMethod
+        self.videoFrames = videoFrames
     }
 }
 
@@ -147,6 +159,8 @@ struct SocialIngestResponse: Codable, Equatable {
     let extractionSource: String?        // "caption", "video_frames", "carousel", "screenshot"
     let extractionLatencyMs: Int?
     let contextLocation: String?         // Location context from extraction (e.g., "Thailand")
+    // User-facing error when extraction fails due to platform limitations
+    let extractionError: String?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -161,6 +175,7 @@ struct SocialIngestResponse: Codable, Equatable {
         case extractionSource = "extraction_source"
         case extractionLatencyMs = "extraction_latency_ms"
         case contextLocation = "context_location"
+        case extractionError = "extraction_error"
     }
 
     /// Check if this is a multi-place result (more than one place detected)

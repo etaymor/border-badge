@@ -45,6 +45,20 @@ final class ShareCaptureViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.providerName, "Link")
     }
 
+    func testEffectiveCountryCodeUsesDominantCountryForMultiCountryResults() {
+        let placeAL1 = DetectedPlace(name: "Tirana", countryCode: "AL", confidence: 0.8)
+        let placeAL2 = DetectedPlace(name: "Skanderbeg Square", countryCode: "AL", confidence: 0.7)
+        let placeUS = DetectedPlace(name: "TUMI Store", countryCode: "US", confidence: 0.2)
+
+        viewModel.placeSelections = [
+            PlaceSelection(place: placeAL1),
+            PlaceSelection(place: placeAL2),
+            PlaceSelection(place: placeUS)
+        ]
+
+        XCTAssertEqual(viewModel.effectiveCountryCode, "AL")
+    }
+
     func testCanSaveReturnsFalseWithoutPlaceAndTrip() {
         XCTAssertFalse(viewModel.canSave)
     }

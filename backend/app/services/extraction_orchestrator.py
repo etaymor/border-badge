@@ -35,6 +35,10 @@ from app.services.place_extractor import (
     try_candidate,
     try_llm_multi_place_extraction,
 )
+from app.services.tiktok_slideshow import (
+    DEFAULT_TIMEOUT_SECONDS,
+    fetch_tiktok_slideshow,
+)
 from app.services.video_extractor import (
     VideoDownloadError,
     download_video,
@@ -95,6 +99,7 @@ class ExtractionOrchestrator:
         use_cache: bool = True,
         is_video_url: bool = True,
         extraction_method: str = "auto",
+        is_photo_slideshow: bool = False,
     ) -> ExtractionResult:
         """Extract places from social media content.
 
@@ -145,7 +150,7 @@ class ExtractionOrchestrator:
         video_task: asyncio.Task | None = None
         temp_dir: Path | None = None
 
-        if self.enable_video_fallback and is_video_url:
+        if self.enable_video_fallback and is_video_url and not is_photo_slideshow:
             temp_dir = Path(tempfile.mkdtemp(prefix="extract_"))
 
             async def delayed_download():
@@ -191,7 +196,28 @@ class ExtractionOrchestrator:
                     from_cache=False,
                 )
 
-            # Step 4: Caption failed or signaled skip_to_video - try video
+            # Step 4: Caption failed or signaled skip_to_video - try carousel for slideshows
+            if is_photo_slideshow:
+                carousel_result = await self._extract_from_carousel(
+                    canonical_url, start_time
+                )
+                if carousel_result.places:
+                    if use_cache:
+                        await self._cache_result(
+                            canonical_url, carousel_result.places, "carousel"
+                        )
+
+                    return ExtractionResult(
+                        places=carousel_result.places,
+                        method="video",
+                        source="carousel",
+                        skip_to_video=caption_result.skip_to_video,
+                        context_location=caption_result.context_location,
+                        latency_ms=int((time.monotonic() - start_time) * 1000),
+                        from_cache=False,
+                    )
+
+            # Step 5: Caption failed or signaled skip_to_video - try video
             if video_task and self.enable_video_fallback:
                 video_result = await self._extract_from_video(video_task, start_time)
 
@@ -212,13 +238,16 @@ class ExtractionOrchestrator:
                         from_cache=False,
                     )
 
-            # Step 5: Both failed - cache negative result and return caption result
+            # Step 6: Both failed - cache negative result and return caption result
             if use_cache:
-                negative_source: ExtractionSource = (
-                    "video_frames"
-                    if video_task and self.enable_video_fallback
-                    else "caption"
-                )
+                if is_photo_slideshow:
+                    negative_source: ExtractionSource = "carousel"
+                else:
+                    negative_source = (
+                        "video_frames"
+                        if video_task and self.enable_video_fallback
+                        else "caption"
+                    )
                 await self._cache_result(canonical_url, [], negative_source)
 
             return ExtractionResult(
@@ -434,6 +463,13 @@ class ExtractionOrchestrator:
 
         places: list[DetectedPlace]
 
+    @dataclass
+    class _CarouselResult:
+        """Internal result from carousel extraction."""
+
+        places: list[DetectedPlace]
+        frames_processed: int
+
     def _get_remaining_time(self, start_time: float, buffer: float = 1.0) -> float:
         """Calculate remaining time budget from start_time."""
         elapsed = time.monotonic() - start_time
@@ -534,6 +570,61 @@ class ExtractionOrchestrator:
         except Exception as e:
             logger.warning(f"video_extraction_error: {e}")
             return self._VideoResult(places=[])
+
+    async def _extract_from_carousel(
+        self,
+        canonical_url: str,
+        start_time: float,
+    ) -> _CarouselResult:
+        """Extract places from TikTok photo slideshow images."""
+        remaining = self._get_remaining_time(start_time)
+        if remaining <= 0:
+            logger.debug("carousel_extraction_skipped: no_time_remaining")
+            return self._CarouselResult(places=[], frames_processed=0)
+
+        try:
+            slideshow = await fetch_tiktok_slideshow(
+                canonical_url,
+                max_images=self.max_video_frames,
+                timeout=min(DEFAULT_TIMEOUT_SECONDS, max(2.0, remaining)),
+            )
+        except Exception as e:
+            logger.warning(f"carousel_extraction_error: {e}")
+            return self._CarouselResult(places=[], frames_processed=0)
+
+        if not slideshow or not slideshow.images:
+            logger.debug("carousel_extraction_no_images")
+            return self._CarouselResult(places=[], frames_processed=0)
+
+        remaining = self._get_remaining_time(start_time)
+        if remaining <= 0:
+            logger.debug("carousel_extraction_skipped: no_time_for_multimodal")
+            return self._CarouselResult(places=[], frames_processed=0)
+
+        multimodal_result = await self.multimodal_extractor.extract_places(
+            slideshow.images, source="carousel"
+        )
+
+        if not multimodal_result.places:
+            return self._CarouselResult(
+                places=[],
+                frames_processed=multimodal_result.frames_processed,
+            )
+
+        places = await self._resolve_multimodal_places(multimodal_result.places)
+
+        logger.info(
+            "carousel_extraction_success",
+            extra={
+                "frames_processed": multimodal_result.frames_processed,
+                "places_found": len(places),
+            },
+        )
+
+        return self._CarouselResult(
+            places=places,
+            frames_processed=multimodal_result.frames_processed,
+        )
 
     def _calculate_max_frames(self, duration_seconds: float | None) -> int:
         """Calculate max frames based on duration (1 frame every 2s)."""

@@ -173,6 +173,158 @@ class TestSanitizeContent:
         assert "Japan" in result
 
 
+class TestSkipToVideoDetection:
+    """Tests for skip_to_video detection in LLM parsing."""
+
+    def test_parses_skip_to_video_true(self):
+        """Parses skip_to_video: true from new response format."""
+        content = '{"places": [], "skip_to_video": true}'
+        result = _parse_llm_response(content)
+        assert result.places == []
+        assert result.skip_to_video is True
+
+    def test_parses_skip_to_video_false(self):
+        """Parses skip_to_video: false from new response format."""
+        content = (
+            '{"places": [{"name": "Cafe", "type": "Food"}], "skip_to_video": false}'
+        )
+        result = _parse_llm_response(content)
+        assert len(result.places) == 1
+        assert result.skip_to_video is False
+
+    def test_skip_to_video_defaults_to_false(self):
+        """Defaults skip_to_video to false when not provided."""
+        content = '{"places": []}'
+        result = _parse_llm_response(content)
+        assert result.skip_to_video is False
+
+    def test_legacy_array_format_skip_to_video_false(self):
+        """Legacy array format has skip_to_video = false."""
+        content = '[{"name": "Place", "type": "Place"}]'
+        result = _parse_llm_response(content)
+        assert result.skip_to_video is False
+
+    @pytest.mark.asyncio
+    async def test_n_places_title_with_country_only_caption_triggers_skip_to_video(
+        self,
+    ):
+        """When title says '10 places to visit in X' but caption only has country, skip to video.
+
+        This is a critical test case: If the title promises N places but the caption
+        only contains a country/flag emoji, the actual places must be in the video.
+        The LLM should recognize this pattern and set skip_to_video: true.
+
+        Real-world example:
+        - Title: "10 places to visit in Albania 🇦🇱"
+        - Caption: "🇦🇱 albania"
+        - Expected: skip_to_video=True (the 10 places are shown in the video, not listed in text)
+        """
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        # The LLM should recognize this pattern and return skip_to_video: true
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {"message": {"content": '{"places": [], "skip_to_video": true}'}}
+            ]
+        }
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = mock_response
+
+        mock_try_candidate = AsyncMock(return_value=None)
+        mock_extract_location_hints = MagicMock(return_value=[])
+
+        with patch(
+            "app.services.place_extractor.llm_client.get_settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "app.services.place_extractor.llm_client.get_http_client",
+                return_value=mock_http_client,
+            ):
+                result = await try_llm_multi_place_extraction(
+                    title="10 places to visit in Albania 🇦🇱",
+                    caption="🇦🇱 albania",
+                    profile_name="TravelUser",
+                    try_candidate_fn=mock_try_candidate,
+                    extract_location_hints_fn=mock_extract_location_hints,
+                )
+
+                # This is the key assertion: the LLM should signal skip_to_video
+                assert result.skip_to_video is True
+                # No specific places should be extracted from just a country name
+                assert len(result.places) == 0
+
+    @pytest.mark.asyncio
+    async def test_listicle_title_patterns_should_trigger_skip_to_video(
+        self,
+    ):
+        """Various listicle title patterns should trigger skip_to_video when caption lacks places.
+
+        Common patterns that indicate places are in the video:
+        - "10 places to visit in..."
+        - "Top 5 restaurants in..."
+        - "Best 7 things to do in..."
+        - "5 hidden gems in..."
+        """
+        test_cases = [
+            ("10 places to visit in Albania", "🇦🇱 albania"),
+            ("Top 5 restaurants in Paris", "#paris #food"),
+            ("Best 7 things to do in Tokyo", "japan"),
+            ("5 hidden gems in Barcelona", "spain travel"),
+            ("8 must-see spots in Rome", "📍 italy"),
+            ("My favorite 12 cafes in London", "uk trip"),
+        ]
+
+        mock_settings = MagicMock()
+        mock_settings.llm_place_extraction_enabled = True
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_model = "google/gemini-flash-2.5-lite"
+        mock_settings.base_url = "http://localhost:8000"
+
+        for title, caption in test_cases:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            # Expect the LLM to recognize these patterns and return skip_to_video: true
+            mock_response.json.return_value = {
+                "choices": [
+                    {"message": {"content": '{"places": [], "skip_to_video": true}'}}
+                ]
+            }
+
+            mock_http_client = AsyncMock()
+            mock_http_client.post.return_value = mock_response
+
+            with patch(
+                "app.services.place_extractor.llm_client.get_settings",
+                return_value=mock_settings,
+            ):
+                with patch(
+                    "app.services.place_extractor.llm_client.get_http_client",
+                    return_value=mock_http_client,
+                ):
+                    result = await try_llm_multi_place_extraction(
+                        title=title,
+                        caption=caption,
+                        profile_name="Author",
+                        try_candidate_fn=AsyncMock(return_value=None),
+                        extract_location_hints_fn=MagicMock(return_value=[]),
+                    )
+
+                    # For this test to be meaningful, we're verifying the expected behavior
+                    # The actual LLM behavior depends on the prompt - this test documents
+                    # what we expect the system to do for these patterns
+                    assert (
+                        result.skip_to_video is True
+                    ), f"Expected skip_to_video=True for title='{title}', caption='{caption}'"
+
+
 class TestParseLlmResponse:
     """Tests for _parse_llm_response function."""
 

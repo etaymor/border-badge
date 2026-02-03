@@ -44,6 +44,7 @@ from app.services.url_resolver import (
     canonicalize_url,
     detect_provider,
     is_instagram_profile,
+    is_tiktok_photo,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,10 @@ async def ingest_social_url(
     detected_place: DetectedPlace | None = None
     context_location: str | None = None
     extraction_latency_ms: int = 0
+    extraction_error: str | None = None
+
+    # Detect TikTok photo slideshows early - they have limited extraction support
+    is_photo_slideshow = is_tiktok_photo(canonical_url)
 
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
@@ -233,8 +238,11 @@ async def ingest_social_url(
             # 2. Try caption extraction (LLM + regex fallback)
             # 3. If caption fails or signals skip_to_video, try video frame extraction
             # 4. Cache results
+            #
+            # Note: TikTok photo slideshows (/photo/ URLs) don't support video extraction
+            # via yt-dlp, so we disable video fallback for those URLs.
             orchestrator = ExtractionOrchestrator(
-                enable_video_fallback=True,  # Enable video extraction when caption fails
+                enable_video_fallback=not is_photo_slideshow,
             )
 
             extraction_result = await orchestrator.extract(
@@ -242,8 +250,9 @@ async def ingest_social_url(
                 oembed,
                 data.caption,
                 use_cache=not data.skip_cache,  # Honor skip_cache for cache invalidation
-                is_video_url=True,  # TikTok/Instagram URLs are typically video
+                is_video_url=not is_photo_slideshow,
                 extraction_method=data.extraction_method,
+                is_photo_slideshow=is_photo_slideshow,
             )
 
             detected_places = extraction_result.places
@@ -261,6 +270,13 @@ async def ingest_social_url(
         f"source={'profile' if is_profile else 'post'}, "
         f"method={extraction_method_used}, latency_ms={extraction_latency_ms}"
     )
+
+    # Set user-facing error for TikTok photo slideshows when extraction fails
+    if is_photo_slideshow and not detected_places:
+        extraction_error = (
+            "TikTok photo slideshows don't provide metadata we can read. "
+            "You can still save this manually by searching for the place."
+        )
 
     # Step 4: Extract country hint even if place detection failed
     # This allows the client to default trips to this country and bias autocomplete
@@ -304,26 +320,33 @@ async def ingest_social_url(
         trips_result = await db.get(
             "trip",
             {
-                "select": "id,name,country_code,is_system",
+                "select": "id,name,is_system,country:country_id(code)",
                 "deleted_at": "is.null",
                 "order": "created_at.desc",
             },
         )
 
         if trips_result:
-            country_code = detected_country.country_code if detected_country else None
+            target_country_code = (
+                detected_country.country_code if detected_country else None
+            )
             country_trips = []
             saved_places_trip = None
 
             for trip_data in trips_result:
+                # Extract country_code from joined country relation
+                trip_country_code = None
+                if trip_data.get("country") and trip_data["country"].get("code"):
+                    trip_country_code = trip_data["country"]["code"]
+
                 trip = SuggestedTrip(
                     id=trip_data["id"],
                     name=trip_data["name"],
-                    country_code=trip_data.get("country_code"),
+                    country_code=trip_country_code,
                     is_system=trip_data.get("is_system", False),
                 )
                 # Prioritize country-matching trips
-                if country_code and trip.country_code == country_code:
+                if target_country_code and trip.country_code == target_country_code:
                     country_trips.append(trip)
                 # Track "Saved Places" system trip as fallback
                 elif trip.is_system and trip.name == "Saved Places":
@@ -367,6 +390,7 @@ async def ingest_social_url(
         extraction_latency_ms=extraction_latency_ms,
         context_location=context_location,
         suggested_trips=suggested_trips,
+        extraction_error=extraction_error,
     )
 
 

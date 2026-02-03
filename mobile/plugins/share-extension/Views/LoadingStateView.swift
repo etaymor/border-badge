@@ -70,7 +70,7 @@ struct LoadingStateView: View {
             if showTimeoutWarning, let onCancel = onCancel {
                 VStack(spacing: 16) {
                     Text("The server is busy. You can wait or try again later.")
-                        .font(Typography.regular(14))
+                        .font(Typography.body(14))
                         .foregroundColor(BrandColors.midnightNavy.opacity(0.6))
                         .multilineTextAlignment(.center)
 

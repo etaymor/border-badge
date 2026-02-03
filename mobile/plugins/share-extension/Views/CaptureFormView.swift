@@ -35,8 +35,52 @@ struct CaptureFormView: View {
                     onClose: onCancel
                 )
 
+                // Extraction error banner (e.g., TikTok photo slideshows)
+                if let error = viewModel.extractionError {
+                    HStack(spacing: 12) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(BrandColors.sunsetGold)
+                        Text(error)
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.midnightNavy)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(16)
+                    .background(BrandColors.sunsetGold.opacity(0.15))
+                    .cornerRadius(12)
+                }
+
                 // Multi-place or single-place selection
-                if viewModel.isMultiPlaceMode {
+                if let editingIndex = viewModel.editingPlaceIndex,
+                   editingIndex < viewModel.placeSelections.count {
+                    // Editing a place from the multi-place list
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            SectionLabel(text: "Edit Place")
+                            Spacer()
+                            Button("Cancel") {
+                                viewModel.cancelEditingPlace()
+                            }
+                            .font(Typography.body(14))
+                            .foregroundColor(BrandColors.sunsetGold)
+                        }
+
+                        LocationSearchView(
+                            selectedPlace: Binding(
+                                get: { viewModel.placeSelections[editingIndex].place },
+                                set: { _ in }
+                            ),
+                            countryCode: viewModel.effectiveCountryCode,
+                            onPlaceSelected: { place in
+                                viewModel.updateEditedPlace(place)
+                            },
+                            onPlaceCleared: {
+                                viewModel.cancelEditingPlace()
+                            },
+                            viewModel: locationViewModel
+                        )
+                    }
+                } else if viewModel.isMultiPlaceMode {
                     // Multi-place list with checkboxes
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel(text: "Select Places (\(viewModel.selectedPlaceCount) selected)")

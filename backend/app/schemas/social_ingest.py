@@ -115,6 +115,8 @@ class SocialIngestResponse(BaseModel):
     context_location: str | None = None
     # Suggested trips for agent-native batch save (matching country first, then "Saved Places")
     suggested_trips: list["SuggestedTrip"] = []
+    # User-facing error message when extraction fails due to platform limitations
+    extraction_error: str | None = None
 
 
 class OEmbedCacheEntry(BaseModel):

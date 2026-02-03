@@ -502,6 +502,22 @@ def extract_tiktok_video_id(url: str) -> str | None:
     return None
 
 
+def is_tiktok_photo(url: str) -> bool:
+    """Check if a URL is a TikTok photo/slideshow (not a video).
+
+    Photo slideshows use /photo/ instead of /video/ in the URL.
+    These don't support oEmbed or yt-dlp extraction.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL is a TikTok photo/slideshow
+    """
+    parsed = urlparse(url)
+    return "/photo/" in parsed.path
+
+
 def extract_instagram_shortcode(url: str) -> str | None:
     """Extract the shortcode from an Instagram URL.
 

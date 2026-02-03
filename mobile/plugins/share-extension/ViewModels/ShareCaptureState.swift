@@ -107,3 +107,19 @@ struct ShareCaptureError: Equatable {
         )
     }
 }
+
+// MARK: - View Identity
+
+extension ShareCaptureState {
+    /// Stable identifier for SwiftUI view identity (ignores associated values)
+    var caseIdentifier: String {
+        switch self {
+        case .loading: return "loading"
+        case .error: return "error"
+        case .form: return "form"
+        case .saving: return "saving"
+        case .success: return "success"
+        case .successQueued: return "successQueued"
+        }
+    }
+}

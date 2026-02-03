@@ -49,6 +49,7 @@ class ShareCaptureViewModel: ObservableObject {
     var originalURL: String = ""
     @Published private(set) var caption: String?
     private var videoFileURL: URL?
+    private var imageDataList: [Data] = []
     private var currentTask: Task<Void, Never>?
     private var hasStartedProcessing: Bool = false
 
@@ -82,16 +83,19 @@ class ShareCaptureViewModel: ObservableObject {
     }
 
     var detectedCountryCode: String? {
-        ingestResult?.detectedPlace?.countryCode ?? ingestResult?.detectedCountry?.countryCode
+        ingestResult?.detectedPlace?.countryCode
+            ?? ingestResult?.detectedPlaces.first?.countryCode
+            ?? ingestResult?.detectedCountry?.countryCode
     }
 
     /// Effective country code for filtering - nil if user cleared the place (search worldwide)
+    /// For multi-country results, prefer a dominant country when it exists.
     var effectiveCountryCode: String? {
         if userClearedPlace {
             return nil
         }
         if isMultiCountry {
-            return nil
+            return dominantCountryCode ?? detectedCountryCode
         }
         return selectedPlace?.countryCode ?? detectedCountryCode
     }
@@ -108,10 +112,42 @@ class ShareCaptureViewModel: ObservableObject {
         placeSelections.count > 1
     }
 
-    /// Whether detected places span multiple countries (use Saved Places by default)
+    /// Whether detected places span multiple countries (no single-country default)
     var isMultiCountry: Bool {
-        let countryCodes = Set(placeSelections.compactMap { $0.place.countryCode })
-        return countryCodes.count > 1
+        Set(normalizedCountryCodes).count > 1
+    }
+
+    private var normalizedCountryCodes: [String] {
+        placeSelections.compactMap { selection in
+            guard let code = selection.place.countryCode?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !code.isEmpty else { return nil }
+            return code.uppercased()
+        }
+    }
+
+    private var dominantCountryCode: String? {
+        let codes = normalizedCountryCodes
+        guard !codes.isEmpty else { return nil }
+
+        var counts: [String: Int] = [:]
+        for code in codes {
+            counts[code, default: 0] += 1
+        }
+
+        let sorted = counts.sorted {
+            if $0.value == $1.value {
+                return $0.key < $1.key
+            }
+            return $0.value > $1.value
+        }
+
+        guard let best = sorted.first else { return nil }
+        if sorted.count == 1 || (sorted.count > 1 && best.value > sorted[1].value) {
+            return best.key
+        }
+
+        return nil
     }
 
     /// Number of places currently selected
@@ -127,10 +163,22 @@ class ShareCaptureViewModel: ObservableObject {
         }
     }
 
+    /// User-facing extraction error message (e.g., for TikTok photo slideshows)
+    var extractionError: String? {
+        // Only show error if no places were detected and there's an error message
+        guard selectedPlace == nil && placeSelections.isEmpty else { return nil }
+        return ingestResult?.extractionError
+    }
+
     // MARK: - Public API
 
     /// Process a shared URL
-    func processURL(_ url: String, caption: String? = nil, videoFileURL: URL? = nil) {
+    func processURL(
+        _ url: String,
+        caption: String? = nil,
+        videoFileURL: URL? = nil,
+        imageDataList: [Data] = []
+    ) {
         // Prevent re-processing if already started (onAppear can fire multiple times)
         guard !hasStartedProcessing else { return }
         hasStartedProcessing = true
@@ -138,6 +186,7 @@ class ShareCaptureViewModel: ObservableObject {
         self.originalURL = url
         self.caption = caption
         self.videoFileURL = videoFileURL
+        self.imageDataList = imageDataList
         let providerName = detectProviderName(url)
         let linkType = providerName.isEmpty ? "link" : providerName
         let message = videoFileURL == nil ? "Processing \(linkType)..." : "Processing video..."
@@ -285,6 +334,10 @@ class ShareCaptureViewModel: ObservableObject {
             await ingestVideoFrames(from: videoURL)
             return
         }
+        if !imageDataList.isEmpty {
+            await ingestImageFrames(from: imageDataList)
+            return
+        }
         await ingestLink()
     }
 
@@ -318,6 +371,28 @@ class ShareCaptureViewModel: ObservableObject {
 
             // Clean up the temp video file after processing
             try? FileManager.default.removeItem(at: videoURL)
+        } catch let error as APIError {
+            handleAPIError(error)
+        } catch {
+            state = .error(.network())
+        }
+    }
+
+    private func ingestImageFrames(from images: [Data]) async {
+        do {
+            let frames = try await ImageFrameSampler.prepareFrames(from: images)
+            if frames.isEmpty {
+                await ingestLink()
+                return
+            }
+
+            let encodedFrames = frames.map { $0.base64EncodedString() }
+            let response = try await apiClient.ingestSocial(
+                url: originalURL,
+                caption: caption,
+                videoFrames: encodedFrames
+            )
+            handleIngestResponse(response)
         } catch let error as APIError {
             handleAPIError(error)
         } catch {
