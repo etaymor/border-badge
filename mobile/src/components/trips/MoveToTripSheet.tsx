@@ -288,6 +288,13 @@ export function MoveToTripSheet({
 
               {showCreateForm ? (
                 <View style={styles.formContainer}>
+                  <View style={styles.createFormHeader}>
+                    <TouchableOpacity onPress={handleCancelCreate} style={styles.backButton}>
+                      <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
+                    </TouchableOpacity>
+                    <Text style={styles.createFormTitle}>Create New Trip</Text>
+                    <View style={styles.headerSpacer} />
+                  </View>
                   <InlineTripForm
                     defaultCountryCode={countryCode ?? undefined}
                     onSubmit={handleCreateTrip}
@@ -455,6 +462,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,
+    flex: 1,
+  },
+  createFormHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  createFormTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+    width: 40,
+  },
+  headerSpacer: {
+    width: 40,
   },
   header: {
     paddingHorizontal: 20,
@@ -498,7 +525,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(244, 194, 78, 0.15)',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 9999,
     borderWidth: 1,
     borderColor: colors.sunsetGold,
     borderStyle: 'dashed',
@@ -515,7 +542,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(244, 194, 78, 0.15)',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 9999,
     marginBottom: 20,
     borderWidth: 1,
     borderColor: colors.sunsetGold,
@@ -550,7 +577,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.4)',
@@ -588,7 +615,7 @@ const styles = StyleSheet.create({
   moveButton: {
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,

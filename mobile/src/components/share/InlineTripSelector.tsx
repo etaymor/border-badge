@@ -164,6 +164,8 @@ export function InlineTripSelector({
           style={[styles.modalContainer, { paddingTop: insets.top }]}
         >
           <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderSpacer} />
+            <Text style={styles.modalTitle}>Create New Trip</Text>
             <TouchableOpacity onPress={handleCancelCreate} style={styles.modalCloseButton}>
               <Ionicons name="close" size={24} color={colors.midnightNavy} />
             </TouchableOpacity>
@@ -223,7 +225,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.white,
-    borderRadius: 12,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -251,7 +253,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.sunsetGold,
-    borderRadius: 12,
+    borderRadius: 9999,
     paddingVertical: 14,
     paddingHorizontal: 24,
     gap: 8,
@@ -289,12 +291,25 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+  },
+  modalHeaderSpacer: {
+    width: 40,
   },
   modalCloseButton: {
     padding: 8,
+    alignItems: 'flex-end',
+    width: 40,
   },
   modalContent: {
     flex: 1,
