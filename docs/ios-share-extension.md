@@ -9,8 +9,9 @@ The Share Extension enables users to:
 1. Share a TikTok or Instagram URL from any app
 2. Select "Atlasi" from the iOS share sheet
 3. See a branded capture UI within the extension
-4. Select a trip or choose "Save for Later" to save to the Saved Places holding area
-5. Complete saving the place directly in the extension or open the main app
+4. View detected places (supports multi-place extraction for "Top 10" style posts)
+5. Select which places to save and choose a destination trip
+6. Complete saving the places directly in the extension or open the main app
 
 ## Architecture
 
@@ -96,23 +97,41 @@ The native Swift extension controller provides a branded in-extension UI with tr
 
 **Capture UI:**
 - Shows the shared URL thumbnail and detected place information
+- Displays multiple detected places for "Top 10" style posts (multi-place extraction)
+- Multi-select checkboxes for choosing which places to save
 - Trip selector dropdown to choose a destination trip
 - "Save for Later" option saves to the Saved Places holding area (uncategorized trip)
 - Location search for manual place selection if auto-detection fails
 - Category selector for entry type (place, food, stay, experience)
 
+**Multi-Place Selection:**
+- When multiple places are detected, users see a scrollable list with checkboxes
+- All places are selected by default
+- Users can deselect places they don't want to save
+- "Save X Places" button shows the count of selected places
+- Uses the batch `/ingest/save-places` endpoint for efficient saving
+
 **Trip Selection:**
 - Fetches user's trips via the API
+- Suggested trips are returned by the backend (matching country first, then "Saved Places")
 - Includes "Save for Later" option that uses the uncategorized system trip
 - The uncategorized trip is lazily created via `GET /trips/uncategorized` when first selected
 
+**Video Frame Sampling:**
+- For video posts, the mobile app can sample frames on-device
+- Frames are encoded as base64 JPEG/PNG and sent via the `video_frames` request parameter
+- This bypasses server-side video download, reducing latency and bandwidth
+- Up to 20 frames can be sent, each ~1.5MB max
+- The backend uses multimodal LLM to extract place names from the frames
+
 **Success State:**
-- Shows checkmark icon with "Place Saved!" message
+- Shows checkmark icon with "Place Saved!" or "X Places Saved!" message
 - "Open Atlasi" button opens the main app via Universal Link
 - "Not now" button dismisses without opening the app
 
 **Error State:**
 - Shows error icon with descriptive message
+- Platform-specific errors (e.g., "This TikTok video is private") are shown via `extraction_error`
 - "Dismiss" button closes the extension
 
 The extension uses the app's brand colors (warm cream, midnight navy, moss green) for a consistent visual experience.
