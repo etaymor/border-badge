@@ -35,7 +35,7 @@ import Animated, {
 import { InlineTripSelector } from '@components/share/InlineTripSelector';
 import type { TripCandidateDisplay } from '@services/photoImport';
 import { useCountryByCode } from '@hooks/useCountries';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 
@@ -75,7 +75,8 @@ export function PhotoTripCard({
   const flag = getFlagEmoji(candidate.countryCode);
   const countryName = country?.name ?? candidate.countryCode;
   const photoCount = candidate.photoCount;
-  const previewUris = candidate.previewUris.slice(0, 4);
+  // We display up to 3 images in the masonry layout (1 big, 2 small)
+  const previewUris = candidate.previewUris.slice(0, 3);
 
   // Animation values
   const scale = useSharedValue(1);
@@ -169,40 +170,75 @@ export function PhotoTripCard({
         onPressOut={handlePressOut}
         disabled={isLoading}
       >
-        {/* Photo preview grid */}
+        {/* Masonry Photo Layout */}
         <View style={styles.photosGrid}>
-          {previewUris.map((uri, idx) => (
-            <Image
-              key={`preview-${idx}`}
-              source={{ uri }}
-              style={[styles.thumbnail, idx === 3 && photoCount > 4 && styles.thumbnailLast]}
-              contentFit="cover"
-              transition={200}
-              recyclingKey={uri}
-            />
-          ))}
-          {previewUris.length < 4 &&
-            Array.from({ length: 4 - previewUris.length }).map((_, idx) => (
-              <View key={`placeholder-${idx}`} style={styles.thumbnailPlaceholder} />
-            ))}
-          {photoCount > 4 && (
-            <View style={styles.morePhotosOverlay}>
-              <Text style={styles.morePhotosText}>+{photoCount - 4}</Text>
+          {/* Left Column - Large Image */}
+          <View style={styles.leftColumn}>
+            {previewUris[0] ? (
+              <Image
+                source={{ uri: previewUris[0] }}
+                style={styles.imageFull}
+                contentFit="cover"
+                transition={200}
+                recyclingKey={previewUris[0]}
+              />
+            ) : (
+              <View style={styles.placeholderFull} />
+            )}
+          </View>
+
+          {/* Right Column - Stacked Images */}
+          <View style={styles.rightColumn}>
+            <View style={styles.rightImageContainer}>
+              {previewUris[1] ? (
+                <Image
+                  source={{ uri: previewUris[1] }}
+                  style={styles.imageFull}
+                  contentFit="cover"
+                  transition={200}
+                  recyclingKey={previewUris[1]}
+                />
+              ) : (
+                <View style={styles.placeholderFull} />
+              )}
             </View>
-          )}
+            <View style={styles.rightImageContainer}>
+              {previewUris[2] ? (
+                <Image
+                  source={{ uri: previewUris[2] }}
+                  style={styles.imageFull}
+                  contentFit="cover"
+                  transition={200}
+                  recyclingKey={previewUris[2]}
+                />
+              ) : (
+                <View style={styles.placeholderFull} />
+              )}
+              {/* Overlay for remaining photos */}
+              {photoCount > 3 && (
+                <View style={styles.morePhotosOverlay}>
+                  <Text style={styles.morePhotosText}>+{photoCount - 3}</Text>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
 
         {/* Trip info */}
         <View style={styles.infoRow}>
           <Text style={styles.flag}>{flag}</Text>
           <View style={styles.details}>
-            <Text style={styles.countryName} numberOfLines={1}>
-              {countryName}
-            </Text>
+            <View style={styles.headerRow}>
+              <Text style={styles.countryName} numberOfLines={1}>
+                {countryName}
+              </Text>
+              <View style={styles.photoCountBadge}>
+                <Text style={styles.photoCountText}>{photoCount} photos</Text>
+              </View>
+            </View>
             <Text style={styles.dateRange}>
               {formatDateRange(candidate.dateRange.start, candidate.dateRange.end)}
             </Text>
-            <Text style={styles.photoCount}>{photoCount} photos</Text>
           </View>
           {isLoading ? (
             <ActivityIndicator size="small" color={colors.sunsetGold} />
@@ -211,6 +247,7 @@ export function PhotoTripCard({
               name={isExpanded ? 'chevron-down' : 'chevron-forward'}
               size={20}
               color={colors.textSecondary}
+              style={styles.chevron}
             />
           )}
         </View>
@@ -236,76 +273,100 @@ export function PhotoTripCard({
 
 const styles = StyleSheet.create({
   cardContainer: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   card: {
     backgroundColor: colors.white,
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   photosGrid: {
     flexDirection: 'row',
-    height: 80,
+    height: 160,
+    gap: 2,
   },
-  thumbnail: {
-    width: '25%',
-    height: 80,
+  leftColumn: {
+    flex: 1.5,
+    height: '100%',
   },
-  thumbnailLast: {
-    opacity: 0.7,
+  rightColumn: {
+    flex: 1,
+    height: '100%',
+    gap: 2,
   },
-  thumbnailPlaceholder: {
-    width: '25%',
-    height: 80,
+  rightImageContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  imageFull: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholderFull: {
+    width: '100%',
+    height: '100%',
     backgroundColor: colors.border,
   },
   morePhotosOverlay: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: '25%',
-    height: 80,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   morePhotosText: {
     fontFamily: fonts.openSans.bold,
-    fontSize: 16,
+    fontSize: 18,
     color: colors.white,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 16, // Added gap between photos and text
   },
   flag: {
-    fontSize: 32,
-    marginRight: 12,
+    fontSize: 36,
+    marginRight: 16,
   },
   details: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 8,
   },
   countryName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 18,
+    fontSize: 22, // Larger
     color: colors.midnightNavy,
   },
   dateRange: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.textSecondary,
+    fontSize: 14, // Smaller
+    color: colors.textSecondary, // Gray
   },
-  photoCount: {
+  photoCountBadge: {
+    backgroundColor: withAlpha(colors.sunsetGold, 0.15), // Light Yellow
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  photoCountText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 12,
-    color: colors.sunsetGold,
-    marginTop: 2,
+    color: colors.wishlistBrown, // Dark Gold
+  },
+  chevron: {
+    marginLeft: 8,
   },
   expandedSection: {
     backgroundColor: colors.white,
