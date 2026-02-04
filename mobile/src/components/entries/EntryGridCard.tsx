@@ -55,7 +55,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
       accessibilityLabel={`${entry.title}, ${typeConfig.label}`}
     >
       {/* Image or Icon Placeholder Background */}
-      <View style={[styles.imageContainer, { height: cardWidth }]}>
+      <View style={[styles.imageContainer, { aspectRatio: 1 }]}>
         {hasValidImage ? (
           <Image
             source={{ uri: firstMediaUrl }}
@@ -64,7 +64,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
           />
         ) : (
           <View style={[styles.iconPlaceholder, { backgroundColor: typeConfig.color + '15' }]}>
-            <Ionicons name={typeConfig.icon} size={40} color={typeConfig.color} />
+            <Ionicons name={typeConfig.icon} size={48} color={typeConfig.color} />
           </View>
         )}
 
@@ -79,7 +79,7 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
         <View style={styles.bottomRow}>
           {/* Type Badge - Glass Pill */}
           <BlurView intensity={30} tint="light" style={styles.typeBadge}>
-            <Ionicons name={typeConfig.icon} size={14} color={typeConfig.color} />
+            <Ionicons name={typeConfig.icon} size={20} color={typeConfig.color} />
           </BlurView>
 
           {/* Media Count Badge (if more than 1 photo) */}
@@ -164,15 +164,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   typeBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36, // Larger touch target/visual
+    height: 36,
+    borderRadius: 18,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.85)', // More opaque for better contrast
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   mediaCountBadge: {
     flexDirection: 'row',

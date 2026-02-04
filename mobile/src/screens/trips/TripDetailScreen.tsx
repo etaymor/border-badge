@@ -270,7 +270,8 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
           {/* Gradient overlay */}
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
+            colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.9)']}
+            locations={[0, 0.3, 0.6, 1]}
             style={styles.gradient}
           />
 
@@ -365,8 +366,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           accessibilityLabel="Add new entry"
           accessibilityRole="button"
         >
-          <Ionicons name="add" size={24} color={colors.midnightNavy} />
-          <Text style={styles.fabText}>Add Entry</Text>
+          <Ionicons name="add" size={32} color={colors.midnightNavy} />
         </Pressable>
       )}
 
@@ -458,7 +458,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 180,
+    height: 240, // Taller gradient
   },
   tripNameOverlay: {
     position: 'absolute',
@@ -621,15 +621,14 @@ const styles = StyleSheet.create({
   // FAB
   fab: {
     position: 'absolute',
-    bottom: 120,
-    right: 20,
-    flexDirection: 'row',
+    bottom: 40,
+    right: 24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.sunsetGold,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -637,8 +636,6 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   fabText: {
-    color: colors.midnightNavy,
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
+    display: 'none',
   },
 });
