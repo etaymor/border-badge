@@ -161,7 +161,7 @@ export function InlineTripSelector({
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={[styles.modalContainer, { paddingTop: insets.top }]}
+          style={styles.modalContainer}
         >
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderSpacer} />
@@ -295,8 +295,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontFamily: fonts.playfair.bold,
