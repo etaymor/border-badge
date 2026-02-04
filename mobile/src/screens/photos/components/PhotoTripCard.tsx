@@ -228,14 +228,9 @@ export function PhotoTripCard({
         <View style={styles.infoRow}>
           <Text style={styles.flag}>{flag}</Text>
           <View style={styles.details}>
-            <View style={styles.headerRow}>
-              <Text style={styles.countryName} numberOfLines={1}>
-                {countryName}
-              </Text>
-              <View style={styles.photoCountBadge}>
-                <Text style={styles.photoCountText}>{photoCount} photos</Text>
-              </View>
-            </View>
+            <Text style={styles.countryName} numberOfLines={1}>
+              {countryName}
+            </Text>
             <Text style={styles.dateRange}>
               {formatDateRange(candidate.dateRange.start, candidate.dateRange.end)}
             </Text>
@@ -280,10 +275,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 6,
   },
   photosGrid: {
     flexDirection: 'row',
@@ -338,32 +333,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-    gap: 8,
-  },
   countryName: {
     fontFamily: fonts.playfair.bold,
     fontSize: 22, // Larger
     color: colors.midnightNavy,
+    marginBottom: 4,
   },
   dateRange: {
     fontFamily: fonts.openSans.regular,
     fontSize: 14, // Smaller
     color: colors.textSecondary, // Gray
-  },
-  photoCountBadge: {
-    backgroundColor: withAlpha(colors.sunsetGold, 0.15), // Light Yellow
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  photoCountText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 12,
-    color: colors.wishlistBrown, // Dark Gold
   },
   chevron: {
     marginLeft: 8,
