@@ -34,6 +34,8 @@ interface PhotoTripsCalloutProps {
   hasInitialImport: boolean;
   /** Handler when callout is pressed */
   onPress: () => void;
+  /** Whether data is still loading (shows skeleton) */
+  isLoading?: boolean;
 }
 
 export function PhotoTripsCallout({
@@ -41,6 +43,7 @@ export function PhotoTripsCallout({
   previewUris,
   hasInitialImport,
   onPress,
+  isLoading = false,
 }: PhotoTripsCalloutProps) {
   const reducedMotion = useReducedMotion();
   const scale = useSharedValue(1);
@@ -65,6 +68,25 @@ export function PhotoTripsCallout({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   }, [onPress]);
+
+  // Show skeleton while loading to prevent layout shift
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.containerSkeleton]}>
+        {/* Skeleton icon */}
+        <View style={[styles.iconContainer, styles.iconContainerUnlinked, styles.skeletonPulse]} />
+
+        {/* Skeleton text */}
+        <View style={styles.textContainer}>
+          <View style={[styles.skeletonTitle, styles.skeletonPulse]} />
+          <View style={[styles.skeletonSubtitle, styles.skeletonPulse]} />
+        </View>
+
+        {/* Skeleton chevron */}
+        <View style={[styles.chevronContainer, styles.skeletonPulse]} />
+      </View>
+    );
+  }
 
   // Show "link camera roll" state when no initial import
   if (!hasInitialImport) {
@@ -133,10 +155,10 @@ export function PhotoTripsCallout({
 
       {/* Text content */}
       <View style={styles.textContainer}>
-        <Text style={styles.title}>Camera Roll Trips</Text>
-        <Text style={styles.subtitle}>
-          {tripCount} {tripCount === 1 ? 'trip' : 'trips'} discovered
+        <Text style={styles.title}>
+          {tripCount} {tripCount === 1 ? 'Trip' : 'Trips'} Found in Photos
         </Text>
+        <Text style={styles.subtitle}>Save places with geotagging</Text>
       </View>
 
       {/* Chevron */}
@@ -152,18 +174,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: withAlpha(colors.sunsetGold, 0.3),
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 6,
+    marginVertical: 8,
   },
   containerUnlinked: {
-    borderStyle: 'dashed',
     backgroundColor: withAlpha(colors.sunsetGold, 0.05),
   },
   iconContainer: {
@@ -223,5 +243,23 @@ const styles = StyleSheet.create({
     backgroundColor: withAlpha(colors.sunsetGold, 0.1),
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Skeleton styles
+  containerSkeleton: {
+    backgroundColor: colors.white,
+  },
+  skeletonPulse: {
+    backgroundColor: withAlpha(colors.stormGray, 0.12),
+  },
+  skeletonTitle: {
+    width: 160,
+    height: 18,
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  skeletonSubtitle: {
+    width: 120,
+    height: 14,
+    borderRadius: 4,
   },
 });

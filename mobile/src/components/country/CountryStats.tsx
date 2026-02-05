@@ -25,19 +25,15 @@ function CountryStatsComponent({
         <Text style={styles.statLabel}>Continent</Text>
         <Text style={styles.statValue}>{region}</Text>
       </View>
-      <View style={styles.statDivider} />
       <View style={styles.statItem}>
         <Text style={styles.statLabel}>Subregion</Text>
         <Text style={styles.statValue}>{subregion}</Text>
       </View>
       {isVisited && countryNumber !== null && (
-        <>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Count</Text>
-            <Text style={styles.statValue}>#{countryNumber}</Text>
-          </View>
-        </>
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Count</Text>
+          <Text style={styles.statValue}>#{countryNumber}</Text>
+        </View>
       )}
     </View>
   );
@@ -48,37 +44,32 @@ export default memo(CountryStatsComponent);
 const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.midnightNavyBorder,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 16,
     marginBottom: 16,
+    paddingHorizontal: 8,
   },
   statsRowReducedTopMargin: {
-    marginTop: -4,
+    marginTop: 0,
+    paddingTop: 12,
   },
   statItem: {
     alignItems: 'center',
-    paddingHorizontal: 12,
     flex: 1,
   },
-  statDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: colors.midnightNavyBorder,
-  },
   statLabel: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 12,
-    color: colors.stormGray,
-    marginBottom: 4,
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginBottom: 6,
     textTransform: 'uppercase',
+    letterSpacing: 1,
+    opacity: 0.7,
   },
   statValue: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 16,
+    fontSize: 18,
     color: colors.midnightNavy,
     textAlign: 'center',
   },

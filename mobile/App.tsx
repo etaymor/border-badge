@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, Linking, LogBox } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
+import { useCallback, useEffect } from 'react';
+import { LogBox } from 'react-native';
 
 // Suppress known harmless Reanimated warnings about off-screen FlatList items
 LogBox.ignoreLogs([
@@ -20,77 +18,36 @@ import {
   OpenSans_700Bold,
 } from '@expo-google-fonts/open-sans';
 import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
-import {
-  NavigationContainer,
-  NavigationState,
-  createNavigationContainerRef,
-} from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@components/splash';
 import { ResponsiveProvider } from '@contexts/ResponsiveContext';
+import { useAppStateTracking } from '@hooks/useAppStateTracking';
+import { useAuthSession } from '@hooks/useAuthSession';
 import { useCountriesSync } from '@hooks/useCountriesSync';
+import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
+import { useShareExtensionHandler } from '@hooks/useShareExtensionHandler';
 import { RootNavigator } from '@navigation/RootNavigator';
-import type { ShareCaptureSource } from '@navigation/types';
-// Note: RootStackParamList would be imported here for type-safe navigation,
-// but during LAUNCH_SIMPLIFICATION the navigation structure doesn't match types
 import { queryClient } from './src/queryClient';
+import { initAnalytics } from '@services/analytics';
+import { initializeRevenueCat } from '@services/revenueCat';
 import {
-  api,
-  clearTokens,
-  getOnboardingComplete,
-  setSignOutCallback,
-  storeTokens,
-} from '@services/api';
-import { Analytics, identifyUser, initAnalytics, resetUser } from '@services/analytics';
-import {
-  initializeRevenueCat,
-  identifyUser as identifyRevenueCatUser,
-  logOutUser as logOutRevenueCatUser,
-} from '@services/revenueCat';
-import {
-  isShareExtensionDeepLink,
-  parseDeepLinkParams,
-  savePendingShare,
-  getPendingShare,
-  clearPendingShare,
-  getSharedURLFromAppGroup,
-  wasRecentlyProcessed,
-  isCurrentlyProcessing,
-  markAsProcessing,
   syncApiUrlToAppGroup,
-  syncOfflineQueueFromExtension,
   syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
-import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
 import { env } from '@config/env';
-import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
-import { performBackgroundPhotoSync } from '@services/photoImport';
-import {
-  NAVIGATION_STATE_TTL_MS,
-  NAVIGATION_STATE_VERSION,
-  sanitizeNavigationState,
-  isValidNavigationState,
-  type PersistedNavigationState,
-} from '@utils/navigationPersistence';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
-
-// Key for storing navigation state in AsyncStorage
-const NAVIGATION_STATE_KEY = 'navigation-state';
-
-// Generate a cryptographically secure session ID for app_opened events
-function generateSessionId(): string {
-  return Crypto.randomUUID();
-}
 
 // Navigation container ref for programmatic navigation
 // Using any type due to LAUNCH_SIMPLIFICATION navigation structure
@@ -100,43 +57,39 @@ const navigationRef = createNavigationContainerRef<any>();
 /**
  * Deep linking configuration for the app.
  * Handles atlasi:// URLs from the Share Extension.
- *
- * Note: During LAUNCH_SIMPLIFICATION, Main uses PassportNavigator directly
- * which makes the type system complex. We use a minimal linking config
- * and handle ShareCapture navigation manually in the useEffect.
  */
 const linking = {
   prefixes: ['atlasi://'],
-  // Minimal config - actual ShareCapture navigation is handled manually
-  // in the useEffect to avoid complex nested navigation types
   config: {
     screens: {},
   },
 };
 
-type ShareCaptureNavigationParams = {
-  url: string;
-  caption?: string;
-  source: ShareCaptureSource;
-};
+// Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
+function useAppInitialization() {
+  useEffect(() => {
+    void initAnalytics();
+    initializeRevenueCat()
+      .then(() => {
+        return useSubscriptionStore.getState().fetchCustomerInfo();
+      })
+      .catch((error) => {
+        console.error('Failed to initialize RevenueCat:', error);
+      });
+    syncApiUrlToAppGroup(env.apiUrl).catch((error) => {
+      console.error('Failed to sync API URL to App Group:', error);
+    });
+    syncShareExtensionUsageFromAppGroup().catch((error) => {
+      console.error('Failed to sync share extension usage:', error);
+    });
+  }, []);
+}
 
 export default function App() {
-  const { signOut, setSession, setIsLoading, setHasCompletedOnboarding, session } = useAuthStore();
+  const { session } = useAuthStore();
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const [showSplash, setShowSplash] = useState(true);
-  const [isAppReady, setIsAppReady] = useState(false);
-  const [isNavigationReady, setIsNavigationReady] = useState(false);
-  const [initialNavigationState, setInitialNavigationState] = useState<
-    NavigationState | undefined
-  >();
-  // Note: pendingShareUrl state could be added here for UI feedback (e.g., showing a banner)
   const nativeSplashHiddenRef = useRef(false);
-  const appStateRef = useRef(AppState.currentState);
-  const sessionIdRef = useRef(generateSessionId());
-  const hasTrackedInitialOpenRef = useRef(false);
-  const hasProcessedInitialDeepLinkRef = useRef(false);
-  const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
-  const shouldClearPendingShareRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PlayfairDisplay_400Regular,
@@ -150,455 +103,31 @@ export default function App() {
   });
 
   // Sync countries to local SQLite database on app launch
-  // The hook handles errors internally - sync failures don't block the app
   const syncState = useCountriesSync();
-
-  // Log sync errors for debugging (users will see empty lists but we'll know why)
   useEffect(() => {
     if (syncState.error) {
       console.error('Countries sync failed:', syncState.error);
     }
   }, [syncState.error]);
 
-  // Helper to fetch usage limits from backend
-  // Defined outside useEffect to keep the effect clean
-  const fetchUsageLimits = useCallback(async () => {
-    try {
-      const response = await api.get<{
-        share_extension_count: number;
-        share_extension_period_start: string | null;
-        photo_import_count: number;
-      }>('/subscriptions/usage');
-      useSubscriptionStore
-        .getState()
-        .setUsageLimits(
-          response.data.share_extension_count,
-          response.data.photo_import_count,
-          response.data.share_extension_period_start
-        );
-    } catch (error) {
-      // Silent failure - usage limits will remain at defaults
-      // Backend is source of truth; this is just for UX optimization
-      console.warn('Failed to fetch usage limits:', error);
-    }
-  }, []);
+  // Initialize third-party services
+  useAppInitialization();
 
-  // Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
-  // Note: The share extension has a production URL fallback if this hasn't completed yet,
-  // but we sync eagerly on app start to ensure development builds hit the correct server.
-  useEffect(() => {
-    void initAnalytics();
-    // Initialize RevenueCat SDK (must be called before any purchases)
-    // After initialization, fetch customer info to populate subscription status
-    initializeRevenueCat()
-      .then(() => {
-        // Fetch customer info to update subscription store from 'loading' to actual status
-        // This enables premium gating checks throughout the app
-        return useSubscriptionStore.getState().fetchCustomerInfo();
-      })
-      .catch((error) => {
-        console.error('Failed to initialize RevenueCat:', error);
-      });
-    // Sync API URL to App Group so Share Extension can use it
-    // This is awaited internally but we don't block app initialization on it
-    // since the Share Extension has a fallback to production URL if not set
-    syncApiUrlToAppGroup(env.apiUrl).catch((error) => {
-      console.error('Failed to sync API URL to App Group:', error);
-    });
-    // Check if user has used share extension (for tutorial dismissal)
-    syncShareExtensionUsageFromAppGroup().catch((error) => {
-      console.error('Failed to sync share extension usage:', error);
-    });
-  }, []);
+  // Auth session management
+  const { isAppReady } = useAuthSession();
 
-  // Attempt to navigate to ShareCapture; queues the share if navigation isn't ready yet.
-  const tryNavigateToShareCapture = useCallback(
-    (params: ShareCaptureNavigationParams): 'navigated' | 'queued' | 'unauthenticated' => {
-      if (!session?.user?.id) {
-        return 'unauthenticated';
-      }
-
-      if (!navigationRef.isReady()) {
-        pendingAuthedShareRef.current = params;
-        return 'queued';
-      }
-
-      navigationRef.navigate('Main', {
-        screen: 'ShareCapture',
-        params,
-      });
-      pendingAuthedShareRef.current = null;
-      return 'navigated';
-    },
-    [session?.user?.id]
+  // Share extension deep link handling
+  const { handleNavigationReady, checkAppGroupForSharedURL } = useShareExtensionHandler(
+    navigationRef,
+    session
   );
 
-  const flushPendingAuthedShare = useCallback(() => {
-    if (!pendingAuthedShareRef.current) return;
+  // Navigation state persistence
+  const { isNavigationReady, initialNavigationState, handleNavigationStateChange } =
+    useNavigationPersistence(session);
 
-    const result = tryNavigateToShareCapture(pendingAuthedShareRef.current);
-    if (result === 'navigated' && shouldClearPendingShareRef.current) {
-      shouldClearPendingShareRef.current = false;
-      void clearPendingShare();
-    }
-  }, [tryNavigateToShareCapture]);
-
-  const processPendingShare = useCallback(async () => {
-    if (!session?.user?.id) return;
-
-    const pendingShare = await getPendingShare();
-    if (pendingShare) {
-      const result = tryNavigateToShareCapture({
-        url: pendingShare.url,
-        source: 'share_extension',
-      });
-
-      if (result === 'navigated') {
-        await clearPendingShare();
-      } else if (result === 'queued') {
-        shouldClearPendingShareRef.current = true;
-      }
-    }
-  }, [session?.user?.id, tryNavigateToShareCapture]);
-
-  // Check for shared URLs in App Group (from Share Extension)
-  const checkAppGroupForSharedURL = useCallback(async () => {
-    if (!session?.user?.id) return;
-
-    const sharedURL = await getSharedURLFromAppGroup();
-    if (sharedURL) {
-      // Skip if this URL is already being processed (prevents race condition when
-      // multiple events trigger simultaneously, e.g., app foreground + navigation ready)
-      if (isCurrentlyProcessing(sharedURL)) {
-        return;
-      }
-
-      // Skip if this URL was recently processed (prevents duplicate handling on app restart)
-      const recentlyProcessed = await wasRecentlyProcessed(sharedURL);
-      if (recentlyProcessed) {
-        return;
-      }
-
-      // Mark as processing BEFORE navigation to prevent race conditions
-      markAsProcessing(sharedURL);
-
-      // Navigate to ShareCapture - App Group will be cleared after successful save
-      // in ShareCaptureScreen via completeAppGroupShare() to prevent data loss
-      // if the app crashes before processing completes
-      tryNavigateToShareCapture({
-        url: sharedURL,
-        source: 'share_extension',
-      });
-    }
-  }, [session?.user?.id, tryNavigateToShareCapture]);
-
-  const handleNavigationReady = useCallback(() => {
-    flushPendingAuthedShare();
-    void processPendingShare();
-    void checkAppGroupForSharedURL();
-  }, [flushPendingAuthedShare, processPendingShare, checkAppGroupForSharedURL]);
-
-  // If user signs out before we could navigate, persist the queued share for later.
-  useEffect(() => {
-    if (session?.user?.id) {
-      flushPendingAuthedShare();
-      return;
-    }
-
-    if (pendingAuthedShareRef.current) {
-      const urlToPersist = pendingAuthedShareRef.current.url;
-      pendingAuthedShareRef.current = null;
-      shouldClearPendingShareRef.current = false;
-      void savePendingShare(urlToPersist);
-    } else {
-      shouldClearPendingShareRef.current = false;
-    }
-  }, [flushPendingAuthedShare, session?.user?.id]);
-
-  // Track app_opened when app comes to foreground and check for shared URLs
-  useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      // When app comes to foreground
-      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-        // Sync offline queue from Share Extension (runs regardless of auth state)
-        // Items will be available for processing once user is authenticated
-        syncOfflineQueueFromExtension().catch((error) => {
-          console.error('Failed to sync offline queue from extension:', error);
-        });
-
-        // Sync analytics events queued by Share Extension
-        syncAnalyticsFromExtension().catch((error) => {
-          console.error('Failed to sync analytics from extension:', error);
-        });
-
-        // Check if user has used share extension (for tutorial dismissal)
-        syncShareExtensionUsageFromAppGroup().catch((error) => {
-          console.error('Failed to sync share extension usage:', error);
-        });
-
-        // Track analytics and check for immediate shares (only if authenticated)
-        if (session?.user?.id) {
-          // Generate new session ID for this foreground event
-          sessionIdRef.current = generateSessionId();
-          Analytics.appOpened(sessionIdRef.current);
-
-          // Check for URLs shared via Share Extension while app was in background
-          void checkAppGroupForSharedURL();
-
-          // Background photo sync - silently cache new photos for faster photo import
-          performBackgroundPhotoSync(homeCountry).catch(() => {
-            // Errors already handled internally
-          });
-        }
-      }
-      appStateRef.current = nextAppState;
-    };
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    // Reset tracking ref on sign out so next sign-in can track initial open
-    if (!session?.user?.id) {
-      hasTrackedInitialOpenRef.current = false;
-      sessionIdRef.current = generateSessionId();
-    }
-
-    // Track initial app open if authenticated (only once to prevent double-tracking)
-    if (session?.user?.id && !hasTrackedInitialOpenRef.current) {
-      hasTrackedInitialOpenRef.current = true;
-      Analytics.appOpened(sessionIdRef.current);
-    }
-
-    return () => {
-      subscription.remove();
-    };
-  }, [session?.user?.id, checkAppGroupForSharedURL, homeCountry]);
-
-  // Handle deep links: share extension only
-  // Note: Auth callbacks (atlasi://auth-callback) are handled directly by
-  // WebBrowser.openAuthSessionAsync() in OAuth hooks (useGoogleAuth, useAppleAuth).
-  // We do NOT process them here to avoid race conditions with double session setting.
-  useEffect(() => {
-    /**
-     * Process a share extension deep link.
-     * Extracts the shared URL from the deep link query parameter and navigates to ShareCaptureScreen.
-     */
-    const handleShareDeepLink = async (deepLinkUrl: string) => {
-      // Only process share extension deep links
-      if (!isShareExtensionDeepLink(deepLinkUrl)) return;
-
-      // Extract the shared URL from the deep link query parameter
-      const params = parseDeepLinkParams(deepLinkUrl);
-      const sharedUrl = params.url;
-
-      if (sharedUrl) {
-        const result = tryNavigateToShareCapture({
-          url: sharedUrl,
-          source: 'share_extension',
-        });
-
-        if (result === 'unauthenticated') {
-          // User not authenticated - save for later
-          await savePendingShare(sharedUrl);
-        }
-      }
-    };
-
-    // Subscribe to deep link events
-    const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleShareDeepLink(url);
-    });
-
-    // Check for initial URL (app opened via share extension deep link)
-    // This handles cold start scenarios where the app is opened via share
-    // Note: We set the ref inside the promise to avoid race conditions where a URL
-    // could arrive between setting the ref and promise resolution
-    if (!hasProcessedInitialDeepLinkRef.current) {
-      Linking.getInitialURL()
-        .then((url) => {
-          // Set ref after getting URL to prevent race condition
-          hasProcessedInitialDeepLinkRef.current = true;
-          if (url) {
-            void handleShareDeepLink(url);
-          }
-        })
-        .catch((error) => {
-          hasProcessedInitialDeepLinkRef.current = true;
-          console.error('Failed to get initial deep link URL:', error);
-        });
-    }
-
-    return () => {
-      subscription.remove();
-    };
-  }, [tryNavigateToShareCapture]);
-
-  useEffect(() => {
-    // Wire up API sign-out callback
-    setSignOutCallback(signOut);
-
-    let subscription: { unsubscribe: () => void } | null = null;
-    let isMounted = true;
-
-    const initAuth = async () => {
-      try {
-        // First restore existing session
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session) {
-          setSession(session);
-          await storeTokens(session.access_token, session.refresh_token ?? '');
-          // Identify user in analytics
-          identifyUser(session.user.id);
-          // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id).catch((error) => {
-            console.error('Failed to identify RevenueCat user:', error);
-          });
-          // Restore onboarding state for returning users
-          const onboardingComplete = await getOnboardingComplete();
-          if (onboardingComplete) {
-            setHasCompletedOnboarding(true);
-          }
-          // Fetch usage limits from backend (for premium gating)
-          void fetchUsageLimits();
-        }
-      } catch (error) {
-        console.error('Failed to restore session:', error);
-      } finally {
-        setIsLoading(false);
-        // Mark app as ready for the animated splash to transition
-        setIsAppReady(true);
-      }
-
-      // Then set up listener for future changes (after session restore completes)
-      const {
-        data: { subscription: sub },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        // Skip INITIAL_SESSION as we already handled it above
-        if (event === 'INITIAL_SESSION') return;
-        // Guard against updates after unmount
-        if (!isMounted) return;
-
-        console.log('Auth state changed:', event);
-        setSession(session);
-        if (session) {
-          await storeTokens(session.access_token, session.refresh_token ?? '');
-          // Identify user in analytics
-          identifyUser(session.user.id);
-          // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id).catch((error) => {
-            console.error('Failed to identify RevenueCat user:', error);
-          });
-          // Fetch usage limits from backend (for premium gating)
-          void fetchUsageLimits();
-        } else {
-          // User signed out - clear tokens first, then reset onboarding state
-          await clearTokens();
-          setHasCompletedOnboarding(false);
-          // Reset analytics user
-          resetUser();
-          // Reset subscription store to clear cached premium status and usage limits
-          useSubscriptionStore.getState().reset();
-          // Log out RevenueCat user (resets to anonymous)
-          logOutRevenueCatUser().catch((error) => {
-            console.error('Failed to log out RevenueCat user:', error);
-          });
-        }
-      });
-      subscription = sub;
-    };
-
-    initAuth();
-
-    return () => {
-      isMounted = false;
-      subscription?.unsubscribe();
-    };
-  }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding, fetchUsageLimits]);
-
-  // Restore navigation state on app launch (only for authenticated users)
-  useEffect(() => {
-    const restoreNavigationState = async () => {
-      try {
-        // Only restore navigation state if user is authenticated
-        // This prevents navigating to auth-required screens before auth is ready
-        if (!session) {
-          setIsNavigationReady(true);
-          return;
-        }
-
-        const savedData = await AsyncStorage.getItem(NAVIGATION_STATE_KEY);
-        if (savedData) {
-          const persisted = JSON.parse(savedData) as PersistedNavigationState;
-
-          // Check version compatibility
-          if (persisted.version !== NAVIGATION_STATE_VERSION) {
-            console.warn('Navigation state version mismatch, discarding');
-            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
-            setIsNavigationReady(true);
-            return;
-          }
-
-          // Check TTL expiration
-          const age = Date.now() - persisted.timestamp;
-          if (age > NAVIGATION_STATE_TTL_MS) {
-            console.warn('Navigation state expired, discarding');
-            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
-            setIsNavigationReady(true);
-            return;
-          }
-
-          // Validate state structure
-          if (!isValidNavigationState(persisted.state)) {
-            console.warn('Navigation state invalid, discarding');
-            await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
-            setIsNavigationReady(true);
-            return;
-          }
-
-          setInitialNavigationState(persisted.state);
-        }
-      } catch (error) {
-        console.warn('Failed to restore navigation state:', error);
-        // Clean up corrupted state
-        AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch(() => {});
-      } finally {
-        setIsNavigationReady(true);
-      }
-    };
-
-    restoreNavigationState();
-  }, [session]);
-
-  // Clear navigation state when user signs out
-  useEffect(() => {
-    if (!session) {
-      AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch((error) => {
-        console.warn('Failed to clear navigation state:', error);
-      });
-    }
-  }, [session]);
-
-  // Save navigation state when it changes
-  const handleNavigationStateChange = useCallback(
-    (state: NavigationState | undefined) => {
-      if (state && session) {
-        // Sanitize state to remove sensitive params before persisting
-        const sanitizedState = sanitizeNavigationState(state);
-        const persistedState: PersistedNavigationState = {
-          state: sanitizedState,
-          timestamp: Date.now(),
-          version: NAVIGATION_STATE_VERSION,
-        };
-        AsyncStorage.setItem(NAVIGATION_STATE_KEY, JSON.stringify(persistedState)).catch(
-          (error) => {
-            console.warn('Failed to save navigation state:', error);
-          }
-        );
-      }
-    },
-    [session]
-  );
+  // App foreground/background tracking
+  useAppStateTracking(session, checkAppGroupForSharedURL, homeCountry);
 
   // Handle splash animation complete
   const handleSplashComplete = useCallback(() => {

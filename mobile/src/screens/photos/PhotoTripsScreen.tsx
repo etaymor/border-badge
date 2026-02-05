@@ -61,8 +61,9 @@ function SectionHeader({ year }: { year: number }) {
   );
 }
 
-export function PhotoTripsScreen({ navigation }: Props) {
+export function PhotoTripsScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { countryCode: initialCountryCode } = route.params ?? {};
   const {
     filteredTripsByYear,
     sortedYears,
@@ -72,7 +73,7 @@ export function PhotoTripsScreen({ navigation }: Props) {
     refresh,
     searchQuery,
     setSearchQuery,
-  } = usePhotoTrips();
+  } = usePhotoTrips({ initialCountryCode });
 
   const createTripMutation = useCreateTrip();
 
@@ -351,7 +352,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: fonts.dawning.regular,
-    fontSize: 28,
+    fontSize: 40,
     color: colors.adobeBrick,
     marginRight: 12,
   },

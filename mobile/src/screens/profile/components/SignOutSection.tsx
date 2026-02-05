@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
   signOutButton: {
     paddingVertical: 14,
     paddingHorizontal: 32,
-    borderRadius: 12,
+    borderRadius: 9999,
     borderWidth: 1,
     borderColor: colors.adobeBrick,
     minWidth: 140,

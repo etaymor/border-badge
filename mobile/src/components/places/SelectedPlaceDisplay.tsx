@@ -1,11 +1,10 @@
 /**
  * Selected place display component.
- * Shows the currently selected place with name and address.
+ * Shows the currently selected place with name and address in a card style.
  */
 
 import { memo, useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, Text, View, TouchableOpacity, Platform } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -13,6 +12,7 @@ import type { SelectedPlace } from '@services/placesApi';
 
 interface SelectedPlaceDisplayProps {
   place: SelectedPlace;
+  onChange: () => void;
 }
 
 /**
@@ -44,20 +44,26 @@ function getDisplayAddress(address: string | null): string | null {
 
 export const SelectedPlaceDisplay = memo(function SelectedPlaceDisplay({
   place,
+  onChange,
 }: SelectedPlaceDisplayProps) {
   const displayAddress = useMemo(() => getDisplayAddress(place.address), [place.address]);
 
   return (
     <View style={styles.container}>
-      <Ionicons name="location" size={16} color={colors.adobeBrick} />
-      <Text style={styles.name} numberOfLines={1}>
-        {place.name}
-      </Text>
-      {displayAddress && (
-        <Text style={styles.address} numberOfLines={1}>
-          {displayAddress}
+      <View style={styles.contentContainer}>
+        <Text style={styles.name} numberOfLines={1}>
+          {place.name}
         </Text>
-      )}
+        {displayAddress && (
+          <Text style={styles.address} numberOfLines={1}>
+            {displayAddress}
+          </Text>
+        )}
+      </View>
+
+      <TouchableOpacity onPress={onChange} style={styles.changeButton} hitSlop={10}>
+        <Text style={styles.changeButtonText}>Change</Text>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -66,20 +72,47 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    paddingHorizontal: 4,
+    backgroundColor: colors.paperBeige, // Card background
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 0,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  contentContainer: {
+    flex: 1,
+    marginRight: 8,
   },
   name: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-    marginLeft: 6,
+    marginBottom: 2,
   },
   address: {
     fontSize: 13,
     fontFamily: fonts.openSans.regular,
     color: colors.textSecondary,
-    marginLeft: 8,
-    flex: 1,
+  },
+  changeButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(23, 42, 58, 0.05)', // Subtle background
+    borderRadius: 12,
+  },
+  changeButtonText: {
+    fontSize: 12,
+    fontFamily: fonts.openSans.semiBold,
+    color: colors.midnightNavy,
+    opacity: 0.7,
   },
 });

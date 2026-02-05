@@ -21,6 +21,11 @@ import {
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useCountries, type Country } from './useCountries';
 
+export interface UsePhotoTripsOptions {
+  /** Initial country code filter (from navigation params) */
+  initialCountryCode?: string;
+}
+
 export interface UsePhotoTripsResult {
   /** All trip candidates */
   trips: TripCandidateDisplay[];
@@ -42,6 +47,8 @@ export interface UsePhotoTripsResult {
   searchQuery: string;
   /** Set search query for filtering */
   setSearchQuery: (query: string) => void;
+  /** Set country filter (by code) */
+  setCountryFilter: (countryCode: string | null) => void;
   /** Trips filtered by search query */
   filteredTrips: TripCandidateDisplay[];
   /** Filtered trips grouped by country */
@@ -104,7 +111,8 @@ function groupByYear(trips: TripCandidateDisplay[]): Map<number, TripCandidateDi
   return map;
 }
 
-export function usePhotoTrips(): UsePhotoTripsResult {
+export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResult {
+  const { initialCountryCode } = options ?? {};
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const { data: countries } = useCountries();
 
@@ -115,6 +123,9 @@ export function usePhotoTrips(): UsePhotoTripsResult {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastImportTime, setLastImportTime] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [countryCodeFilter, setCountryCodeFilter] = useState<string | null>(
+    initialCountryCode ?? null
+  );
 
   // Use ref for cleanup to avoid memory leaks
   const isMountedRef = useRef(true);
@@ -178,16 +189,31 @@ export function usePhotoTrips(): UsePhotoTripsResult {
   // Group trips by country (memoized)
   const tripsByCountry = useMemo(() => groupByCountry(trips), [trips]);
 
-  // Filter trips by search query
+  // Filter trips by country code and/or search query
   const filteredTrips = useMemo(() => {
-    if (!searchQuery.trim()) return trips;
+    let result = trips;
 
-    const query = searchQuery.toLowerCase().trim();
-    return trips.filter((trip) => {
-      const countryName = countryNameMap.get(trip.countryCode);
-      return countryName?.includes(query) ?? false;
-    });
-  }, [trips, searchQuery, countryNameMap]);
+    // Apply country code filter first
+    if (countryCodeFilter) {
+      result = result.filter((trip) => trip.countryCode === countryCodeFilter);
+    }
+
+    // Then apply search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter((trip) => {
+        const countryName = countryNameMap.get(trip.countryCode);
+        return countryName?.includes(query) ?? false;
+      });
+    }
+
+    return result;
+  }, [trips, countryCodeFilter, searchQuery, countryNameMap]);
+
+  // Setter for country filter
+  const setCountryFilter = useCallback((countryCode: string | null) => {
+    setCountryCodeFilter(countryCode);
+  }, []);
 
   // Filtered trips grouped by country
   const filteredTripsByCountry = useMemo(() => groupByCountry(filteredTrips), [filteredTrips]);
@@ -235,6 +261,7 @@ export function usePhotoTrips(): UsePhotoTripsResult {
     refresh,
     searchQuery,
     setSearchQuery,
+    setCountryFilter,
     filteredTrips,
     filteredTripsByCountry,
     filteredTripsByYear,

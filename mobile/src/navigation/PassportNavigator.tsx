@@ -9,6 +9,7 @@ import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
 import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
+import { TripFormScreen } from '@screens/trips/TripFormScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
 import { TripsNavigator } from './TripsNavigator';
 import { SlideWithScalePreset, SharedCountryPreset } from './interpolators';
@@ -38,6 +39,7 @@ function PassportNavigatorContent() {
           }}
         />
         <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+        <Stack.Screen name="TripForm" component={TripFormScreen} />
         <Stack.Screen name="Trips" component={TripsNavigator} />
         <Stack.Screen
           name="ShareCapture"

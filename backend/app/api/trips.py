@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
+from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -71,10 +72,12 @@ async def list_trips(
     Optionally filter by country_code to get trips for a specific country.
     By default, system trips (Saved Places) are excluded.
     """
+    logger.info("Listing trips with media fallback")
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
     params: dict[str, str | int | bool] = {
-        "select": "*, country:country_id(code)",
+        # Fetch entries and their media files to get a fallback cover image
+        "select": "*, country:country_id(code), entries:entry(media_files(file_path))",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
@@ -93,15 +96,35 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
-    return [
-        Trip(
-            **{k: v for k, v in row.items() if k != "country"},
-            country_code=row.get("country", {}).get("code")
-            if row.get("country")
-            else None,
+    # Process rows to extract fallback image from entries if needed
+    result_trips = []
+    for row in rows:
+        # Get country code
+        country_code = (
+            row.get("country", {}).get("code") if row.get("country") else None
         )
-        for row in rows
-    ]
+
+        # Determine cover image: use explicit cover, or fallback to first entry image
+        cover_image_url = row.get("cover_image_url")
+        if not cover_image_url:
+            entries = row.get("entries", [])
+            # Find first entry with a media file
+            for entry in entries:
+                media_files = entry.get("media_files", [])
+                if media_files and len(media_files) > 0:
+                    # Use the first media file found
+                    file_path = media_files[0].get("file_path")
+                    if file_path:
+                        cover_image_url = build_media_url(file_path)
+                        break
+
+        # Remove joined fields before passing to Pydantic
+        trip_dict = {k: v for k, v in row.items() if k not in ["country", "entries"]}
+        trip_dict["cover_image_url"] = cover_image_url
+
+        result_trips.append(Trip(**trip_dict, country_code=country_code))
+
+    return result_trips
 
 
 @router.get("/uncategorized", response_model=UncategorizedTrip)

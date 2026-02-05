@@ -27,6 +27,11 @@ enum BrandColors {
     /// Green accent for secondary elements
     static let mossGreen = Color(red: 84/255, green: 122/255, blue: 95/255)
 
+    // MARK: - Muted Earth Tones (New)
+    static let latteGold = Color(red: 212/255, green: 163/255, blue: 115/255)
+    static let slateBlue = Color(red: 141/255, green: 153/255, blue: 174/255)
+    static let oliveGreen = Color(red: 107/255, green: 112/255, blue: 92/255)
+
     // MARK: - Secondary Colors
 
     /// Card background color
@@ -40,17 +45,17 @@ enum BrandColors {
 
     // MARK: - Entry Type Colors
 
-    /// Place entry type color (adobeBrick)
-    static let entryPlace = adobeBrick
+    /// Place entry type color (midnightNavy) - Neutral
+    static let entryPlace = midnightNavy
 
-    /// Food entry type color (sunsetGold)
-    static let entryFood = sunsetGold
+    /// Food entry type color (latteGold) - Earthy
+    static let entryFood = latteGold
 
-    /// Stay entry type color (mossGreen)
-    static let entryStay = mossGreen
+    /// Stay entry type color (slateBlue) - Muted
+    static let entryStay = slateBlue
 
-    /// Experience entry type color (midnightNavy)
-    static let entryExperience = midnightNavy
+    /// Experience entry type color (oliveGreen) - Natural
+    static let entryExperience = oliveGreen
 
     // MARK: - UIKit Colors (for ShareViewController compatibility)
 

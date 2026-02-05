@@ -80,6 +80,8 @@ export interface ShareCaptureHandlers {
   /** Not yet implemented - update place after edit */
   handleUpdatePlace?: (placeKey: string, place: SelectedPlace) => void;
   handlePlaceEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
+  handleSelectAllPlaces: () => void;
+  handleClearAllPlaces: () => void;
   // Common handlers
   handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
   handleSave: () => Promise<void>;
@@ -598,6 +600,26 @@ export function useShareCapture({
     });
   }, []);
 
+  const handleSelectAllPlaces = useCallback(() => {
+    setPlaceSelections((prev) => {
+      const updated = { ...prev };
+      for (const key of Object.keys(updated)) {
+        updated[key] = { ...updated[key], isSelected: true };
+      }
+      return updated;
+    });
+  }, []);
+
+  const handleClearAllPlaces = useCallback(() => {
+    setPlaceSelections((prev) => {
+      const updated = { ...prev };
+      for (const key of Object.keys(updated)) {
+        updated[key] = { ...updated[key], isSelected: false };
+      }
+      return updated;
+    });
+  }, []);
+
   const handleManualEntry = useCallback(() => {
     const detectedProvider = detectProviderFromUrl(url);
     setIngestResult({
@@ -662,6 +684,8 @@ export function useShareCapture({
     // Multi-place handlers
     handleTogglePlace,
     handlePlaceEntryTypeChange,
+    handleSelectAllPlaces,
+    handleClearAllPlaces,
     // handleEditPlace and handleUpdatePlace not yet implemented - see stubs below
     // Common handlers
     handleCreateTrip,

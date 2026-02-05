@@ -5,7 +5,9 @@ import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'r
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
@@ -35,6 +37,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
   const { addVisitedContinent } = useOnboardingStore();
   const { isSmallScreen, isLargeScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
@@ -42,11 +45,14 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const hasVideoSource = Boolean(playerSource);
   const backgroundColor = CONTINENT_BACKGROUNDS[region] || DEFAULT_BACKGROUND;
 
-  // Animation values
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(-20)).current;
-  const videoScale = useRef(new Animated.Value(0.95)).current;
-  const buttonsTranslate = useRef(new Animated.Value(30)).current;
+  // Premium entrance animation with reset capability
+  const { getAnimatedStyle, getButtonStyle, resetAnimation, startAnimation } = useScreenEntrance({
+    elementCount: 3,
+    autoStart: false,
+  });
+
+  // Video scale animation (content-specific, keeps the premium video zoom-in)
+  const videoScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.95)).current;
 
   const player = useVideoPlayer(playerSource, (playerInstance) => {
     playerInstance.loop = true;
@@ -74,44 +80,28 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     return unsubscribe;
   }, [navigation]);
 
-  // Staggered entrance animations
+  // Reset and restart animations when region changes
   useEffect(() => {
-    // Reset animations when region changes
-    contentOpacity.setValue(0);
-    titleTranslate.setValue(-20);
-    videoScale.setValue(0.95);
-    buttonsTranslate.setValue(30);
+    if (reduceMotion) {
+      videoScale.setValue(1);
+      return;
+    }
 
-    Animated.sequence([
-      // Everything fades in together
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(videoScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.spring(titleTranslate, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Buttons slide up
-      Animated.spring(buttonsTranslate, {
-        toValue: 0,
-        friction: 7,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [region, contentOpacity, titleTranslate, videoScale, buttonsTranslate]);
+    // Reset video scale
+    videoScale.setValue(0.95);
+
+    // Reset and start screen entrance
+    resetAnimation();
+    startAnimation();
+
+    // Animate video scale
+    Animated.spring(videoScale, {
+      toValue: 1,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [region, resetAnimation, startAnimation, videoScale, reduceMotion]);
 
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -144,15 +134,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     <View style={[styles.container, { backgroundColor }]}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header with title */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <View style={styles.navBar}>
             <View style={styles.backButtonContainer}>
               {canGoBack ? (
@@ -177,10 +159,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
             styles.videoContainer,
             isSmallScreen && styles.videoContainerSmall,
             isLargeScreen && styles.videoContainerLarge,
-            {
-              opacity: contentOpacity,
-              transform: [{ scale: videoScale }],
-            },
+            getAnimatedStyle(1),
+            { transform: [{ scale: videoScale }] },
           ]}
         >
           {hasVideoSource ? (
@@ -195,15 +175,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           )}
 
           {/* Buttons overlaid on video */}
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: contentOpacity,
-                transform: [{ translateY: buttonsTranslate }],
-              },
-            ]}
-          >
+          <Animated.View style={[styles.buttonContainer, getButtonStyle(2)]}>
             <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
               <Text style={styles.yesButtonText}>Yes</Text>
             </TouchableOpacity>
@@ -298,7 +270,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,
@@ -316,7 +288,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,

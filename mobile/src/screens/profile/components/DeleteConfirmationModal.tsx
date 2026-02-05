@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: colors.warmCream,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 24,
     width: '85%',
     maxWidth: 400,
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.paperBeige,
-    borderRadius: 8,
+    borderRadius: 20,
     padding: 12,
     marginBottom: 20,
   },
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 9999,
     alignItems: 'center',
   },
   buttonPressed: {

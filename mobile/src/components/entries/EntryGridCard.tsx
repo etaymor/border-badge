@@ -106,10 +106,8 @@ const styles = StyleSheet.create({
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    shadowRadius: 12,
+    elevation: 6,
   },
   imageContainer: {
     width: '100%',

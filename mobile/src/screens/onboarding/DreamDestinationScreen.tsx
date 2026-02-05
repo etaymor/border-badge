@@ -28,12 +28,12 @@ export function DreamDestinationScreen({ navigation }: Props) {
   };
 
   const config: CountrySelectionConfig = {
-    backgroundColor: colors.lakeBlue,
+    backgroundColor: colors.warmCream, // Use warm cream for "Paper" signature look
     title: 'Where do you want to go?',
     subtitle: "What's one country on your bucket list?",
-    dropdownBorderColor: colors.lakeBlue,
     celebrationType: 'dream',
     showBackButton: true,
+    stampSuggestions: ['JP', 'ZA', 'AR', 'FR', 'IT'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => dreamDestination,
     onNavigateNext: () =>

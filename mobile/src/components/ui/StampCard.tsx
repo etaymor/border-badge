@@ -30,6 +30,14 @@ export const StampCard = React.memo(function StampCard({
 }: StampCardProps) {
   const stampImage = useMemo(() => getStampImage(code), [code]);
 
+  // Deterministic rotation based on country code for organic feel
+  // Range: -5deg to +5deg (Reduced from +/- 9deg)
+  const rotation = useMemo(() => {
+    const hash = code.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const angle = (hash % 11) - 5;
+    return `${angle}deg`;
+  }, [code]);
+
   if (!stampImage) {
     return null;
   }
@@ -43,7 +51,11 @@ export const StampCard = React.memo(function StampCard({
       accessibilityLabel={`View ${code} country details`}
       testID={testID || `stamp-card-${code}`}
     >
-      <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+      <Image
+        source={stampImage}
+        style={[styles.stampImage, { transform: [{ rotate: rotation }] }]}
+        resizeMode="contain"
+      />
       {hasTrips && (
         <View style={styles.tripsIndicator} testID={`stamp-card-trips-${code}`}>
           <Image source={quillIcon} style={styles.tripsIcon} />
@@ -58,10 +70,12 @@ const styles = StyleSheet.create({
     flex: 1,
     aspectRatio: 1, // Square stamps
     position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   stampImage: {
-    width: '100%',
-    height: '100%',
+    width: '92%',
+    height: '92%',
   },
   tripsIndicator: {
     position: 'absolute',

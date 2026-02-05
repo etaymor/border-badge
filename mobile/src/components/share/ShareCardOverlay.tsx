@@ -267,6 +267,7 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
               },
             ]}
           >
+            {/* Displayed card with rounded corners */}
             <View
               style={{
                 width: SHARE_CARD_WIDTH,
@@ -275,82 +276,73 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
                 transformOrigin: 'top left',
               }}
             >
-              <ViewShot
-                ref={viewShotRef}
-                options={{
-                  format: 'png',
-                  quality: 0.9,
-                  width: 1080, // Instagram Story width
-                  height: 1920, // Instagram Story height
-                }}
-              >
-                <ShareCard context={context} backgroundImage={backgroundImage} />
-              </ViewShot>
+              <ShareCard context={context} backgroundImage={backgroundImage} roundedCorners />
             </View>
           </Animated.View>
+
+          {/* Hidden card for capture (no rounded corners) - positioned offscreen */}
+          <View style={styles.hiddenCaptureContainer}>
+            <ViewShot
+              ref={viewShotRef}
+              options={{
+                format: 'png',
+                quality: 0.9,
+                width: 1080,
+                height: 1920,
+              }}
+            >
+              <ShareCard context={context} backgroundImage={backgroundImage} />
+            </ViewShot>
+          </View>
 
           {/* Action buttons */}
           <Animated.View style={[styles.actionsContainer, { opacity: cardOpacity }]}>
             {/* Photo button */}
             <TouchableOpacity
-              style={styles.actionButton}
+              style={[styles.pillButton, styles.glassPill]}
               onPress={backgroundImage ? handleRemovePhoto : handleAddPhoto}
               activeOpacity={0.7}
-              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               accessibilityRole="button"
               accessibilityLabel={backgroundImage ? 'Remove photo' : 'Add photo from library'}
-              accessibilityHint={
-                backgroundImage
-                  ? 'Removes the background photo'
-                  : 'Opens photo library to select a background'
-              }
             >
-              <View style={styles.actionIconContainer}>
-                <Ionicons
-                  name={backgroundImage ? 'close-circle' : 'image-outline'}
-                  size={24}
-                  color={colors.midnightNavy}
-                />
-              </View>
-              <Text style={styles.actionLabel}>{backgroundImage ? 'Remove' : 'Customize'}</Text>
+              <Ionicons
+                name={backgroundImage ? 'close-circle' : 'image-outline'}
+                size={20}
+                color={colors.white}
+              />
+              <Text style={styles.pillLabel}>{backgroundImage ? 'Reset' : 'Photo'}</Text>
             </TouchableOpacity>
 
-            {/* Share button */}
+            {/* Share button (Primary) */}
             <TouchableOpacity
-              style={[styles.actionButton, styles.primaryAction]}
+              style={[styles.pillButton, styles.primaryPill]}
               onPress={handleShare}
               activeOpacity={0.7}
-              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               accessibilityRole="button"
               accessibilityLabel="Share card"
-              accessibilityHint="Opens share sheet to share this card"
             >
-              <View style={[styles.actionIconContainer, styles.primaryIconContainer]}>
-                <Ionicons name="share-outline" size={24} color={colors.white} />
-              </View>
-              <Text style={[styles.actionLabel, styles.primaryLabel]}>Share</Text>
+              <Ionicons name="share-outline" size={20} color={colors.midnightNavy} />
+              <Text style={styles.primaryPillLabel}>Share</Text>
             </TouchableOpacity>
 
             {/* Save button */}
             <TouchableOpacity
-              style={styles.actionButton}
+              style={[styles.pillButton, styles.glassPill]}
               onPress={handleSave}
               activeOpacity={0.7}
               disabled={isSaving}
-              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               accessibilityRole="button"
               accessibilityLabel={isSaving ? 'Saving to photos' : 'Save to photos'}
-              accessibilityHint="Saves this card to your photo library"
-              accessibilityState={{ disabled: isSaving }}
             >
-              <View style={styles.actionIconContainer}>
-                <Ionicons
-                  name={isSaving ? 'hourglass-outline' : 'download-outline'}
-                  size={24}
-                  color={colors.midnightNavy}
-                />
-              </View>
-              <Text style={styles.actionLabel}>Save</Text>
+              <Ionicons
+                name={isSaving ? 'hourglass-outline' : 'download-outline'}
+                size={20}
+                color={colors.white}
+              />
+              <Text style={styles.pillLabel}>Save</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -410,40 +402,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 32,
-    gap: 24,
+    gap: 12,
   },
-  actionButton: {
-    alignItems: 'center',
-  },
-  primaryAction: {
-    // Primary action styling
-  },
-  actionIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.warmCream,
+  pillButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
-    shadowColor: colors.black,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    gap: 8,
+  },
+  glassPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  primaryPill: {
+    backgroundColor: colors.sunsetGold,
+    paddingHorizontal: 24, // Slightly wider for primary
+    shadowColor: colors.sunsetGold,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
-  primaryIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.sunsetGold,
-  },
-  actionLabel: {
+  pillLabel: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 12,
-    color: colors.warmCream,
+    fontSize: 14,
+    color: colors.white,
   },
-  primaryLabel: {
-    color: colors.sunsetGold,
+  primaryPillLabel: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 14,
+    color: colors.midnightNavy,
+  },
+  hiddenCaptureContainer: {
+    position: 'absolute',
+    left: -9999,
+    top: -9999,
   },
 });

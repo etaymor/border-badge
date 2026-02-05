@@ -15,7 +15,7 @@ export const colors = {
   midnightNavyFocused: 'rgba(23, 42, 58, 0.12)', // Focused input backgrounds
   midnightNavyBorder: 'rgba(23, 42, 58, 0.2)', // Dividers
   warmCream: '#FDF6ED', // Background paper feel, base layer
-  sunsetGold: '#F4C24E', // Highlight buttons, call to actions
+  sunsetGold: '#FFC636', // Highlight buttons, call to actions (Brightened from #F4C24E)
   adobeBrick: '#C1543E', // Accent, icons, "visited" mark
   lakeBlue: '#A0CDEB', // Sky/illustration tie-in, neutral tint
   mossGreen: '#547A5F', // Secondary accents, tags
@@ -29,11 +29,11 @@ export const colors = {
   // Semantic colors - Mapped to Brand Palette where appropriate
   success: '#547A5F', // Moss Green
   successDark: '#2E7D32',
-  warning: '#F4C24E', // Sunset Gold
+  warning: '#FFC636', // Sunset Gold
   error: '#C1543E', // Adobe Brick
 
   // Wishlist colors
-  wishlistGold: '#F4C24E', // Sunset Gold
+  wishlistGold: '#FFC636', // Sunset Gold
   wishlistBrown: '#B8860B',
 
   // Text colors
@@ -55,8 +55,7 @@ export const colors = {
   separator: '#C7C7CC',
 
   // Entry type colors
-  entryPlace: '#007AFF',
-  entryFood: '#F4C24E', // Sunset Gold
+  entryFood: '#FFC636', // Sunset Gold
   entryStay: '#5856D6',
   entryExperience: '#547A5F', // Moss Green
 

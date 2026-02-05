@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
 import { DreamsScreen } from '@screens/DreamsScreen';
+import { TripFormScreen } from '@screens/trips/TripFormScreen';
 
 import type { DreamsStackParamList } from './types';
 
@@ -18,6 +19,7 @@ export function DreamsNavigator() {
           headerShown: false,
         }}
       />
+      <Stack.Screen name="TripForm" component={TripFormScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

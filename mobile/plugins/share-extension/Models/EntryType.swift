@@ -12,33 +12,33 @@ enum EntryType: String, CaseIterable, Codable {
     case stay
     case experience
 
-    /// Display label for the entry type
+    /// Display label for the entry type (shortened for compact display)
     var label: String {
         switch self {
         case .place: return "Place"
         case .food: return "Food"
         case .stay: return "Stay"
-        case .experience: return "Experience"
+        case .experience: return "Exp"  // Shortened to match React Native
         }
     }
 
-    /// SF Symbol icon name
+    /// SF Symbol icon name (outline variants for tinted chip style)
     var icon: String {
         switch self {
-        case .place: return "mappin.circle.fill"
+        case .place: return "location"
         case .food: return "fork.knife"
-        case .stay: return "bed.double.fill"
-        case .experience: return "star.fill"
+        case .stay: return "bed.double"
+        case .experience: return "sparkles"
         }
     }
 
     /// Brand color for the entry type
     var color: Color {
         switch self {
-        case .place: return BrandColors.adobeBrick
-        case .food: return BrandColors.sunsetGold
-        case .stay: return BrandColors.mossGreen
-        case .experience: return BrandColors.midnightNavy
+        case .place: return BrandColors.entryPlace
+        case .food: return BrandColors.entryFood
+        case .stay: return BrandColors.entryStay
+        case .experience: return BrandColors.entryExperience
         }
     }
 }

@@ -34,7 +34,7 @@ interface InlineTripFormProps {
 export function InlineTripForm({
   defaultCountryCode,
   onSubmit,
-  onCancel,
+  onCancel: _onCancel,
   onError,
   isSubmitting,
 }: InlineTripFormProps) {

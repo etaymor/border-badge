@@ -30,6 +30,7 @@ import {
 } from '@hooks/useEntries';
 import { useTrip } from '@hooks/useTrips';
 import { CategorySelector } from '@components/entries';
+import { SmartLinkDisplay } from '@components/entries/SmartLinkDisplay';
 import { EntryMediaGallery } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
@@ -38,6 +39,7 @@ import { fonts } from '@constants/typography';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { usePremiumGate } from '@hooks/usePremiumGate';
 import { useEntries } from '@hooks/useEntries';
+import { fetchOpenGraphTitle } from '@utils/openGraph';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -77,6 +79,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [hasSelectedType, setHasSelectedType] = useState(!!initialEntryType || isEditing);
   const [title, setTitle] = useState('');
   const [link, setLink] = useState('');
+  const [linkTitle, setLinkTitle] = useState<string | null>(null);
+  const linkDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notes, setNotes] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
   const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
@@ -126,6 +130,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
       setHasSelectedType(true);
       setNotes(existingEntry.notes ?? '');
       setLink(existingEntry.link ?? '');
+      if (existingEntry.link) {
+        fetchOpenGraphTitle(existingEntry.link).then((fetchedTitle) => {
+          if (fetchedTitle) setLinkTitle(fetchedTitle);
+        });
+      }
       if (existingEntry.place) {
         const placeToSet = {
           google_place_id:
@@ -151,6 +160,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
       // Reset form when creating new entry
       setTitle('');
       setLink('');
+      setLinkTitle(null);
       setNotes('');
       setPendingMediaIds([]);
       setErrors({});
@@ -214,6 +224,34 @@ export function EntryFormScreen({ route, navigation }: Props) {
       return false;
     }
   }, []);
+
+  const handleLinkChange = useCallback(
+    (text: string) => {
+      setLink(text);
+      if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
+
+      if (linkDebounceRef.current) {
+        clearTimeout(linkDebounceRef.current);
+      }
+
+      // Don't clear title immediately while typing if we already have one?
+      // Actually, if user types, we should probably reset title until we fetch new one
+      // or at least when they finish typing.
+      // For now, let's keep previous title if it exists until we validate new URL?
+      // No, better to reset if they change the URL.
+      setLinkTitle(null);
+
+      if (!text.trim()) return;
+
+      linkDebounceRef.current = setTimeout(async () => {
+        if (isValidUrl(text)) {
+          const fetchedTitle = await fetchOpenGraphTitle(text);
+          if (fetchedTitle) setLinkTitle(fetchedTitle);
+        }
+      }, 1000);
+    },
+    [errors.link, isValidUrl]
+  );
 
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
@@ -483,21 +521,29 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
               {/* Link (optional) */}
               <View style={styles.section}>
-                <GlassInput
-                  label="LINK (OPTIONAL)"
-                  placeholder="Add website URL"
-                  value={link}
-                  onChangeText={(text) => {
-                    setLink(text);
-                    if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
-                  }}
-                  error={errors.link}
-                  keyboardType="url"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  testID="entry-link-input"
-                />
+                {linkTitle ? (
+                  <>
+                    <Text style={styles.sectionLabel}>LINK</Text>
+                    <SmartLinkDisplay
+                      url={link}
+                      title={linkTitle}
+                      onChange={() => setLinkTitle(null)}
+                    />
+                  </>
+                ) : (
+                  <GlassInput
+                    label="LINK (OPTIONAL)"
+                    placeholder="Add website URL"
+                    value={link}
+                    onChangeText={handleLinkChange}
+                    error={errors.link}
+                    keyboardType="url"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="next"
+                    testID="entry-link-input"
+                  />
+                )}
               </View>
 
               {/* Photos Section */}
@@ -532,29 +578,31 @@ export function EntryFormScreen({ route, navigation }: Props) {
                   testID="entry-notes-input"
                 />
               </View>
-
-              {/* Submit Button */}
-              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-                <Button
-                  title={isEditing ? 'Save Changes' : 'Save Entry'}
-                  onPress={handleSubmit}
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                  testID="entry-save-button"
-                />
-                {isEditing && (
-                  <Button
-                    title="Delete Entry"
-                    onPress={handleDelete}
-                    variant="destructive"
-                    style={styles.deleteButton}
-                    testID="entry-delete-button"
-                  />
-                )}
-              </View>
             </Animated.View>
           )}
         </ScrollView>
+
+        {/* Sticky footer - always visible at bottom */}
+        {hasSelectedType && (
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <Button
+              title={isEditing ? 'Save Changes' : 'Save Entry'}
+              onPress={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+              testID="entry-save-button"
+            />
+            {isEditing && (
+              <Button
+                title="Delete Entry"
+                onPress={handleDelete}
+                variant="destructive"
+                style={styles.deleteButton}
+                testID="entry-delete-button"
+              />
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -659,9 +707,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
   },
 
-  // Footer
+  // Footer - sticky at bottom
   footer: {
     paddingTop: 16,
+    paddingHorizontal: 20,
+    backgroundColor: colors.warmCream,
   },
   deleteButton: {
     marginTop: 12,

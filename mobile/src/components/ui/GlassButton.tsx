@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   wrapper: {
-    borderRadius: 12,
+    borderRadius: 9999,
     overflow: 'hidden',
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.6)',

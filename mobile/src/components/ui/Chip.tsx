@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import { Animated, Pressable, StyleSheet, ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
@@ -6,16 +6,16 @@ import { useResponsive } from '@hooks/useResponsive';
 import { useAnimatedPress } from '@hooks/useAnimatedPress';
 import { Text } from './Text';
 
-// Curated color palette for selected chips - brand-aligned colors
+// Expanded color palette for more variety - each with complementary shadow
 const CHIP_COLORS = [
-  colors.mossGreen, // #547A5F - green
-  colors.dustyCoral, // #F39B8B - coral/pink
-  colors.adobeBrick, // #C1543E - terracotta/red
-  '#5B8A72', // Sage green variant
-  '#E8A87C', // Peach
-  '#7B9E89', // Muted teal-green
-  '#D4A574', // Warm tan
-  '#8B7355', // Earthy brown
+  { bg: colors.mossGreen, shadow: '#3D5A46' }, // Deep forest shadow
+  { bg: colors.adobeBrick, shadow: '#8E3E2E' }, // Deep terracotta shadow
+  { bg: colors.dustyCoral, shadow: '#C47868' }, // Warm coral shadow
+  { bg: colors.lakeBlue, shadow: '#6BA3C4' }, // Deep sky shadow
+  { bg: '#E8B86D', shadow: '#B8944E' }, // Warm amber with golden shadow
+  { bg: '#8B7355', shadow: '#5E4D3A' }, // Warm taupe with earthy shadow
+  { bg: '#9CAF88', shadow: '#6E8060' }, // Sage green with forest shadow
+  { bg: '#D4A574', shadow: '#A67F58' }, // Warm sand with terracotta shadow
 ];
 
 interface ChipProps {
@@ -31,77 +31,68 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
   // Press feedback animation (0.95 scale on press)
   const { scaleValue: pressScale, pressHandlers } = useAnimatedPress({ pressedScale: 0.95 });
 
-  // Selection state animation (bounce on select, shrink on deselect)
-  const selectionScale = useRef(new Animated.Value(1)).current;
-  const prevSelectedRef = useRef(selected);
+  // Selection animation value
+  const colorAnim = useRef(new Animated.Value(selected ? 1 : 0)).current;
 
-  // Generate a consistent random color based on the label
-  // This ensures the same chip always gets the same color
-  const chipColor = useMemo(() => {
+  // Generate a consistent color based on the label
+  const chipColors = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < label.length; i++) {
       const char = label.charCodeAt(i);
       hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32bit integer
+      hash = hash & hash;
     }
     const index = Math.abs(hash) % CHIP_COLORS.length;
     return CHIP_COLORS[index];
   }, [label]);
 
-  // Animate selection state changes
+  // Track previous selected state for animation
+  const prevSelectedRef = useRef(selected);
+
   useEffect(() => {
     if (selected !== prevSelectedRef.current) {
-      if (selected) {
-        // Selection bounce: 1 -> 1.05 -> 1
-        Animated.sequence([
-          Animated.spring(selectionScale, {
-            toValue: 1.05,
-            friction: 3,
-            tension: 200,
-            useNativeDriver: true,
-          }),
-          Animated.spring(selectionScale, {
-            toValue: 1,
-            friction: 5,
-            tension: 100,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      } else {
-        // Deselection shrink: 1 -> 0.92 -> 1
-        Animated.sequence([
-          Animated.spring(selectionScale, {
-            toValue: 0.92,
-            friction: 4,
-            tension: 180,
-            useNativeDriver: true,
-          }),
-          Animated.spring(selectionScale, {
-            toValue: 1,
-            friction: 5,
-            tension: 100,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }
+      Animated.spring(colorAnim, {
+        toValue: selected ? 1 : 0,
+        friction: 8,
+        tension: 120,
+        useNativeDriver: false,
+      }).start();
       prevSelectedRef.current = selected;
     }
-  }, [selected, selectionScale]);
+  }, [selected, colorAnim]);
 
-  // Combine press and selection scales - memoize to avoid recreating animated node
-  const combinedScale = useMemo(
-    () => Animated.multiply(pressScale, selectionScale),
-    [pressScale, selectionScale]
-  );
+  // Interpolate background color
+  const animatedBackgroundColor = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.paperBeige, chipColors.bg],
+  });
+
+  // Interpolate shadow color - from neutral to colored
+  const animatedShadowColor = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.midnightNavy, chipColors.shadow],
+  });
+
+  // Interpolate shadow opacity - slightly stronger when selected
+  const animatedShadowOpacity = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.1, 0.35],
+  });
+
+  // Subtle border for unselected state
+  const animatedBorderColor = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.stormGray + '20', 'transparent'],
+  });
+
+  const animatedBorderWidth = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
 
   return (
-    <Animated.View style={[{ transform: [{ scale: combinedScale }] }, style]}>
+    <Animated.View style={[{ transform: [{ scale: pressScale }] }, style]}>
       <Pressable
-        style={[
-          styles.chip,
-          isSmallScreen && styles.chipSmall,
-          selected && { backgroundColor: chipColor, borderColor: chipColor },
-        ]}
         onPress={onPress}
         onPressIn={pressHandlers.onPressIn}
         onPressOut={pressHandlers.onPressOut}
@@ -109,16 +100,30 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
         accessibilityLabel={label}
         accessibilityState={{ selected }}
       >
-        <Text
-          variant="label"
+        <Animated.View
           style={[
-            styles.chipText,
-            isSmallScreen && styles.chipTextSmall,
-            selected && styles.chipTextSelected,
+            styles.chip,
+            isSmallScreen && styles.chipSmall,
+            {
+              backgroundColor: animatedBackgroundColor,
+              borderColor: animatedBorderColor,
+              borderWidth: animatedBorderWidth,
+              shadowColor: animatedShadowColor,
+              shadowOpacity: animatedShadowOpacity,
+            },
           ]}
         >
-          {label}
-        </Text>
+          <Text
+            variant="label"
+            style={[
+              styles.chipText,
+              isSmallScreen && styles.chipTextSmall,
+              selected && styles.chipTextSelected,
+            ]}
+          >
+            {label}
+          </Text>
+        </Animated.View>
       </Pressable>
     </Animated.View>
   );
@@ -126,25 +131,19 @@ export function Chip({ label, selected, onPress, style }: ChipProps) {
 
 const styles = StyleSheet.create({
   chip: {
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.paperBeige,
     backgroundColor: colors.paperBeige,
-    marginRight: 10,
-    marginBottom: 12,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 4,
   },
   chipSmall: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
   },
   chipText: {
     color: colors.textPrimary,

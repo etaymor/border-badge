@@ -18,7 +18,6 @@ import { BlurView } from 'expo-blur';
 import { Button, GlassBackButton, GlassButton, TripCard } from '@components/ui';
 import {
   CountryHero,
-  CountryActionBar,
   CountryStats,
   CountryEmptyState,
   TripsSectionHeader,
@@ -112,12 +111,9 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   // Handlers
   const handleAddTrip = useCallback(() => {
-    navigation.navigate('Trips', {
-      screen: 'TripForm',
-      params: {
-        countryId,
-        countryName: displayName,
-      },
+    navigation.navigate('TripForm', {
+      countryId,
+      countryName: displayName,
     });
   }, [countryId, displayName, navigation]);
 
@@ -330,6 +326,9 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     extrapolate: 'clamp',
   });
 
+  // Hero Controls Parallax (matches image movement)
+  const controlsTranslateY = imageTranslateY;
+
   const renderTripItem = useCallback(
     ({ item }: { item: Trip }) => (
       <View style={styles.tripCardWrapper}>
@@ -348,16 +347,48 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     () => (
       <View style={styles.contentContainer}>
         {/* Spacer for the fixed hero section */}
-        <View style={{ height: HERO_HEIGHT - 40 }} />
+        <View style={{ height: HERO_HEIGHT - 40 }}>
+          {/* Hero Controls (Overlay Buttons) */}
+          {!isVisited && (
+            <Animated.View
+              style={[styles.heroControls, { transform: [{ translateY: controlsTranslateY }] }]}
+            >
+              {/* Visited Button */}
+              <TouchableOpacity
+                onPress={handleMarkVisited}
+                activeOpacity={0.8}
+                accessibilityLabel="Mark as visited"
+              >
+                <BlurView intensity={30} tint="light" style={styles.heroActionButton}>
+                  <Ionicons name="add" size={24} color={colors.successDark} />
+                </BlurView>
+              </TouchableOpacity>
+
+              {/* Dream Button */}
+              <TouchableOpacity
+                onPress={handleToggleDream}
+                activeOpacity={0.8}
+                accessibilityLabel={isDream ? 'In wishlist' : 'Add to wishlist'}
+              >
+                <BlurView
+                  intensity={30}
+                  tint="light"
+                  style={[styles.heroActionButton, isDream && styles.heroActionButtonDreamActive]}
+                >
+                  <View style={styles.airplaneIconRotated}>
+                    <Ionicons
+                      name={isDream ? 'airplane' : 'airplane-outline'}
+                      size={22}
+                      color={isDream ? colors.wishlistBrown : colors.textTertiary}
+                    />
+                  </View>
+                </BlurView>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+        </View>
 
         <View style={styles.sheetContainer}>
-          <CountryActionBar
-            isVisited={isVisited}
-            isDream={isDream}
-            onMarkVisited={handleMarkVisited}
-            onToggleDream={handleToggleDream}
-          />
-
           <CountryStats
             region={region}
             subregion={subregion}
@@ -367,12 +398,12 @@ export function CountryDetailScreen({ navigation, route }: Props) {
           />
 
           {/* CTA Section */}
-          <View style={styles.ctaSection}>
+          <View style={[styles.ctaSection, showPhotoButton && styles.ctaSectionRow]}>
             <Button
               title={isVisited ? 'Add Trip' : 'Plan a Trip'}
               onPress={handleAddTrip}
               variant="primary"
-              style={styles.ctaButton}
+              style={[styles.ctaButton, showPhotoButton && styles.ctaButtonFlex]}
             />
             {showPhotoButton && (
               <GlassButton
@@ -385,7 +416,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
                 }
                 onPress={handleImportPhotos}
                 icon={hasPhotos ? 'images' : 'camera-outline'}
-                style={styles.ctaButton}
+                style={[styles.ctaButton, styles.ctaButtonFlex]}
               />
             )}
           </View>
@@ -529,27 +560,64 @@ const styles = StyleSheet.create({
   },
   sheetContainer: {
     backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingTop: 24,
-    paddingHorizontal: 20,
-    marginTop: -30,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    marginTop: -40,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
   },
   ctaSection: {
+    flexDirection: 'column',
+    gap: 16,
+    marginBottom: 32,
+  },
+  ctaSectionRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
   },
   ctaButton: {
+    width: '100%',
+  },
+  ctaButtonFlex: {
     flex: 1,
+    width: undefined,
   },
   tripCardWrapper: {
-    marginBottom: 16,
+    marginBottom: 24,
     paddingHorizontal: 4,
+  },
+  heroControls: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    flexDirection: 'row',
+    gap: 12,
+    zIndex: 20,
+  },
+  heroActionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  heroActionButtonActive: {
+    backgroundColor: colors.successDark,
+    borderColor: colors.successDark,
+  },
+  heroActionButtonDreamActive: {
+    backgroundColor: colors.wishlistGold,
+    borderColor: colors.wishlistGold,
+  },
+  airplaneIconRotated: {
+    transform: [{ rotate: '-35deg' }],
   },
 });

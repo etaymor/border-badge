@@ -83,6 +83,8 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     handlePlaceSelect,
     handleTogglePlace,
     handlePlaceEntryTypeChange,
+    handleSelectAllPlaces,
+    handleClearAllPlaces,
     handleCreateTrip,
     handleSave,
     handleRetry,
@@ -213,12 +215,12 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           {/* Location Section */}
           {isMultiPlaceMode ? (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>SELECT PLACES ({selectedPlaceCount} SELECTED)</Text>
               <MultiPlaceList
                 selections={placeSelections}
                 onTogglePlace={handleTogglePlace}
                 onEntryTypeChange={handlePlaceEntryTypeChange}
-                // Edit flow not yet implemented - showEditButtons defaults to false
+                onSelectAll={handleSelectAllPlaces}
+                onClearAll={handleClearAllPlaces}
               />
             </View>
           ) : (

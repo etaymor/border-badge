@@ -14,7 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassBackButton, Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
@@ -33,57 +35,33 @@ const ANTARCTICA_BACKGROUND = '#FDFBF1';
 export function AntarcticaPromptScreen({ navigation }: Props) {
   const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
   const { isSmallScreen, isLargeScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
 
-  // Animation values
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(-20)).current;
-  const imageScale = useRef(new Animated.Value(0.95)).current;
-  const buttonsTranslate = useRef(new Animated.Value(30)).current;
-  const dotsOpacity = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+
+  // Image scale animation (content-specific, keeps the premium zoom-in)
+  const imageScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.95)).current;
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingAntarctica();
   }, []);
 
-  // Staggered entrance animations
+  // Image scale animation
   useEffect(() => {
-    Animated.sequence([
-      // Everything fades in together
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(imageScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.spring(titleTranslate, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Buttons slide up
-      Animated.spring(buttonsTranslate, {
-        toValue: 0,
-        friction: 7,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-      // Progress dots pop in
-      Animated.timing(dotsOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [contentOpacity, titleTranslate, imageScale, buttonsTranslate, dotsOpacity]);
+    if (reduceMotion) {
+      imageScale.setValue(1);
+      return;
+    }
+
+    Animated.spring(imageScale, {
+      toValue: 1,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [imageScale, reduceMotion]);
 
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -108,15 +86,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header with title */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <View style={styles.navBar}>
             <GlassBackButton onPress={() => navigation.goBack()} />
             <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
@@ -135,24 +105,14 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
             styles.imageContainer,
             isSmallScreen && styles.imageContainerSmall,
             isLargeScreen && styles.imageContainerLarge,
-            {
-              opacity: contentOpacity,
-              transform: [{ scale: imageScale }],
-            },
+            getAnimatedStyle(1),
+            { transform: [{ scale: imageScale }] },
           ]}
         >
           <Image source={antarcticaImage} style={styles.image} resizeMode="contain" />
 
           {/* Buttons overlaid on image */}
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: contentOpacity,
-                transform: [{ translateY: buttonsTranslate }],
-              },
-            ]}
-          >
+          <Animated.View style={[styles.buttonContainer, getButtonStyle(2)]}>
             <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
               <Text style={styles.yesButtonText}>Yes</Text>
             </TouchableOpacity>
@@ -163,7 +123,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
         </Animated.View>
 
         {/* Progress indicator at bottom */}
-        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
+        <Animated.View style={[styles.progressContainer, getAnimatedStyle(3)]}>
           {ALL_REGIONS.map((region, index) => (
             <View
               key={region}

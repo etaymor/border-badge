@@ -2,107 +2,142 @@
  * PlaceCheckboxRow - Individual place row in multi-place selection list
  *
  * Matches the React Native PlaceCheckboxItem component:
- * - Checkbox for selection toggle
- * - Place name and address
- * - Entry type chip (tappable to cycle types)
- * - Edit button for place search
+ * - Animated checkbox for selection toggle
+ * - Place name (Playfair) and address (lower opacity)
+ * - Icon-only entry type pill (tappable to cycle types)
+ * - Edit button for place search (hidden by default)
  */
 
 import SwiftUI
 
 struct PlaceCheckboxRow: View {
     @Binding var selection: PlaceSelection
+    let showEditButton: Bool
     let onEditPlace: () -> Void
 
+    init(selection: Binding<PlaceSelection>, showEditButton: Bool = false, onEditPlace: @escaping () -> Void) {
+        self._selection = selection
+        self.showEditButton = showEditButton
+        self.onEditPlace = onEditPlace
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Checkbox
+        HStack(spacing: 14) {
+            // Checkbox - circular style matching React Native
             Button(
-                action: { selection.isSelected.toggle() },
+                action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        selection.isSelected.toggle()
+                    }
+                },
                 label: {
-                    Image(systemName: selection.isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(
-                            selection.isSelected ? BrandColors.mossGreen : BrandColors.stormGray.opacity(0.5)
-                        )
+                    ZStack {
+                        Circle()
+                            .strokeBorder(
+                                selection.isSelected
+                                    ? BrandColors.sunsetGold
+                                    : BrandColors.midnightNavy.opacity(0.25),
+                                lineWidth: 2
+                            )
+                            .background(
+                                Circle()
+                                    .fill(selection.isSelected ? BrandColors.sunsetGold : Color.clear)
+                            )
+                            .frame(width: 22, height: 22)
+
+                        if selection.isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
                 }
             )
-            .buttonStyle(.plain)
+            .buttonStyle(ScaleButtonStyle(scale: 0.9))
 
             // Place info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(selection.place.name)
-                    .font(Typography.semibold(15))
+                    .font(Typography.playfairBold(16))
                     .foregroundColor(BrandColors.midnightNavy)
                     .lineLimit(1)
 
                 if let address = selection.place.address {
                     Text(address)
-                        .font(Typography.body(13))
-                        .foregroundColor(BrandColors.stormGray)
+                        .font(Typography.body(12))
+                        .foregroundColor(BrandColors.stormGray.opacity(0.6))
                         .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 8)
 
-            // Entry type chip (tappable to cycle)
+            // Entry type icon pill (tappable to cycle)
             Button(
-                action: { selection.cycleEntryType() },
-                label: { EntryTypeChip(entryType: selection.entryType) }
+                action: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
+                        selection.cycleEntryType()
+                    }
+                },
+                label: { EntryTypeIconPill(entryType: selection.entryType) }
             )
-            .buttonStyle(.plain)
+            .buttonStyle(ScaleButtonStyle(scale: 0.92))
 
-            // Edit button
-            Button(action: onEditPlace) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(BrandColors.stormGray)
-                    .frame(width: 32, height: 32)
-                    .background(Color.white.opacity(0.5))
-                    .clipShape(Circle())
+            // Edit button (hidden by default)
+            if showEditButton {
+                Button(action: onEditPlace) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(BrandColors.stormGray)
+                        .frame(width: 32, height: 32)
+                        .background(Color.black.opacity(0.05))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(12)
-        .background(Color.white.opacity(selection.isSelected ? 0.8 : 0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(
-                    selection.isSelected ? BrandColors.mossGreen.opacity(0.3) : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .opacity(selection.isSelected ? 1.0 : 0.7)
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .background(selection.isSelected ? BrandColors.sunsetGold.opacity(0.06) : Color.clear)
+        .contentShape(Rectangle())
     }
 }
 
-// MARK: - Entry Type Chip
+// MARK: - Scale Button Style for tap feedback
 
-private struct EntryTypeChip: View {
+private struct ScaleButtonStyle: ButtonStyle {
+    let scale: CGFloat
+
+    init(scale: CGFloat = 0.95) {
+        self.scale = scale
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Entry Type Icon Pill (icon only, no label)
+
+private struct EntryTypeIconPill: View {
     let entryType: EntryType
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: entryType.icon)
-                .font(.system(size: 10, weight: .medium))
-
-            Text(entryType.label)
-                .font(Typography.body(11))
-        }
-        .foregroundColor(entryType.color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(entryType.color.opacity(0.1))
-        .clipShape(Capsule())
+        Image(systemName: entryType.icon)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(entryType.color)
+            .frame(width: 32, height: 32)
+            .background(entryType.color.opacity(0.15))
+            .clipShape(Circle())
     }
 }
 
 #if DEBUG
 struct PlaceCheckboxRow_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             // Selected place
             PlaceCheckboxRow(
                 selection: .constant(PlaceSelection(
@@ -117,6 +152,9 @@ struct PlaceCheckboxRow_Previews: PreviewProvider {
                 )),
                 onEditPlace: {}
             )
+
+            Divider()
+                .padding(.horizontal, 16)
 
             // Unselected place
             PlaceCheckboxRow(
@@ -133,6 +171,14 @@ struct PlaceCheckboxRow_Previews: PreviewProvider {
                 onEditPlace: {}
             )
         }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(.white.opacity(0.8), lineWidth: 1.5)
+                )
+        )
         .padding()
         .background(BrandColors.warmCream)
     }

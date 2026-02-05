@@ -33,13 +33,12 @@ export function HomeCountryScreen({ navigation }: Props) {
   };
 
   const config: CountrySelectionConfig = {
-    backgroundColor: colors.dustyCoral,
-    title: "Where's home?",
-    subtitle: 'What country do you live in?',
-    dropdownBorderColor: colors.dustyCoral,
+    backgroundColor: colors.warmCream,
+    title: 'What country do you live in?',
     celebrationType: 'home',
-    heroElement: 'locationPin',
-    showBackButton: false,
+    showBackButton: true,
+    onNavigateBack: () => navigation.goBack(),
+    stampSuggestions: ['US', 'DE', 'BR', 'GB', 'AE'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
     // LAUNCH_SIMPLIFICATION: Skip TrackingPreference, go directly to DreamDestination

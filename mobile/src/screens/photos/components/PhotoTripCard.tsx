@@ -35,7 +35,7 @@ import Animated, {
 import { InlineTripSelector } from '@components/share/InlineTripSelector';
 import type { TripCandidateDisplay } from '@services/photoImport';
 import { useCountryByCode } from '@hooks/useCountries';
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
 
@@ -49,6 +49,10 @@ export interface PhotoTripCardProps {
   onCreateTrip: (name: string, countryCode: string) => Promise<string>;
   /** Index for staggered animation */
   index: number;
+  /** Pre-selected trip ID for auto-proceed (optional) */
+  selectedTripId?: string | null;
+  /** Whether suggestions are being loaded (optional) */
+  isLoadingSuggestions?: boolean;
 }
 
 /**
@@ -69,6 +73,8 @@ export function PhotoTripCard({
   onSelectTrip,
   onCreateTrip,
   index,
+  selectedTripId,
+  isLoadingSuggestions = false,
 }: PhotoTripCardProps) {
   const { data: country } = useCountryByCode(candidate.countryCode);
   const reducedMotion = useReducedMotion();
@@ -124,10 +130,19 @@ export function PhotoTripCard({
   }, [reducedMotion, scale]);
 
   const handleCardPress = useCallback(() => {
-    // Toggle expansion with animation
+    // If a trip is already selected, auto-proceed
+    if (selectedTripId) {
+      setIsSelectingTrip(true);
+      onSelectTrip(candidate, selectedTripId).finally(() => {
+        setIsSelectingTrip(false);
+      });
+      return;
+    }
+
+    // Otherwise toggle expansion with animation
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setIsExpanded(!isExpanded);
-  }, [isExpanded]);
+  }, [selectedTripId, candidate, onSelectTrip, isExpanded]);
 
   const handleTripSelect = useCallback(
     async (tripId: string) => {
@@ -159,7 +174,7 @@ export function PhotoTripCard({
     [candidate, onCreateTrip, onSelectTrip]
   );
 
-  const isLoading = isSelectingTrip;
+  const isLoading = isSelectingTrip || isLoadingSuggestions;
 
   return (
     <Animated.View style={[styles.cardContainer, entranceStyle]}>
@@ -246,22 +261,21 @@ export function PhotoTripCard({
             />
           )}
         </View>
+        {/* Expanded trip selector - inside card for seamless background */}
+        {isExpanded && !selectedTripId && (
+          <View style={styles.expandedSection}>
+            <Text style={styles.selectorLabel}>SELECT OR CREATE A TRIP</Text>
+            <InlineTripSelector
+              selectedTripId={pendingTripId}
+              onSelectTrip={handleTripSelect}
+              countryCode={candidate.countryCode}
+              onCreateTrip={handleCreateTrip}
+              isCreatingTrip={isCreatingTrip}
+              isSelectingTrip={isSelectingTrip}
+            />
+          </View>
+        )}
       </AnimatedPressable>
-
-      {/* Expanded trip selector */}
-      {isExpanded && (
-        <View style={styles.expandedSection}>
-          <Text style={styles.selectorLabel}>SELECT OR CREATE A TRIP</Text>
-          <InlineTripSelector
-            selectedTripId={pendingTripId}
-            onSelectTrip={handleTripSelect}
-            countryCode={candidate.countryCode}
-            onCreateTrip={handleCreateTrip}
-            isCreatingTrip={isCreatingTrip}
-            isSelectingTrip={isSelectingTrip}
-          />
-        </View>
-      )}
     </Animated.View>
   );
 }
@@ -272,13 +286,13 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
   },
   photosGrid: {
     flexDirection: 'row',
@@ -348,18 +362,8 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   expandedSection: {
-    backgroundColor: colors.white,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
     paddingHorizontal: 16,
     paddingBottom: 16,
-    marginTop: -16,
-    paddingTop: 16,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
   selectorLabel: {
     fontFamily: fonts.oswald.medium,

@@ -43,7 +43,7 @@ export function InlineTripSelector({
   isSelectingTrip = false,
 }: InlineTripSelectorProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const insets = useSafeAreaInsets();
+  const _insets = useSafeAreaInsets();
 
   const { data: trips = [], isLoading } = useTrips();
 
