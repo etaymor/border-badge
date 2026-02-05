@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -131,8 +131,10 @@ export function ListCreateScreen({ route, navigation }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Initialize selected entries to all entries when loaded
-  const effectiveSelectedIds =
-    selectedEntryIds ?? (entries ? new Set(entries.map((e) => e.id)) : new Set<string>());
+  const effectiveSelectedIds = useMemo(
+    () => selectedEntryIds ?? (entries ? new Set(entries.map((e) => e.id)) : new Set<string>()),
+    [selectedEntryIds, entries]
+  );
   const [createdList, setCreatedList] = useState<ListDetail | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
