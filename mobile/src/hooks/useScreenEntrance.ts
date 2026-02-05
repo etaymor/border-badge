@@ -125,7 +125,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         setIsComplete(true);
       }
     });
-  }, [animationValues, count, staggerDelay, reduceMotion]);
+  }, [count, staggerDelay, reduceMotion]);
 
   // Reset animation values to initial state
   const resetAnimation = useCallback(() => {
@@ -134,7 +134,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
       v.setValue(reduceMotion ? 1 : 0);
     });
     setIsComplete(reduceMotion);
-  }, [animationValues, reduceMotion]);
+  }, [reduceMotion]);
 
   // Auto-start on mount if enabled
   useEffect(() => {
@@ -149,7 +149,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
       isMountedRef.current = false;
       animationValues.forEach((v) => v.stopAnimation());
     };
-  }, [autoStart, startAnimation, animationValues]);
+  }, [autoStart, startAnimation]);
 
   // Get animated style for content elements (slide up + fade)
   const getAnimatedStyle = useCallback(
@@ -169,7 +169,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         ],
       };
     },
-    [animationValues, count, slideDistance]
+    [count, slideDistance]
   );
 
   // Get animated style for button elements (scale bloom + fade)
@@ -190,7 +190,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         ],
       };
     },
-    [animationValues, count]
+    [count]
   );
 
   return {

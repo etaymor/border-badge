@@ -100,7 +100,6 @@ export function useAuthSession(): { isAppReady: boolean } {
         // Guard against updates after unmount
         if (!isMounted) return;
 
-        console.log('Auth state changed:', event);
         setSession(session);
         if (session) {
           await storeTokens(session.access_token, session.refresh_token ?? '');

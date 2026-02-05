@@ -183,17 +183,15 @@ export function useShareExtensionHandler(
     // Check for initial URL (app opened via share extension deep link)
     // This handles cold start scenarios where the app is opened via share
     if (!hasProcessedInitialDeepLinkRef.current) {
-      // Set ref BEFORE async call to prevent race condition where multiple
-      // renders could trigger getInitialURL() before the first one resolves
-      hasProcessedInitialDeepLinkRef.current = true;
-
       Linking.getInitialURL()
         .then((url) => {
+          hasProcessedInitialDeepLinkRef.current = true;
           if (url) {
             void handleShareDeepLink(url);
           }
         })
         .catch((error) => {
+          hasProcessedInitialDeepLinkRef.current = true;
           console.error('Failed to get initial deep link URL:', error);
         });
     }
