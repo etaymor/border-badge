@@ -39,6 +39,9 @@ interface SubscriptionState {
   plan: SubscriptionPlan;
   expirationDate: string | null;
 
+  // SDK availability (false when RevenueCat fails to initialize or identify)
+  sdkAvailable: boolean;
+
   // Usage limits (synced from backend - source of truth)
   shareExtensionUsage: number;
   shareExtensionPeriodStart: string | null; // ISO timestamp for monthly reset
@@ -50,6 +53,7 @@ interface SubscriptionState {
   incrementShareExtensionUsage: () => void;
   incrementPhotoImportUsage: () => void;
   setStatus: (status: SubscriptionStatus) => void;
+  setSdkAvailable: (available: boolean) => void;
   fetchCustomerInfo: () => Promise<CustomerInfo | null>;
   reset: () => void;
 }
@@ -61,6 +65,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         status: 'loading',
         plan: null,
         expirationDate: null,
+        sdkAvailable: true,
         shareExtensionUsage: 0,
         shareExtensionPeriodStart: null,
         photoImportUsage: 0,
@@ -102,6 +107,10 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           set({ status });
         },
 
+        setSdkAvailable: (available: boolean) => {
+          set({ sdkAvailable: available });
+        },
+
         fetchCustomerInfo: async () => {
           try {
             const info = await Purchases.getCustomerInfo();
@@ -129,6 +138,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             status: 'free',
             plan: null,
             expirationDate: null,
+            sdkAvailable: true,
             shareExtensionUsage: 0,
             shareExtensionPeriodStart: null,
             photoImportUsage: 0,
@@ -162,6 +172,8 @@ export const useIsTrialing = () => useSubscriptionStore((s) => s.status === 'tri
 export const useSubscriptionStatus = () => useSubscriptionStore((s) => s.status);
 
 export const useSubscriptionPlan = () => useSubscriptionStore((s) => s.plan);
+
+export const useSdkAvailable = () => useSubscriptionStore((s) => s.sdkAvailable);
 
 // Helper to check if status grants premium access (excludes 'loading' and 'free')
 const hasPremiumAccess = (status: SubscriptionStatus): boolean =>

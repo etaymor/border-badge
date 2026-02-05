@@ -442,6 +442,12 @@ export const Analytics = {
     remaining: number;
   }) => track('feature_limit_hit', { feature: props.feature, remaining: props.remaining }),
 
+  revenueCatError: (props: { action: 'identify' | 'logout'; error: string }) =>
+    track('revenuecat_error', {
+      action: props.action,
+      error: props.error,
+    }),
+
   subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
     track('subscription_status_changed', {
       from_status: props.from,

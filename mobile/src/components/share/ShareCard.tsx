@@ -43,29 +43,27 @@ const ICON_SIZE_PHOTO_MODE = Math.round(18 * SCALE);
  * Creates a "torn paper" effect using a complex path.
  */
 const generateDeckleEdgePath = (width: number, height: number) => {
-  const toothWidth = 15; // Width of each "tear"
-  const toothHeight = 10; // Height variation
+  const toothWidth = 15;
+  const toothHeight = 10;
   const segments = Math.ceil(width / toothWidth);
 
   let d = `M0,0 L${width},0 L${width},${height - toothHeight}`;
 
-  // Generate jagged bottom edge from right to left
   for (let i = 0; i < segments; i++) {
     const x = width - i * toothWidth;
     const nextX = width - (i + 1) * toothWidth;
-
-    // Add some randomness/irregularity to the teeth
-    // Using a pseudo-random pattern based on index to ensure consistency
     const yOffset = (Math.sin(i * 132.1) * 0.5 + 0.5) * toothHeight;
     const midX = x - toothWidth / 2 + Math.cos(i * 43.2) * 3;
 
-    // Cubic bezier for softer, paper-like tears
     d += ` C${x},${height - yOffset} ${midX},${height + yOffset} ${nextX},${height - (i % 3 === 0 ? 0 : yOffset)}`;
   }
 
   d += ` L0,0 Z`;
   return d;
 };
+
+// Pre-computed at module load — inputs are constants, no need to recalculate per render
+const DECKLE_EDGE_PATH = generateDeckleEdgePath(CARD_WIDTH, CARD_HEIGHT);
 
 /**
  * Modern Tag Stamp: Clean cream card with stacked typography
@@ -104,9 +102,6 @@ const DefaultModeContent = memo(function DefaultModeContent({
   const countryImage = useMemo(() => getCountryImage(context.countryCode), [context.countryCode]);
   const hasMilestones = context.milestones.length > 0;
 
-  // Generate the clip path for the deckle edge
-  const clipPathD = useMemo(() => generateDeckleEdgePath(CARD_WIDTH, CARD_HEIGHT), []);
-
   return (
     <>
       {/* Full-bleed country illustration with Deckle Edge Mask */}
@@ -114,7 +109,7 @@ const DefaultModeContent = memo(function DefaultModeContent({
         <Svg style={styles.fullBleedImage} width={CARD_WIDTH} height={CARD_HEIGHT}>
           <Defs>
             <ClipPath id="deckle-edge">
-              <Path d={clipPathD} />
+              <Path d={DECKLE_EDGE_PATH} />
             </ClipPath>
           </Defs>
           {/* Main Image masked by deckle edge */}
@@ -133,7 +128,7 @@ const DefaultModeContent = memo(function DefaultModeContent({
         <Svg width={CARD_WIDTH} height={CARD_HEIGHT} style={StyleSheet.absoluteFill}>
           <Defs>
             <ClipPath id="deckle-edge-overlay">
-              <Path d={clipPathD} />
+              <Path d={DECKLE_EDGE_PATH} />
             </ClipPath>
           </Defs>
           {/* We can't easily clip a native View with SVG ClipPath, 
@@ -218,16 +213,13 @@ const PhotoModeContent = memo(function PhotoModeContent({
   const _stampImage = useMemo(() => getStampImage(context.countryCode), [context.countryCode]);
   const hasMilestones = context.milestones.length > 0;
 
-  // Generate the clip path for the deckle edge
-  const clipPathD = useMemo(() => generateDeckleEdgePath(CARD_WIDTH, CARD_HEIGHT), []);
-
   return (
     <>
       {/* User's photo as full background with Deckle Edge */}
       <Svg style={styles.fullBleedImage} width={CARD_WIDTH} height={CARD_HEIGHT}>
         <Defs>
           <ClipPath id="deckle-edge-photo">
-            <Path d={clipPathD} />
+            <Path d={DECKLE_EDGE_PATH} />
           </ClipPath>
         </Defs>
         <SvgImage

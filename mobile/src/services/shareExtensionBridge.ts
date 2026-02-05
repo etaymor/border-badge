@@ -35,11 +35,11 @@ const processingUrls = new Map<string, number>();
 // it's likely stuck and should be cleaned up
 const PROCESSING_TTL_MS = 30_000;
 
-// TTL for persisted processing state (5 minutes) - survives app crashes
+// TTL for persisted processing state (2 minutes) - survives app crashes
 // This is longer than PROCESSING_TTL_MS because it covers the scenario where
 // the app crashes and restarts, which takes more time than in-app race conditions
 // Also used as the active timeout duration in scheduleProcessingTimeout
-const PERSISTED_PROCESSING_TTL_MS = 5 * 60 * 1000;
+const PERSISTED_PROCESSING_TTL_MS = 2 * 60 * 1000;
 
 /**
  * Clean up stale entries from the processingUrls map.
@@ -259,7 +259,7 @@ export async function markAsProcessing(url: string): Promise<void> {
  * Returns a cancel function to clear the timeout (call on successful completion).
  *
  * @param url - The URL being processed
- * @param timeoutMs - Timeout duration (defaults to PERSISTED_PROCESSING_TTL_MS, 5 minutes)
+ * @param timeoutMs - Timeout duration (defaults to PERSISTED_PROCESSING_TTL_MS, 2 minutes)
  * @returns Cancel function to clear the timeout
  */
 export function scheduleProcessingTimeout(

@@ -100,31 +100,19 @@ async def list_trips(
     # Collect trip IDs that need fallback cover images
     trips_needing_cover = [row["id"] for row in rows if not row.get("cover_image_url")]
 
-    # Second query: Fetch first media file for trips without explicit cover image
-    # Uses a single query with IN filter to avoid N+1
+    # Second query: Fetch exactly one media file per trip using DISTINCT ON
     fallback_covers: dict[str, str] = {}
     if trips_needing_cover:
-        # Query media_files joined through entry to get first image per trip
-        # Order by created_at to get the first uploaded image
-        media_rows = await db.get(
-            "media_files",
-            {
-                "select": "file_path, entry:entry_id(trip_id)",
-                "entry.trip_id": f"in.({','.join(trips_needing_cover)})",
-                "order": "created_at.asc",
-                "limit": len(trips_needing_cover) * 5,
-            },
+        media_rows = await db.rpc(
+            "get_first_media_per_trip",
+            {"trip_ids": trips_needing_cover},
         )
 
-        # Build lookup: trip_id -> first media file path (first one wins)
-        for media in media_rows:
-            entry = media.get("entry")
-            if entry and entry.get("trip_id"):
-                trip_id = entry["trip_id"]
-                if trip_id not in fallback_covers:
-                    file_path = media.get("file_path")
-                    if file_path:
-                        fallback_covers[trip_id] = build_media_url(file_path)
+        for media in media_rows or []:
+            trip_id = media.get("trip_id")
+            file_path = media.get("file_path")
+            if trip_id and file_path:
+                fallback_covers[trip_id] = build_media_url(file_path)
 
     # Build result trips
     result_trips = []

@@ -76,7 +76,11 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
   // Clamp element count for safety
   const count = Math.min(Math.max(elementCount, 1), MAX_ELEMENTS);
 
-  // Create animation values (one per element), recreated when count changes
+  // Create animation values (one per element), recreated when count or reduceMotion changes.
+  // Note: Changing reduceMotion creates new Animated.Value instances while old interpolations
+  // briefly coexist. This is safe because: (1) reduceMotion changes are extremely rare (user
+  // toggling iOS accessibility mid-screen), (2) count is always a static literal in all usage
+  // sites, and (3) the useEffect cleanup below stops old animations before running new ones.
   const animationValues = useMemo(
     () => Array.from({ length: count }, () => new Animated.Value(reduceMotion ? 1 : 0)),
     [count, reduceMotion]

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,7 +57,12 @@ interface EntrySelectionItemProps {
   isLast: boolean;
 }
 
-function EntrySelectionItem({ entry, selected, onToggle, isLast }: EntrySelectionItemProps) {
+const EntrySelectionItem = memo(function EntrySelectionItem({
+  entry,
+  selected,
+  onToggle,
+  isLast,
+}: EntrySelectionItemProps) {
   const checkboxScale = useRef(new Animated.Value(1)).current;
   const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type] || ENTRY_TYPE_CONFIG.place;
 
@@ -110,7 +115,7 @@ function EntrySelectionItem({ entry, selected, onToggle, isLast }: EntrySelectio
       {!isLast && <View style={styles.separator} />}
     </View>
   );
-}
+});
 
 export function ListCreateScreen({ route, navigation }: Props) {
   const { tripId } = route.params;

@@ -7,7 +7,7 @@ import {
   setSignOutCallback,
   storeTokens,
 } from '@services/api';
-import { identifyUser, resetUser } from '@services/analytics';
+import { identifyUser, resetUser, Analytics } from '@services/analytics';
 import {
   identifyUser as identifyRevenueCatUser,
   logOutUser as logOutRevenueCatUser,
@@ -15,6 +15,11 @@ import {
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 /**
  * Manages Supabase auth session initialization and state change listening.
@@ -71,6 +76,8 @@ export function useAuthSession(): { isAppReady: boolean } {
           // Identify user in RevenueCat (links purchases to account)
           identifyRevenueCatUser(session.user.id).catch((error) => {
             console.error('Failed to identify RevenueCat user:', error);
+            Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
+            useSubscriptionStore.getState().setSdkAvailable(false);
           });
           // Restore onboarding state for returning users
           try {
@@ -110,6 +117,8 @@ export function useAuthSession(): { isAppReady: boolean } {
           // Identify user in RevenueCat (links purchases to account)
           identifyRevenueCatUser(session.user.id).catch((error) => {
             console.error('Failed to identify RevenueCat user:', error);
+            Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
+            useSubscriptionStore.getState().setSdkAvailable(false);
           });
           // Restore onboarding state for returning users (same as initAuth)
           try {
@@ -134,6 +143,7 @@ export function useAuthSession(): { isAppReady: boolean } {
           // Log out RevenueCat user (resets to anonymous)
           logOutRevenueCatUser().catch((error) => {
             console.error('Failed to log out RevenueCat user:', error);
+            Analytics.revenueCatError({ action: 'logout', error: getErrorMessage(error) });
           });
         }
       });

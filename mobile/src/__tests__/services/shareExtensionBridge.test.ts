@@ -402,7 +402,7 @@ describe('shareExtensionBridge', () => {
       expect(result).toBe(true);
     });
 
-    it('returns false for persisted processing state older than 5 minutes', async () => {
+    it('returns false for persisted processing state older than 2 minutes', async () => {
       const staleData = JSON.stringify({
         url: testUrl,
         timestamp: Date.now() - 6 * 60 * 1000, // 6 minutes ago
@@ -455,17 +455,25 @@ describe('shareExtensionBridge', () => {
       expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('share_extension_processing');
     });
 
-    it('BUG: processing state blocks new shares when navigation fails silently', async () => {
-      // Reproduce: mark URL as processing, then never clear it (simulates
-      // navigation failure or ShareCapture screen never calling completeAppGroupShare)
+    it('processing state is cleared by timeout when navigation fails silently', async () => {
+      jest.useFakeTimers();
+
+      // Simulate: mark URL as processing, then never call completeAppGroupShare
+      // (e.g., ShareCapture screen crashes or navigation fails)
       await markAsProcessing(testUrl);
+      expect(await isCurrentlyProcessing(testUrl)).toBe(true);
 
-      // The URL is stuck as "processing" - any subsequent check returns true
-      const isStillProcessing = await isCurrentlyProcessing(testUrl);
-      expect(isStillProcessing).toBe(true);
+      // Schedule the timeout (as checkAppGroupForSharedURL does on 'navigated' or 'queued')
+      const cancel = scheduleProcessingTimeout(testUrl);
 
-      // This means checkAppGroupForSharedURL will skip this URL indefinitely
-      // until the passive TTL (30s in-memory) happens to be checked again
+      // Advance past the 2-minute timeout
+      jest.advanceTimersByTime(2 * 60 * 1000);
+
+      // Processing state should now be auto-cleared, unblocking new shares
+      expect(await isCurrentlyProcessing(testUrl)).toBe(false);
+
+      cancel();
+      jest.useRealTimers();
     });
   });
 
@@ -489,8 +497,8 @@ describe('shareExtensionBridge', () => {
       // Schedule the timeout
       const cancel = scheduleProcessingTimeout(testUrl);
 
-      // Advance past the timeout (5 minutes)
-      jest.advanceTimersByTime(5 * 60 * 1000);
+      // Advance past the timeout (2 minutes)
+      jest.advanceTimersByTime(2 * 60 * 1000);
 
       // Processing state should now be cleared
       expect(await isCurrentlyProcessing(testUrl)).toBe(false);
@@ -502,7 +510,7 @@ describe('shareExtensionBridge', () => {
       await markAsProcessing(testUrl);
       const cancel = scheduleProcessingTimeout(testUrl);
 
-      // Advance 20 seconds (less than 30s in-memory TTL and well under 5min timeout)
+      // Advance 20 seconds (less than 30s in-memory TTL and well under 2min timeout)
       jest.advanceTimersByTime(20_000);
 
       // Should still be processing — timeout hasn't fired yet

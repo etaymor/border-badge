@@ -65,10 +65,18 @@ export function useShareExtensionHandler(
   const flushPendingAuthedShare = useCallback(() => {
     if (!pendingAuthedShareRef.current) return;
 
-    const result = tryNavigateToShareCapture(pendingAuthedShareRef.current);
-    if (result === 'navigated' && shouldClearPendingShareRef.current) {
-      shouldClearPendingShareRef.current = false;
-      void clearPendingShare();
+    const params = pendingAuthedShareRef.current;
+    const result = tryNavigateToShareCapture(params);
+    if (result === 'navigated') {
+      // Schedule processing timeout for shares that were queued and are now navigating.
+      // This ensures timeout protection even when arriving via the queued → flush path.
+      if (params.source === 'share_extension') {
+        scheduleProcessingTimeout(params.url);
+      }
+      if (shouldClearPendingShareRef.current) {
+        shouldClearPendingShareRef.current = false;
+        void clearPendingShare();
+      }
     }
   }, [tryNavigateToShareCapture]);
 
@@ -128,9 +136,15 @@ export function useShareExtensionHandler(
         // Schedule a safety timeout to auto-clear processing state if ShareCapture
         // never calls completeAppGroupShare (e.g., screen crashes or hangs)
         scheduleProcessingTimeout(sharedURL);
+      } else if (result === 'queued') {
+        // URL is queued in pendingAuthedShareRef — keep processing lock alive
+        // so the URL isn't picked up again by a concurrent check. Schedule a
+        // timeout in case the flush never happens (e.g., user signs out before
+        // navigation becomes ready).
+        scheduleProcessingTimeout(sharedURL);
       } else {
-        // Navigation failed or was queued — clear processing state immediately
-        // so the URL isn't permanently blocked
+        // 'unauthenticated' — clear processing state so the URL can be
+        // picked up after sign-in via the pending share mechanism
         void clearProcessingStatus(sharedURL);
       }
     }
