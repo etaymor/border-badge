@@ -403,7 +403,11 @@ export function CountryDetailScreen({ navigation, route }: Props) {
               title={isVisited ? 'Add Trip' : 'Plan a Trip'}
               onPress={handleAddTrip}
               variant="primary"
-              style={[styles.ctaButton, showPhotoButton && styles.ctaButtonFlex]}
+              style={
+                showPhotoButton
+                  ? { ...styles.ctaButton, ...styles.ctaButtonFlex }
+                  : styles.ctaButton
+              }
             />
             {showPhotoButton && (
               <GlassButton
@@ -416,7 +420,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
                 }
                 onPress={handleImportPhotos}
                 icon={hasPhotos ? 'images' : 'camera-outline'}
-                style={[styles.ctaButton, styles.ctaButtonFlex]}
+                style={{ ...styles.ctaButton, ...styles.ctaButtonFlex }}
               />
             )}
           </View>

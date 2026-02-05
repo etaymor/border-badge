@@ -25,9 +25,27 @@ const PENDING_SHARE_KEY = 'share_extension_pending_url';
 // This is populated on first check and updated when marking processed
 let lastProcessedCache: { url: string; timestamp: number } | null = null;
 
-// In-memory set of URLs currently being processed (to prevent race conditions)
+// In-memory map of URLs currently being processed with timestamps (to prevent race conditions)
 // URLs are added here before navigation and removed after completion or failure
-const processingUrls = new Set<string>();
+// Uses Map instead of Set to track timestamps for TTL-based cleanup
+const processingUrls = new Map<string, number>();
+
+// TTL for processing URLs (30 seconds) - if a URL has been "processing" for longer,
+// it's likely stuck and should be cleaned up
+const PROCESSING_TTL_MS = 30_000;
+
+/**
+ * Clean up stale entries from the processingUrls map.
+ * Removes entries that have been processing for longer than PROCESSING_TTL_MS.
+ */
+function cleanupStaleProcessingUrls(): void {
+  const now = Date.now();
+  for (const [url, timestamp] of processingUrls) {
+    if (now - timestamp > PROCESSING_TTL_MS) {
+      processingUrls.delete(url);
+    }
+  }
+}
 
 /**
  * Reset the in-memory cache. Only for use in tests.
@@ -162,11 +180,27 @@ export async function markShareProcessed(url: string): Promise<void> {
 /**
  * Check if a URL is currently being processed (prevents race conditions)
  *
+ * Also performs cleanup of stale entries to prevent unbounded growth.
+ *
  * @param url - The URL to check
  * @returns True if this URL is currently being processed
  */
 export function isCurrentlyProcessing(url: string): boolean {
-  return processingUrls.has(url);
+  // Clean up stale entries on each check
+  cleanupStaleProcessingUrls();
+
+  const timestamp = processingUrls.get(url);
+  if (timestamp === undefined) {
+    return false;
+  }
+
+  // Check if this specific entry has expired
+  if (Date.now() - timestamp > PROCESSING_TTL_MS) {
+    processingUrls.delete(url);
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -176,7 +210,7 @@ export function isCurrentlyProcessing(url: string): boolean {
  * @param url - The URL being processed
  */
 export function markAsProcessing(url: string): void {
-  processingUrls.add(url);
+  processingUrls.set(url, Date.now());
 }
 
 /**

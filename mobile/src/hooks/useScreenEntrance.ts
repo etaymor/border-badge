@@ -22,7 +22,7 @@
  * @see https://www.w3.org/WAI/WCAG21/Understanding/animation-from-interactions
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, ViewStyle } from 'react-native';
 import { useReducedMotion } from './useReducedMotion';
 
@@ -70,7 +70,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
   } = options;
 
   const reduceMotion = useReducedMotion();
-  const isCompleteRef = useRef(false);
+  const [isComplete, setIsComplete] = useState(reduceMotion);
   const isMountedRef = useRef(true);
 
   // Clamp element count for safety
@@ -89,13 +89,13 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
     // If reduce motion is enabled, set all values to final state immediately
     if (reduceMotion) {
       animationValues.forEach((v) => v.setValue(1));
-      isCompleteRef.current = true;
+      setIsComplete(true);
       return;
     }
 
     // Reset all values to initial state
     animationValues.forEach((v) => v.setValue(0));
-    isCompleteRef.current = false;
+    setIsComplete(false);
 
     // Create the staggered animation sequence
     const animations = animationValues.map((animValue, index) => {
@@ -122,7 +122,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
     // Stagger the animations for the choreographed effect
     Animated.stagger(staggerDelay, animations).start(({ finished }) => {
       if (finished && isMountedRef.current) {
-        isCompleteRef.current = true;
+        setIsComplete(true);
       }
     });
   }, [animationValues, count, staggerDelay, reduceMotion]);
@@ -133,7 +133,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
       v.stopAnimation();
       v.setValue(reduceMotion ? 1 : 0);
     });
-    isCompleteRef.current = reduceMotion;
+    setIsComplete(reduceMotion);
   }, [animationValues, reduceMotion]);
 
   // Auto-start on mount if enabled
@@ -198,6 +198,6 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
     getButtonStyle,
     startAnimation,
     resetAnimation,
-    isComplete: isCompleteRef.current,
+    isComplete,
   };
 }

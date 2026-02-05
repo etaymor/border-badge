@@ -27,7 +27,7 @@ struct MultiPlaceListView: View {
             // Section header
             HStack {
                 Text("SELECT PLACES")
-                    .font(Typography.oswaldMedium(12))
+                    .font(Typography.sectionLabel())
                     .foregroundColor(BrandColors.stormGray)
                     .tracking(1.5)
 

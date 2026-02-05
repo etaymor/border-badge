@@ -71,9 +71,14 @@ export function useAuthSession(): { isAppReady: boolean } {
             console.error('Failed to identify RevenueCat user:', error);
           });
           // Restore onboarding state for returning users
-          const onboardingComplete = await getOnboardingComplete();
-          if (onboardingComplete) {
-            setHasCompletedOnboarding(true);
+          try {
+            const onboardingComplete = await getOnboardingComplete();
+            if (onboardingComplete) {
+              setHasCompletedOnboarding(true);
+            }
+          } catch (onboardingError) {
+            // SecureStore may fail on some devices - default to showing onboarding
+            console.warn('Failed to restore onboarding state:', onboardingError);
           }
           // Fetch usage limits from backend (for premium gating)
           void fetchUsageLimits();
@@ -105,6 +110,16 @@ export function useAuthSession(): { isAppReady: boolean } {
           identifyRevenueCatUser(session.user.id).catch((error) => {
             console.error('Failed to identify RevenueCat user:', error);
           });
+          // Restore onboarding state for returning users (same as initAuth)
+          try {
+            const onboardingComplete = await getOnboardingComplete();
+            if (onboardingComplete) {
+              setHasCompletedOnboarding(true);
+            }
+          } catch (onboardingError) {
+            // SecureStore may fail on some devices - default to showing onboarding
+            console.warn('Failed to restore onboarding state:', onboardingError);
+          }
           // Fetch usage limits from backend (for premium gating)
           void fetchUsageLimits();
         } else {

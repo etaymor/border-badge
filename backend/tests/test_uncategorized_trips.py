@@ -370,7 +370,8 @@ def test_list_trips_excludes_system_by_default(
 ) -> None:
     """Test that system trips are excluded by default."""
     trip_with_country = {**sample_trip, "country": {"code": "US"}}
-    mock_supabase_client.get.return_value = [trip_with_country]
+    # Return trip on first call, empty list on second call (media_files query)
+    mock_supabase_client.get.side_effect = [[trip_with_country], []]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -382,9 +383,10 @@ def test_list_trips_excludes_system_by_default(
         assert response.status_code == 200
 
         # Verify is_system=eq.false was in the query params
-        # Call is db.get("trip", params) so params is args[1]
-        call_args = mock_supabase_client.get.call_args
-        params = call_args[0][1]  # Positional args: ("trip", params)
+        # First call is db.get("trip", params) so use call_args_list[0]
+        call_args_list = mock_supabase_client.get.call_args_list
+        trips_call = call_args_list[0]
+        params = trips_call[0][1]  # Positional args: ("trip", params)
         assert params["is_system"] == "eq.false"
     finally:
         app.dependency_overrides.clear()
@@ -401,7 +403,8 @@ def test_list_trips_includes_system_when_requested(
     """Test that system trips can be included with include_system=true."""
     trip_with_country = {**sample_trip, "country": {"code": "US"}}
     system_trip = {**sample_uncategorized_trip, "country": None}
-    mock_supabase_client.get.return_value = [trip_with_country, system_trip]
+    # Return trips on first call, empty list on second call (media_files query)
+    mock_supabase_client.get.side_effect = [[trip_with_country, system_trip], []]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -413,9 +416,10 @@ def test_list_trips_includes_system_when_requested(
         assert response.status_code == 200
 
         # Verify is_system filter was NOT applied
-        # Call is db.get("trip", params) so params is args[1]
-        call_args = mock_supabase_client.get.call_args
-        params = call_args[0][1]  # Positional args: ("trip", params)
+        # First call is db.get("trip", params) so use call_args_list[0]
+        call_args_list = mock_supabase_client.get.call_args_list
+        trips_call = call_args_list[0]
+        params = trips_call[0][1]  # Positional args: ("trip", params)
         assert "is_system" not in params
     finally:
         app.dependency_overrides.clear()

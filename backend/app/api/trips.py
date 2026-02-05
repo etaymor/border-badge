@@ -72,15 +72,16 @@ async def list_trips(
     Optionally filter by country_code to get trips for a specific country.
     By default, system trips (Saved Places) are excluded.
     """
-    logger.info("Listing trips with media fallback")
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # First query: Get trips without entries (avoid N+1 for fallback cover images)
     params: dict[str, str | int | bool] = {
-        # Fetch entries and their media files to get a fallback cover image
-        "select": "*, country:country_id(code), entries:entry(media_files(file_path))",
+        "select": "*, country:country_id(code)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
+        "deleted_at": "is.null",
     }
 
     # Filter out system trips by default
@@ -96,7 +97,35 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
-    # Process rows to extract fallback image from entries if needed
+    # Collect trip IDs that need fallback cover images
+    trips_needing_cover = [row["id"] for row in rows if not row.get("cover_image_url")]
+
+    # Second query: Fetch first media file for trips without explicit cover image
+    # Uses a single query with IN filter to avoid N+1
+    fallback_covers: dict[str, str] = {}
+    if trips_needing_cover:
+        # Query media_files joined through entry to get first image per trip
+        # Order by created_at to get the first uploaded image
+        media_rows = await db.get(
+            "media_files",
+            {
+                "select": "file_path, entry:entry_id(trip_id)",
+                "entry.trip_id": f"in.({','.join(trips_needing_cover)})",
+                "order": "created_at.asc",
+            },
+        )
+
+        # Build lookup: trip_id -> first media file path (first one wins)
+        for media in media_rows:
+            entry = media.get("entry")
+            if entry and entry.get("trip_id"):
+                trip_id = entry["trip_id"]
+                if trip_id not in fallback_covers:
+                    file_path = media.get("file_path")
+                    if file_path:
+                        fallback_covers[trip_id] = build_media_url(file_path)
+
+    # Build result trips
     result_trips = []
     for row in rows:
         # Get country code
@@ -104,22 +133,13 @@ async def list_trips(
             row.get("country", {}).get("code") if row.get("country") else None
         )
 
-        # Determine cover image: use explicit cover, or fallback to first entry image
+        # Determine cover image: use explicit cover, or fallback from second query
         cover_image_url = row.get("cover_image_url")
         if not cover_image_url:
-            entries = row.get("entries", [])
-            # Find first entry with a media file
-            for entry in entries:
-                media_files = entry.get("media_files", [])
-                if media_files and len(media_files) > 0:
-                    # Use the first media file found
-                    file_path = media_files[0].get("file_path")
-                    if file_path:
-                        cover_image_url = build_media_url(file_path)
-                        break
+            cover_image_url = fallback_covers.get(row["id"])
 
         # Remove joined fields before passing to Pydantic
-        trip_dict = {k: v for k, v in row.items() if k not in ["country", "entries"]}
+        trip_dict = {k: v for k, v in row.items() if k != "country"}
         trip_dict["cover_image_url"] = cover_image_url
 
         result_trips.append(Trip(**trip_dict, country_code=country_code))

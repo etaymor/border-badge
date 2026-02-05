@@ -215,6 +215,18 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 18,
+    color: colors.midnightNavy,
+    letterSpacing: 0.5,
+  },
   field: {
     marginBottom: 20,
   },

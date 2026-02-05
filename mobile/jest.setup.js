@@ -57,6 +57,7 @@ jest.mock(
         linear: jest.fn(),
         ease: jest.fn(),
       },
+      useReducedMotion: jest.fn(() => false),
     };
   },
   { virtual: true }

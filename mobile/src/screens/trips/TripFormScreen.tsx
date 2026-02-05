@@ -22,14 +22,19 @@ import { useCountries, type Country } from '@hooks/useCountries';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
 import type {
-  PassportStackParamList,
-  TripsStackParamList,
+  DreamsStackScreenProps,
+  PassportStackScreenProps,
   TripsStackScreenProps,
 } from '@navigation/types';
-import type { NavigationProp } from '@react-navigation/native';
+import type { CompositeScreenProps } from '@react-navigation/native';
 import { getFlagEmoji } from '@utils/flags';
 
-type Props = TripsStackScreenProps<'TripForm'>;
+// TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator
+// Use CompositeScreenProps to create a union type that covers all three cases
+type Props = CompositeScreenProps<
+  TripsStackScreenProps<'TripForm'>,
+  CompositeScreenProps<PassportStackScreenProps<'TripForm'>, DreamsStackScreenProps<'TripForm'>>
+>;
 
 export function TripFormScreen({ navigation, route }: Props) {
   const tripId = route.params?.tripId;
@@ -69,19 +74,21 @@ export function TripFormScreen({ navigation, route }: Props) {
   const { status: photoPermissionStatus } = usePhotoPermissionStatus();
 
   // Navigate to photo trips (filtered by country)
-  // TripFormScreen can be rendered in both TripsNavigator and PassportNavigator,
-  // so we check if the current navigator has PhotoTrips before trying parent
+  // TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator.
+  // TripsStack and PassportStack both have PhotoTrips; DreamsStack does not.
+  // We check if the current navigator has PhotoTrips route before navigating.
   const handleImportPhotos = useCallback(() => {
     const routeNames = navigation.getState()?.routeNames ?? [];
     if (routeNames.includes('PhotoTrips')) {
-      // We're in TripsNavigator which has PhotoTrips
-      (navigation as NavigationProp<TripsStackParamList>).navigate('PhotoTrips', {
+      // Current navigator (TripsStack or PassportStack) has PhotoTrips
+      navigation.navigate('PhotoTrips', {
         countryCode: selectedCountryCode ?? undefined,
       });
     } else {
-      // We're in PassportNavigator directly, go to parent
-      const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
-      if (parentNav) {
+      // We're in DreamsNavigator or a navigator without PhotoTrips - try parent
+      const parentNav = navigation.getParent();
+      const parentRouteNames = parentNav?.getState()?.routeNames ?? [];
+      if (parentNav && parentRouteNames.includes('PhotoTrips')) {
         parentNav.navigate('PhotoTrips', {
           countryCode: selectedCountryCode ?? undefined,
         });

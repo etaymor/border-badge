@@ -20,6 +20,11 @@ export const colors = {
   lakeBlue: '#A0CDEB', // Sky/illustration tie-in, neutral tint
   mossGreen: '#547A5F', // Secondary accents, tags
 
+  // Muted earth tones (entry types, Share Extension sync)
+  latteGold: '#D4A373', // 212, 163, 115 - Food
+  slateBlue: '#8D99AE', // 141, 153, 174 - Stay
+  oliveGreen: '#6B705C', // 107, 112, 92 - Experience
+
   // Secondary Brand Colors
   paperBeige: '#F5ECE0', // Card backgrounds
   dustyCoral: '#F39B8B', // Badge variants, hover states
@@ -54,10 +59,10 @@ export const colors = {
   border: '#E5E5EA',
   separator: '#C7C7CC',
 
-  // Entry type colors
-  entryFood: '#FFC636', // Sunset Gold
-  entryStay: '#5856D6',
-  entryExperience: '#547A5F', // Moss Green
+  // Entry type colors (earth tones, match Share Extension BrandColors)
+  entryFood: '#D4A373', // latteGold
+  entryStay: '#8D99AE', // slateBlue
+  entryExperience: '#6B705C', // oliveGreen
 
   // Shadow colors
   shadow: '#172A3A', // Midnight Navy based shadow

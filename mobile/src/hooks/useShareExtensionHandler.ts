@@ -3,7 +3,7 @@ import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import type { Session } from '@supabase/supabase-js';
 
-import type { ShareCaptureSource } from '@navigation/types';
+import type { RootStackParamList, ShareCaptureSource } from '@navigation/types';
 import {
   isShareExtensionDeepLink,
   parseDeepLinkParams,
@@ -29,8 +29,7 @@ type ShareCaptureNavigationParams = {
  * and `checkAppGroupForSharedURL` for use in app foreground handling.
  */
 export function useShareExtensionHandler(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  navigationRef: NavigationContainerRefWithCurrent<any>,
+  navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>,
   session: Session | null
 ) {
   const pendingAuthedShareRef = useRef<ShareCaptureNavigationParams | null>(null);
@@ -177,16 +176,17 @@ export function useShareExtensionHandler(
     // Check for initial URL (app opened via share extension deep link)
     // This handles cold start scenarios where the app is opened via share
     if (!hasProcessedInitialDeepLinkRef.current) {
+      // Set ref BEFORE async call to prevent race condition where multiple
+      // renders could trigger getInitialURL() before the first one resolves
+      hasProcessedInitialDeepLinkRef.current = true;
+
       Linking.getInitialURL()
         .then((url) => {
-          // Set ref after getting URL to prevent race condition
-          hasProcessedInitialDeepLinkRef.current = true;
           if (url) {
             void handleShareDeepLink(url);
           }
         })
         .catch((error) => {
-          hasProcessedInitialDeepLinkRef.current = true;
           console.error('Failed to get initial deep link URL:', error);
         });
     }

@@ -23,7 +23,7 @@ describe('withAlpha', () => {
 
   it('works with sunsetGold color', () => {
     const result = withAlpha(colors.sunsetGold, 0.1);
-    expect(result).toBe('rgba(244, 194, 78, 0.1)');
+    expect(result).toBe('rgba(255, 198, 54, 0.1)');
   });
 
   it('works with midnightNavy color', () => {
@@ -51,10 +51,19 @@ describe('colors', () => {
   it('exports all brand colors', () => {
     expect(colors.midnightNavy).toBe('#172A3A');
     expect(colors.warmCream).toBe('#FDF6ED');
-    expect(colors.sunsetGold).toBe('#F4C24E');
+    expect(colors.sunsetGold).toBe('#FFC636');
     expect(colors.adobeBrick).toBe('#C1543E');
     expect(colors.lakeBlue).toBe('#A0CDEB');
     expect(colors.mossGreen).toBe('#547A5F');
+    expect(colors.latteGold).toBe('#D4A373');
+    expect(colors.slateBlue).toBe('#8D99AE');
+    expect(colors.oliveGreen).toBe('#6B705C');
+  });
+
+  it('exports entry type colors (earth tones)', () => {
+    expect(colors.entryFood).toBe(colors.latteGold);
+    expect(colors.entryStay).toBe(colors.slateBlue);
+    expect(colors.entryExperience).toBe(colors.oliveGreen);
   });
 
   it('exports secondary brand colors', () => {
@@ -66,7 +75,7 @@ describe('colors', () => {
 
   it('exports semantic colors', () => {
     expect(colors.success).toBe('#547A5F');
-    expect(colors.warning).toBe('#F4C24E');
+    expect(colors.warning).toBe('#FFC636');
     expect(colors.error).toBe('#C1543E');
   });
 });

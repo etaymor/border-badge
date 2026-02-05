@@ -8,6 +8,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,7 +40,7 @@ interface EntrySelectionItemProps {
 
 function EntrySelectionItem({ entry, selected, onToggle }: EntrySelectionItemProps) {
   return (
-    <Pressable
+    <TouchableOpacity
       style={[styles.entryItem, selected && styles.entryItemSelected]}
       onPress={onToggle}
       activeOpacity={0.7}
@@ -68,7 +69,7 @@ function EntrySelectionItem({ entry, selected, onToggle }: EntrySelectionItemPro
           <View style={styles.uncheckedCircle} />
         )}
       </View>
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 

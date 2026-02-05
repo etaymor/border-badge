@@ -58,7 +58,7 @@ struct PlaceCheckboxRow: View {
             // Place info
             VStack(alignment: .leading, spacing: 2) {
                 Text(selection.place.name)
-                    .font(Typography.playfairBold(16))
+                    .font(Typography.header(16))
                     .foregroundColor(BrandColors.midnightNavy)
                     .lineLimit(1)
 

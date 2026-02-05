@@ -45,8 +45,12 @@ export function useNavigationPersistence(session: Session | null) {
         }
       } catch (error) {
         console.warn('Failed to restore navigation state:', error);
-        // Clean up corrupted state
-        AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch(() => {});
+        // Clean up corrupted state before marking ready
+        try {
+          await AsyncStorage.removeItem(NAVIGATION_STATE_KEY);
+        } catch {
+          // Ignore cleanup errors
+        }
       } finally {
         setIsNavigationReady(true);
       }

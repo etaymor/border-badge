@@ -40,7 +40,13 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
 
   // Traverse nested navigators
   // We need to look into the state of the current route to find the child route object matches routeName
-  let currentRoute = route.state?.routes.find((r) => r.name === routeName);
+  // Cast route to include state (RouteProp doesn't expose it but it exists at runtime)
+  const routeWithState = route as typeof route & {
+    state?: { routes: Array<{ name: string; state?: { routes: Array<{ name: string }> } }> };
+  };
+  let currentRoute = routeWithState.state?.routes.find(
+    (r: { name: string }) => r.name === routeName
+  );
 
   while (currentRoute) {
     // Get the focused child of the current route

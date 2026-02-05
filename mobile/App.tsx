@@ -34,6 +34,7 @@ import { useCountriesSync } from '@hooks/useCountriesSync';
 import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
 import { useShareExtensionHandler } from '@hooks/useShareExtensionHandler';
 import { RootNavigator } from '@navigation/RootNavigator';
+import type { RootStackParamList } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { initAnalytics } from '@services/analytics';
 import { initializeRevenueCat } from '@services/revenueCat';
@@ -50,9 +51,7 @@ import { useSubscriptionStore } from '@stores/subscriptionStore';
 SplashScreen.preventAutoHideAsync();
 
 // Navigation container ref for programmatic navigation
-// Using any type due to LAUNCH_SIMPLIFICATION navigation structure
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const navigationRef = createNavigationContainerRef<any>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 /**
  * Deep linking configuration for the app.
