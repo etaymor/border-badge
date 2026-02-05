@@ -74,6 +74,7 @@ export function useNavigationPersistence(session: Session | null) {
   // Clear navigation state when user signs out
   useEffect(() => {
     if (!isAuthenticated) {
+      setInitialNavigationState(undefined);
       AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch((error) => {
         console.warn('Failed to clear navigation state:', error);
       });
