@@ -8,6 +8,7 @@ import {
   storeOnboardingComplete,
   storeTokens,
 } from '@services/api';
+import { Analytics } from '@services/analytics';
 import { migrateGuestData } from '@services/guestMigration';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
@@ -90,6 +91,18 @@ export function useSignUpWithPassword() {
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
         setSession(data.session);
+
+        // Track onboarding completion analytics
+        const onboardingState = useOnboardingStore.getState();
+        const uniqueCountries = new Set([
+          ...onboardingState.selectedCountries,
+          ...(onboardingState.homeCountry ? [onboardingState.homeCountry] : []),
+        ]);
+        Analytics.completeOnboarding({
+          countriesCount: uniqueCountries.size,
+          homeCountry: onboardingState.homeCountry,
+          trackingPreference: onboardingState.trackingPreference,
+        });
 
         // Migrate in background - isMigrating will be cleared when done
         migrateGuestData(data.session)

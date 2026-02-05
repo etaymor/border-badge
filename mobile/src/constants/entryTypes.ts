@@ -25,13 +25,13 @@ export interface EntryTypeConfig {
  */
 export const ENTRY_TYPES: EntryTypeConfig[] = [
   { type: 'place', icon: 'location', label: 'Place', color: colors.adobeBrick, emoji: '📍' },
-  { type: 'food', icon: 'restaurant', label: 'Food', color: colors.sunsetGold, emoji: '🍽️' },
-  { type: 'stay', icon: 'bed', label: 'Stay', color: colors.mossGreen, emoji: '🏨' },
+  { type: 'food', icon: 'nutrition', label: 'Food', color: colors.entryFood, emoji: '🍽️' },
+  { type: 'stay', icon: 'bed', label: 'Stay', color: colors.entryStay, emoji: '🏨' },
   {
     type: 'experience',
-    icon: 'star',
-    label: 'Experience',
-    color: colors.midnightNavy,
+    icon: 'sparkles',
+    label: 'Exp',
+    color: colors.entryExperience,
     emoji: '✨',
   },
 ];

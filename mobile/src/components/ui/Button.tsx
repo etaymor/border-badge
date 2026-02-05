@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     minHeight: 44, // 14px vertical padding + line height makes it taller, but keeping minHeight for touch target
     paddingHorizontal: 28,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
   },

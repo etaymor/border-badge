@@ -4,9 +4,11 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
 import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { Analytics } from '@services/analytics';
 import { migrateGuestData } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
+import { useOnboardingStore } from '@stores/onboardingStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 import { hasUserOnboarded } from '@utils/authHelpers';
 
@@ -124,6 +126,18 @@ export function useAppleSignIn() {
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
           setSession(data.session);
+
+          // Track onboarding completion analytics
+          const onboardingState = useOnboardingStore.getState();
+          const uniqueCountries = new Set([
+            ...onboardingState.selectedCountries,
+            ...(onboardingState.homeCountry ? [onboardingState.homeCountry] : []),
+          ]);
+          Analytics.completeOnboarding({
+            countriesCount: uniqueCountries.size,
+            homeCountry: onboardingState.homeCountry,
+            trackingPreference: onboardingState.trackingPreference,
+          });
 
           // Schedule welcome emails for new user
           // Use display_name from user_metadata (set by mutationFn) for consistency

@@ -290,13 +290,13 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
+    borderRadius: 20,
     paddingVertical: 4,
     shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   cardRow: {
     flexDirection: 'row',

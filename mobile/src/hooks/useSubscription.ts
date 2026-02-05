@@ -35,7 +35,7 @@ interface PurchaseResult {
 }
 
 export function useSubscription() {
-  const { status, plan, expirationDate, setCustomerInfo, setUsageLimits, setStatus } =
+  const { status, plan, expirationDate, sdkAvailable, setCustomerInfo, setUsageLimits, setStatus } =
     useSubscriptionStore();
 
   // Track mount state to prevent state updates after unmount
@@ -132,6 +132,13 @@ export function useSubscription() {
   // Purchase a package
   const purchasePackage = useCallback(
     async (pkg: PurchasesPackage): Promise<PurchaseResult> => {
+      if (!sdkAvailable) {
+        return {
+          success: false,
+          error:
+            'Subscription service is temporarily unavailable. Please restart the app and try again.',
+        };
+      }
       try {
         const { customerInfo } = await Purchases.purchasePackage(pkg);
         if (isMountedRef.current) {
@@ -151,11 +158,18 @@ export function useSubscription() {
         return { success: false, error: 'Unknown error' };
       }
     },
-    [setCustomerInfo]
+    [setCustomerInfo, sdkAvailable]
   );
 
   // Restore purchases
   const restorePurchases = useCallback(async (): Promise<PurchaseResult> => {
+    if (!sdkAvailable) {
+      return {
+        success: false,
+        error:
+          'Subscription service is temporarily unavailable. Please restart the app and try again.',
+      };
+    }
     try {
       const customerInfo = await Purchases.restorePurchases();
       if (isMountedRef.current) {
@@ -172,13 +186,14 @@ export function useSubscription() {
       }
       return { success: false, error: 'Unknown error' };
     }
-  }, [setCustomerInfo]);
+  }, [setCustomerInfo, sdkAvailable]);
 
   return {
     // Status
     status,
     plan,
     expirationDate,
+    sdkAvailable,
     isPremium: status === 'premium' || status === 'trial',
     isTrialing: status === 'trial',
     isLoading: status === 'loading',

@@ -23,6 +23,7 @@ python-multipart = "^0.0.21"
 tenacity = "^9.1.2"
 yt-dlp = "^2025.1.15"
 instaloader = "^4.13"
+curl-cffi = "^0.13.0,<0.14.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

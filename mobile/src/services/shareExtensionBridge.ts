@@ -20,14 +20,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Storage keys
 const LAST_PROCESSED_KEY = 'share_extension_last_processed';
 const PENDING_SHARE_KEY = 'share_extension_pending_url';
+const PROCESSING_KEY = 'share_extension_processing';
 
 // In-memory cache to avoid AsyncStorage reads for duplicate detection
 // This is populated on first check and updated when marking processed
 let lastProcessedCache: { url: string; timestamp: number } | null = null;
 
-// In-memory set of URLs currently being processed (to prevent race conditions)
+// In-memory map of URLs currently being processed with timestamps (to prevent race conditions)
 // URLs are added here before navigation and removed after completion or failure
-const processingUrls = new Set<string>();
+// Uses Map instead of Set to track timestamps for TTL-based cleanup
+const processingUrls = new Map<string, number>();
+
+// TTL for processing URLs (30 seconds) - if a URL has been "processing" for longer,
+// it's likely stuck and should be cleaned up
+const PROCESSING_TTL_MS = 30_000;
+
+// TTL for persisted processing state (2 minutes) - survives app crashes
+// This is longer than PROCESSING_TTL_MS because it covers the scenario where
+// the app crashes and restarts, which takes more time than in-app race conditions
+// Also used as the active timeout duration in scheduleProcessingTimeout
+const PERSISTED_PROCESSING_TTL_MS = 2 * 60 * 1000;
+
+/**
+ * Clean up stale entries from the processingUrls map.
+ * Removes entries that have been processing for longer than PROCESSING_TTL_MS.
+ */
+function cleanupStaleProcessingUrls(): void {
+  const now = Date.now();
+  for (const [url, timestamp] of processingUrls) {
+    if (now - timestamp > PROCESSING_TTL_MS) {
+      processingUrls.delete(url);
+    }
+  }
+}
 
 /**
  * Reset the in-memory cache. Only for use in tests.
@@ -162,21 +187,90 @@ export async function markShareProcessed(url: string): Promise<void> {
 /**
  * Check if a URL is currently being processed (prevents race conditions)
  *
+ * Checks in-memory state first (fast path), then falls back to AsyncStorage
+ * to detect processing state that survived an app crash.
+ *
+ * Also performs cleanup of stale entries to prevent unbounded growth.
+ *
  * @param url - The URL to check
  * @returns True if this URL is currently being processed
  */
-export function isCurrentlyProcessing(url: string): boolean {
-  return processingUrls.has(url);
+export async function isCurrentlyProcessing(url: string): Promise<boolean> {
+  // Clean up stale entries on each check
+  cleanupStaleProcessingUrls();
+
+  const timestamp = processingUrls.get(url);
+  if (timestamp !== undefined) {
+    // Check if this specific entry has expired
+    if (Date.now() - timestamp > PROCESSING_TTL_MS) {
+      processingUrls.delete(url);
+      return false;
+    }
+    return true;
+  }
+
+  // Fall back to AsyncStorage (needed after app crash/restart)
+  try {
+    const data = await AsyncStorage.getItem(PROCESSING_KEY);
+    if (!data) return false;
+
+    const parsed = JSON.parse(data) as { url: string; timestamp: number };
+
+    if (parsed.url !== url) return false;
+
+    // Use longer TTL for persisted state (5 minutes vs 30s in-memory)
+    if (Date.now() - parsed.timestamp > PERSISTED_PROCESSING_TTL_MS) {
+      // Stale persisted state — clean it up
+      await AsyncStorage.removeItem(PROCESSING_KEY);
+      return false;
+    }
+
+    // Restore to in-memory cache for subsequent fast checks
+    processingUrls.set(parsed.url, parsed.timestamp);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Mark a URL as currently being processed (call before navigation)
  * This prevents race conditions when multiple events trigger processing.
+ * State is persisted to AsyncStorage to survive app crashes.
  *
  * @param url - The URL being processed
  */
-export function markAsProcessing(url: string): void {
-  processingUrls.add(url);
+export async function markAsProcessing(url: string): Promise<void> {
+  const timestamp = Date.now();
+  processingUrls.set(url, timestamp);
+
+  try {
+    await AsyncStorage.setItem(PROCESSING_KEY, JSON.stringify({ url, timestamp }));
+  } catch {
+    // In-memory state is still set, so same-session protection works
+  }
+}
+
+/**
+ * Schedule an active timeout to auto-clear processing state.
+ * Call this after markAsProcessing to ensure the flag is eventually cleared
+ * even if navigation fails or the ShareCapture screen never completes.
+ *
+ * Returns a cancel function to clear the timeout (call on successful completion).
+ *
+ * @param url - The URL being processed
+ * @param timeoutMs - Timeout duration (defaults to PERSISTED_PROCESSING_TTL_MS, 2 minutes)
+ * @returns Cancel function to clear the timeout
+ */
+export function scheduleProcessingTimeout(
+  url: string,
+  timeoutMs: number = PERSISTED_PROCESSING_TTL_MS
+): () => void {
+  const timer = setTimeout(() => {
+    void clearProcessingStatus(url);
+  }, timeoutMs);
+
+  return () => clearTimeout(timer);
 }
 
 /**
@@ -185,8 +279,14 @@ export function markAsProcessing(url: string): void {
  *
  * @param url - The URL to clear
  */
-export function clearProcessingStatus(url: string): void {
+export async function clearProcessingStatus(url: string): Promise<void> {
   processingUrls.delete(url);
+
+  try {
+    await AsyncStorage.removeItem(PROCESSING_KEY);
+  } catch {
+    // Best-effort cleanup
+  }
 }
 
 /**
@@ -296,7 +396,7 @@ export async function clearSharedURLFromAppGroup(): Promise<void> {
  * @param url - The URL that was successfully processed
  */
 export async function completeAppGroupShare(url: string): Promise<void> {
-  clearProcessingStatus(url);
+  await clearProcessingStatus(url);
   await markShareProcessed(url);
   await clearSharedURLFromAppGroup();
 }

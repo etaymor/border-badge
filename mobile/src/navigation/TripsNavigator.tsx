@@ -5,6 +5,7 @@ import { GlassBackButton } from '@components/ui';
 import { EntryListScreen, EntryFormScreen } from '@screens/entries';
 import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
 import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
+import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
@@ -79,6 +80,11 @@ export function TripsNavigator() {
       <Stack.Screen
         name="SavedPlaces"
         component={SavedPlacesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PhotoTrips"
+        component={PhotoTripsScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

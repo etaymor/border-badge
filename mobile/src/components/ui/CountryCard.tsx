@@ -24,7 +24,7 @@ import quillIcon from '../../../assets/quill-icon.png';
 
 // Layout constants exported for tooltip overlay alignment
 export const COUNTRY_CARD_LAYOUT = {
-  BORDER_RADIUS: 24,
+  BORDER_RADIUS: 20,
   BOTTOM_ROW_OFFSET: 12,
   ACTION_BUTTON_SIZE: 40,
   ACTION_BUTTON_GAP: 8,
@@ -279,12 +279,10 @@ const styles = StyleSheet.create({
     aspectRatio: 3 / 4,
     position: 'relative',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)', // Subtle highlight border
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
   },
   countryImage: {
     width: '100%',

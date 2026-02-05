@@ -3,6 +3,8 @@ import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,11 +21,20 @@ import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
-import type { PassportStackParamList, TripsStackScreenProps } from '@navigation/types';
-import type { NavigationProp } from '@react-navigation/native';
+import type {
+  DreamsStackScreenProps,
+  PassportStackScreenProps,
+  TripsStackScreenProps,
+} from '@navigation/types';
+import type { CompositeScreenProps } from '@react-navigation/native';
 import { getFlagEmoji } from '@utils/flags';
 
-type Props = TripsStackScreenProps<'TripForm'>;
+// TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator
+// Use CompositeScreenProps to create a union type that covers all three cases
+type Props = CompositeScreenProps<
+  TripsStackScreenProps<'TripForm'>,
+  CompositeScreenProps<PassportStackScreenProps<'TripForm'>, DreamsStackScreenProps<'TripForm'>>
+>;
 
 export function TripFormScreen({ navigation, route }: Props) {
   const tripId = route.params?.tripId;
@@ -62,13 +73,26 @@ export function TripFormScreen({ navigation, route }: Props) {
   // Photo permissions for photo assist card
   const { status: photoPermissionStatus } = usePhotoPermissionStatus();
 
-  // Navigate to photo import (need to go to parent PassportStack)
+  // Navigate to photo trips (filtered by country)
+  // TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator.
+  // TripsStack and PassportStack both have PhotoTrips; DreamsStack does not.
+  // We check if the current navigator has PhotoTrips route before navigating.
   const handleImportPhotos = useCallback(() => {
-    const parentNav = navigation.getParent<NavigationProp<PassportStackParamList>>();
-    if (parentNav) {
-      parentNav.navigate('PhotoImport', {
+    const routeNames = navigation.getState()?.routeNames ?? [];
+    if (routeNames.includes('PhotoTrips')) {
+      // Current navigator (TripsStack or PassportStack) has PhotoTrips
+      navigation.navigate('PhotoTrips', {
         countryCode: selectedCountryCode ?? undefined,
       });
+    } else {
+      // We're in DreamsNavigator or a navigator without PhotoTrips - try parent
+      const parentNav = navigation.getParent();
+      const parentRouteNames = parentNav?.getState()?.routeNames ?? [];
+      if (parentNav && parentRouteNames.includes('PhotoTrips')) {
+        parentNav.navigate('PhotoTrips', {
+          countryCode: selectedCountryCode ?? undefined,
+        });
+      }
     }
   }, [navigation, selectedCountryCode]);
 
@@ -145,19 +169,26 @@ export function TripFormScreen({ navigation, route }: Props) {
         });
         navigation.goBack();
       } else {
-        // Create new trip and navigate to trip details
+        // Create new trip
         const newTrip = await createTrip.mutateAsync({
           name: name.trim(),
           country_code: selectedCountryCode!,
           cover_image_url: coverImageUrl.trim() || undefined,
         });
-        // Navigate to trip details, replacing the form screen
-        // Pass prefill data if coming from photo import flow
-        navigation.replace('TripDetail', {
-          tripId: newTrip.id,
-          prefillPlace,
-          prefillPhotos,
-        });
+
+        // When inside TripsNavigator, replace with TripDetail.
+        // When inside PassportNavigator (from CountryDetail), just go back —
+        // the country screen will show the new trip via React Query refetch.
+        const routeNames = navigation.getState()?.routeNames ?? [];
+        if (routeNames.includes('TripDetail')) {
+          navigation.replace('TripDetail', {
+            tripId: newTrip.id,
+            prefillPlace,
+            prefillPhotos,
+          });
+        } else {
+          navigation.goBack();
+        }
       }
     } catch {
       // Error is handled by the mutation's onError
@@ -177,145 +208,152 @@ export function TripFormScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <GlassBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.headerTitle}>{isEditing ? 'Edit Trip' : 'New Trip'}</Text>
-          {/* Spacer to balance layout */}
-          <View style={styles.headerSpacer} />
-        </View>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
       >
-        <View style={styles.content}>
-          <Text style={styles.headerSubtitle}>
-            {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
-          </Text>
-
-          {/* Country Picker - only show for new trips */}
-          {!isEditing && (
-            <View style={[styles.section, styles.countryPickerSection]}>
-              <Text style={styles.label}>DESTINATION</Text>
-
-              {/* Show selected country or search input */}
-              {selectedCountry ? (
-                <TouchableOpacity
-                  style={styles.selectedCountry}
-                  onPress={() => {
-                    setSelectedCountryCode(null);
-                    setCountrySearch('');
-                  }}
-                >
-                  <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
-                  <Text style={styles.selectedName}>{selectedCountry.name}</Text>
-                  <Text style={styles.changeText}>Change</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.searchContainer}>
-                  <View style={styles.searchGlassWrapper}>
-                    <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
-                      <SearchInput
-                        value={countrySearch}
-                        onChangeText={(text) => {
-                          setCountrySearch(text);
-                          setShowDropdown(text.length > 0);
-                        }}
-                        placeholder="Search countries..."
-                        onFocus={() => setShowDropdown(countrySearch.length > 0)}
-                        testID="country-search"
-                        style={styles.searchInput}
-                      />
-                    </BlurView>
-                  </View>
-
-                  {/* Autocomplete dropdown */}
-                  {showDropdown && filteredCountries.length > 0 && (
-                    <View style={styles.dropdown}>
-                      <ScrollView
-                        style={styles.dropdownList}
-                        keyboardShouldPersistTaps="handled"
-                        nestedScrollEnabled
-                      >
-                        {filteredCountries.map((item) => (
-                          <TouchableOpacity
-                            key={item.code}
-                            style={styles.dropdownItem}
-                            onPress={() => handleSelectCountry(item)}
-                            testID={`country-option-${item.code}`}
-                          >
-                            <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
-                            <Text style={styles.countryName}>{item.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                  {loadingCountries && <Text style={styles.loadingHint}>Loading countries...</Text>}
-                </View>
-              )}
-              {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
-            </View>
-          )}
-
-          {/* Photo Assist Card - only show for new trips */}
-          {!isEditing && (
-            <Pressable style={styles.photoAssistCard} onPress={handleImportPhotos}>
-              <View style={styles.photoAssistIconContainer}>
-                <Ionicons name="images-outline" size={24} color={colors.sunsetGold} />
-              </View>
-              <View style={styles.photoAssistContent}>
-                <Text style={styles.photoAssistTitle}>Start from Photos</Text>
-                <Text style={styles.photoAssistDescription}>
-                  {photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited'
-                    ? 'Scan your camera roll to find places you visited'
-                    : 'Get trip ideas from your photo library'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.sunsetGold} />
-            </Pressable>
-          )}
-
-          {/* Show country context when editing or pre-selected */}
-          {isEditing && initialCountryName && (
-            <View style={styles.contextBanner}>
-              <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
-              <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
-            </View>
-          )}
-
-          {/* Trip Name */}
-          <View style={styles.section}>
-            <GlassInput
-              label="TRIP NAME"
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g., Spring in Kyoto"
-              error={nameError}
-              autoCapitalize="words"
-              testID="trip-name-input"
-            />
-          </View>
-
-          {/* Cover Image */}
-          <View style={styles.section}>
-            <Text style={styles.label}>COVER PHOTO</Text>
-            <CoverImagePicker
-              value={coverImageUrl || undefined}
-              onChange={(url) => setCoverImageUrl(url || '')}
-              disabled={isLoading}
-            />
+        {/* Custom Header */}
+        <View style={styles.header}>
+          <View style={styles.headerRow}>
+            <GlassBackButton onPress={() => navigation.goBack()} />
+            <Text style={styles.headerTitle}>{isEditing ? 'Edit Trip' : 'New Trip'}</Text>
+            {/* Spacer to balance layout */}
+            <View style={styles.headerSpacer} />
           </View>
         </View>
 
-        {/* Save Button - inside ScrollView for proper keyboard handling */}
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <Text style={styles.headerSubtitle}>
+              {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
+            </Text>
+
+            {/* Country Picker - only show for new trips */}
+            {!isEditing && (
+              <View style={[styles.section, styles.countryPickerSection]}>
+                <Text style={styles.label}>DESTINATION</Text>
+
+                {/* Show selected country or search input */}
+                {selectedCountry ? (
+                  <TouchableOpacity
+                    style={styles.selectedCountry}
+                    onPress={() => {
+                      setSelectedCountryCode(null);
+                      setCountrySearch('');
+                    }}
+                  >
+                    <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
+                    <Text style={styles.selectedName}>{selectedCountry.name}</Text>
+                    <Text style={styles.changeText}>Change</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.searchContainer}>
+                    <View style={styles.searchGlassWrapper}>
+                      <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
+                        <SearchInput
+                          value={countrySearch}
+                          onChangeText={(text) => {
+                            setCountrySearch(text);
+                            setShowDropdown(text.length > 0);
+                          }}
+                          placeholder="Search countries..."
+                          onFocus={() => setShowDropdown(countrySearch.length > 0)}
+                          testID="country-search"
+                          style={styles.searchInput}
+                        />
+                      </BlurView>
+                    </View>
+
+                    {/* Autocomplete dropdown */}
+                    {showDropdown && filteredCountries.length > 0 && (
+                      <View style={styles.dropdown}>
+                        <ScrollView
+                          style={styles.dropdownList}
+                          keyboardShouldPersistTaps="handled"
+                          nestedScrollEnabled
+                        >
+                          {filteredCountries.map((item) => (
+                            <TouchableOpacity
+                              key={item.code}
+                              style={styles.dropdownItem}
+                              onPress={() => handleSelectCountry(item)}
+                              testID={`country-option-${item.code}`}
+                            >
+                              <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
+                              <Text style={styles.countryName}>{item.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+
+                    {loadingCountries && (
+                      <Text style={styles.loadingHint}>Loading countries...</Text>
+                    )}
+                  </View>
+                )}
+                {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
+              </View>
+            )}
+
+            {/* Photo Assist Card - only show for new trips */}
+            {!isEditing && (
+              <Pressable style={styles.photoAssistCard} onPress={handleImportPhotos}>
+                <View style={styles.photoAssistIconContainer}>
+                  <Ionicons name="images-outline" size={24} color={colors.sunsetGold} />
+                </View>
+                <View style={styles.photoAssistContent}>
+                  <Text style={styles.photoAssistTitle}>Start from Photos</Text>
+                  <Text style={styles.photoAssistDescription}>
+                    {photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited'
+                      ? 'Scan photos to find places'
+                      : 'Build trip from your photos'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.sunsetGold} />
+              </Pressable>
+            )}
+
+            {/* Show country context when editing or pre-selected */}
+            {isEditing && initialCountryName && (
+              <View style={styles.contextBanner}>
+                <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
+                <Text style={styles.contextText}>Trip in {initialCountryName}</Text>
+              </View>
+            )}
+
+            {/* Trip Name */}
+            <View style={styles.section}>
+              <GlassInput
+                label="TRIP NAME"
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g., Spring in Kyoto"
+                error={nameError}
+                autoCapitalize="words"
+                testID="trip-name-input"
+              />
+            </View>
+
+            {/* Cover Image */}
+            <View style={styles.section}>
+              <Text style={styles.label}>COVER PHOTO</Text>
+              <CoverImagePicker
+                value={coverImageUrl || undefined}
+                onChange={(url) => setCoverImageUrl(url || '')}
+                disabled={isLoading}
+              />
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Save Button - Sticky Footer */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <Button
             title={isEditing ? 'Save Changes' : 'Create Trip'}
             onPress={handleSave}
@@ -324,7 +362,7 @@ export function TripFormScreen({ navigation, route }: Props) {
             testID="trip-save-button"
           />
         </View>
-      </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -403,17 +441,17 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   searchGlassWrapper: {
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: colors.shadow,
+    shadowColor: colors.midnightNavy,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
   searchGlassContainer: {
-    borderRadius: 12,
-    backgroundColor: '#fff',
+    borderRadius: 16,
+    backgroundColor: 'rgba(253, 246, 237, 0.6)', // Light beige glass
   },
   searchInput: {
     backgroundColor: 'transparent',
@@ -425,15 +463,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     marginTop: 4,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    borderWidth: 0,
     maxHeight: 250,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowRadius: 24,
     elevation: 8,
     zIndex: 100,
   },
@@ -446,7 +483,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    borderBottomColor: 'rgba(23, 42, 58, 0.05)',
   },
   flagEmoji: {
     fontSize: 24,
@@ -460,16 +497,15 @@ const styles = StyleSheet.create({
   selectedCountry: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(253, 246, 237, 0.6)', // Light beige glass
     paddingVertical: 16,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    shadowColor: colors.shadow,
+    borderRadius: 16,
+    borderWidth: 0,
+    shadowColor: colors.midnightNavy,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
   selectedFlag: {

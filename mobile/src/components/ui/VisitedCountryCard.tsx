@@ -77,7 +77,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: colors.backgroundCard,
     marginHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   stampWrapper: {
     position: 'relative',

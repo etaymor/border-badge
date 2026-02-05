@@ -293,12 +293,9 @@ describe('CountryDetailScreen', () => {
 
       fireEvent.press(screen.getByText('Plan a Trip'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('Trips', {
-        screen: 'TripForm',
-        params: {
-          countryId: 'JP',
-          countryName: 'Japan',
-        },
+      expect(mockNavigate).toHaveBeenCalledWith('TripForm', {
+        countryId: 'JP',
+        countryName: 'Japan',
       });
     });
 
@@ -341,8 +338,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      // Press the "I've Been Here" button
-      const markVisitedButton = screen.getByText("I've Been Here");
+      // Press the "Mark as visited" button
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       // Verify the mutation was called
@@ -369,8 +366,8 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Action bar buttons should not be visible when country is visited
-      expect(screen.queryByText("I've Been Here")).toBeNull();
-      expect(screen.queryByText('Dream to Go')).toBeNull();
+      expect(screen.queryByLabelText('Mark as visited')).toBeNull();
+      expect(screen.queryByLabelText('Add to wishlist')).toBeNull();
 
       // But the options menu button should be visible
       expect(screen.getByLabelText('More options')).toBeTruthy();
@@ -413,7 +410,7 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Mark Japan as visited
-      const markVisitedButton = screen.getByText("I've Been Here");
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       // Mutation should be called with the correct context
@@ -466,7 +463,7 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Mark Japan as visited - should be country #4
-      const markVisitedButton = screen.getByText("I've Been Here");
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       expect(addUserCountryMutate).toHaveBeenCalled();

@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useMemo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
+import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
 
 import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
@@ -28,7 +29,7 @@ const CARD_WIDTH = 1080;
 const CARD_HEIGHT = (CARD_WIDTH * 16) / 9; // 1920
 
 // Stamp size for photo mode (bottom left corner) - proportional to card width
-const STAMP_SIZE_PHOTO_MODE = CARD_WIDTH * 0.35;
+const _STAMP_SIZE_PHOTO_MODE = CARD_WIDTH * 0.35;
 
 // Scale factor for converting from 375px base to 1080px
 const SCALE = CARD_WIDTH / 375;
@@ -37,9 +38,57 @@ const SCALE = CARD_WIDTH / 375;
 const ICON_SIZE_DEFAULT = Math.round(20 * SCALE);
 const ICON_SIZE_PHOTO_MODE = Math.round(18 * SCALE);
 
+/**
+ * Generates a deckle/ragged edge path for the bottom of the card.
+ * Creates a "torn paper" effect using a complex path.
+ */
+const generateDeckleEdgePath = (width: number, height: number) => {
+  const toothWidth = 15;
+  const toothHeight = 10;
+  const segments = Math.ceil(width / toothWidth);
+
+  let d = `M0,0 L${width},0 L${width},${height - toothHeight}`;
+
+  for (let i = 0; i < segments; i++) {
+    const x = width - i * toothWidth;
+    const nextX = width - (i + 1) * toothWidth;
+    const yOffset = (Math.sin(i * 132.1) * 0.5 + 0.5) * toothHeight;
+    const midX = x - toothWidth / 2 + Math.cos(i * 43.2) * 3;
+
+    d += ` C${x},${height - yOffset} ${midX},${height + yOffset} ${nextX},${height - (i % 3 === 0 ? 0 : yOffset)}`;
+  }
+
+  d += ` L0,0 Z`;
+  return d;
+};
+
+// Pre-computed at module load — inputs are constants, no need to recalculate per render
+const DECKLE_EDGE_PATH = generateDeckleEdgePath(CARD_WIDTH, CARD_HEIGHT);
+
+/**
+ * Modern Tag Stamp: Clean cream card with stacked typography
+ * Replaces the "deli ticket" badge
+ */
+const ShareCardStamp = memo(function ShareCardStamp({ count }: { count: number }) {
+  return (
+    <View style={styles.modernStampContainer}>
+      <Text style={styles.modernStampLabelTop}>VISITED</Text>
+      <View style={styles.modernStampCountContainer}>
+        <Text style={styles.modernStampCount}>{count}</Text>
+      </View>
+      <Text style={styles.modernStampLabelBottom}>COUNTRIES</Text>
+    </View>
+  );
+});
+
+// Scale factor for converting from 375px base to 1080px
+const BORDER_RADIUS = 24 * SCALE;
+
 interface ShareCardProps {
   context: MilestoneContext;
   backgroundImage?: string; // URI from image picker
+  /** Whether to show rounded corners (for display) or sharp corners (for export) */
+  roundedCorners?: boolean;
 }
 
 /**
@@ -55,17 +104,58 @@ const DefaultModeContent = memo(function DefaultModeContent({
 
   return (
     <>
-      {/* Full-bleed country illustration */}
-      {countryImage && (
-        <Image source={countryImage} style={styles.fullBleedImage} resizeMode="cover" />
-      )}
+      {/* Full-bleed country illustration with Deckle Edge Mask */}
+      {countryImage ? (
+        <Svg style={styles.fullBleedImage} width={CARD_WIDTH} height={CARD_HEIGHT}>
+          <Defs>
+            <ClipPath id="deckle-edge">
+              <Path d={DECKLE_EDGE_PATH} />
+            </ClipPath>
+          </Defs>
+          {/* Main Image masked by deckle edge */}
+          <SvgImage
+            href={countryImage}
+            width={CARD_WIDTH}
+            height={CARD_HEIGHT}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath="url(#deckle-edge)"
+          />
+        </Svg>
+      ) : null}
 
-      {/* Light overlay only at top for text legibility */}
-      <LinearGradient
-        colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'transparent']}
-        locations={[0, 0.2, 0.35]}
-        style={styles.gradientOverlay}
-      />
+      {/* Light overlay only at top for text legibility - Clip it too to match shape */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Svg width={CARD_WIDTH} height={CARD_HEIGHT} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <ClipPath id="deckle-edge-overlay">
+              <Path d={DECKLE_EDGE_PATH} />
+            </ClipPath>
+          </Defs>
+          {/* We can't easily clip a native View with SVG ClipPath, 
+              so we render the gradient normally but it might bleed over the transparent edge.
+              However, since the background of the container is midnightNavy (dark), 
+              and the gradient fades to transparent, it might be okay. 
+              BUT strictly speaking, we should mask it. 
+              
+              For simplicity and performance, we'll rely on the main image being the primary shape.
+              The gradient overlay is just colors. 
+              Let's keep the native LinearGradient but acknowledge it's a rectangle.
+              If transparency is key, the gradient will show over the "torn off" part.
+              
+              FIX: Mask the container or use an SVG gradient. 
+              Let's use the LinearGradient but we must accept it won't be deckled.
+              OR, we can wrap the whole card content in a masked view if we had MaskedView.
+              
+              Alternative: Use an Svg Rect with LinearGradient fill and clipPath.
+          */}
+        </Svg>
+        {/* Reverting to standard gradient for now as it fades out well before the bottom edge */}
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'transparent']}
+          locations={[0, 0.2, 0.35]}
+          style={styles.gradientOverlay}
+        />
+      </View>
 
       {/* Country name at top (20% down for Instagram stories) */}
       <View style={styles.topContent}>
@@ -99,11 +189,9 @@ const DefaultModeContent = memo(function DefaultModeContent({
         )}
       </View>
 
-      {/* Country number badge */}
+      {/* Modern Stamp in bottom-left corner */}
       <View style={styles.numberContainer}>
-        <View style={styles.numberGlass}>
-          <Text style={styles.bigNumber}>#{context.newTotalCount}</Text>
-        </View>
+        <ShareCardStamp count={context.newTotalCount} />
       </View>
 
       {/* Watermark */}
@@ -122,13 +210,26 @@ const PhotoModeContent = memo(function PhotoModeContent({
   context: MilestoneContext;
   backgroundImage: string;
 }) {
-  const stampImage = useMemo(() => getStampImage(context.countryCode), [context.countryCode]);
+  const _stampImage = useMemo(() => getStampImage(context.countryCode), [context.countryCode]);
   const hasMilestones = context.milestones.length > 0;
 
   return (
     <>
-      {/* User's photo as full background */}
-      <Image source={{ uri: backgroundImage }} style={styles.fullBleedImage} resizeMode="cover" />
+      {/* User's photo as full background with Deckle Edge */}
+      <Svg style={styles.fullBleedImage} width={CARD_WIDTH} height={CARD_HEIGHT}>
+        <Defs>
+          <ClipPath id="deckle-edge-photo">
+            <Path d={DECKLE_EDGE_PATH} />
+          </ClipPath>
+        </Defs>
+        <SvgImage
+          href={{ uri: backgroundImage }}
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid slice"
+          clipPath="url(#deckle-edge-photo)"
+        />
+      </Svg>
 
       {/* Subtle vignette overlay */}
       <LinearGradient
@@ -155,17 +256,9 @@ const PhotoModeContent = memo(function PhotoModeContent({
         </View>
       )}
 
-      {/* Stamp in bottom left corner */}
+      {/* Stamp in bottom left corner - Replaces image stamp with Modern Tag */}
       <View style={styles.stampCornerContainer}>
-        {stampImage && (
-          <View style={styles.stampWrapper}>
-            <Image source={stampImage} style={styles.stampCornerImage} resizeMode="contain" />
-            {/* Country number badge on stamp */}
-            <View style={styles.stampNumberBadge}>
-              <Text style={styles.stampNumberText}>#{context.newTotalCount}</Text>
-            </View>
-          </View>
-        )}
+        <ShareCardStamp count={context.newTotalCount} />
       </View>
 
       {/* Watermark */}
@@ -174,9 +267,9 @@ const PhotoModeContent = memo(function PhotoModeContent({
   );
 });
 
-function ShareCardComponent({ context, backgroundImage }: ShareCardProps) {
+function ShareCardComponent({ context, backgroundImage, roundedCorners = false }: ShareCardProps) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, roundedCorners && styles.cardRounded]}>
       {backgroundImage ? (
         <PhotoModeContent context={context} backgroundImage={backgroundImage} />
       ) : (
@@ -196,9 +289,11 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 24 * SCALE,
     overflow: 'hidden',
     backgroundColor: colors.midnightNavy,
+  },
+  cardRounded: {
+    borderRadius: BORDER_RADIUS,
   },
 
   // Full-bleed image
@@ -211,6 +306,51 @@ const styles = StyleSheet.create({
   // Gradient overlay
   gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
+  },
+
+  // ============ POSTAL STAMP STYLES ============
+  modernStampContainer: {
+    backgroundColor: colors.warmCream,
+    paddingVertical: 6 * SCALE,
+    paddingHorizontal: 10 * SCALE,
+    borderRadius: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Bold stamp border
+    borderWidth: 2 * SCALE,
+    borderColor: colors.midnightNavy,
+    // Subtle shadow
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 2 * SCALE },
+    shadowOpacity: 0.15,
+    shadowRadius: 4 * SCALE,
+    elevation: 4,
+  },
+  modernStampLabelTop: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 9 * SCALE,
+    lineHeight: 11 * SCALE,
+    color: colors.midnightNavy,
+    letterSpacing: 1.5 * SCALE,
+    includeFontPadding: false,
+  },
+  modernStampCountContainer: {
+    marginVertical: 1 * SCALE,
+  },
+  modernStampCount: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28 * SCALE,
+    lineHeight: 32 * SCALE,
+    color: colors.midnightNavy,
+    includeFontPadding: false,
+  },
+  modernStampLabelBottom: {
+    fontFamily: fonts.oswald.medium,
+    fontSize: 9 * SCALE,
+    lineHeight: 11 * SCALE,
+    color: colors.midnightNavy,
+    letterSpacing: 1.5 * SCALE,
+    includeFontPadding: false,
   },
 
   // ============ DEFAULT MODE STYLES ============
@@ -244,24 +384,7 @@ const styles = StyleSheet.create({
     bottom: 48 * SCALE,
     left: 32 * SCALE,
   },
-  numberGlass: {
-    backgroundColor: withAlpha(colors.white, 0.85),
-    borderRadius: 12 * SCALE,
-    paddingHorizontal: 12 * SCALE,
-    paddingVertical: 6 * SCALE,
-    borderWidth: 1 * SCALE,
-    borderColor: withAlpha(colors.midnightNavy, 0.1),
-    minWidth: 50 * SCALE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bigNumber: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 28 * SCALE,
-    lineHeight: 34 * SCALE,
-    color: colors.midnightNavy,
-    textAlign: 'center',
-  },
+  // Removed old numberGlass and bigNumber styles
 
   // Milestone celebration - below country name
   milestoneContainer: {
@@ -346,43 +469,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 24 * SCALE,
     left: 20 * SCALE,
-  },
-  stampWrapper: {
-    position: 'relative',
-    width: STAMP_SIZE_PHOTO_MODE,
-    height: STAMP_SIZE_PHOTO_MODE,
-    // Shadow for stamp
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 8 * SCALE },
-    shadowOpacity: 0.4,
-    shadowRadius: 16 * SCALE,
-    elevation: 12,
-  },
-  stampCornerImage: {
-    width: '100%',
-    height: '100%',
-  },
-  stampNumberBadge: {
-    position: 'absolute',
-    bottom: -8 * SCALE,
-    right: -8 * SCALE,
-    backgroundColor: colors.sunsetGold,
-    borderRadius: 20 * SCALE,
-    paddingHorizontal: 12 * SCALE,
-    paddingVertical: 6 * SCALE,
-    // Badge shadow
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 * SCALE },
-    shadowOpacity: 0.3,
-    shadowRadius: 4 * SCALE,
-    elevation: 4,
-  },
-  stampNumberText: {
-    fontFamily: fonts.oswald.bold,
-    fontSize: 18 * SCALE,
-    lineHeight: 24 * SCALE,
-    color: colors.midnightNavy,
-    includeFontPadding: false,
   },
 
   // Photo mode watermark - aligned with stamp vertically

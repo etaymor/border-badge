@@ -14,6 +14,7 @@ const navIconBook = require('../../../assets/nav-icons/nav_icon_book.png');
 interface ListSuccessViewProps {
   list: ListDetail;
   onDone: () => void;
+  onEdit?: () => void;
   title?: string;
   subtitle?: string;
 }
@@ -21,6 +22,7 @@ interface ListSuccessViewProps {
 export function ListSuccessView({
   list,
   onDone,
+  onEdit,
   title = 'Ready to share',
   subtitle = 'Your curated list is ready for the world to see.',
 }: ListSuccessViewProps) {
@@ -79,38 +81,42 @@ export function ListSuccessView({
             <Text style={styles.cardSubtitle}>{subtitle}</Text>
           </View>
 
-          {/* Share URL Section */}
-          <View style={styles.linkSection}>
-            <View style={styles.urlBox}>
-              <Text style={styles.urlText} numberOfLines={1}>
-                {shareUrl}
+          {/* Action Buttons */}
+          <View style={styles.actionButtonsRow}>
+            <Pressable
+              style={[styles.actionButton, copied && styles.actionButtonSuccess]}
+              onPress={handleCopy}
+            >
+              <Ionicons
+                name={copied ? 'checkmark' : 'link-outline'}
+                size={18}
+                color={copied ? colors.white : colors.midnightNavy}
+              />
+              <Text style={[styles.actionButtonText, copied && styles.actionButtonTextSuccess]}>
+                {copied ? 'Copied!' : 'Copy Link'}
               </Text>
-              <Pressable
-                style={[styles.copyButton, copied && styles.copyButtonSuccess]}
-                onPress={handleCopy}
-              >
-                <Ionicons
-                  name={copied ? 'checkmark' : 'copy-outline'}
-                  size={16}
-                  color={copied ? colors.white : colors.midnightNavy}
-                />
+            </Pressable>
+
+            <Pressable style={styles.actionButton} onPress={handleShare}>
+              <Ionicons name="share-outline" size={18} color={colors.midnightNavy} />
+              <Text style={styles.actionButtonText}>Share</Text>
+            </Pressable>
+
+            {onEdit && (
+              <Pressable style={styles.actionButton} onPress={onEdit}>
+                <Ionicons name="pencil-outline" size={18} color={colors.midnightNavy} />
+                <Text style={styles.actionButtonText}>Edit</Text>
               </Pressable>
-            </View>
-            <Text style={styles.urlHint}>Anyone with this link can view your list</Text>
+            )}
           </View>
+
+          <Text style={styles.urlHint}>Anyone with the link can view your list</Text>
         </View>
 
-        {/* Actions */}
-        <View style={styles.successActions}>
-          <Pressable style={styles.shareButton} onPress={handleShare}>
-            <Text style={styles.shareButtonText}>Share List</Text>
-            <Ionicons name="share-outline" size={20} color={colors.midnightNavy} />
-          </Pressable>
-
-          <Pressable style={styles.doneButton} onPress={onDone}>
-            <Text style={styles.doneButtonText}>Done</Text>
-          </Pressable>
-        </View>
+        {/* Done Button */}
+        <Pressable style={styles.doneButton} onPress={onDone}>
+          <Text style={styles.doneButtonText}>Done</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -138,7 +144,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 24,
     elevation: 8,
-    marginBottom: 32,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: 'rgba(23, 42, 58, 0.05)',
   },
@@ -157,7 +163,7 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
     width: '100%',
   },
   cursiveHeader: {
@@ -190,85 +196,55 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 16,
   },
-  linkSection: {
-    width: '100%',
-    gap: 8,
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
   },
-  urlBox: {
+  actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 12,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    paddingLeft: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(23, 42, 58, 0.05)',
+    backgroundColor: colors.backgroundSecondary,
   },
-  urlText: {
-    flex: 1,
-    fontFamily: fonts.openSans.regular,
+  actionButtonSuccess: {
+    backgroundColor: colors.mossGreen,
+  },
+  actionButtonText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.midnightNavy,
-    marginRight: 8,
   },
-  copyButton: {
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: colors.white,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  copyButtonSuccess: {
-    backgroundColor: colors.mossGreen,
+  actionButtonTextSuccess: {
+    color: colors.white,
   },
   urlHint: {
     fontFamily: fonts.openSans.regular,
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
-    opacity: 0.8,
-    marginTop: 8,
+    opacity: 0.7,
   },
-  successActions: {
-    flexDirection: 'row',
-    gap: 16,
-    width: '100%',
-    paddingHorizontal: 16,
-  },
-  shareButton: {
-    flex: 2,
-    flexDirection: 'row',
+  doneButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 16,
-    gap: 8,
+    paddingHorizontal: 32,
+    backgroundColor: colors.sunsetGold,
+    borderRadius: 9999,
     shadowColor: colors.sunsetGold,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
   },
-  shareButtonText: {
+  doneButtonText: {
     fontFamily: fonts.openSans.bold,
     fontSize: 16,
     color: colors.midnightNavy,
     letterSpacing: 0.5,
-  },
-  doneButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-  },
-  doneButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.textSecondary,
   },
 });

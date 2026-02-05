@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
   // Dropdown Button
   dropdownButtonContainer: {
     ...liquidGlass.container,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 0, // Handled by container style
   },
@@ -384,7 +384,7 @@ const styles = StyleSheet.create({
     ...liquidGlass.floatingCard,
     width: '100%',
     maxWidth: 400,
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: 'transparent',
     borderWidth: 0,

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
+import { colors } from '@constants/colors';
 import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
 import { useBreathingAnimation, BreathingPresets } from '@hooks/useBreathingAnimation';
 import { getFlagEmoji } from '@utils/flags';
@@ -157,13 +158,18 @@ const styles = StyleSheet.create({
     flex: 1,
     margin: 4,
     backgroundColor: '#F2F2F7',
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: 20,
+    padding: 12,
     alignItems: 'center',
     minHeight: 120,
     position: 'relative',
     borderWidth: 2,
     borderColor: 'transparent',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   containerSelected: {
     borderColor: '#007AFF',

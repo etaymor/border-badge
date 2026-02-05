@@ -96,6 +96,9 @@ export type {
 
 export { useReducedMotion } from './useReducedMotion';
 
+export { useScreenEntrance } from './useScreenEntrance';
+export type { UseScreenEntranceOptions, UseScreenEntranceResult } from './useScreenEntrance';
+
 export { useSuggestPlaces } from './usePhotoImport';
 
 export { useClusterPhotoUpload } from './useClusterPhotoUpload';
@@ -103,3 +106,8 @@ export type { ClusterUploadState, UploadPhotosResult } from './useClusterPhotoUp
 
 export { useCountryPhotoInfo } from './useCountryPhotoInfo';
 export type { CountryPhotoInfo } from './useCountryPhotoInfo';
+
+export { useAuthSession } from './useAuthSession';
+export { useShareExtensionHandler } from './useShareExtensionHandler';
+export { useNavigationPersistence } from './useNavigationPersistence';
+export { useAppStateTracking } from './useAppStateTracking';

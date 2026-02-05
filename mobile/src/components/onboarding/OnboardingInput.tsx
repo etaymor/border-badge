@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
     minHeight: 60,

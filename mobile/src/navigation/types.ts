@@ -52,6 +52,13 @@ export type MainTabParamList = {
 export type DreamsStackParamList = {
   DreamsHome: undefined;
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace;
+    prefillPhotos?: string[];
+  };
 };
 
 // Share capture source types
@@ -63,8 +70,15 @@ export type PassportStackParamList = {
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace;
+    prefillPhotos?: string[];
+  };
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
-  PhotoTrips: undefined;
+  PhotoTrips: { countryCode?: string };
   PhotoImport: PhotoImportParams;
 };
 
@@ -92,6 +106,7 @@ export type TripsStackParamList = {
     prefillPlace?: PrefillPlace; // Pre-filled place from photo import
     prefillPhotos?: string[]; // Photo URIs from photo import
   };
+  PhotoTrips: { countryCode?: string };
   PhotoImport: PhotoImportParams;
   TripForm: {
     tripId?: string;

@@ -173,8 +173,10 @@ export function TripListsScreen({ route, navigation }: Props) {
         renderItem={renderItem}
         ListHeaderComponent={
           <View style={styles.header}>
-            <View style={styles.headerTitleRow}>
+            <View style={styles.backButtonContainer}>
               <GlassBackButton onPress={() => navigation.goBack()} />
+            </View>
+            <View style={styles.headerTitleRow}>
               <Text style={styles.headerTitle}>Shared Lists</Text>
             </View>
 
@@ -234,24 +236,27 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
+    paddingTop: 8,
+  },
+  backButtonContainer: {
+    marginBottom: 16,
   },
   headerTitleRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: 4,
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 32,
+    fontSize: 20,
     color: colors.midnightNavy,
-    letterSpacing: -0.5,
+    textAlign: 'center',
   },
   headerSubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 24,
+    textAlign: 'center',
   },
   createButton: {
     flexDirection: 'row',
@@ -259,15 +264,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.4)',
-    borderStyle: 'dashed',
     marginBottom: 32,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 6,
   },
   createButtonIcon: {
     width: 48,
@@ -315,8 +317,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   listItemContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
   },
   listItem: {
     flexDirection: 'row',
@@ -324,14 +326,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingVertical: 18,
     paddingHorizontal: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.02)',
+    elevation: 4,
   },
   listItemContent: {
     flex: 1,

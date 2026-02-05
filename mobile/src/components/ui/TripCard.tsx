@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View, Pressable } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -65,134 +66,173 @@ function formatDateRange(dateRange?: string): string {
   }
 }
 
+// Deterministic color generator for trips without covers
+const FALLBACK_COLORS = [
+  colors.midnightNavy, // Deep Navy
+  colors.adobeBrick, // Terra Cotta
+  colors.mossGreen, // Forest Green
+  colors.stormGray, // Slate
+  '#8B5E3C', // Deep Earth Brown (custom for variety)
+  '#4A6C6F', // Muted Teal
+];
+
+function getTripColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash << 5) - hash + id.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  const index = Math.abs(hash) % FALLBACK_COLORS.length;
+  return FALLBACK_COLORS[index];
+}
+
 export const TripCard = memo(function TripCard({
   trip,
   flagEmoji,
   onPress,
   testID,
-  enableSharedElement = true,
+  enableSharedElement: _enableSharedElement = true,
 }: TripCardProps) {
   const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
   // Memoize date formatting to avoid re-parsing on each render
   const dateStr = useMemo(() => formatDateRange(trip.date_range), [trip.date_range]);
 
+  // Deterministic fallback color
+  const fallbackColor = useMemo(() => getTripColor(trip.id), [trip.id]);
+
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleValue }] }]}>
-      <Pressable
-        style={styles.pressable}
-        onPress={onPress}
-        {...pressHandlers}
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityLabel={`View trip: ${trip.name}`}
-        accessibilityHint="Opens trip details"
-      >
-        {/* Thumbnail */}
-        {enableSharedElement ? (
-          <SharedTripImage tripId={trip.id} style={styles.thumbnailWrapper}>
+    <View style={styles.shadowWrapper}>
+      <Animated.View style={[styles.container, { transform: [{ scale: scaleValue }] }]}>
+        <Pressable
+          style={styles.pressable}
+          onPress={onPress}
+          {...pressHandlers}
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={`View trip: ${trip.name}`}
+          accessibilityHint="Opens trip details"
+        >
+          {/* Background Image or Solid Color */}
+          <View
+            style={[
+              styles.backgroundContainer,
+              !trip.cover_image_url && { backgroundColor: fallbackColor },
+            ]}
+          >
             {trip.cover_image_url ? (
-              <Image source={{ uri: trip.cover_image_url }} style={styles.thumbnail} />
-            ) : (
-              <View style={styles.thumbnailPlaceholder}>
-                <LinearGradient
-                  colors={[colors.lakeBlue, colors.mossGreen]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.thumbnailGradient}
+              <SharedTripImage tripId={trip.id} style={StyleSheet.absoluteFill}>
+                <Image
+                  source={{ uri: trip.cover_image_url }}
+                  style={styles.backgroundImage}
+                  contentFit="cover"
+                  transition={300}
                 />
-                <Text style={styles.thumbnailFlag}>{flagEmoji}</Text>
-              </View>
-            )}
-          </SharedTripImage>
-        ) : trip.cover_image_url ? (
-          <Image source={{ uri: trip.cover_image_url }} style={styles.thumbnail} />
-        ) : (
-          <View style={styles.thumbnailPlaceholder}>
+              </SharedTripImage>
+            ) : null}
+
+            {/* Overlay for text readability - only needed for images or very light colors */}
             <LinearGradient
-              colors={[colors.lakeBlue, colors.mossGreen]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.thumbnailGradient}
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.4)']}
+              locations={[0, 0.6, 1]}
+              style={styles.overlay}
             />
-            <Text style={styles.thumbnailFlag}>{flagEmoji}</Text>
           </View>
-        )}
 
-        {/* Content */}
-        <View style={styles.content}>
-          <Text style={styles.tripName} numberOfLines={1}>
-            {trip.name}
-          </Text>
-          {dateStr ? (
-            <View style={styles.dateRow}>
-              <Ionicons name="calendar-outline" size={14} color={colors.stormGray} />
-              <Text style={styles.dateText}>{dateStr}</Text>
+          {/* Content */}
+          <View style={styles.content}>
+            <View style={styles.topRow}>
+              <View style={styles.flagContainer}>
+                <Text style={styles.flag}>{flagEmoji}</Text>
+              </View>
             </View>
-          ) : null}
-        </View>
 
-        {/* Chevron */}
-        <View style={styles.chevronContainer}>
-          <Ionicons name="chevron-forward" size={20} color={colors.stormGray} />
-        </View>
-      </Pressable>
-    </Animated.View>
+            <View style={styles.bottomRow}>
+              <Text style={styles.tripName} numberOfLines={2}>
+                {trip.name}
+              </Text>
+              {dateStr ? (
+                <View style={styles.dateRow}>
+                  <Ionicons name="calendar-outline" size={14} color="rgba(255,255,255,0.9)" />
+                  <Text style={styles.dateText}>{dateStr}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 });
 
 const styles = StyleSheet.create({
-  container: {
+  shadowWrapper: {
     marginHorizontal: 20,
-    marginVertical: 6,
-    borderRadius: 16,
+    height: 200,
+    borderRadius: 20,
+    backgroundColor: colors.paperBeige, // Required for iOS shadow to render
+    // Shadow on outer wrapper (not affected by transform)
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  container: {
+    flex: 1,
+    borderRadius: 20,
     backgroundColor: colors.paperBeige,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
   pressable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-  },
-  thumbnailWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
+    flex: 1,
+    borderRadius: 20, // Matched to container
     overflow: 'hidden',
   },
-  thumbnail: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundMuted,
-  },
-  thumbnailPlaceholder: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thumbnailGradient: {
+  backgroundContainer: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.midnightNavy, // Default fallback
   },
-  thumbnailFlag: {
-    fontSize: 32,
+  backgroundImage: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.9,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   content: {
     flex: 1,
-    marginLeft: 16,
+    padding: 24,
+    justifyContent: 'space-between',
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  flagContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  flag: {
+    fontSize: 24,
+  },
+  bottomRow: {
+    gap: 8,
   },
   tripName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 17,
-    color: colors.midnightNavy,
-    marginBottom: 4,
+    fontSize: 28,
+    color: colors.white,
+    letterSpacing: -0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   dateRow: {
     flexDirection: 'row',
@@ -200,14 +240,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dateText: {
-    fontFamily: fonts.openSans.regular,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    color: colors.stormGray,
-  },
-  chevronContainer: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    color: 'rgba(255, 255, 255, 0.9)',
+    letterSpacing: 0.5,
   },
 });

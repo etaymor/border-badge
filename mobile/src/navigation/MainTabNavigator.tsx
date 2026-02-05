@@ -11,17 +11,60 @@ import type { MainTabParamList } from './types';
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 // Screens where tab bar should be hidden (creation/editing modes)
-const HIDDEN_TAB_BAR_SCREENS = ['TripForm', 'ListCreate', 'ListEdit', 'EntryForm', 'ShareCapture'];
+const HIDDEN_TAB_BAR_SCREENS = [
+  'TripForm',
+  'ListCreate',
+  'ListEdit',
+  'EntryForm',
+  'PhotoTrips',
+  'PhotoImport',
+];
 
 /**
  * Determines tab bar visibility based on the currently focused screen.
  * Hides tab bar during creation/editing flows for better focus (Apple HIG pattern).
+ * Recursively checks nested navigators (e.g. TripForm inside TripsNavigator inside PassportNavigator).
  */
 function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamList>) {
+  // Start with the immediate child of the Tab
   const routeName = getFocusedRouteNameFromRoute(route);
 
-  if (routeName && HIDDEN_TAB_BAR_SCREENS.includes(routeName)) {
+  // If we can't determine the child, we assume we are at the root or initial screen
+  if (!routeName) return undefined;
+
+  // Check if the immediate child is hidden
+  if (HIDDEN_TAB_BAR_SCREENS.includes(routeName)) {
     return { display: 'none' as const };
+  }
+
+  // Traverse nested navigators
+  // We need to look into the state of the current route to find the child route object matches routeName
+  // Cast route to include state (RouteProp doesn't expose it but it exists at runtime)
+  const routeWithState = route as typeof route & {
+    state?: { routes: Array<{ name: string; state?: { routes: Array<{ name: string }> } }> };
+  };
+  let currentRoute = routeWithState.state?.routes.find(
+    (r: { name: string }) => r.name === routeName
+  );
+
+  while (currentRoute) {
+    // Get the focused child of the current route
+    const nextRouteName = getFocusedRouteNameFromRoute(currentRoute);
+
+    if (!nextRouteName) break; // Reached a leaf screen
+
+    if (HIDDEN_TAB_BAR_SCREENS.includes(nextRouteName)) {
+      return { display: 'none' as const };
+    }
+
+    // Proceed deeper
+    // Use explicit type casting for nested state access
+    const nestedState = currentRoute.state;
+    if (nestedState && nestedState.routes) {
+      currentRoute = nestedState.routes.find((r: { name: string }) => r.name === nextRouteName);
+    } else {
+      currentRoute = undefined;
+    }
   }
 
   return undefined;
@@ -72,7 +115,11 @@ export function MainTabNavigator() {
       <Tab.Screen
         name="Dreams"
         component={DreamsNavigator}
-        options={{ title: 'Dreams', tabBarAccessibilityLabel: 'dreams-tab' }}
+        options={({ route }) => ({
+          title: 'Dreams',
+          tabBarAccessibilityLabel: 'dreams-tab',
+          tabBarStyle: getTabBarStyle(route),
+        })}
         listeners={({ navigation, route }) => ({
           tabPress: () => {
             const state = navigation.getState();

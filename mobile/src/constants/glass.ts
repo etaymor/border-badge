@@ -1,5 +1,6 @@
 import { StyleSheet, Platform } from 'react-native';
-import { colors } from './colors';
+
+const midnightNavy = '#172A3A';
 
 /**
  * Liquid Glass Design System
@@ -21,7 +22,7 @@ export const liquidGlass = StyleSheet.create({
     overflow: 'hidden',
     ...Platform.select({
       ios: {
-        shadowColor: colors.midnightNavy,
+        shadowColor: midnightNavy,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.12,
         shadowRadius: 15,
@@ -44,7 +45,7 @@ export const liquidGlass = StyleSheet.create({
     overflow: 'hidden',
     ...Platform.select({
       ios: {
-        shadowColor: colors.midnightNavy,
+        shadowColor: midnightNavy,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.2,
         shadowRadius: 24,
@@ -60,11 +61,22 @@ export const liquidGlass = StyleSheet.create({
    * Matches GlassInput style but centralized
    */
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    borderWidth: 1.5,
-    borderRadius: 12,
+    backgroundColor: 'rgba(235, 225, 213, 0.5)', // Darker cream fill (based on paperBeige #F5ECE0 but darker)
+    borderColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 16, // Softer corners
     overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: midnightNavy,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05, // Very subtle shadow instead of border
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
 
   /**

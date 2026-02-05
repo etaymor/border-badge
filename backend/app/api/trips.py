@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
+from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.session import get_supabase_client
@@ -73,11 +74,14 @@ async def list_trips(
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # First query: Get trips without entries (avoid N+1 for fallback cover images)
     params: dict[str, str | int | bool] = {
         "select": "*, country:country_id(code)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
+        "deleted_at": "is.null",
     }
 
     # Filter out system trips by default
@@ -93,15 +97,43 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
-    return [
-        Trip(
-            **{k: v for k, v in row.items() if k != "country"},
-            country_code=row.get("country", {}).get("code")
-            if row.get("country")
-            else None,
+    # Collect trip IDs that need fallback cover images
+    trips_needing_cover = [row["id"] for row in rows if not row.get("cover_image_url")]
+
+    # Second query: Fetch exactly one media file per trip using DISTINCT ON
+    fallback_covers: dict[str, str] = {}
+    if trips_needing_cover:
+        media_rows = await db.rpc(
+            "get_first_media_per_trip",
+            {"trip_ids": trips_needing_cover},
         )
-        for row in rows
-    ]
+
+        for media in media_rows or []:
+            trip_id = media.get("trip_id")
+            file_path = media.get("file_path")
+            if trip_id and file_path:
+                fallback_covers[trip_id] = build_media_url(file_path)
+
+    # Build result trips
+    result_trips = []
+    for row in rows:
+        # Get country code
+        country_code = (
+            row.get("country", {}).get("code") if row.get("country") else None
+        )
+
+        # Determine cover image: use explicit cover, or fallback from second query
+        cover_image_url = row.get("cover_image_url")
+        if not cover_image_url:
+            cover_image_url = fallback_covers.get(row["id"])
+
+        # Remove joined fields before passing to Pydantic
+        trip_dict = {k: v for k, v in row.items() if k != "country"}
+        trip_dict["cover_image_url"] = cover_image_url
+
+        result_trips.append(Trip(**trip_dict, country_code=country_code))
+
+    return result_trips
 
 
 @router.get("/uncategorized", response_model=UncategorizedTrip)

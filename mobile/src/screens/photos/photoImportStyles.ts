@@ -116,9 +116,9 @@ export const styles = StyleSheet.create({
   // Lists
   listContainer: {
     flex: 1,
-    paddingHorizontal: 20,
   },
   listContent: {
+    paddingHorizontal: 20,
     paddingBottom: 40,
   },
   tripSelectionContent: {
@@ -128,14 +128,14 @@ export const styles = StyleSheet.create({
   // Trip selection phase
   candidateSummary: {
     backgroundColor: colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 24,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 12,
+    elevation: 4,
   },
   photoPreviewStrip: {
     marginVertical: 16,
@@ -201,89 +201,59 @@ export const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // Candidate card
-  candidateCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  candidatePhotos: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    height: 80,
-  },
-  candidateThumbnail: {
-    width: '25%',
-    height: 80,
-  },
-  candidateThumbnailLast: {
-    opacity: 0.7,
-  },
-  morePhotosOverlay: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: '25%',
-    height: 80,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  morePhotosText: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 16,
-    color: colors.white,
-  },
-  candidateInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  candidateFlag: {
-    fontSize: 32,
-    marginRight: 12,
-  },
-  candidateDetails: {
-    flex: 1,
-  },
-  candidateCountry: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 18,
-    color: colors.midnightNavy,
-  },
-  candidateDates: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  candidatePhotoCount: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 12,
-    color: colors.sunsetGold,
-    marginTop: 2,
-  },
-  candidateExpanded: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
-
   // Suggestion card
   suggestionCard: {
     backgroundColor: colors.white,
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: 20,
+    marginBottom: 24,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  suggestionHeroContainer: {
+    height: 240,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     overflow: 'hidden',
+    backgroundColor: colors.backgroundMuted,
+  },
+  suggestionHeroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  suggestionContent: {
+    padding: 16,
+    paddingTop: 32, // Space for floating buttons
+  },
+  suggestionFloatingActions: {
+    position: 'absolute',
+    top: 216, // 240 (hero height) - 24 (half button height)
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    zIndex: 10,
+  },
+  floatingActionButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  floatingRejectButton: {
+    backgroundColor: colors.adobeBrick,
+  },
+  floatingConfirmButton: {
+    backgroundColor: colors.success,
   },
   suggestionPhotos: {
     flexDirection: 'row',
@@ -302,14 +272,14 @@ export const styles = StyleSheet.create({
   },
   suggestionName: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 18,
+    fontSize: 22,
     color: colors.midnightNavy,
     marginBottom: 4,
   },
   suggestionAddress: {
     fontFamily: fonts.openSans.regular,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     marginBottom: 8,
   },
   suggestionMeta: {
@@ -401,23 +371,27 @@ export const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.midnightNavy,
     marginBottom: 4,
+    paddingHorizontal: 20,
   },
   tripMeta: {
     fontFamily: fonts.openSans.regular,
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 2,
+    paddingHorizontal: 20,
   },
   tripDates: {
     fontFamily: fonts.openSans.regular,
     fontSize: 13,
     color: colors.textSecondary,
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
 
   // Progress header for suggestions loading
   progressHeader: {
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
   progressLabelRow: {
     flexDirection: 'row',
@@ -485,7 +459,6 @@ export const styles = StyleSheet.create({
   overlayBackground: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
     alignItems: 'center',
   },
   closeButton: {
@@ -497,17 +470,25 @@ export const styles = StyleSheet.create({
   },
   fullPreview: {
     width: '100%',
-    height: '80%',
+    height: '100%',
   },
-  previewLoadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
+  galleryContainer: {
+    flex: 1,
+    width: '100%',
   },
-  previewLoadingText: {
-    fontFamily: fonts.openSans.regular,
+  galleryCounter: {
+    position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  galleryCounterText: {
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.white,
-    marginTop: 12,
   },
 
   // Manual search modal
@@ -568,6 +549,7 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.sunsetGold + '15',
     borderRadius: 12,
     padding: 20,
+    marginHorizontal: 20,
     marginBottom: 16,
     alignItems: 'center',
   },

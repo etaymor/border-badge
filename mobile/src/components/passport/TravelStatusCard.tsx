@@ -29,10 +29,6 @@ export function TravelStatusCard({
               </Text>
             </View>
           </View>
-          <View style={styles.statusLabelsRow}>
-            <Text style={styles.statusLabel}>TRAVEL STATUS</Text>
-            <Text style={styles.countriesLabel}>COUNTRIES</Text>
-          </View>
 
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${worldPercentage}%` }]} />
@@ -48,13 +44,13 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginHorizontal: 16,
     backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   statusHeader: {
     flexDirection: 'row',
@@ -67,11 +63,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginBottom: 2,
-  },
-  statusLabelsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 8,
   },
   statusTitle: {
@@ -96,18 +87,6 @@ const styles = StyleSheet.create({
     color: colors.adobeBrick,
     opacity: 0.7,
   },
-  statusLabel: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 11,
-    color: colors.adobeBrick,
-    opacity: 0.8,
-  },
-  countriesLabel: {
-    fontFamily: fonts.openSans.bold,
-    fontSize: 11,
-    color: colors.adobeBrick,
-    opacity: 0.8,
-  },
   progressBar: {
     width: '100%',
     height: 8,
@@ -117,7 +96,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#64B5F6',
+    backgroundColor: colors.adobeBrick,
     borderRadius: 4,
   },
 });

@@ -11,6 +11,12 @@ export const fonts = {
     semiBold: 'OpenSans_600SemiBold',
     bold: 'OpenSans_700Bold',
   },
+  // Alias for semantic usage, pointing to the body font (Open Sans)
+  body: {
+    regular: 'OpenSans_400Regular',
+    semiBold: 'OpenSans_600SemiBold',
+    bold: 'OpenSans_700Bold',
+  },
   oswald: {
     medium: 'Oswald_500Medium',
     bold: 'Oswald_700Bold',

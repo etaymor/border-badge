@@ -1,24 +1,25 @@
 /**
  * PhotoClusterCard - Displays a photo cluster without place suggestions.
  *
- * Shows photos with an "Add Entry" button for manual entry creation.
- * Supports swipe-left-to-dismiss.
+ * Shows photos with hero image style matching PlaceSuggestionCard,
+ * plus an "Add Entry Manually" button. Supports swipe-left-to-dismiss.
  */
 
 import { useRef } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { LocationClusterDisplay } from '@services/photoImport';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
 import { styles } from '../photoImportStyles';
 
 export interface PhotoClusterCardProps {
   cluster: LocationClusterDisplay;
   onAddEntry: (cluster: LocationClusterDisplay) => void;
-  onPhotoPress: (uri: string) => void;
+  onPhotoPress: (uri: string, allUris: string[]) => void;
   onDismiss?: (clusterId: string) => void;
 }
 
@@ -66,43 +67,45 @@ export function PhotoClusterCard({
       overshootRight={false}
     >
       <View style={styles.suggestionCard}>
-        {/* Photo thumbnails */}
-        <ScrollView
-          horizontal
-          style={styles.suggestionPhotos}
-          showsHorizontalScrollIndicator={false}
-        >
-          {cluster.previewUris.slice(0, 5).map((uri, index) => (
-            <TouchableOpacity key={`thumb-${index}`} onPress={() => onPhotoPress(uri)}>
-              <Image
-                source={{ uri }}
-                style={styles.suggestionThumbnail}
-                contentFit="cover"
-                transition={200}
-                recyclingKey={uri}
-              />
-            </TouchableOpacity>
-          ))}
-          {cluster.photoCount > 5 && (
-            <View style={styles.clusterMorePhotos}>
-              <Text style={styles.clusterMorePhotosText}>+{cluster.photoCount - 5}</Text>
-            </View>
-          )}
-        </ScrollView>
-
-        {/* No suggestions message */}
-        <View style={styles.clusterInfo}>
-          <Text style={styles.clusterNoSuggestions}>No place suggestions found</Text>
-          <Text style={styles.clusterPhotoCount}>
-            {cluster.photoCount} photo{cluster.photoCount !== 1 ? 's' : ''} at this location
-          </Text>
+        {/* Hero Image - matching PlaceSuggestionCard style */}
+        <View style={styles.suggestionHeroContainer}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => onPhotoPress(cluster.previewUris[0], cluster.previewUris)}
+            style={{ flex: 1 }}
+          >
+            <Image
+              source={{ uri: cluster.previewUris[0] }}
+              style={styles.suggestionHeroImage}
+              contentFit="cover"
+              transition={200}
+              recyclingKey={cluster.previewUris[0]}
+            />
+            {/* Photo count overlay */}
+            {cluster.photoCount > 1 && (
+              <View style={localStyles.photoCountOverlay}>
+                <Text style={localStyles.photoCountText}>+{cluster.photoCount - 1}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
 
-        {/* Add entry button */}
-        <TouchableOpacity style={styles.clusterAddButton} onPress={() => onAddEntry(cluster)}>
-          <Ionicons name="add-circle-outline" size={20} color={colors.sunsetGold} />
-          <Text style={styles.clusterAddButtonText}>Add Entry Manually</Text>
-        </TouchableOpacity>
+        {/* Content section */}
+        <View style={localStyles.content}>
+          <Text style={localStyles.noSuggestionsTitle}>No place found nearby</Text>
+          <Text style={localStyles.noSuggestionsSubtitle}>
+            {cluster.photoCount} photo{cluster.photoCount !== 1 ? 's' : ''} at this location
+          </Text>
+
+          {/* Add entry button - solid pill style */}
+          <TouchableOpacity
+            style={localStyles.addManuallyButton}
+            onPress={() => onAddEntry(cluster)}
+          >
+            <Ionicons name="add" size={18} color={colors.midnightNavy} />
+            <Text style={localStyles.addManuallyText}>Add Manually</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Swipeable>
   );
@@ -114,7 +117,7 @@ const localStyles = StyleSheet.create({
     backgroundColor: colors.adobeBrick,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24, // Matches suggestionCard marginBottom
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
   },
@@ -128,5 +131,50 @@ const localStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 4,
+  },
+  content: {
+    padding: 16,
+  },
+  photoCountOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  photoCountText: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 14,
+    color: colors.white,
+  },
+  noSuggestionsTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+    marginBottom: 2,
+  },
+  noSuggestionsSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 12,
+  },
+  addManuallyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+  },
+  addManuallyText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    marginLeft: 6,
   },
 });

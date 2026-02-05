@@ -31,13 +31,14 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     color: colors.midnightNavy,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   },
   subtitle: {
     fontFamily: fonts.playfair.regular,
     fontSize: 20,
     lineHeight: 26,
     color: colors.midnightNavy,
+    letterSpacing: -0.4,
   },
   heading: {
     fontFamily: fonts.openSans.bold,

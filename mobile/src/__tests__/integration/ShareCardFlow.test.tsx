@@ -298,7 +298,7 @@ describe('ShareCardFlow Integration', () => {
       const context = createMilestoneContext({ newTotalCount: 42 });
       render(<ShareCard context={context} />);
 
-      expect(screen.getByText('#42')).toBeTruthy();
+      expect(screen.getByText('42')).toBeTruthy();
     });
 
     it('renders milestone badges', () => {
@@ -349,7 +349,8 @@ describe('ShareCardFlow Integration', () => {
       const context = createMilestoneContext();
       render(<ShareCardOverlay visible={true} context={context} onDismiss={mockOnDismiss} />);
 
-      expect(screen.getByText('JAPAN')).toBeTruthy();
+      // Multiple "JAPAN" elements exist (visible card + hidden capture card)
+      expect(screen.getAllByText('JAPAN').length).toBeGreaterThan(0);
     });
 
     it('does not render when not visible', () => {
@@ -402,11 +403,11 @@ describe('ShareCardFlow Integration', () => {
       expect(mockOnDismiss).toHaveBeenCalledTimes(1);
     });
 
-    it('shows Customize text initially', () => {
+    it('shows Photo button initially', () => {
       const context = createMilestoneContext();
       render(<ShareCardOverlay visible={true} context={context} onDismiss={mockOnDismiss} />);
 
-      expect(screen.getByText('Customize')).toBeTruthy();
+      expect(screen.getByText('Photo')).toBeTruthy();
     });
   });
 
@@ -465,7 +466,7 @@ describe('ShareCardFlow Integration', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('Remove')).toBeTruthy();
+        expect(screen.getByText('Reset')).toBeTruthy();
       });
     });
   });
@@ -639,8 +640,9 @@ describe('ShareCardFlow Integration', () => {
       });
 
       // Share overlay should now be visible with share card content
+      // Multiple "JAPAN" elements may exist (screen header + share card)
       await waitFor(() => {
-        expect(screen.getByText('JAPAN')).toBeTruthy();
+        expect(screen.getAllByText('JAPAN').length).toBeGreaterThan(0);
       });
     });
 

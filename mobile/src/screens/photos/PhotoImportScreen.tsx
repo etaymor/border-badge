@@ -7,7 +7,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Modal,
+  Pressable,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,7 +40,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ManualPlaceSearch,
-  TripCandidateCard,
+  PhotoTripCard,
   PlaceSuggestionCard,
   PhotoClusterCard,
   PhotoTripSwitcherSheet,
@@ -46,6 +55,8 @@ type ClusterDisplayItem =
   | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
 type Props = PassportStackScreenProps<'PhotoImport'>;
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 /**
  * Format date range for display
@@ -150,8 +161,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     autoStart,
     skipToSuggestions,
   } = route.params ?? {};
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState(false);
+
+  // Gallery state: { uris: string[], initialIndex: number }
+  const [previewGallery, setPreviewGallery] = useState<{
+    uris: string[];
+    initialIndex: number;
+  } | null>(null);
+
+  // Current index in the gallery (for counter)
+  const [currentGalleryIndex, setCurrentGalleryIndex] = useState(0);
 
   // Track if at least one place was confirmed this session for review trigger
   const hasConfirmedPlaceRef = useRef(false);
@@ -165,12 +183,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleDismiss,
   } = useReviewRequest();
 
-  // Reset error state when preview photo changes
+  // Reset gallery index when gallery opens
   useEffect(() => {
-    if (previewPhoto) {
-      setPreviewError(false);
+    if (previewGallery) {
+      setCurrentGalleryIndex(previewGallery.initialIndex);
     }
-  }, [previewPhoto]);
+  }, [previewGallery]);
 
   const {
     phase,
@@ -314,11 +332,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   );
 
   const renderCandidateItem: ListRenderItem<TripCandidateDisplay> = useCallback(
-    ({ item }) => (
-      <TripCandidateCard
+    ({ item, index }) => (
+      <PhotoTripCard
         candidate={item}
         onSelectTrip={handleSelectTripForCandidate}
         onCreateTrip={handleCreateTrip}
+        index={index}
         selectedTripId={rememberedTripId}
         isLoadingSuggestions={suggestPlacesMutation.isPending}
       />
@@ -436,6 +455,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     return items;
   }, [selectedCandidate, suggestionsMap, clusterDisplays, dismissedClusterIdsInternal]);
 
+  // Handler for opening the gallery
+  const handleOpenGallery = useCallback((uri: string, allUris: string[]) => {
+    const index = allUris.indexOf(uri);
+    setPreviewGallery({
+      uris: allUris,
+      initialIndex: index !== -1 ? index : 0,
+    });
+  }, []);
+
   const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
     ({ item }) => {
       if (item.type === 'merged-suggestion') {
@@ -457,7 +485,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
               handleConfirmPlaceWithTracking(suggestion, place, false, additionalClusterIds)
             }
             onReject={handleRejectPlace}
-            onPhotoPress={setPreviewPhoto}
+            onPhotoPress={handleOpenGallery}
             onDismiss={() => handleHideMultipleClusters(merged.clusterIds)}
             isUploading={isUploadingAny}
             uploadProgress={primaryUploadState?.overallProgress ?? 0}
@@ -479,7 +507,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             previewUris={item.cluster.previewUris}
             onConfirm={handleConfirmPlaceWithTracking}
             onReject={handleRejectPlace}
-            onPhotoPress={setPreviewPhoto}
+            onPhotoPress={handleOpenGallery}
             onDismiss={handleHideCluster}
             isUploading={isUploadingThisCluster}
             uploadProgress={clusterUploadState?.overallProgress ?? 0}
@@ -495,7 +523,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <PhotoClusterCard
           cluster={item.cluster}
           onAddEntry={(cluster) => handleAddEntryForCluster(cluster.id)}
-          onPhotoPress={setPreviewPhoto}
+          onPhotoPress={handleOpenGallery}
           onDismiss={handleHideCluster}
         />
       );
@@ -509,6 +537,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       uploadingClusterIds,
       getUploadState,
       cancelUpload,
+      handleOpenGallery,
     ]
   );
 
@@ -527,7 +556,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           }}
         />
         <Text style={styles.headerTitle}>
-          {phase === 'suggestions' || skipToSuggestions ? 'Trip Suggestions' : 'We Found Trips'}
+          {phase === 'suggestions' ? 'Trip Suggestions' : 'We Found Trips'}
         </Text>
         {/* Show swap button only if multiple photo trips exist for this country */}
         {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
@@ -713,32 +742,59 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Photo Preview Overlay */}
-      {previewPhoto && (
+      {/* Photo Gallery Overlay */}
+      {previewGallery && (
         <Modal
           transparent
           animationType="fade"
           visible
-          onRequestClose={() => setPreviewPhoto(null)}
+          onRequestClose={() => setPreviewGallery(null)}
         >
-          <Pressable style={styles.overlayBackground} onPress={() => setPreviewPhoto(null)}>
-            <TouchableOpacity style={styles.closeButton} onPress={() => setPreviewPhoto(null)}>
+          <View style={styles.overlayBackground}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setPreviewGallery(null)}>
               <Ionicons name="close" size={28} color={colors.white} />
             </TouchableOpacity>
-            {previewError ? (
-              <View style={styles.previewLoadingContainer}>
-                <Ionicons name="image-outline" size={48} color={colors.stormGray} />
-                <Text style={styles.previewLoadingText}>Unable to load photo</Text>
-              </View>
-            ) : (
-              <Image
-                source={{ uri: previewPhoto }}
-                style={styles.fullPreview}
-                contentFit="contain"
-                onError={() => setPreviewError(true)}
+
+            <View style={styles.galleryContainer}>
+              <FlatList
+                data={previewGallery.uris}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                initialScrollIndex={previewGallery.initialIndex}
+                getItemLayout={(_, index) => ({
+                  length: SCREEN_WIDTH,
+                  offset: SCREEN_WIDTH * index,
+                  index,
+                })}
+                keyExtractor={(item) => item}
+                onMomentumScrollEnd={(e) => {
+                  const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+                  setCurrentGalleryIndex(index);
+                }}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => setPreviewGallery(null)}
+                    style={{
+                      width: SCREEN_WIDTH,
+                      height: '100%',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Image source={{ uri: item }} style={styles.fullPreview} contentFit="contain" />
+                  </Pressable>
+                )}
               />
-            )}
-          </Pressable>
+            </View>
+
+            {/* Photo Counter */}
+            <View style={styles.galleryCounter}>
+              <Text style={styles.galleryCounterText}>
+                {currentGalleryIndex + 1} / {previewGallery.uris.length}
+              </Text>
+            </View>
+          </View>
         </Modal>
       )}
 

@@ -30,11 +30,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 24,
+    marginTop: 8,
   },
   sectionTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 24,
+    fontSize: 28,
     color: colors.midnightNavy,
   },
   badge: {

@@ -22,6 +22,8 @@ import { env } from '@config/env';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
+import { useReducedMotion } from '@hooks/useReducedMotion';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -44,6 +46,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [showPassword, setShowPassword] = useState(false);
 
   const { displayName } = useOnboardingStore();
+  const reduceMotion = useReducedMotion();
 
   // Track screen view
   useEffect(() => {
@@ -59,54 +62,24 @@ export function AccountCreationScreen({ navigation }: Props) {
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;
 
-  // Animation values
-  const titleAnim = useRef(new Animated.Value(0)).current;
-  const accentAnim = useRef(new Animated.Value(0)).current;
-  const contentAnim = useRef(new Animated.Value(0)).current;
-  const buttonAnim = useRef(new Animated.Value(0)).current;
-  const passwordAnim = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
-  // Run entrance animations
-  useEffect(() => {
-    // Reset animations
-    titleAnim.setValue(0);
-    accentAnim.setValue(0);
-    contentAnim.setValue(0);
-    buttonAnim.setValue(0);
-
-    Animated.stagger(100, [
-      Animated.timing(titleAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(accentAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentAnim, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
+  // Password field conditional animation (separate from entrance)
+  const passwordAnim = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
 
   // Animate password field when email becomes valid
   useEffect(() => {
+    if (reduceMotion) {
+      passwordAnim.setValue(isEmailValid ? 1 : 0);
+      return;
+    }
     Animated.timing(passwordAnim, {
       toValue: isEmailValid ? 1 : 0,
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [isEmailValid, passwordAnim]);
+  }, [isEmailValid, passwordAnim, reduceMotion]);
 
   // Validate password
   const validatePassword = (pwd: string): { isValid: boolean; error?: string } => {
@@ -162,27 +135,6 @@ export function AccountCreationScreen({ navigation }: Props) {
     navigation.navigate('Auth', { screen: 'Login' });
   };
 
-  // Animation interpolations
-  const titleTranslateY = titleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [15, 0],
-  });
-
-  const accentTranslateY = accentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const contentTranslateY = contentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const buttonScale = buttonAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.95, 1],
-  });
-
   const showSocialButtons = isAppleAvailable || isGoogleAvailable;
 
   return (
@@ -204,37 +156,19 @@ export function AccountCreationScreen({ navigation }: Props) {
         >
           <View style={styles.content}>
             {/* Title */}
-            <Animated.View
-              style={{
-                opacity: titleAnim,
-                transform: [{ translateY: titleTranslateY }],
-              }}
-            >
+            <Animated.View style={getAnimatedStyle(0)}>
               <Text variant="title" style={styles.title}>
                 Save your passport
               </Text>
             </Animated.View>
 
             {/* Accent subtitle */}
-            <Animated.Text
-              style={[
-                styles.accentSubtitle,
-                {
-                  opacity: accentAnim,
-                  transform: [{ translateY: accentTranslateY }],
-                },
-              ]}
-            >
-              Just one more step
-            </Animated.Text>
+            <Animated.View style={getAnimatedStyle(1)}>
+              <Text style={styles.accentSubtitle}>Just one more step</Text>
+            </Animated.View>
 
             {/* Email input - glass style */}
-            <Animated.View
-              style={{
-                opacity: contentAnim,
-                transform: [{ translateY: contentTranslateY }],
-              }}
-            >
+            <Animated.View style={getAnimatedStyle(2)}>
               <View style={styles.inputGlassWrapper}>
                 <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
                   <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
@@ -343,12 +277,7 @@ export function AccountCreationScreen({ navigation }: Props) {
             </Animated.View>
 
             {/* Create Account button */}
-            <Animated.View
-              style={{
-                opacity: buttonAnim,
-                transform: [{ scale: buttonScale }],
-              }}
-            >
+            <Animated.View style={getButtonStyle(3)}>
               <TouchableOpacity
                 style={[styles.button, signUp.isPending && styles.buttonDisabled]}
                 onPress={handleSignUp}
@@ -366,11 +295,7 @@ export function AccountCreationScreen({ navigation }: Props) {
 
             {/* Social Sign In buttons */}
             {showSocialButtons && (
-              <Animated.View
-                style={{
-                  opacity: buttonAnim,
-                }}
-              >
+              <Animated.View style={getButtonStyle(3)}>
                 {/* Divider */}
                 <View style={styles.divider}>
                   <View style={styles.dividerLine} />
@@ -417,7 +342,7 @@ export function AccountCreationScreen({ navigation }: Props) {
             )}
 
             {/* Login link */}
-            <Animated.View style={{ opacity: contentAnim }}>
+            <Animated.View style={getAnimatedStyle(2)}>
               <TouchableOpacity
                 onPress={handleAlreadyHaveAccount}
                 style={styles.loginLink}
@@ -429,23 +354,23 @@ export function AccountCreationScreen({ navigation }: Props) {
             </Animated.View>
 
             {/* Terms and Privacy */}
-            <Animated.View style={[styles.legalContainer, { opacity: contentAnim }]}>
-              <Text style={styles.legalText}>
-                By creating an account, you agree to our{' '}
-                <Text
-                  style={styles.legalLink}
+            <Animated.View style={[styles.legalContainer, getAnimatedStyle(2)]}>
+              <Text style={styles.legalText}>By creating an account, you agree to our</Text>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity
                   onPress={() => Linking.openURL(`${env.webBaseUrl}/terms`)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  Terms of Service
-                </Text>{' '}
-                and{' '}
-                <Text
-                  style={styles.legalLink}
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </TouchableOpacity>
+                <Text style={styles.legalSeparator}>&</Text>
+                <TouchableOpacity
                   onPress={() => Linking.openURL(`${env.webBaseUrl}/privacy`)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  Privacy Policy
-                </Text>
-              </Text>
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </TouchableOpacity>
+              </View>
             </Animated.View>
           </View>
         </ScrollView>
@@ -544,9 +469,9 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: colors.sunsetGold,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
@@ -560,7 +485,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.midnightNavy,
   },
   divider: {
@@ -584,14 +509,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.adobeBrick,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     gap: 10,
     marginBottom: 12,
   },
   googleButtonText: {
-    fontFamily: fonts.openSans.regular,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 15,
     color: colors.white,
   },
@@ -600,13 +525,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.midnightNavy,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     gap: 10,
   },
   appleButtonText: {
-    fontFamily: fonts.openSans.regular,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 15,
     color: colors.white,
   },
@@ -621,18 +546,30 @@ const styles = StyleSheet.create({
     color: colors.mossGreen,
   },
   legalContainer: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+    marginTop: 'auto',
+    paddingTop: 16,
+    alignItems: 'center',
   },
   legalText: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.stormGray,
     textAlign: 'center',
-    lineHeight: 18,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
   },
   legalLink: {
-    color: colors.mossGreen,
-    textDecorationLine: 'underline',
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+  },
+  legalSeparator: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+    marginHorizontal: 4,
   },
 });

@@ -12,7 +12,7 @@ This styleguide defines the visual identity for the Border Badge application. Th
 | ------------- | --------- | ------------------------------------- |
 | Midnight Navy | `#172A3A` | Backgrounds, headers, dark containers |
 | Warm Cream    | `#FDF6ED` | Background paper feel, base layer     |
-| Sunset Gold   | `#F4C24E` | Highlight buttons, call to actions    |
+| Sunset Gold   | `#FFC636` | Highlight buttons, call to actions    |
 | Adobe Brick   | `#C1543E` | Accent, icons, “visited” mark         |
 | Lake Blue     | `#A0CDEB` | Sky/illustration tie-in, neutral tint |
 | Moss Green    | `#547A5F` | Secondary accents, tags               |
@@ -32,7 +32,7 @@ This styleguide defines the visual identity for the Border Badge application. Th
 
 - **Font Family**: Playfair Display
 - **Weight**: 600-700
-- **Letter Spacing**: -1%
+- **Letter Spacing**: -2%
 - **Style**: Elegant serif with soft curves
 - **Usage**: Screen titles, country names, headers
 
@@ -51,11 +51,17 @@ This styleguide defines the visual identity for the Border Badge application. Th
 
 ## Components
 
+### Cards
+
+- **Corner Radius**: 20px
+- **Background**: Paper Beige (`#F5ECE0`)
+- **Shadow**: Soft drop shadow (offset 0, 4px)
+
 ### CTA Buttons
 
 - **Shape**: Fully rounded
 - **Padding**: 14px vertical, 28px horizontal
-- **Corner Radius**: 12px
+- **Corner Radius**: Fully rounded (pill)
 - **Font**: Open Sans SemiBold (600), Title Case
 - **Background Color**: Sunset Gold
 - **Text Color**: Midnight Navy
@@ -67,20 +73,20 @@ The app uses spring-based animations throughout to create a premium, tactile fee
 
 ### Spring Physics
 
-| Config | Stiffness | Damping | Mass | Usage |
-|--------|-----------|---------|------|-------|
-| Default | 1000 | 500 | 1.5 | Standard screen transitions |
-| Gentle | 800 | 600 | 3 | Subtle, organic animations |
-| Bouncy | 900 | 300 | 2 | Celebration moments |
+| Config  | Stiffness | Damping | Mass | Usage                       |
+| ------- | --------- | ------- | ---- | --------------------------- |
+| Default | 1000      | 500     | 1.5  | Standard screen transitions |
+| Gentle  | 800       | 600     | 3    | Subtle, organic animations  |
+| Bouncy  | 900       | 300     | 2    | Celebration moments         |
 
 ### Animation Constants
 
-| Constant | Value | Usage |
-|----------|-------|-------|
-| Press Scale | 0.96 | Button/element press feedback |
-| Previous Screen Scale | 0.95 | Background screen during transitions |
-| Stagger Delay | 50ms | Delay between list item animations |
-| Breathing Scale | 1.0 → 1.01 | Subtle idle animation for stamps |
+| Constant              | Value      | Usage                                |
+| --------------------- | ---------- | ------------------------------------ |
+| Press Scale           | 0.96       | Button/element press feedback        |
+| Previous Screen Scale | 0.95       | Background screen during transitions |
+| Stagger Delay         | 50ms       | Delay between list item animations   |
+| Breathing Scale       | 1.0 → 1.01 | Subtle idle animation for stamps     |
 
 ### Micro-Interactions
 

@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
     paddingHorizontal: 48,
-    borderRadius: 12,
+    borderRadius: 9999,
     minWidth: 200,
     alignItems: 'center',
     shadowColor: colors.shadow,

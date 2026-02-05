@@ -43,7 +43,7 @@ export function InlineTripSelector({
   isSelectingTrip = false,
 }: InlineTripSelectorProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const insets = useSafeAreaInsets();
+  const _insets = useSafeAreaInsets();
 
   const { data: trips = [], isLoading } = useTrips();
 
@@ -161,9 +161,11 @@ export function InlineTripSelector({
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={[styles.modalContainer, { paddingTop: insets.top }]}
+          style={styles.modalContainer}
         >
           <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderSpacer} />
+            <Text style={styles.modalTitle}>Create New Trip</Text>
             <TouchableOpacity onPress={handleCancelCreate} style={styles.modalCloseButton}>
               <Ionicons name="close" size={24} color={colors.midnightNavy} />
             </TouchableOpacity>
@@ -223,7 +225,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.white,
-    borderRadius: 12,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -251,7 +253,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.sunsetGold,
-    borderRadius: 12,
+    borderRadius: 9999,
     paddingVertical: 14,
     paddingHorizontal: 24,
     gap: 8,
@@ -289,12 +291,23 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
+  },
+  modalTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 20,
+    color: colors.midnightNavy,
+  },
+  modalHeaderSpacer: {
+    width: 40,
   },
   modalCloseButton: {
     padding: 8,
+    alignItems: 'flex-end',
+    width: 40,
   },
   modalContent: {
     flex: 1,

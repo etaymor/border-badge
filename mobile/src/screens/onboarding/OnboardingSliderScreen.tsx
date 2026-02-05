@@ -3,6 +3,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FlatListProps } from 'react-native';
 import {
+  Animated,
   FlatList,
   Image,
   StyleSheet,
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -26,17 +28,23 @@ const SLIDES = [
   {
     id: '1',
     video: require('../../../assets/onboarding-videos/onboarding1-share.mp4'),
-    text: 'Stamp your passport for every country you visit.',
+    headline: 'From scroll to story',
+    subtext:
+      "Share any post from TikTok or Instagram directly to Atlasi. We'll extract the location and save the inspiration to your map instantly.",
   },
   {
     id: '2',
-    video: require('../../../assets/onboarding-videos/onboarding2-country-track.mp4'),
-    text: 'Save your favorite spots. Remember the magic.',
+    video: require('../../../assets/onboarding-videos/onboarding3-trips.mp4'),
+    headline: 'Your memories, mapped',
+    subtext:
+      'Atlasi intelligently scans your photo library to reconstruct your past adventures into a beautiful, chronological travelogue.',
   },
   {
     id: '3',
-    video: require('../../../assets/onboarding-videos/onboarding3-trips.mp4'),
-    text: 'Share lists. Swap recs. Inspire your friends.',
+    video: require('../../../assets/onboarding-videos/onboarding2-country-track.mp4'),
+    headline: 'Your global archive',
+    subtext:
+      "A signature gallery of where you've been and a curated bucket list for where the world takes you next.",
   },
 ];
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -44,7 +52,8 @@ const SLIDES = [
 interface Slide {
   id: string;
   video: number;
-  text: string;
+  headline: string;
+  subtext: string;
 }
 
 // Video dimensions (820x1280 aspect ratio)
@@ -68,15 +77,15 @@ const LAYOUT_CONFIGS: Record<'small' | 'medium' | 'large', Omit<LayoutConfig, 'r
     textMarginTop: 12,
     textPaddingHorizontal: 24,
     paginationMarginTop: 8,
-    borderRadius: 12,
-    videoBorderRadius: 8,
+    borderRadius: 20,
+    videoBorderRadius: 12,
   },
   medium: {
     framePadding: 10,
     textMarginTop: 16,
     textPaddingHorizontal: 32,
     paginationMarginTop: 12,
-    borderRadius: 16,
+    borderRadius: 20,
     videoBorderRadius: 12,
   },
   large: {
@@ -84,7 +93,7 @@ const LAYOUT_CONFIGS: Record<'small' | 'medium' | 'large', Omit<LayoutConfig, 'r
     textMarginTop: 20,
     textPaddingHorizontal: 40,
     paginationMarginTop: 14,
-    borderRadius: 16,
+    borderRadius: 20,
     videoBorderRadius: 12,
   },
 };
@@ -96,9 +105,9 @@ function getLayoutConfig(
 ) {
   const config = LAYOUT_CONFIGS[screenSize];
 
-  // Reserve space for: header (~52), text (~80), pagination (~30), bottom button area (~100)
+  // Reserve space for: header (~52), headline+subtext (~120), pagination (~30), bottom button area (~100)
   // Reserve space for header, text, pagination dots, and bottom button
-  const reservedHeight = screenSize === 'small' ? 300 : screenSize === 'medium' ? 280 : 260;
+  const reservedHeight = screenSize === 'small' ? 340 : screenSize === 'medium' ? 320 : 300;
 
   // Available height for the video frame
   const availableHeight = screenHeight - reservedHeight;
@@ -131,6 +140,7 @@ type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 
 export function OnboardingSliderScreen({ navigation }: Props) {
   const { screenWidth, screenHeight, screenSize } = useResponsive();
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 2 });
 
   // Get responsive layout configuration
   const layout = useMemo(
@@ -138,8 +148,8 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     [screenSize, screenWidth, screenHeight]
   );
 
-  // Slide height: just enough for video frame + text + dots + spacing
-  const slideHeight = layout.frameHeight + 120;
+  // Slide height: just enough for video frame + headline + subtext + dots + spacing
+  const slideHeight = layout.frameHeight + 160;
 
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
@@ -247,18 +257,22 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         </View>
 
         {/* Text below video */}
-        <Text
-          variant="title"
+        <View
           style={[
-            styles.slideText,
+            styles.textContainer,
             {
               marginTop: layout.textMarginTop,
               paddingHorizontal: layout.textPaddingHorizontal,
             },
           ]}
         >
-          {item.text}
-        </Text>
+          <Text variant="title" style={styles.headline}>
+            {item.headline}
+          </Text>
+          <Text variant="body" style={styles.subtext}>
+            {item.subtext}
+          </Text>
+        </View>
 
         {/* Pagination dots */}
         <View style={[styles.pagination, { marginTop: layout.paginationMarginTop }]}>
@@ -276,7 +290,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header with logo and login */}
-      <View style={styles.header}>
+      <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
         <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
         <TouchableOpacity
           onPress={handleLogin}
@@ -287,7 +301,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             Login
           </Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       {/* Carousel */}
       <FlatList
@@ -311,18 +325,20 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       {/* Bottom section: button only - fixed position */}
       <View style={styles.bottomSection}>
         {/* Next / Start my journey button */}
-        <TouchableOpacity
-          style={styles.ctaButton}
-          onPress={activeIndex === SLIDES.length - 1 ? handleStartJourney : goToNext}
-          testID="start-journey-button"
-        >
-          <Text variant="label" style={styles.ctaButtonText}>
-            {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Continue'}
-          </Text>
-          {activeIndex < SLIDES.length - 1 && (
-            <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-          )}
-        </TouchableOpacity>
+        <Animated.View style={getButtonStyle(1)}>
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={activeIndex === SLIDES.length - 1 ? handleStartJourney : goToNext}
+            testID="start-journey-button"
+          >
+            <Text variant="label" style={styles.ctaButtonText}>
+              {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Continue'}
+            </Text>
+            {activeIndex < SLIDES.length - 1 && (
+              <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </SafeAreaView>
   );
@@ -377,9 +393,24 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  slideText: {
+  textContainer: {
+    alignItems: 'center',
+  },
+  headline: {
     color: colors.midnightNavy,
     textAlign: 'center',
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.56, // -2% tracking
+    marginBottom: 8,
+  },
+  subtext: {
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '400',
+    opacity: 0.7,
+    lineHeight: 22,
   },
   bottomSection: {
     position: 'absolute',
@@ -416,7 +447,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

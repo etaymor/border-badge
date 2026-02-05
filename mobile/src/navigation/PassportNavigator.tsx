@@ -9,13 +9,24 @@ import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
 import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
+import { ShareCaptureErrorBoundary } from '@screens/share/ShareCaptureErrorBoundary';
+import { TripFormScreen } from '@screens/trips/TripFormScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
 import { TripsNavigator } from './TripsNavigator';
 import { SlideWithScalePreset, SharedCountryPreset } from './interpolators';
 
-import type { PassportStackParamList } from './types';
+import type { PassportStackParamList, PassportStackScreenProps } from './types';
 
 const Stack = createBlankStackNavigator<PassportStackParamList>();
+
+function ShareCaptureWithBoundary(props: PassportStackScreenProps<'ShareCapture'>) {
+  const { url, source } = props.route.params;
+  return (
+    <ShareCaptureErrorBoundary url={url} source={source} onError={() => props.navigation.goBack()}>
+      <ShareCaptureScreen {...props} />
+    </ShareCaptureErrorBoundary>
+  );
+}
 
 /**
  * Inner navigator component that has access to the navigation context.
@@ -38,10 +49,11 @@ function PassportNavigatorContent() {
           }}
         />
         <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+        <Stack.Screen name="TripForm" component={TripFormScreen} />
         <Stack.Screen name="Trips" component={TripsNavigator} />
         <Stack.Screen
           name="ShareCapture"
-          component={ShareCaptureScreen}
+          component={ShareCaptureWithBoundary}
           options={{
             ...Transition.Presets.SlideFromBottom(),
             gestureEnabled: true,

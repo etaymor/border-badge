@@ -658,7 +658,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.midnightNavyLight,
-    borderRadius: 10,
+    borderRadius: 20,
     paddingHorizontal: 12,
     minHeight: 44,
   },
@@ -733,7 +733,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
   },
   continueButtonText: {

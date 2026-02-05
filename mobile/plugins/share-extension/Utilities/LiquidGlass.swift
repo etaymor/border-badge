@@ -90,7 +90,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .frame(height: 50)
             .background(isEnabled ? BrandColors.sunsetGold : BrandColors.stormGray.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }

@@ -349,6 +349,36 @@ For each data type collected, Apple asks three questions:
 - [ ] Analytics tracking verified
 - [ ] Performance monitoring enabled
 
+### PostHog Onboarding Funnel
+
+The app fires onboarding **step** events (`view_onboarding_welcome`, `view_onboarding_slider`, … through `view_onboarding_account`) from each onboarding screen. The **conversion** event `complete_onboarding` must be fired in code when a user finishes sign-up; then the funnel is built in the PostHog UI.
+
+**Production environment (events only send when `EXPO_PUBLIC_APP_ENV=production`):**
+
+- [ ] `EXPO_PUBLIC_APP_ENV=production` set in production build (so `isProduction` is true and `track()` sends to PostHog)
+- [ ] `EXPO_PUBLIC_POSTHOG_API_KEY` set in production (e.g. EAS secrets or app config)
+- [ ] `EXPO_PUBLIC_POSTHOG_HOST` optional; default `https://us.i.posthog.com` is fine
+
+**Code: fire conversion event**
+
+- [ ] Fire `Analytics.completeOnboarding(...)` when a new user successfully completes sign-up:
+  - **Email/password:** In `mobile/src/hooks/useAuth.ts`, inside `useSignUpWithPassword`’s `onSuccess`, after setting session, call `Analytics.completeOnboarding({ countriesCount, homeCountry, trackingPreference })` with values from `useOnboardingStore.getState()` (or equivalent).
+  - **Social (Apple/Google):** In `mobile/src/hooks/useAppleAuth.ts` and `mobile/src/hooks/useGoogleAuth.ts`, in the **new user** branch (where you set session and run migration, and do not call `storeOnboardingComplete`), read onboarding state and call `Analytics.completeOnboarding(...)` once.
+
+**PostHog UI: create the funnel**
+
+Funnels are defined in PostHog, not in the repo. With events firing in production:
+
+1. In PostHog: **Insights** → **New insight** → **Funnel**.
+2. Add steps in order, for example:
+   - Step 1: Event `view_onboarding_welcome`
+   - Step 2: Event `view_onboarding_slider`
+   - Step 3: Event `view_onboarding_motivation`
+   - (add more steps as needed, or use a shortened funnel)
+   - Final step: Event `complete_onboarding` (conversion)
+3. Optionally filter by property (e.g. app version) or “Production”.
+4. Save the insight and add to a dashboard if desired.
+
 ### Operations
 
 - [ ] Error alerting configured

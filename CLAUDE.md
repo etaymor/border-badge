@@ -430,17 +430,18 @@ All launch simplification changes are marked with:
 
 ## Notes for AI Assistants
 
-1. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
-2. **RLS:** Always consider Row-Level Security when working with database
-3. **Soft Deletes:** Trips and entries use `deleted_at` timestamp
-4. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status)
-5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
-6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
-7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
-8. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
-9. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
-10. **Query Caching:** Trips and entries queries use `staleTime` (5min) and `gcTime` (30min) to reduce redundant fetches. Mutations use scoped cache invalidation targeting only affected query keys.
-11. **Scoped Invalidation:** Trip and entry mutations invalidate only the specific trip/entry queries affected, not the entire cache. This prevents unnecessary refetches during navigation.
+1. **NO EMOJIS OR ICONS:** Never add emojis or icons to the UI without explicit permission. This includes emoji characters, icon libraries (Ionicons, etc.), or any visual symbols. All iconography must be custom-designed and approved by the user. Standard system icons (like arrow-forward on buttons) that already exist in the codebase are acceptable.
+2. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
+3. **RLS:** Always consider Row-Level Security when working with database
+4. **Soft Deletes:** Trips and entries use `deleted_at` timestamp
+5. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status)
+6. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
+7. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
+8. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
+9. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
+10. **Photo Import Memory:** Large photo libraries (10k+ photos) create ~5-10MB of Maps in memory during import workflow. The workflow uses memory-optimized display types (storing IDs instead of full objects) and cleanup on unmount. Users with 5k+ GPS photos see a warning suggesting country filtering.
+11. **Query Caching:** Trips and entries queries use `staleTime` (5min) and `gcTime` (30min) to reduce redundant fetches. Mutations use scoped cache invalidation targeting only affected query keys.
+12. **Scoped Invalidation:** Trip and entry mutations invalidate only the specific trip/entry queries affected, not the entire cache. This prevents unnecessary refetches during navigation.
 
 ## LLM Place Extraction System
 

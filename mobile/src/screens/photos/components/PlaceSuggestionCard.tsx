@@ -7,7 +7,6 @@ import { useRef } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -27,7 +26,7 @@ export interface PlaceSuggestionCardProps {
   previewUris: string[];
   onConfirm: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
   onReject: (suggestion: ClusterSuggestion) => void;
-  onPhotoPress: (uri: string) => void;
+  onPhotoPress: (uri: string, allUris: string[]) => void;
   onDismiss?: (clusterId: string) => void;
   /** Whether this card is currently uploading photos */
   isUploading?: boolean;
@@ -57,6 +56,8 @@ export function PlaceSuggestionCard({
   const swipeableRef = useRef<Swipeable>(null);
   const topPlace = suggestion.places[0];
   if (!topPlace) return null;
+
+  const heroUri = previewUris[0];
 
   const renderRightActions = (
     progress: Animated.AnimatedInterpolation<number>,
@@ -95,31 +96,44 @@ export function PlaceSuggestionCard({
       enabled={!isUploading} // Disable swipe during upload
     >
       <View style={styles.suggestionCard}>
-        {/* Photo thumbnails - uses previewUris instead of full photos array */}
-        <ScrollView
-          horizontal
-          style={styles.suggestionPhotos}
-          showsHorizontalScrollIndicator={false}
-        >
-          {previewUris.slice(0, 5).map((uri, index) => (
+        {/* Hero Image */}
+        <View style={styles.suggestionHeroContainer}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => onPhotoPress(heroUri, previewUris)}
+            disabled={isUploading}
+            style={{ flex: 1 }}
+          >
+            <Image
+              source={{ uri: heroUri }}
+              style={styles.suggestionHeroImage}
+              contentFit="cover"
+              transition={200}
+              recyclingKey={heroUri}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Floating Actions */}
+        {!isUploading && (
+          <View style={styles.suggestionFloatingActions}>
             <TouchableOpacity
-              key={`thumb-${index}`}
-              onPress={() => onPhotoPress(uri)}
-              disabled={isUploading}
+              style={[styles.floatingActionButton, styles.floatingRejectButton]}
+              onPress={() => onReject(suggestion)}
             >
-              <Image
-                source={{ uri }}
-                style={styles.suggestionThumbnail}
-                contentFit="cover"
-                transition={200}
-                recyclingKey={uri}
-              />
+              <Ionicons name="close" size={24} color={colors.white} />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+            <TouchableOpacity
+              style={[styles.floatingActionButton, styles.floatingConfirmButton]}
+              onPress={() => onConfirm(suggestion, topPlace)}
+            >
+              <Ionicons name="checkmark" size={24} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Place info */}
-        <View style={styles.suggestionInfo}>
+        <View style={styles.suggestionContent}>
           <Text style={styles.suggestionName}>{topPlace.name}</Text>
           <Text style={styles.suggestionAddress} numberOfLines={1}>
             {topPlace.address}
@@ -130,42 +144,27 @@ export function PlaceSuggestionCard({
             </View>
             <Text style={styles.distanceText}>{Math.round(topPlace.distance_m)}m away</Text>
           </View>
-        </View>
 
-        {/* Upload progress or Yes/No buttons */}
-        {isUploading ? (
-          <View style={localStyles.uploadContainer}>
-            <View style={localStyles.uploadContent}>
-              <ActivityIndicator size="small" color={colors.sunsetGold} />
-              <Text style={localStyles.uploadText}>
-                Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
-              </Text>
+          {/* Upload progress */}
+          {isUploading && (
+            <View style={localStyles.uploadContainerInline}>
+              <View style={localStyles.uploadContent}>
+                <ActivityIndicator size="small" color={colors.sunsetGold} />
+                <Text style={localStyles.uploadText}>
+                  Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
+                </Text>
+              </View>
+              <View style={localStyles.uploadProgressBar}>
+                <View style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]} />
+              </View>
+              {onCancelUpload && (
+                <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
+                  <Text style={localStyles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <View style={localStyles.uploadProgressBar}>
-              <View style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]} />
-            </View>
-            {onCancelUpload && (
-              <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
-                <Text style={localStyles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <View style={styles.suggestionActions}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.rejectButton]}
-              onPress={() => onReject(suggestion)}
-            >
-              <Ionicons name="close" size={24} color={colors.adobeBrick} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.confirmButton]}
-              onPress={() => onConfirm(suggestion, topPlace)}
-            >
-              <Ionicons name="checkmark" size={24} color={colors.success} />
-            </TouchableOpacity>
-          </View>
-        )}
+          )}
+        </View>
       </View>
     </Swipeable>
   );
@@ -177,7 +176,7 @@ const localStyles = StyleSheet.create({
     backgroundColor: colors.adobeBrick,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24, // Matches suggestionCard marginBottom
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
   },
@@ -192,9 +191,9 @@ const localStyles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
-  uploadContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  uploadContainerInline: {
+    marginTop: 16,
+    paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },

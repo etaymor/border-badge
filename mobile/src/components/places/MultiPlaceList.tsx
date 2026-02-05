@@ -1,14 +1,15 @@
 /**
  * MultiPlaceList - List of places with checkboxes for multi-place extraction.
  *
- * Displays detected places with selection state, allowing users to:
+ * Displays detected places as individual cards with selection state, allowing users to:
  * - Toggle individual places on/off
  * - Edit individual places via search
  * - Change entry types per place
  */
 
 import { useCallback, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -43,6 +44,10 @@ export interface MultiPlaceListProps {
   onEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
   /** Show edit buttons on place items. Defaults to false until edit flow is implemented. */
   showEditButtons?: boolean;
+  /** Callback to select all places */
+  onSelectAll?: () => void;
+  /** Callback to clear all selections */
+  onClearAll?: () => void;
 }
 
 export function MultiPlaceList({
@@ -51,10 +56,13 @@ export function MultiPlaceList({
   onEditPlace,
   onEntryTypeChange,
   showEditButtons = false,
+  onSelectAll,
+  onClearAll,
 }: MultiPlaceListProps) {
   const placeKeys = Object.keys(selections);
   const selectedCount = Object.values(selections).filter((s) => s.isSelected).length;
   const showCountryChips = useMemo(() => placesSpanMultipleCountries(selections), [selections]);
+  const allSelected = selectedCount === placeKeys.length;
 
   const handleToggle = useCallback(
     (key: string) => {
@@ -83,71 +91,96 @@ export function MultiPlaceList({
 
   return (
     <View style={styles.container}>
+      {/* Section Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>
-          Found {placeKeys.length} place{placeKeys.length > 1 ? 's' : ''}
-        </Text>
-        <Text style={styles.selectedText}>{selectedCount} selected</Text>
+        <Text style={styles.sectionLabel}>SELECT PLACES</Text>
+        {(onSelectAll || onClearAll) && (
+          <Pressable
+            onPress={allSelected ? onClearAll : onSelectAll}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.actionText}>{allSelected ? 'Clear all' : 'Select all'}</Text>
+          </Pressable>
+        )}
       </View>
 
-      <View style={styles.list}>
-        {placeKeys.map((key) => {
-          const selection = selections[key];
-          return (
-            <PlaceCheckboxItem
-              key={key}
-              name={selection.name}
-              address={selection.address}
-              countryCode={selection.country_code}
-              showCountryChip={showCountryChips}
-              entryType={selection.entryType}
-              isSelected={selection.isSelected}
-              onToggle={() => handleToggle(key)}
-              onEdit={() => handleEdit(key)}
-              onEntryTypeChange={(type) => handleEntryTypeChange(key, type)}
-              showEditButton={showEditButtons}
-            />
-          );
-        })}
-      </View>
+      {/* Glass Card Container */}
+      <BlurView intensity={25} tint="light" style={styles.glassContainer}>
+        <View style={styles.glassInner}>
+          {placeKeys.map((key, index) => {
+            const selection = selections[key];
+            const isLast = index === placeKeys.length - 1;
+            return (
+              <View key={key}>
+                <PlaceCheckboxItem
+                  name={selection.name}
+                  address={selection.address}
+                  countryCode={selection.country_code}
+                  showCountryChip={showCountryChips}
+                  entryType={selection.entryType}
+                  isSelected={selection.isSelected}
+                  onToggle={() => handleToggle(key)}
+                  onEdit={() => handleEdit(key)}
+                  onEntryTypeChange={(type) => handleEntryTypeChange(key, type)}
+                  showEditButton={showEditButtons}
+                />
+                {!isLast && <View style={styles.separator} />}
+              </View>
+            );
+          })}
+        </View>
+      </BlurView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
     marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.paperBeige,
-    backgroundColor: colors.warmCream,
+    paddingHorizontal: 4,
+    marginBottom: 12,
   },
-  headerText: {
+  sectionLabel: {
     fontFamily: fonts.oswald.medium,
-    fontSize: 14,
-    color: colors.midnightNavy,
-    letterSpacing: 0.5,
-  },
-  selectedText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
-  list: {
-    paddingHorizontal: 12,
+  actionText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 13,
+    color: colors.sunsetGold,
+  },
+  glassContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.midnightNavy,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  glassInner: {
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(23, 42, 58, 0.06)',
+    marginHorizontal: 16,
   },
 });
