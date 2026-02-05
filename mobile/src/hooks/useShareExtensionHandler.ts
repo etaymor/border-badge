@@ -200,6 +200,8 @@ export function useShareExtensionHandler(
 
     return () => {
       subscription.remove();
+      pendingAuthedShareRef.current = null;
+      shouldClearPendingShareRef.current = false;
     };
   }, [tryNavigateToShareCapture]);
 

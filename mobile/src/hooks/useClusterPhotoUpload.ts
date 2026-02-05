@@ -290,7 +290,12 @@ export function useClusterPhotoUpload() {
               const assetId = extractAssetIdFromPhUri(photo.uri);
               console.error(
                 '[ClusterUpload] ❌ BUG: localFile still has photo library URI after conversion:',
-                { convertedUri: localFile.uri, originalUri: photo.uri, assetId, filename: photo.filename }
+                {
+                  convertedUri: localFile.uri,
+                  originalUri: photo.uri,
+                  assetId,
+                  filename: photo.filename,
+                }
               );
               failedCount++;
               setState((prev) => ({

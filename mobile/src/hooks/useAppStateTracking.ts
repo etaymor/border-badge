@@ -29,6 +29,18 @@ export function useAppStateTracking(
   const appStateRef = useRef(AppState.currentState);
   const sessionIdRef = useRef(generateSessionId());
   const hasTrackedInitialOpenRef = useRef(false);
+  const prevUserIdRef = useRef(session?.user?.id);
+
+  const userId = session?.user?.id;
+
+  // Reset tracking when user identity changes (sign-out or account switch)
+  if (prevUserIdRef.current !== userId) {
+    if (prevUserIdRef.current) {
+      hasTrackedInitialOpenRef.current = false;
+      sessionIdRef.current = generateSessionId();
+    }
+    prevUserIdRef.current = userId;
+  }
 
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -50,7 +62,7 @@ export function useAppStateTracking(
         });
 
         // Track analytics and check for immediate shares (only if authenticated)
-        if (session?.user?.id) {
+        if (userId) {
           // Generate new session ID for this foreground event
           sessionIdRef.current = generateSessionId();
           Analytics.appOpened(sessionIdRef.current);
@@ -69,14 +81,8 @@ export function useAppStateTracking(
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
-    // Reset tracking ref on sign out so next sign-in can track initial open
-    if (!session?.user?.id) {
-      hasTrackedInitialOpenRef.current = false;
-      sessionIdRef.current = generateSessionId();
-    }
-
-    // Track initial app open if authenticated (only once to prevent double-tracking)
-    if (session?.user?.id && !hasTrackedInitialOpenRef.current) {
+    // Track initial app open if authenticated (only once per user session)
+    if (userId && !hasTrackedInitialOpenRef.current) {
       hasTrackedInitialOpenRef.current = true;
       Analytics.appOpened(sessionIdRef.current);
     }
@@ -84,5 +90,5 @@ export function useAppStateTracking(
     return () => {
       subscription.remove();
     };
-  }, [session?.user?.id, checkAppGroupForSharedURL, homeCountry]);
+  }, [userId, checkAppGroupForSharedURL, homeCountry]);
 }

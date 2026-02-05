@@ -23,16 +23,22 @@ export function useNavigationPersistence(session: Session | null) {
     NavigationState | undefined
   >();
 
+  const isAuthenticated = !!session;
+
   // Restore navigation state on app launch (only for authenticated users)
   useEffect(() => {
+    let cancelled = false;
+
     const restoreNavigationState = async () => {
       try {
-        if (!session) {
+        if (!isAuthenticated) {
           setIsNavigationReady(true);
           return;
         }
 
         const savedData = await AsyncStorage.getItem(NAVIGATION_STATE_KEY);
+        if (cancelled) return;
+
         if (savedData) {
           const persisted = JSON.parse(savedData) as PersistedNavigationState;
           const validState = validatePersistedState(persisted);
@@ -52,21 +58,27 @@ export function useNavigationPersistence(session: Session | null) {
           // Ignore cleanup errors
         }
       } finally {
-        setIsNavigationReady(true);
+        if (!cancelled) {
+          setIsNavigationReady(true);
+        }
       }
     };
 
     restoreNavigationState();
-  }, [session]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   // Clear navigation state when user signs out
   useEffect(() => {
-    if (!session) {
+    if (!isAuthenticated) {
       AsyncStorage.removeItem(NAVIGATION_STATE_KEY).catch((error) => {
         console.warn('Failed to clear navigation state:', error);
       });
     }
-  }, [session]);
+  }, [isAuthenticated]);
 
   // Save navigation state when it changes
   const handleNavigationStateChange = useCallback(

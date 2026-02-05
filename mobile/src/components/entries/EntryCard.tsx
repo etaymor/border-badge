@@ -62,25 +62,6 @@ function EntryCardComponent({ entry, onPress, onLongPress }: EntryCardProps) {
     [entry.place?.google_photo_url]
   );
 
-  // Debug logging
-  useEffect(() => {
-    if (entry.place?.google_photo_url || entry.metadata?.thumbnail_url) {
-      logger.log('[EntryCard] Photo URL info', {
-        entryId: entry.id,
-        rawPhotoUrl: entry.place?.google_photo_url?.substring(0, 100),
-        validatedUrl: placePhotoUrl?.substring(0, 100),
-        socialThumbnail: entry.metadata?.thumbnail_url?.substring(0, 100),
-        hasUserMedia,
-      });
-    }
-  }, [
-    entry.id,
-    entry.place?.google_photo_url,
-    placePhotoUrl,
-    entry.metadata?.thumbnail_url,
-    hasUserMedia,
-  ]);
-
   // Social media thumbnail from metadata (Instagram/TikTok)
   const socialThumbnailUrl = entry.metadata?.thumbnail_url ?? null;
 
