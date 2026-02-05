@@ -15,9 +15,13 @@ import {
   clearPendingShare,
   markShareProcessed,
   wasRecentlyProcessed,
+  isCurrentlyProcessing,
+  markAsProcessing,
+  clearProcessingStatus,
   completeAppGroupShare,
   syncApiUrlToAppGroup,
   syncShareExtensionUsageFromAppGroup,
+  scheduleProcessingTimeout,
   __resetProcessedCache,
 } from '@services/shareExtensionBridge';
 
@@ -355,6 +359,170 @@ describe('shareExtensionBridge', () => {
       expect(result).toBe(false);
       // Should not have changed the store on error
       expect(useSettingsStore.getState().hasUsedShareExtension).toBe(false);
+    });
+  });
+
+  describe('processing state persistence (crash recovery)', () => {
+    const testUrl = 'https://vm.tiktok.com/abc123';
+
+    it('persists processing state to AsyncStorage when marking as processing', async () => {
+      mockAsyncStorage.setItem.mockClear();
+
+      await markAsProcessing(testUrl);
+
+      expect(mockAsyncStorage.setItem).toHaveBeenCalledWith(
+        'share_extension_processing',
+        expect.any(String)
+      );
+
+      const storedData = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(storedData.url).toBe(testUrl);
+      expect(storedData.timestamp).toBeDefined();
+    });
+
+    it('detects processing state from AsyncStorage after simulated crash (in-memory lost)', async () => {
+      // Simulate: mark as processing, then crash (reset in-memory state)
+      await markAsProcessing(testUrl);
+      const storedCall = mockAsyncStorage.setItem.mock.calls.find(
+        (call) => call[0] === 'share_extension_processing'
+      );
+      const persistedJson = storedCall![1];
+
+      // Simulate crash: clear in-memory state only
+      __resetProcessedCache();
+
+      // After crash, AsyncStorage still has the persisted state
+      mockAsyncStorage.getItem.mockImplementation(async (key: string) => {
+        if (key === 'share_extension_processing') return persistedJson;
+        return null;
+      });
+
+      // isCurrentlyProcessing should find it in AsyncStorage
+      const result = await isCurrentlyProcessing(testUrl);
+      expect(result).toBe(true);
+    });
+
+    it('returns false for persisted processing state older than 5 minutes', async () => {
+      const staleData = JSON.stringify({
+        url: testUrl,
+        timestamp: Date.now() - 6 * 60 * 1000, // 6 minutes ago
+      });
+
+      mockAsyncStorage.getItem.mockImplementation(async (key: string) => {
+        if (key === 'share_extension_processing') return staleData;
+        return null;
+      });
+
+      const result = await isCurrentlyProcessing(testUrl);
+      expect(result).toBe(false);
+
+      // Should have cleaned up the stale entry
+      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('share_extension_processing');
+    });
+
+    it('returns false for different URL even if persisted', async () => {
+      const otherUrlData = JSON.stringify({
+        url: 'https://different.com/xyz',
+        timestamp: Date.now(),
+      });
+
+      mockAsyncStorage.getItem.mockImplementation(async (key: string) => {
+        if (key === 'share_extension_processing') return otherUrlData;
+        return null;
+      });
+
+      const result = await isCurrentlyProcessing(testUrl);
+      expect(result).toBe(false);
+    });
+
+    it('clears persisted processing state on clearProcessingStatus', async () => {
+      await markAsProcessing(testUrl);
+      mockAsyncStorage.removeItem.mockClear();
+
+      await clearProcessingStatus(testUrl);
+
+      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('share_extension_processing');
+    });
+
+    it('clears persisted processing state on completeAppGroupShare', async () => {
+      await markAsProcessing(testUrl);
+      mockAsyncStorage.removeItem.mockClear();
+      mockAsyncStorage.setItem.mockClear();
+
+      await completeAppGroupShare(testUrl);
+
+      // Should clear persisted processing state
+      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('share_extension_processing');
+    });
+
+    it('BUG: processing state blocks new shares when navigation fails silently', async () => {
+      // Reproduce: mark URL as processing, then never clear it (simulates
+      // navigation failure or ShareCapture screen never calling completeAppGroupShare)
+      await markAsProcessing(testUrl);
+
+      // The URL is stuck as "processing" - any subsequent check returns true
+      const isStillProcessing = await isCurrentlyProcessing(testUrl);
+      expect(isStillProcessing).toBe(true);
+
+      // This means checkAppGroupForSharedURL will skip this URL indefinitely
+      // until the passive TTL (30s in-memory) happens to be checked again
+    });
+  });
+
+  describe('scheduleProcessingTimeout', () => {
+    const testUrl = 'https://vm.tiktok.com/abc123';
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('clears processing state after timeout expires', async () => {
+      await markAsProcessing(testUrl);
+
+      // Verify it's processing
+      expect(await isCurrentlyProcessing(testUrl)).toBe(true);
+
+      // Schedule the timeout
+      const cancel = scheduleProcessingTimeout(testUrl);
+
+      // Advance past the timeout (5 minutes)
+      jest.advanceTimersByTime(5 * 60 * 1000);
+
+      // Processing state should now be cleared
+      expect(await isCurrentlyProcessing(testUrl)).toBe(false);
+
+      cancel();
+    });
+
+    it('does not clear processing state before timeout', async () => {
+      await markAsProcessing(testUrl);
+      const cancel = scheduleProcessingTimeout(testUrl);
+
+      // Advance 20 seconds (less than 30s in-memory TTL and well under 5min timeout)
+      jest.advanceTimersByTime(20_000);
+
+      // Should still be processing — timeout hasn't fired yet
+      expect(await isCurrentlyProcessing(testUrl)).toBe(true);
+
+      cancel();
+    });
+
+    it('can be cancelled before firing', async () => {
+      await markAsProcessing(testUrl);
+      const cancel = scheduleProcessingTimeout(testUrl);
+
+      // Cancel before timeout fires
+      cancel();
+
+      // Advance 20 seconds (within in-memory TTL window so state is still valid)
+      jest.advanceTimersByTime(20_000);
+
+      // State should still be processing — cancel prevented the timeout cleanup
+      expect(await isCurrentlyProcessing(testUrl)).toBe(true);
     });
   });
 });

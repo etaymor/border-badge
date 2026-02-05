@@ -30,6 +30,16 @@ import { logger } from '@utils/logger';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const ITEM_SIZE = (SCREEN_WIDTH - 48 - 16) / 3; // 3 columns with gaps
 
+const SMALL_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+const PROGRESS_UPDATE_INTERVAL_FAST = 50; // ms - for files under 5MB
+const PROGRESS_UPDATE_INTERVAL_DEFAULT = 150; // ms - for larger files
+const STALE_THRESHOLD = 70000; // 70s - prune entries older than upload timeout + buffer
+
+const getProgressInterval = (fileSize?: number) =>
+  fileSize && fileSize < SMALL_FILE_THRESHOLD
+    ? PROGRESS_UPDATE_INTERVAL_FAST
+    : PROGRESS_UPDATE_INTERVAL_DEFAULT;
+
 interface EntryMediaGalleryProps {
   entryId?: string; // Optional - not available during creation
   tripId?: string; // Required if entryId not provided (for pending uploads)
@@ -80,8 +90,6 @@ export function EntryMediaGallery({
 
   // Track last progress update time per file to throttle re-renders
   const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
-  const PROGRESS_UPDATE_INTERVAL = 150; // ms - throttle progress updates
-  const STALE_THRESHOLD = 70000; // 70s - prune entries older than upload timeout + buffer
 
   // Clean up progress tracking on unmount to prevent memory leaks
   useEffect(() => {
@@ -184,7 +192,7 @@ export function EntryMediaGallery({
               const now = Date.now();
               const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
               const shouldUpdate =
-                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100;
+                now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100;
 
               if (shouldUpdate) {
                 lastProgressUpdateRef.current.set(file.uri, now);
@@ -288,7 +296,7 @@ export function EntryMediaGallery({
               const now = Date.now();
               const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
               const shouldUpdate =
-                now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100; // Always update on completion
+                now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100; // Always update on completion
 
               if (shouldUpdate) {
                 // Prune stale entries to prevent unbounded Map growth
@@ -385,7 +393,8 @@ export function EntryMediaGallery({
             const now = Date.now();
             const lastUpdate = lastProgressUpdateRef.current.get(localItem.localUri) ?? 0;
             const shouldUpdate =
-              now - lastUpdate >= PROGRESS_UPDATE_INTERVAL || progress.percentage === 100;
+              now - lastUpdate >= getProgressInterval(localItem.file.size) ||
+              progress.percentage === 100;
 
             if (shouldUpdate) {
               lastProgressUpdateRef.current.set(localItem.localUri, now);

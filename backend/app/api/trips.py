@@ -112,6 +112,7 @@ async def list_trips(
                 "select": "file_path, entry:entry_id(trip_id)",
                 "entry.trip_id": f"in.({','.join(trips_needing_cover)})",
                 "order": "created_at.asc",
+                "limit": len(trips_needing_cover) * 5,
             },
         )
 

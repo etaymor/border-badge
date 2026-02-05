@@ -14,6 +14,8 @@ import {
   wasRecentlyProcessed,
   isCurrentlyProcessing,
   markAsProcessing,
+  clearProcessingStatus,
+  scheduleProcessingTimeout,
 } from '@services/shareExtensionBridge';
 
 type ShareCaptureNavigationParams = {
@@ -99,7 +101,8 @@ export function useShareExtensionHandler(
     if (sharedURL) {
       // Skip if this URL is already being processed (prevents race condition when
       // multiple events trigger simultaneously, e.g., app foreground + navigation ready)
-      if (isCurrentlyProcessing(sharedURL)) {
+      // Also checks persisted state to survive app crashes
+      if (await isCurrentlyProcessing(sharedURL)) {
         return;
       }
 
@@ -110,15 +113,26 @@ export function useShareExtensionHandler(
       }
 
       // Mark as processing BEFORE navigation to prevent race conditions
-      markAsProcessing(sharedURL);
+      // Persisted to AsyncStorage to survive app crashes
+      await markAsProcessing(sharedURL);
 
       // Navigate to ShareCapture - App Group will be cleared after successful save
       // in ShareCaptureScreen via completeAppGroupShare() to prevent data loss
       // if the app crashes before processing completes
-      tryNavigateToShareCapture({
+      const result = tryNavigateToShareCapture({
         url: sharedURL,
         source: 'share_extension',
       });
+
+      if (result === 'navigated') {
+        // Schedule a safety timeout to auto-clear processing state if ShareCapture
+        // never calls completeAppGroupShare (e.g., screen crashes or hangs)
+        scheduleProcessingTimeout(sharedURL);
+      } else {
+        // Navigation failed or was queued — clear processing state immediately
+        // so the URL isn't permanently blocked
+        void clearProcessingStatus(sharedURL);
+      }
     }
   }, [userId, tryNavigateToShareCapture]);
 
