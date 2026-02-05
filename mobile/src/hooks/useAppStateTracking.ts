@@ -34,13 +34,15 @@ export function useAppStateTracking(
   const userId = session?.user?.id;
 
   // Reset tracking when user identity changes (sign-out or account switch)
-  if (prevUserIdRef.current !== userId) {
-    if (prevUserIdRef.current) {
-      hasTrackedInitialOpenRef.current = false;
-      sessionIdRef.current = generateSessionId();
+  useEffect(() => {
+    if (prevUserIdRef.current !== userId) {
+      if (prevUserIdRef.current) {
+        hasTrackedInitialOpenRef.current = false;
+        sessionIdRef.current = generateSessionId();
+      }
+      prevUserIdRef.current = userId;
     }
-    prevUserIdRef.current = userId;
-  }
+  }, [userId]);
 
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {

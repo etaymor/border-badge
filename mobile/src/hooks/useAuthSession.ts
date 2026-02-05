@@ -48,10 +48,12 @@ export function useAuthSession(): { isAppReady: boolean } {
     }
   }, []);
 
+  // Wire up API sign-out callback once on mount
   useEffect(() => {
-    // Wire up API sign-out callback
     setSignOutCallback(signOut);
+  }, [signOut]);
 
+  useEffect(() => {
     let subscription: { unsubscribe: () => void } | null = null;
     let isMounted = true;
 
@@ -144,7 +146,7 @@ export function useAuthSession(): { isAppReady: boolean } {
       isMounted = false;
       subscription?.unsubscribe();
     };
-  }, [signOut, setSession, setIsLoading, setHasCompletedOnboarding, fetchUsageLimits]);
+  }, [setSession, setIsLoading, setHasCompletedOnboarding, fetchUsageLimits]);
 
   return { isAppReady };
 }

@@ -22,7 +22,7 @@
  * @see https://www.w3.org/WAI/WCAG21/Understanding/animation-from-interactions
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ViewStyle } from 'react-native';
 import { useReducedMotion } from './useReducedMotion';
 
@@ -76,11 +76,11 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
   // Clamp element count for safety
   const count = Math.min(Math.max(elementCount, 1), MAX_ELEMENTS);
 
-  // Create stable animation values (one per element)
-  // Using a ref to ensure values persist across renders
-  const animationValues = useRef<Animated.Value[]>(
-    Array.from({ length: count }, () => new Animated.Value(reduceMotion ? 1 : 0))
-  ).current;
+  // Create animation values (one per element), recreated when count changes
+  const animationValues = useMemo(
+    () => Array.from({ length: count }, () => new Animated.Value(reduceMotion ? 1 : 0)),
+    [count, reduceMotion]
+  );
 
   // Start the choreographed entrance animation
   const startAnimation = useCallback(() => {
@@ -125,7 +125,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         setIsComplete(true);
       }
     });
-  }, [count, staggerDelay, reduceMotion]);
+  }, [animationValues, count, staggerDelay, reduceMotion]);
 
   // Reset animation values to initial state
   const resetAnimation = useCallback(() => {
@@ -134,7 +134,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
       v.setValue(reduceMotion ? 1 : 0);
     });
     setIsComplete(reduceMotion);
-  }, [reduceMotion]);
+  }, [animationValues, reduceMotion]);
 
   // Auto-start on mount if enabled
   useEffect(() => {
@@ -149,7 +149,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
       isMountedRef.current = false;
       animationValues.forEach((v) => v.stopAnimation());
     };
-  }, [autoStart, startAnimation]);
+  }, [animationValues, autoStart, startAnimation]);
 
   // Get animated style for content elements (slide up + fade)
   const getAnimatedStyle = useCallback(
@@ -169,7 +169,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         ],
       };
     },
-    [count, slideDistance]
+    [animationValues, count, slideDistance]
   );
 
   // Get animated style for button elements (scale bloom + fade)
@@ -190,7 +190,7 @@ export function useScreenEntrance(options: UseScreenEntranceOptions): UseScreenE
         ],
       };
     },
-    [count]
+    [animationValues, count]
   );
 
   return {
