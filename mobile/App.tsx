@@ -60,7 +60,23 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const linking = {
   prefixes: ['atlasi://'],
   config: {
-    screens: {},
+    screens: {
+      Main: {
+        screens: {
+          Passport: {
+            screens: {
+              ShareCapture: {
+                path: 'share',
+                parse: {
+                  url: (value: string) => decodeURIComponent(value),
+                },
+              },
+              CountryDetail: 'country/:countryId',
+            },
+          },
+        },
+      },
+    },
   },
 };
 

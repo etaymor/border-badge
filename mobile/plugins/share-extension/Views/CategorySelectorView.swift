@@ -72,18 +72,18 @@ private struct CategoryButton: View {
                 // Icon in circle
                 ZStack {
                     Circle()
-                        .fill(type.color.opacity(0.15))
+                        .fill(isSelected ? type.color.opacity(0.13) : Color.black.opacity(0.03))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: type.icon)
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(type.color)
+                        .foregroundColor(isSelected ? type.color : BrandColors.stormGray)
                 }
 
                 // Label
                 Text(type.label)
-                    .font(Typography.body(14))
-                    .foregroundColor(BrandColors.midnightNavy)
+                    .font(isSelected ? Typography.semibold(14) : Typography.body(14))
+                    .foregroundColor(isSelected ? type.color : BrandColors.stormGray)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)

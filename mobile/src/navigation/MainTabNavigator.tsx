@@ -16,7 +16,6 @@ const HIDDEN_TAB_BAR_SCREENS = [
   'ListCreate',
   'ListEdit',
   'EntryForm',
-  'ShareCapture',
   'PhotoTrips',
   'PhotoImport',
 ];

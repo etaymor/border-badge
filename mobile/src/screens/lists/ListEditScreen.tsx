@@ -403,7 +403,7 @@ export function ListEditScreen({ route, navigation }: Props) {
 
       {/* Main List */}
       <FlatList
-        data={entries}
+        data={entries ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderEntry}
         ListHeaderComponent={ListHeader}

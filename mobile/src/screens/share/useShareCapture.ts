@@ -63,6 +63,7 @@ export interface ShareCaptureState {
   isMultiCountry: boolean; // True when places span multiple countries
   placeSelections: Record<string, PlaceSelection>; // Selection state per place
   selectedPlaceCount: number; // Count of selected places
+  editingPlaceKey: string | null; // Key of place currently being edited
   // Premium gating
   isPremium: boolean;
   canSave: boolean; // True if user has remaining saves or is premium
@@ -75,10 +76,9 @@ export interface ShareCaptureHandlers {
   handlePlaceSelect: (place: SelectedPlace | null) => void;
   // Multi-place handlers
   handleTogglePlace: (placeKey: string) => void;
-  /** Not yet implemented - edit flow for multi-place mode */
-  handleEditPlace?: (placeKey: string) => void;
-  /** Not yet implemented - update place after edit */
-  handleUpdatePlace?: (placeKey: string, place: SelectedPlace) => void;
+  handleEditPlace: (placeKey: string) => void;
+  handleUpdatePlace: (placeKey: string, place: SelectedPlace) => void;
+  handleCancelEditPlace: () => void;
   handlePlaceEntryTypeChange: (placeKey: string, entryType: EntryType) => void;
   handleSelectAllPlaces: () => void;
   handleClearAllPlaces: () => void;
@@ -137,6 +137,7 @@ export function useShareCapture({
 
   // State - multi-place mode
   const [placeSelections, setPlaceSelections] = useState<Record<string, PlaceSelection>>({});
+  const [editingPlaceKey, setEditingPlaceKey] = useState<string | null>(null);
 
   // Computed - multi-place mode detection
   const isMultiPlaceMode = Object.keys(placeSelections).length > 1;
@@ -534,7 +535,8 @@ export function useShareCapture({
 
   const handleRetry = useCallback(() => {
     setError(null);
-    setPlaceSelections({}); // Reset multi-place state
+    setPlaceSelections({});
+    setEditingPlaceKey(null);
     socialIngest.mutate(
       { url, caption },
       {
@@ -577,17 +579,32 @@ export function useShareCapture({
     });
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleEditPlace = useCallback((_placeKey: string) => {
-    // TODO: Implement place editing - show location search modal and call handleUpdatePlace
-    // setEditingPlaceKey(placeKey);
-    // For Phase 1, edit is not implemented
+  const handleEditPlace = useCallback((placeKey: string) => {
+    setEditingPlaceKey(placeKey);
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleUpdatePlace = useCallback((_placeKey: string, _place: SelectedPlace) => {
-    // TODO: Implement place updating - called after user selects new place in search modal
-    // For Phase 1, edit is not implemented
+  const handleUpdatePlace = useCallback((placeKey: string, place: SelectedPlace) => {
+    setPlaceSelections((prev) => {
+      if (!prev[placeKey]) return prev;
+      return {
+        ...prev,
+        [placeKey]: {
+          ...prev[placeKey],
+          google_place_id: place.google_place_id,
+          name: place.name,
+          address: place.address ?? null,
+          latitude: place.latitude ?? null,
+          longitude: place.longitude ?? null,
+          country_code: place.country_code ?? null,
+          google_photo_url: place.google_photo_url ?? null,
+        },
+      };
+    });
+    setEditingPlaceKey(null);
+  }, []);
+
+  const handleCancelEditPlace = useCallback(() => {
+    setEditingPlaceKey(null);
   }, []);
 
   const handlePlaceEntryTypeChange = useCallback((placeKey: string, newEntryType: EntryType) => {
@@ -632,7 +649,8 @@ export function useShareCapture({
       detected_place: null,
       detected_country: null,
     });
-    setPlaceSelections({}); // Reset multi-place state
+    setPlaceSelections({});
+    setEditingPlaceKey(null);
     setIsManualEntryMode(true);
     setError(null);
   }, [url]);
@@ -673,6 +691,7 @@ export function useShareCapture({
     isMultiCountry,
     placeSelections,
     selectedPlaceCount,
+    editingPlaceKey,
     // Premium gating
     isPremium,
     canSave,
@@ -683,10 +702,12 @@ export function useShareCapture({
     handlePlaceSelect,
     // Multi-place handlers
     handleTogglePlace,
+    handleEditPlace,
+    handleUpdatePlace,
+    handleCancelEditPlace,
     handlePlaceEntryTypeChange,
     handleSelectAllPlaces,
     handleClearAllPlaces,
-    // handleEditPlace and handleUpdatePlace not yet implemented - see stubs below
     // Common handlers
     handleCreateTrip,
     handleSave,

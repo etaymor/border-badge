@@ -82,15 +82,12 @@ struct CaptureFormView: View {
                     }
                 } else if viewModel.isMultiPlaceMode {
                     // Multi-place list with checkboxes
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "Select Places (\(viewModel.selectedPlaceCount) selected)")
-                        MultiPlaceListView(
-                            selections: $viewModel.placeSelections,
-                            onEditPlace: { index in
-                                viewModel.startEditingPlace(at: index)
-                            }
-                        )
-                    }
+                    MultiPlaceListView(
+                        selections: $viewModel.placeSelections,
+                        onEditPlace: { index in
+                            viewModel.startEditingPlace(at: index)
+                        }
+                    )
                 } else {
                     // Single place location search
                     LocationSearchView(

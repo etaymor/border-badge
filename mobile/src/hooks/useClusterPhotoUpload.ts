@@ -287,12 +287,17 @@ export function useClusterPhotoUpload() {
 
             // Double-check the URI is valid before attempting upload
             if (isPhotoLibraryUri(localFile.uri)) {
+              const assetId = extractAssetIdFromPhUri(photo.uri);
               console.error(
                 '[ClusterUpload] ❌ BUG: localFile still has photo library URI after conversion:',
-                localFile.uri
+                { convertedUri: localFile.uri, originalUri: photo.uri, assetId, filename: photo.filename }
               );
               failedCount++;
-              setState((prev) => ({ ...prev, failedCount }));
+              setState((prev) => ({
+                ...prev,
+                failedCount,
+                error: `Failed to prepare photo "${photo.filename}" for upload. The photo may be stored in iCloud and unavailable offline.`,
+              }));
               continue;
             }
 

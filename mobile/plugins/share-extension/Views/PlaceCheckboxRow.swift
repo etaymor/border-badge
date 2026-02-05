@@ -24,36 +24,26 @@ struct PlaceCheckboxRow: View {
     var body: some View {
         HStack(spacing: 14) {
             // Checkbox - circular style matching React Native
-            Button(
-                action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        selection.isSelected.toggle()
-                    }
-                },
-                label: {
-                    ZStack {
+            ZStack {
+                Circle()
+                    .strokeBorder(
+                        selection.isSelected
+                            ? BrandColors.sunsetGold
+                            : BrandColors.midnightNavy.opacity(0.25),
+                        lineWidth: 2
+                    )
+                    .background(
                         Circle()
-                            .strokeBorder(
-                                selection.isSelected
-                                    ? BrandColors.sunsetGold
-                                    : BrandColors.midnightNavy.opacity(0.25),
-                                lineWidth: 2
-                            )
-                            .background(
-                                Circle()
-                                    .fill(selection.isSelected ? BrandColors.sunsetGold : Color.clear)
-                            )
-                            .frame(width: 22, height: 22)
+                            .fill(selection.isSelected ? BrandColors.sunsetGold : Color.clear)
+                    )
+                    .frame(width: 22, height: 22)
 
-                        if selection.isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
+                if selection.isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
                 }
-            )
-            .buttonStyle(ScaleButtonStyle(scale: 0.9))
+            }
 
             // Place info
             VStack(alignment: .leading, spacing: 2) {
@@ -100,6 +90,11 @@ struct PlaceCheckboxRow: View {
         .padding(.horizontal, 16)
         .background(selection.isSelected ? BrandColors.sunsetGold.opacity(0.06) : Color.clear)
         .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                selection.isSelected.toggle()
+            }
+        }
     }
 }
 

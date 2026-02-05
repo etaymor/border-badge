@@ -45,8 +45,8 @@ enum BrandColors {
 
     // MARK: - Entry Type Colors
 
-    /// Place entry type color (midnightNavy) - Neutral
-    static let entryPlace = midnightNavy
+    /// Place entry type color (adobeBrick) - Matches React Native
+    static let entryPlace = adobeBrick
 
     /// Food entry type color (latteGold) - Earthy
     static let entryFood = latteGold

@@ -26,7 +26,7 @@ struct MultiPlaceListView: View {
         VStack(spacing: 12) {
             // Section header
             HStack {
-                Text("SELECT PLACES")
+                Text("SELECT PLACES (\(selectedCount) SELECTED)")
                     .font(Typography.sectionLabel())
                     .foregroundColor(BrandColors.stormGray)
                     .tracking(1.5)

@@ -10,7 +10,15 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
@@ -75,6 +83,7 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     isMultiPlaceMode,
     placeSelections,
     selectedPlaceCount,
+    editingPlaceKey,
     // Premium gating
     canSave,
     // Handlers
@@ -82,6 +91,9 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
     handleChangeType,
     handlePlaceSelect,
     handleTogglePlace,
+    handleEditPlace,
+    handleUpdatePlace,
+    handleCancelEditPlace,
     handlePlaceEntryTypeChange,
     handleSelectAllPlaces,
     handleClearAllPlaces,
@@ -213,14 +225,49 @@ export function ShareCaptureScreen({ route, navigation }: Props) {
           <ManualEntryBanner visible={isManualEntryMode && !ingestResult?.detected_place} />
 
           {/* Location Section */}
-          {isMultiPlaceMode ? (
+          {isMultiPlaceMode && editingPlaceKey && placeSelections[editingPlaceKey] ? (
+            <View
+              style={[styles.section, styles.locationSection]}
+              onLayout={(event) => {
+                locationSectionY.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <View style={styles.editPlaceHeader}>
+                <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>EDIT PLACE</Text>
+                <Pressable onPress={handleCancelEditPlace} hitSlop={8}>
+                  <Text style={styles.cancelEditText}>Cancel</Text>
+                </Pressable>
+              </View>
+              <PlacesAutocomplete
+                value={null}
+                onSelect={(place) => {
+                  if (place) {
+                    handleUpdatePlace(editingPlaceKey, place);
+                  }
+                }}
+                placeholder={`Replace "${placeSelections[editingPlaceKey].name}"...`}
+                countryCode={placeSelections[editingPlaceKey].country_code ?? effectiveCountryCode}
+                onDropdownOpen={(isOpen) => {
+                  setScrollEnabled(!isOpen);
+                  if (isOpen) {
+                    scrollViewRef.current?.scrollTo({
+                      y: locationSectionY.current - 20,
+                      animated: true,
+                    });
+                  }
+                }}
+              />
+            </View>
+          ) : isMultiPlaceMode ? (
             <View style={styles.section}>
               <MultiPlaceList
                 selections={placeSelections}
                 onTogglePlace={handleTogglePlace}
+                onEditPlace={handleEditPlace}
                 onEntryTypeChange={handlePlaceEntryTypeChange}
                 onSelectAll={handleSelectAllPlaces}
                 onClearAll={handleClearAllPlaces}
+                showEditButtons
               />
             </View>
           ) : (
@@ -362,6 +409,17 @@ const styles = StyleSheet.create({
   locationSection: {
     zIndex: 2000,
     overflow: 'visible',
+  },
+  editPlaceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cancelEditText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.sunsetGold,
   },
   sectionLabel: {
     fontFamily: fonts.oswald.medium,

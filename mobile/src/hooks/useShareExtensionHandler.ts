@@ -51,8 +51,8 @@ export function useShareExtensionHandler(
       }
 
       navigationRef.navigate('Main', {
-        screen: 'ShareCapture',
-        params,
+        screen: 'Passport',
+        params: { screen: 'ShareCapture', params },
       });
       pendingAuthedShareRef.current = null;
       return 'navigated';
@@ -70,8 +70,8 @@ export function useShareExtensionHandler(
     }
   }, [tryNavigateToShareCapture]);
 
-  const processPendingShare = useCallback(async () => {
-    if (!userId) return;
+  const processPendingShare = useCallback(async (): Promise<boolean> => {
+    if (!userId) return false;
 
     const pendingShare = await getPendingShare();
     if (pendingShare) {
@@ -82,10 +82,13 @@ export function useShareExtensionHandler(
 
       if (result === 'navigated') {
         await clearPendingShare();
+        return true;
       } else if (result === 'queued') {
         shouldClearPendingShareRef.current = true;
+        return true;
       }
     }
+    return false;
   }, [userId, tryNavigateToShareCapture]);
 
   // Check for shared URLs in App Group (from Share Extension)
@@ -121,8 +124,12 @@ export function useShareExtensionHandler(
 
   const handleNavigationReady = useCallback(() => {
     flushPendingAuthedShare();
-    void processPendingShare();
-    void checkAppGroupForSharedURL();
+    void (async () => {
+      const handled = await processPendingShare();
+      if (!handled) {
+        await checkAppGroupForSharedURL();
+      }
+    })();
   }, [flushPendingAuthedShare, processPendingShare, checkAppGroupForSharedURL]);
 
   // If user signs out before we could navigate, persist the queued share for later.
