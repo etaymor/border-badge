@@ -143,14 +143,19 @@ async def fetch_tiktok_oembed(url: str) -> OEmbedResponse | None:
     """Fetch oEmbed data from TikTok.
 
     TikTok's oEmbed endpoint is public and doesn't require authentication.
+    Note: The oEmbed API only accepts /video/ URLs, not /photo/ URLs.
+    Since TikTok uses the same post ID for both formats, we convert
+    /photo/ to /video/ before calling the API.
 
     Args:
-        url: The TikTok video URL
+        url: The TikTok video or photo URL
 
     Returns:
         OEmbedResponse or None on failure
     """
-    params = {"url": url}
+    # TikTok oEmbed only accepts /video/ URLs — convert /photo/ to /video/
+    oembed_url = url.replace("/photo/", "/video/")
+    params = {"url": oembed_url}
     api_url = f"{TIKTOK_OEMBED_URL}?{urlencode(params)}"
 
     start_time = time.monotonic()

@@ -147,6 +147,8 @@ SKIMLINKS_API_KEY=<skimlinks-api-key>  # Optional: for affiliate link wrapping v
 SKIMLINKS_PUBLISHER_ID=<publisher-id>  # Optional: your Skimlinks publisher ID
 RESEND_API_KEY=<resend-api-key>  # Optional: for welcome email drip campaign (get key from resend.com)
 WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
+POSTHOG_API_KEY=<posthog-api-key>  # Optional: same project key as mobile app, for LLM accuracy tracking
+POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
 ```
 
 ## Key Architecture Patterns

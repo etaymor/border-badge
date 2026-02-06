@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.api.countries import get_country_name_by_code
 from app.api.utils import get_token_from_request
+from app.core.posthog import capture_event, hash_user_id
 from app.core.security import CurrentUser
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
@@ -251,6 +252,7 @@ async def ingest_social_url(
             # via yt-dlp, so we disable video fallback for those URLs.
             orchestrator = ExtractionOrchestrator(
                 enable_video_fallback=not is_photo_slideshow,
+                total_timeout=10.0 if is_photo_slideshow else 15.0,
             )
 
             extraction_result = await orchestrator.extract(
@@ -279,12 +281,30 @@ async def ingest_social_url(
         f"method={extraction_method_used}, latency_ms={extraction_latency_ms}"
     )
 
+    # Track extraction outcome in PostHog for LLM accuracy analysis
+    capture_event(
+        "social_ingest_extraction_completed",
+        distinct_id=hash_user_id(str(user.id)),
+        properties={
+            "provider": provider.value,
+            "extraction_method": extraction_method_used,
+            "extraction_source": extraction_source,
+            "places_detected": len(detected_places),
+            "has_place": bool(detected_place),
+            "confidence": detected_place.confidence if detected_place else None,
+            "latency_ms": extraction_latency_ms,
+            "country_code": detected_place.country_code if detected_place else None,
+            "is_profile": is_profile,
+        },
+    )
+
     # Set user-facing error for photo slideshows/carousels when extraction fails
     if is_photo_slideshow and not detected_places:
         if is_tiktok_photo(canonical_url):
             extraction_error = (
-                "TikTok photo slideshows don't provide metadata we can read. "
-                "You can still save this manually by searching for the place."
+                "TikTok is currently blocking slideshow extraction. "
+                "Try sharing the same content from Instagram, "
+                "or search for the place manually."
             )
         else:
             extraction_error = (

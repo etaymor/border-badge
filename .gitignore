@@ -52,6 +52,7 @@ web-build/
 # IDE
 .idea/
 .vscode/
+pyrightconfig.json
 *.swp
 *.swo
 *~

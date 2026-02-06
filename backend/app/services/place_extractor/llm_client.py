@@ -23,6 +23,7 @@ from app.core.llm_utils import (
     fix_trailing_commas,
     strip_code_fence,
 )
+from app.core.posthog import capture_event
 from app.schemas.social_ingest import DetectedPlace
 from app.services.place_extractor.location_hints import LocationHint
 
@@ -450,6 +451,17 @@ async def try_llm_multi_place_extraction(
             },
         )
 
+        capture_event(
+            "llm_place_extraction_completed",
+            properties={
+                "model": settings.openrouter_model,
+                "places_from_llm": len(unique_places),
+                "places_resolved": len(resolved_places),
+                "skip_to_video": llm_response.skip_to_video,
+                "success": len(resolved_places) > 0,
+            },
+        )
+
         return MultiPlaceExtractionResult(
             places=resolved_places,
             skip_to_video=llm_response.skip_to_video,
@@ -458,6 +470,14 @@ async def try_llm_multi_place_extraction(
 
     except httpx.TimeoutException:
         logger.info("place_extraction_timeout", extra={"source": "llm"})
+        capture_event(
+            "llm_place_extraction_completed",
+            properties={
+                "model": settings.openrouter_model,
+                "success": False,
+                "failure_reason": "timeout",
+            },
+        )
         return empty_result
     except (
         httpx.RequestError,
@@ -467,6 +487,15 @@ async def try_llm_multi_place_extraction(
         ValueError,
     ) as e:
         logger.debug("llm_extraction_error", extra={"error": str(e)[:100]})
+        capture_event(
+            "llm_place_extraction_completed",
+            properties={
+                "model": settings.openrouter_model,
+                "success": False,
+                "failure_reason": "error",
+                "error_type": type(e).__name__,
+            },
+        )
         return empty_result
 
 

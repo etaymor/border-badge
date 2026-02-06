@@ -1,10 +1,24 @@
 """Application configuration using pydantic-settings."""
 
+import ipaddress
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Private/reserved IP networks that should never be used as proxy targets
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),  # Link-local / cloud metadata
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fd00::/8"),  # Unique local (includes fd00:ec2::254)
+    ipaddress.ip_network("fe80::/10"),  # Link-local IPv6
+]
 
 
 class Settings(BaseSettings):
@@ -40,11 +54,18 @@ class Settings(BaseSettings):
 
     # OpenRouter Configuration (for traveler classification)
     openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemini-flash-2.5-lite"
-    multimodal_model: str = "google/gemini-flash-2.5-lite"
+    openrouter_model: str = "google/gemini-2.5-flash-lite"
+    multimodal_model: str = "google/gemini-2.5-flash-lite"
 
     # Analytics
     google_analytics_id: str = ""  # GA4 Measurement ID (e.g., G-XXXXXXXXXX)
+    posthog_api_key: str = Field(default="", repr=False)
+    posthog_host: str = "https://us.i.posthog.com"
+    posthog_user_salt: str = Field(
+        default="",
+        repr=False,
+        description="Secret salt for hashing user IDs in analytics",
+    )
 
     # Affiliate service
     affiliate_signing_secret: str = ""  # HMAC secret for signing redirect URLs
@@ -99,6 +120,9 @@ class Settings(BaseSettings):
         description="Enable LLM-first place extraction (experimental)",
     )
 
+    # TikTok proxy (for gallery-dl and yt-dlp TikTok requests)
+    tiktok_proxy_url: str | None = Field(default=None, repr=False)
+
     # RevenueCat Configuration
     revenuecat_webhook_auth_header: str = Field(
         default="", repr=False, description="Shared secret for RevenueCat webhook auth"
@@ -108,6 +132,48 @@ class Settings(BaseSettings):
         repr=False,
         description="RevenueCat API key for subscription verification",
     )
+
+    @field_validator("tiktok_proxy_url")
+    @classmethod
+    def validate_tiktok_proxy_url(cls, v: str | None) -> str | None:
+        """Validate proxy URL scheme and block private/reserved IPs."""
+        if v is None or v == "":
+            return None
+        allowed_schemes = ("http://", "https://", "socks5://")
+        if not v.startswith(allowed_schemes):
+            raise ValueError(
+                f"tiktok_proxy_url must start with one of {allowed_schemes}"
+            )
+
+        # Parse hostname and check against blocked networks
+        # socks5:// isn't recognized by urlparse, temporarily swap for parsing
+        parse_url = (
+            v.replace("socks5://", "http://", 1) if v.startswith("socks5://") else v
+        )
+        parsed = urlparse(parse_url)
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("tiktok_proxy_url must contain a valid hostname")
+
+        try:
+            addr = ipaddress.ip_address(hostname)
+            for network in _BLOCKED_NETWORKS:
+                if addr in network:
+                    raise ValueError(
+                        f"tiktok_proxy_url must not point to private/reserved IP: {hostname}"
+                    )
+        except ValueError as e:
+            # Re-raise our own validation errors
+            if "must not point to" in str(e) or "must contain" in str(e):
+                raise
+            # hostname is a DNS name, not an IP literal — allow it
+            blocked_hostnames = {"localhost", "metadata.google.internal"}
+            if hostname.lower() in blocked_hostnames:
+                raise ValueError(
+                    f"tiktok_proxy_url must not point to blocked host: {hostname}"
+                ) from None
+
+        return v
 
     @field_validator("supabase_url")
     @classmethod
@@ -139,6 +205,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.env == "production"
+
+    @property
+    def posthog_configured(self) -> bool:
+        """Check if PostHog analytics is configured."""
+        return bool(self.posthog_api_key)
 
     @property
     def revenuecat_configured(self) -> bool:
