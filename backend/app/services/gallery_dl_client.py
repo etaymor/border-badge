@@ -38,7 +38,7 @@ MAX_IMAGES = 20
 MAX_STDOUT_BYTES = 512 * 1024  # 512KB cap on subprocess output
 
 
-@dataclass
+@dataclass(frozen=True)
 class GalleryDLResult:
     """Result from gallery-dl metadata extraction."""
 
@@ -172,12 +172,15 @@ async def _read_subprocess(
     """Read subprocess stdout/stderr with size cap on stdout.
 
     Caps stdout at MAX_STDOUT_BYTES to prevent memory exhaustion.
+    Reads both streams concurrently to avoid pipe deadlock.
     """
     assert proc.stdout is not None
     assert proc.stderr is not None
 
-    stdout_bytes = await proc.stdout.read(MAX_STDOUT_BYTES)
-    stderr_bytes = await proc.stderr.read(16 * 1024)  # 16KB for stderr
+    stdout_bytes, stderr_bytes = await asyncio.gather(
+        proc.stdout.read(MAX_STDOUT_BYTES),
+        proc.stderr.read(16 * 1024),  # 16KB for stderr
+    )
 
     # Wait for process to finish
     await proc.wait()

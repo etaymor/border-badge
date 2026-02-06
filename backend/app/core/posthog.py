@@ -16,16 +16,22 @@ The client is automatically shut down during application shutdown via the
 lifespan handler in main.py.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from app.core.config import get_settings
 
+if TYPE_CHECKING:
+    from posthog import Posthog
+
 logger = logging.getLogger(__name__)
 
-_posthog_client = None
+_posthog_client: Posthog | None = None
 
 
-def _get_posthog_client():
+def _get_posthog_client() -> Posthog | None:
     """Get or create the shared PostHog client.
 
     Returns None if PostHog is not configured (no API key).
@@ -53,7 +59,7 @@ def capture_event(
     event: str,
     *,
     distinct_id: str | None = None,
-    properties: dict | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """Capture an analytics event to PostHog (fire-and-forget).
 

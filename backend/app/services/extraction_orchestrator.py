@@ -894,7 +894,7 @@ class ExtractionOrchestrator:
         try:
             async with httpx.AsyncClient(
                 timeout=timeout,
-                follow_redirects=True,
+                follow_redirects=False,
             ) as client:
                 results = await asyncio.gather(
                     *(fetch_one(client, url) for url in image_urls)

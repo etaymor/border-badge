@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import hashlib
 import logging
 import time
 from typing import Literal
@@ -252,6 +253,7 @@ async def ingest_social_url(
             # via yt-dlp, so we disable video fallback for those URLs.
             orchestrator = ExtractionOrchestrator(
                 enable_video_fallback=not is_photo_slideshow,
+                total_timeout=20.0 if is_photo_slideshow else 15.0,
             )
 
             extraction_result = await orchestrator.extract(
@@ -282,8 +284,8 @@ async def ingest_social_url(
 
     # Track extraction outcome in PostHog for LLM accuracy analysis
     capture_event(
-        "social_ingest_extraction",
-        distinct_id=str(user.id),
+        "social_ingest_extraction_completed",
+        distinct_id=hashlib.sha256(str(user.id).encode()).hexdigest()[:16],
         properties={
             "provider": provider.value,
             "extraction_method": extraction_method_used,

@@ -114,6 +114,19 @@ class Settings(BaseSettings):
         description="RevenueCat API key for subscription verification",
     )
 
+    @field_validator("tiktok_proxy_url")
+    @classmethod
+    def validate_tiktok_proxy_url(cls, v: str | None) -> str | None:
+        """Validate proxy URL uses an allowed scheme."""
+        if v is None or v == "":
+            return None
+        allowed_schemes = ("http://", "https://", "socks5://")
+        if not v.startswith(allowed_schemes):
+            raise ValueError(
+                f"tiktok_proxy_url must start with one of {allowed_schemes}"
+            )
+        return v
+
     @field_validator("supabase_url")
     @classmethod
     def validate_supabase_url(cls, v: str) -> str:

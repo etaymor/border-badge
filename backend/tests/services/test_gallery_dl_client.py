@@ -249,6 +249,23 @@ class TestParseGalleryDLOutput:
 # --- Subprocess Integration (mocked) ---
 
 
+def _make_fake_proc(
+    stdout: bytes = b"",
+    stderr: bytes = b"",
+    returncode: int = 0,
+) -> MagicMock:
+    """Create a mock subprocess for gallery-dl tests."""
+    proc = MagicMock()
+    proc.stdout = AsyncMock()
+    proc.stdout.read = AsyncMock(return_value=stdout)
+    proc.stderr = AsyncMock()
+    proc.stderr.read = AsyncMock(return_value=stderr)
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    proc.returncode = returncode
+    return proc
+
+
 class TestFetchTikTokSlideshow:
     @pytest.mark.asyncio
     async def test_rejects_non_photo_url(self):
@@ -285,13 +302,7 @@ class TestFetchTikTokSlideshow:
             ]
         )
 
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stdout.read = AsyncMock(return_value=json_lines.encode())
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 0
+        fake_proc = _make_fake_proc(stdout=json_lines.encode())
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -319,18 +330,13 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_subprocess_timeout(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stderr = AsyncMock()
-        fake_proc.kill = MagicMock()
-        fake_proc.wait = AsyncMock()
+        fake_proc = _make_fake_proc()
 
         async def slow_read(n):
             await asyncio.sleep(100)
             return b""
 
         fake_proc.stdout.read = slow_read
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -346,11 +352,7 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_cancellation_kills_process(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stderr = AsyncMock()
-        fake_proc.kill = MagicMock()
-        fake_proc.wait = AsyncMock()
+        fake_proc = _make_fake_proc()
 
         async def cancelled_read(n):
             raise asyncio.CancelledError()
@@ -371,13 +373,7 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_returns_none(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stdout.read = AsyncMock(return_value=b"")
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"error: something failed")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 1
+        fake_proc = _make_fake_proc(stderr=b"error: something failed", returncode=1)
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -391,13 +387,7 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_empty_output_returns_none(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stdout.read = AsyncMock(return_value=b"")
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 0
+        fake_proc = _make_fake_proc()
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -411,13 +401,7 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_proxy_config_propagated(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stdout.read = AsyncMock(return_value=b"")
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 0
+        fake_proc = _make_fake_proc()
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -437,13 +421,7 @@ class TestFetchTikTokSlideshow:
 
     @pytest.mark.asyncio
     async def test_no_proxy_when_not_configured(self):
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        fake_proc.stdout.read = AsyncMock(return_value=b"")
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 0
+        fake_proc = _make_fake_proc()
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
@@ -469,16 +447,9 @@ class TestFetchTikTokSlideshow:
         # Create output larger than the cap to verify truncation doesn't crash
         large_output = (json_line + "\n") * 10000
 
-        fake_proc = MagicMock()
-        fake_proc.stdout = AsyncMock()
-        # Simulate reading capped output (only first N bytes)
-        fake_proc.stdout.read = AsyncMock(
-            return_value=large_output.encode()[: 512 * 1024]
+        fake_proc = _make_fake_proc(
+            stdout=large_output.encode()[: 512 * 1024],
         )
-        fake_proc.stderr = AsyncMock()
-        fake_proc.stderr.read = AsyncMock(return_value=b"")
-        fake_proc.wait = AsyncMock()
-        fake_proc.returncode = 0
 
         with patch(
             "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
