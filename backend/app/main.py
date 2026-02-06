@@ -22,6 +22,7 @@ from starlette.responses import FileResponse, Response
 from app.core.config import get_settings
 from app.core.http_client import close_http_client
 from app.core.logging import setup_logging
+from app.core.posthog import shutdown_posthog
 from app.core.urls import safe_external_url
 
 # ContextVar for accessing request in rate limit functions
@@ -107,6 +108,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Set this env var or disable the feature."
         )
 
+    # Startup info - PostHog analytics status
+    if settings.posthog_configured:
+        logger.info("PostHog analytics enabled")
+    else:
+        logger.info("PostHog analytics disabled (no POSTHOG_API_KEY)")
+
     # Startup validation - warn if RevenueCat config is missing in production
     if settings.is_production and not settings.revenuecat_configured:
         missing_fields = ", ".join(settings.revenuecat_missing_fields)
@@ -118,6 +125,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
+    # Shutdown - flush and close PostHog client
+    shutdown_posthog()
 
 
 def generate_csp_nonce() -> str:

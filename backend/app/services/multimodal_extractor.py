@@ -40,6 +40,7 @@ from app.core.llm_utils import (
     fix_trailing_commas,
     strip_code_fence,
 )
+from app.core.posthog import capture_event
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +456,17 @@ class MultimodalExtractor:
             },
         )
 
+        capture_event(
+            "multimodal_extraction_completed",
+            properties={
+                "model": self.model,
+                "source": source,
+                "frames_processed": processed_count,
+                "places_found": len(merged_places),
+                "success": len(merged_places) > 0,
+            },
+        )
+
         return MultimodalExtractionResult(
             places=merged_places,
             frames_processed=processed_count,
@@ -511,6 +523,16 @@ class MultimodalExtractor:
                     "multimodal_extraction_http_error",
                     extra={"status_code": response.status_code},
                 )
+                capture_event(
+                    "multimodal_extraction_completed",
+                    properties={
+                        "model": self.model,
+                        "source": source,
+                        "success": False,
+                        "failure_reason": "http_error",
+                        "status_code": response.status_code,
+                    },
+                )
                 return []
 
             data = response.json()
@@ -521,7 +543,26 @@ class MultimodalExtractor:
 
         except httpx.TimeoutException:
             logger.warning("multimodal_extraction_timeout")
+            capture_event(
+                "multimodal_extraction_completed",
+                properties={
+                    "model": self.model,
+                    "source": source,
+                    "success": False,
+                    "failure_reason": "timeout",
+                },
+            )
             return []
         except (httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("multimodal_extraction_error", extra={"error": str(e)[:100]})
+            capture_event(
+                "multimodal_extraction_completed",
+                properties={
+                    "model": self.model,
+                    "source": source,
+                    "success": False,
+                    "failure_reason": "error",
+                    "error_type": type(e).__name__,
+                },
+            )
             return []

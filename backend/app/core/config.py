@@ -45,6 +45,8 @@ class Settings(BaseSettings):
 
     # Analytics
     google_analytics_id: str = ""  # GA4 Measurement ID (e.g., G-XXXXXXXXXX)
+    posthog_api_key: str = Field(default="", repr=False)
+    posthog_host: str = "https://us.i.posthog.com"
 
     # Affiliate service
     affiliate_signing_secret: str = ""  # HMAC secret for signing redirect URLs
@@ -99,6 +101,9 @@ class Settings(BaseSettings):
         description="Enable LLM-first place extraction (experimental)",
     )
 
+    # TikTok proxy (for gallery-dl and yt-dlp TikTok requests)
+    tiktok_proxy_url: str | None = Field(default=None, repr=False)
+
     # RevenueCat Configuration
     revenuecat_webhook_auth_header: str = Field(
         default="", repr=False, description="Shared secret for RevenueCat webhook auth"
@@ -139,6 +144,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.env == "production"
+
+    @property
+    def posthog_configured(self) -> bool:
+        """Check if PostHog analytics is configured."""
+        return bool(self.posthog_api_key)
 
     @property
     def revenuecat_configured(self) -> bool:

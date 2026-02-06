@@ -60,6 +60,7 @@ async def download_video(
     *,
     timeout: float = 15.0,
     output_dir: Path | None = None,
+    proxy_url: str | None = None,
 ) -> Path:
     """Download video from TikTok or Instagram URL using yt-dlp.
 
@@ -70,6 +71,7 @@ async def download_video(
         url: TikTok or Instagram video URL
         timeout: Maximum download time in seconds
         output_dir: Optional output directory (uses tempdir if not specified)
+        proxy_url: Optional proxy URL for yt-dlp (used for TikTok)
 
     Returns:
         Path to downloaded video file
@@ -103,8 +105,13 @@ async def download_video(
         "mp4/best[ext=mp4]/best",  # Prefer mp4, fallback to best
         "--output",
         output_template,
-        url,  # Already validated above
     ]
+
+    # Add proxy for TikTok URLs when configured
+    if proxy_url and "tiktok.com" in url:
+        cmd.extend(["--proxy", proxy_url])
+
+    cmd.append(url)  # Already validated above
 
     logger.debug("yt-dlp_download_start", extra={"url": url[:100]})
 

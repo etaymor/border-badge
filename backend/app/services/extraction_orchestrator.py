@@ -19,12 +19,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from app.core.config import get_settings
 from app.schemas.social_ingest import DetectedPlace, OEmbedResponse
 from app.services.extraction_cache import (
     ExtractionSource,
     cache_extraction,
     get_cached_extraction,
 )
+from app.services.gallery_dl_client import DEFAULT_TIMEOUT_SECONDS as GALLERY_DL_TIMEOUT
+from app.services.gallery_dl_client import fetch_tiktok_slideshow_gallery_dl
 from app.services.instagram_carousel import (
     InstagramPostLocation,
     fetch_instagram_carousel,
@@ -40,10 +43,6 @@ from app.services.place_extractor import (
     try_llm_multi_place_extraction,
 )
 from app.services.place_extractor.location_hints import LocationHint
-from app.services.tiktok_slideshow import (
-    DEFAULT_TIMEOUT_SECONDS,
-    fetch_tiktok_slideshow,
-)
 from app.services.url_resolver import is_instagram_carousel, is_tiktok_photo
 from app.services.video_extractor import (
     VideoDownloadError,
@@ -467,10 +466,12 @@ class ExtractionOrchestrator:
         Returns None on failure instead of raising.
         """
         try:
+            settings = get_settings()
             return await download_video(
                 url,
                 timeout=self.video_download_timeout,
                 output_dir=output_dir,
+                proxy_url=settings.tiktok_proxy_url,
             )
         except VideoDownloadError as e:
             logger.debug(f"video_download_failed: {e}")
@@ -747,16 +748,20 @@ class ExtractionOrchestrator:
         images: list[bytes] = []
         instagram_location: InstagramPostLocation | None = None
 
-        # Try TikTok slideshow
+        # Try TikTok slideshow via gallery-dl
         if is_tiktok_photo(canonical_url):
             try:
-                slideshow = await fetch_tiktok_slideshow(
+                settings = get_settings()
+                gallery_result = await fetch_tiktok_slideshow_gallery_dl(
                     canonical_url,
-                    max_images=self.max_video_frames,
-                    timeout=min(DEFAULT_TIMEOUT_SECONDS, max(2.0, remaining)),
+                    proxy_url=settings.tiktok_proxy_url,
+                    timeout=min(GALLERY_DL_TIMEOUT, max(2.0, remaining)),
                 )
-                if slideshow and slideshow.images:
-                    images = slideshow.images
+                if gallery_result and gallery_result.image_urls:
+                    images = await self._download_carousel_images(
+                        gallery_result.image_urls,
+                        timeout=max(1.0, self._get_remaining_time(start_time)),
+                    )
             except Exception as e:
                 logger.warning(f"tiktok_slideshow_error: {e}")
 
@@ -846,6 +851,58 @@ class ExtractionOrchestrator:
             places=places,
             frames_processed=multimodal_result.frames_processed,
         )
+
+    async def _download_carousel_images(
+        self,
+        image_urls: list[str],
+        *,
+        timeout: float = 4.0,
+        max_concurrent: int = 4,
+        max_image_bytes: int = 5 * 1024 * 1024,
+    ) -> list[bytes]:
+        """Download carousel images from validated URLs.
+
+        Args:
+            image_urls: Pre-validated image URLs (TikTok CDN)
+            timeout: Total timeout for all downloads
+            max_concurrent: Max concurrent downloads
+            max_image_bytes: Max size per image (5MB)
+
+        Returns:
+            List of image bytes (empty images are filtered out)
+        """
+        if not image_urls:
+            return []
+
+        import httpx
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def fetch_one(client: httpx.AsyncClient, url: str) -> bytes | None:
+            async with semaphore:
+                try:
+                    response = await client.get(url)
+                    if response.status_code != 200:
+                        return None
+                    content = response.content
+                    if not content or len(content) > max_image_bytes:
+                        return None
+                    return content
+                except httpx.RequestError:
+                    return None
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=True,
+            ) as client:
+                results = await asyncio.gather(
+                    *(fetch_one(client, url) for url in image_urls)
+                )
+                return [r for r in results if r]
+        except Exception as e:
+            logger.warning(f"carousel_image_download_error: {e}")
+            return []
 
     async def _resolve_geotag_place(
         self,
