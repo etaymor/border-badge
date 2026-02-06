@@ -40,8 +40,8 @@ class Settings(BaseSettings):
 
     # OpenRouter Configuration (for traveler classification)
     openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemini-flash-2.5-lite"
-    multimodal_model: str = "google/gemini-flash-2.5-lite"
+    openrouter_model: str = "google/gemini-2.5-flash-lite"
+    multimodal_model: str = "google/gemini-2.5-flash-lite"
 
     # Analytics
     google_analytics_id: str = ""  # GA4 Measurement ID (e.g., G-XXXXXXXXXX)

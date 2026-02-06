@@ -33,7 +33,9 @@ ALLOWED_IMAGE_HOST_PATTERN = re.compile(r"^https://[a-z0-9-]+\.tiktokcdn\.com/")
 # Audio file extensions to filter out
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".aac", ".ogg", ".wav"}
 
-DEFAULT_TIMEOUT_SECONDS = 8.0
+# gallery-dl is broken for TikTok due to JS challenges
+# (github.com/mikf/gallery-dl/issues/8772). Increase if upstream fixes this.
+DEFAULT_TIMEOUT_SECONDS = 3.0
 MAX_IMAGES = 20
 MAX_STDOUT_BYTES = 512 * 1024  # 512KB cap on subprocess output
 
@@ -150,9 +152,16 @@ async def fetch_tiktok_slideshow_gallery_dl(
     # 4. Parse JSON lines output
     result = _parse_gallery_dl_output(stdout_bytes)
     if not result:
+        stderr_snippet = (
+            stderr_bytes.decode(errors="replace")[:200] if stderr_bytes else ""
+        )
         logger.warning(
             "gallery_dl_no_images",
-            extra={"url": url[:100], "duration_ms": duration_ms},
+            extra={
+                "url": url[:100],
+                "duration_ms": duration_ms,
+                "error": stderr_snippet,
+            },
         )
         return None
 

@@ -80,6 +80,46 @@ class TestFetchTiktokOembed:
             assert result is None
 
 
+    @pytest.mark.asyncio
+    async def test_photo_url_converted_to_video_for_oembed(self):
+        """TikTok oEmbed only accepts /video/ URLs, not /photo/ URLs.
+
+        When a /photo/ URL is passed, it should be converted to /video/
+        before calling the oEmbed API, since TikTok uses the same post ID
+        for both URL formats.
+        """
+        mock_response_data = {
+            "title": "Top 5 places in Vietnam #travel",
+            "author_name": "traveler",
+            "thumbnail_url": "https://p16-sign.tiktokcdn.com/obj/thumb",
+            "provider_name": "TikTok",
+        }
+
+        with patch("app.services.oembed_adapters.httpx.AsyncClient") as mock_client:
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.json = MagicMock(return_value=mock_response_data)
+
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+
+            result = await fetch_tiktok_oembed(
+                "https://www.tiktok.com/@traveler/photo/7456789012345678901"
+            )
+
+            # Should succeed by converting /photo/ to /video/
+            assert result is not None
+            assert result.title == "Top 5 places in Vietnam #travel"
+
+            # Verify the URL sent to oEmbed uses /video/ not /photo/
+            # The URL is URL-encoded in the query string, so check for encoded form
+            call_args = mock_client_instance.get.call_args
+            called_url = call_args[0][0]
+            assert "%2Fvideo%2F" in called_url or "/video/" in called_url
+            assert "%2Fphoto%2F" not in called_url and "/photo/" not in called_url
+
+
 class TestFetchInstagramOembed:
     """Tests for Instagram oEmbed fetching."""
 

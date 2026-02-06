@@ -462,3 +462,47 @@ class TestFetchTikTokSlideshow:
         # Should still parse successfully with truncated output
         assert result is not None
         assert len(result.image_urls) > 0
+
+    @pytest.mark.asyncio
+    async def test_tiktok_blocked_returns_none_with_stderr_error(self):
+        """When TikTok blocks gallery-dl, it returns rc=0, stdout=[], stderr=error.
+
+        This reproduces the real-world scenario where TikTok's JS challenge
+        causes gallery-dl to report "Requested post not available" even for
+        valid, public posts. gallery-dl exits 0 with empty JSON array.
+        """
+        fake_proc = _make_fake_proc(
+            stdout=b"[]\n",
+            stderr=b"[tiktok][error] https://www.tiktok.com/@user/video/123: Requested post not available\n",
+            returncode=0,
+        )
+
+        with patch(
+            "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
+            return_value=fake_proc,
+        ):
+            result = await fetch_tiktok_slideshow_gallery_dl(
+                "https://www.tiktok.com/@user/photo/7456789012345678901"
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_tiktok_blocked_logs_stderr_snippet(self):
+        """When gallery-dl fails with stderr error, the error is logged."""
+        fake_proc = _make_fake_proc(
+            stdout=b"[]\n",
+            stderr=b"[tiktok][error] https://www.tiktok.com/@user/video/123: Requested post not available\n",
+            returncode=0,
+        )
+
+        with patch(
+            "app.services.gallery_dl_client.asyncio.create_subprocess_exec",
+            return_value=fake_proc,
+        ):
+            result = await fetch_tiktok_slideshow_gallery_dl(
+                "https://www.tiktok.com/@user/photo/7456789012345678901"
+            )
+
+        # Should return None (no images extracted)
+        assert result is None

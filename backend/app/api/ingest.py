@@ -253,7 +253,7 @@ async def ingest_social_url(
             # via yt-dlp, so we disable video fallback for those URLs.
             orchestrator = ExtractionOrchestrator(
                 enable_video_fallback=not is_photo_slideshow,
-                total_timeout=20.0 if is_photo_slideshow else 15.0,
+                total_timeout=10.0 if is_photo_slideshow else 15.0,
             )
 
             extraction_result = await orchestrator.extract(
@@ -303,8 +303,9 @@ async def ingest_social_url(
     if is_photo_slideshow and not detected_places:
         if is_tiktok_photo(canonical_url):
             extraction_error = (
-                "We couldn't identify a place from this TikTok slideshow. "
-                "You can still save it manually by searching for the place."
+                "TikTok is currently blocking slideshow extraction. "
+                "Try sharing the same content from Instagram, "
+                "or search for the place manually."
             )
         else:
             extraction_error = (

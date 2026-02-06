@@ -521,7 +521,10 @@ class MultimodalExtractor:
             if response.status_code != 200:
                 logger.warning(
                     "multimodal_extraction_http_error",
-                    extra={"status_code": response.status_code},
+                    extra={
+                        "status_code": response.status_code,
+                        "response_body": response.text[:500],
+                    },
                 )
                 capture_event(
                     "multimodal_extraction_completed",
