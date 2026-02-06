@@ -79,7 +79,6 @@ class TestFetchTiktokOembed:
 
             assert result is None
 
-
     @pytest.mark.asyncio
     async def test_photo_url_converted_to_video_for_oembed(self):
         """TikTok oEmbed only accepts /video/ URLs, not /photo/ URLs.

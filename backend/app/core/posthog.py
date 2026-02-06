@@ -18,6 +18,7 @@ lifespan handler in main.py.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,17 @@ def _get_posthog_client() -> Posthog | None:
         )
 
     return _posthog_client
+
+
+def hash_user_id(user_id: str) -> str:
+    """Hash a user ID for use as a PostHog distinct_id.
+
+    Uses SHA-256 with a secret salt to prevent rainbow table attacks.
+    Returns the full hex digest for collision resistance.
+    """
+    settings = get_settings()
+    salted = f"{settings.posthog_user_salt}{user_id}"
+    return hashlib.sha256(salted.encode()).hexdigest()
 
 
 def capture_event(

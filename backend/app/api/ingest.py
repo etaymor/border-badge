@@ -2,7 +2,6 @@
 
 import base64
 import binascii
-import hashlib
 import logging
 import time
 from typing import Literal
@@ -13,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.api.countries import get_country_name_by_code
 from app.api.utils import get_token_from_request
-from app.core.posthog import capture_event
+from app.core.posthog import capture_event, hash_user_id
 from app.core.security import CurrentUser
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
@@ -285,7 +284,7 @@ async def ingest_social_url(
     # Track extraction outcome in PostHog for LLM accuracy analysis
     capture_event(
         "social_ingest_extraction_completed",
-        distinct_id=hashlib.sha256(str(user.id).encode()).hexdigest()[:16],
+        distinct_id=hash_user_id(str(user.id)),
         properties={
             "provider": provider.value,
             "extraction_method": extraction_method_used,
