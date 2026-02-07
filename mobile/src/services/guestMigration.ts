@@ -80,7 +80,14 @@ async function migrateCountries(
         added_during_onboarding: true,
       })),
     };
-    const response = await api.post('/countries/user/batch', payload);
+
+    // Retry on 429 (rate limit) and 404 (profile not yet created by DB trigger)
+    const response = await retryWithBackoff(
+      () => api.post('/countries/user/batch', payload),
+      3,
+      1000,
+      [429, 404]
+    );
     console.log('Migration success:', { status, count: response.data.length });
     return { data: response.data as UserCountry[], errors: [] };
   } catch (error) {
@@ -133,6 +140,10 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   const errors: string[] = [];
   let migratedCountries = 0;
   let migratedProfile = false;
+
+  // Small delay to give the DB trigger time to create the user profile
+  // after account creation, before we start making API calls
+  await delay(500);
 
   // Also read from SQLite as backup source of truth
   // This ensures we capture all countries even if Zustand/AsyncStorage got out of sync
