@@ -18,6 +18,7 @@ const HIDDEN_TAB_BAR_SCREENS = [
   'EntryForm',
   'PhotoTrips',
   'PhotoImport',
+  'ShareCapture',
 ];
 
 /**

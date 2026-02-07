@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -53,8 +54,11 @@ export function NameEntryScreen({ navigation }: Props) {
     // Store the display name
     setDisplayName(validation.trimmedValue);
 
-    // Navigate to paywall (which will proceed to account creation)
-    navigation.navigate('Paywall');
+    // Dismiss keyboard immediately before navigating
+    Keyboard.dismiss();
+
+    // Navigate to value proposition screens before paywall
+    navigation.navigate('EmotionalHook');
   };
 
   return (

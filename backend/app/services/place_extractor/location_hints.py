@@ -74,17 +74,19 @@ def filter_conflicting_hints(hints: list[LocationHint]) -> list[LocationHint]:
     return filtered if filtered else hints
 
 
-def extract_location_hints(text: str | None) -> list[LocationHint]:
-    """Extract location hints (cities/countries) from text.
+def extract_raw_location_hints(text: str | None) -> list[LocationHint]:
+    """Extract location hints (cities/countries) from text WITHOUT conflict filtering.
 
-    Scans text for known city and country names that can be used to bias
-    the Google Places search towards the correct geographic area.
+    Returns ALL mentioned locations, including minority countries. Use this when
+    you need the complete set of mentioned countries (e.g., for country mismatch
+    detection). For search biasing, use extract_location_hints() which applies
+    conflict filtering.
 
     Args:
         text: Text to scan for location names
 
     Returns:
-        List of LocationHint objects with coordinates for biasing
+        List of LocationHint objects (unfiltered)
     """
     if not text:
         return []
@@ -125,10 +127,28 @@ def extract_location_hints(text: str | None) -> list[LocationHint]:
                     )
                 )
 
+    return hints
+
+
+def extract_location_hints(text: str | None) -> list[LocationHint]:
+    """Extract location hints with conflict filtering for search biasing.
+
+    Scans text for known city and country names, then filters out minority-country
+    hints that likely represent false positives. Use this for Google Places search
+    biasing. For the full unfiltered set, use extract_raw_location_hints().
+
+    Args:
+        text: Text to scan for location names
+
+    Returns:
+        List of LocationHint objects filtered for search biasing
+    """
+    hints = extract_raw_location_hints(text)
+
     if hints:
         logger.info(
             f"LOCATION HINTS extracted (raw): {[h.name for h in hints]} "
-            f"from text_len={len(text)}"
+            f"from text_len={len(text or '')}"
         )
         # Filter out conflicting hints (e.g., #tokyo hashtag in an Albanian post)
         hints = filter_conflicting_hints(hints)

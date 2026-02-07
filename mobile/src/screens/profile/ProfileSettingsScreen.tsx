@@ -8,6 +8,7 @@ import {
   Keyboard,
   Linking,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -594,6 +595,24 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
 
+        <View style={styles.contactSupportSection}>
+          <Pressable
+            onPress={() => Linking.openURL('mailto:support@atlasi.app')}
+            style={({ pressed }) => [
+              styles.contactSupportButton,
+              pressed && styles.contactSupportButtonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Contact support"
+          >
+            <Text
+              style={[styles.contactSupportText, isSmallScreen && styles.contactSupportTextSmall]}
+            >
+              Contact Support
+            </Text>
+          </Pressable>
+        </View>
+
         <SignOutSection
           onSignOut={handleSignOut}
           isPending={signOut.isPending}
@@ -702,5 +721,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paperBeige,
     marginHorizontal: 24,
     marginVertical: 8,
+  },
+  contactSupportSection: {
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingHorizontal: 24,
+  },
+  contactSupportButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: colors.midnightNavy,
+    minWidth: 140,
+    alignItems: 'center',
+  },
+  contactSupportButtonPressed: {
+    opacity: 0.7,
+    backgroundColor: 'rgba(26, 26, 46, 0.05)',
+  },
+  contactSupportText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  contactSupportTextSmall: {
+    fontSize: 14,
   },
 });

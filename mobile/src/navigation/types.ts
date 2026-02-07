@@ -36,6 +36,8 @@ export type OnboardingStackParamList = {
   AntarcticaPrompt: undefined;
   ProgressSummary: undefined;
   NameEntry: undefined;
+  EmotionalHook: undefined;
+  FunctionalHook: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
 };
