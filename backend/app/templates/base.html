@@ -54,6 +54,10 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', path='images/favicon.png') }}" />
     <link rel="apple-touch-icon" href="{{ url_for('static', path='images/favicon.png') }}" />
 
+    {% if apple_app_id %}
+    <meta name="apple-itunes-app" content="app-id={{ apple_app_id }}" />
+    {% endif %}
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

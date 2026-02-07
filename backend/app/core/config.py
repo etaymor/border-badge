@@ -1,6 +1,7 @@
 """Application configuration using pydantic-settings."""
 
 import ipaddress
+import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
@@ -195,6 +196,14 @@ class Settings(BaseSettings):
                 return []
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @property
+    def apple_app_id(self) -> str:
+        """Extract numeric App Store ID from app_store_url for Smart App Banner."""
+        if not self.app_store_url:
+            return ""
+        match = re.search(r"/id(\d+)", self.app_store_url)
+        return match.group(1) if match else ""
 
     @property
     def is_development(self) -> bool:

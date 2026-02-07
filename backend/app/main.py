@@ -54,6 +54,7 @@ setup_logging(debug=settings.debug)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
 templates.env.filters["safe_external_url"] = safe_external_url
 templates.env.globals["is_production"] = settings.is_production
+templates.env.globals["apple_app_id"] = settings.apple_app_id
 
 
 def get_rate_limit_key(request: Request) -> str:
