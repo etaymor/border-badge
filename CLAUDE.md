@@ -149,6 +149,7 @@ RESEND_API_KEY=<resend-api-key>  # Optional: for welcome email drip campaign (ge
 WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 POSTHOG_API_KEY=<posthog-api-key>  # Optional: same project key as mobile app, for LLM accuracy tracking
 POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
+APPLE_APP_ID=<app-store-id>  # Optional: numeric App Store ID for iOS Smart App Banner on public pages
 ```
 
 ## Key Architecture Patterns
