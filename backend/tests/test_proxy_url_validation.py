@@ -76,6 +76,25 @@ class TestProxyUrlSsrfProtection:
         with pytest.raises(ValidationError, match="private/reserved IP"):
             _make_settings(tiktok_proxy_url=f"http://{ip}:8080")
 
+    def test_this_host_network_rejected(self):
+        with pytest.raises(ValidationError, match="private/reserved IP"):
+            _make_settings(tiktok_proxy_url="http://0.0.0.1:8080")
+
+    def test_zero_address_rejected(self):
+        with pytest.raises(ValidationError, match="private/reserved IP"):
+            _make_settings(tiktok_proxy_url="http://0.0.0.0:8080")
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "100.64.0.1",
+            "100.127.255.254",
+        ],
+    )
+    def test_cgnat_rejected(self, ip):
+        with pytest.raises(ValidationError, match="private/reserved IP"):
+            _make_settings(tiktok_proxy_url=f"http://{ip}:8080")
+
     def test_cloud_metadata_ipv4_rejected(self):
         with pytest.raises(ValidationError, match="private/reserved IP"):
             _make_settings(tiktok_proxy_url="http://169.254.169.254")

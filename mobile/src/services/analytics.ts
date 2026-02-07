@@ -162,6 +162,8 @@ export const Analytics = {
   viewOnboardingProgress: (countriesCount: number) =>
     track('view_onboarding_progress', { countries_count: countriesCount }),
   viewOnboardingName: () => track('view_onboarding_name'),
+  viewOnboardingEmotionalHook: () => track('view_onboarding_emotional_hook'),
+  viewOnboardingFunctionalHook: () => track('view_onboarding_functional_hook'),
   viewOnboardingAccount: () => track('view_onboarding_account'),
 
   completeOnboarding: (props: {

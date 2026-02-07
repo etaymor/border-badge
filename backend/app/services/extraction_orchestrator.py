@@ -39,6 +39,7 @@ from app.services.multimodal_extractor import (
 from app.services.place_extractor import (
     extract_location_hints,
     extract_place_with_method,
+    extract_raw_location_hints,
     try_candidate,
     try_llm_multi_place_extraction,
 )
@@ -514,12 +515,11 @@ class ExtractionOrchestrator:
         """
         context_location: str | None = None
 
-        # Extract location hints early for country mismatch detection
+        # Extract RAW (unfiltered) location hints for country mismatch detection
+        # so minority countries in multi-country captions are not dropped
         combined_text = " ".join(filter(None, [title, caption]))
-        location_hints = extract_location_hints(combined_text)
-        hint_country_codes = list(
-            {h.country_code for h in location_hints if h.country_code}
-        )
+        raw_hints = extract_raw_location_hints(combined_text)
+        hint_country_codes = list({h.country_code for h in raw_hints if h.country_code})
 
         # Try LLM extraction (unless regex-only mode)
         if extraction_method in ("auto", "llm"):

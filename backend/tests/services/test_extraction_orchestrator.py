@@ -676,3 +676,61 @@ class TestCountryMismatchFallback:
         assert len(result.places) == 1
         assert result.places[0].country_code == "GE"
         assert result.method == "regex"
+
+    def test_has_country_mismatch_multi_country_minority_not_flagged(self):
+        """A place from a minority country should NOT mismatch when that country
+        is included in the raw (unfiltered) hint country codes."""
+        orchestrator = ExtractionOrchestrator()
+        # Place in Slovenia (minority country in multi-country caption)
+        place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Ljubljana Castle",
+            country_code="SI",
+            confidence=0.85,
+        )
+        # Raw hint country codes include both Italy (majority) and Slovenia (minority)
+        assert orchestrator._has_country_mismatch([place], ["IT", "SI"]) is False
+
+    @pytest.mark.asyncio
+    async def test_multi_country_caption_minority_no_video_fallback(self):
+        """When caption mentions cities from multiple countries, a place in the
+        minority country should NOT trigger video fallback."""
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+
+        # Place found in Slovenia (the minority country)
+        si_place = DetectedPlace(
+            google_place_id="ChIJ123",
+            name="Ljubljana Castle",
+            country_code="SI",
+            confidence=0.85,
+        )
+
+        # Caption result includes SI in hint_country_codes (from raw hints)
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=orchestrator._CaptionResult(
+                places=[si_place],
+                method="llm",
+                skip_to_video=False,
+                context_location="Ljubljana",
+                location_hint_country_codes=["IT", "SI"],
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock()
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            result = await orchestrator.extract(
+                "https://www.instagram.com/reel/ABC123",
+                oembed=None,
+                caption="Trip to Rome, Milan, Florence, and Ljubljana",
+                use_cache=True,
+                is_video_url=True,
+            )
+
+        # Should NOT trigger video fallback
+        orchestrator._extract_from_video.assert_not_awaited()
+        assert result.places[0].country_code == "SI"
+        assert result.method == "llm"

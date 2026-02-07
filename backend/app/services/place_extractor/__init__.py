@@ -48,6 +48,7 @@ from app.services.place_extractor.llm_client import (
 from app.services.place_extractor.location_hints import (
     LocationHint,
     extract_location_hints,
+    extract_raw_location_hints,
     filter_conflicting_hints,
 )
 from app.services.place_extractor.scoring import (
@@ -83,6 +84,7 @@ __all__ = [
     "LOCATION_INDICATORS",
     # Location hints
     "extract_location_hints",
+    "extract_raw_location_hints",
     "filter_conflicting_hints",
     # Google Places client
     "search_places",

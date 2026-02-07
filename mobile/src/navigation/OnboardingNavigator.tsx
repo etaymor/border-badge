@@ -7,6 +7,8 @@ import { ContinentIntroScreen } from '@screens/onboarding/ContinentIntroScreen';
 import { DreamDestinationScreen } from '@screens/onboarding/DreamDestinationScreen';
 import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
+import { EmotionalHookScreen } from '@screens/onboarding/EmotionalHookScreen';
+import { FunctionalHookScreen } from '@screens/onboarding/FunctionalHookScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
 import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
@@ -102,7 +104,13 @@ export function OnboardingNavigator() {
       {/* ProgressSummary → NameEntry: Stamps collecting into passport */}
       <Stack.Screen name="NameEntry" component={NameEntryScreen} options={CollectPreset} />
 
-      {/* NameEntry → Paywall: Show subscription options */}
+      {/* NameEntry → EmotionalHook: Value proposition (memories) */}
+      <Stack.Screen name="EmotionalHook" component={EmotionalHookScreen} />
+
+      {/* EmotionalHook → FunctionalHook: Value proposition (social saving) */}
+      <Stack.Screen name="FunctionalHook" component={FunctionalHookScreen} />
+
+      {/* FunctionalHook → Paywall: Show subscription options */}
       <Stack.Screen name="Paywall" component={PaywallScreen} />
 
       {/* NameEntry → AccountCreation: Default slide (sealing the deal) */}
