@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     )
     app_store_url: str = ""  # iOS App Store URL (placeholder)
     play_store_url: str = ""  # Google Play Store URL (placeholder)
+    apple_app_id: str = ""  # iOS App Store ID for Smart App Banner meta tag
 
     # OpenRouter Configuration (for traveler classification)
     openrouter_api_key: str = ""
