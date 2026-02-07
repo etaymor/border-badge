@@ -23,6 +23,30 @@ function getErrorMessage(error: unknown): string {
 }
 
 /**
+ * Identify user in RevenueCat, sync subscription to backend, and update store.
+ * Fire-and-forget: errors are logged but never thrown.
+ */
+function syncRevenueCat(userId: string): void {
+  identifyRevenueCatUser(userId)
+    .then(async (customerInfo) => {
+      useSubscriptionStore.getState().setCustomerInfo(customerInfo);
+      // Sync subscription to backend DB in case webhooks were missed
+      if (isRevenueCatPremium(customerInfo)) {
+        try {
+          await api.post('/subscriptions/verify');
+        } catch (verifyError) {
+          console.warn('Failed to verify subscription with backend:', verifyError);
+        }
+      }
+    })
+    .catch((error) => {
+      console.error('Failed to identify RevenueCat user:', error);
+      Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
+      useSubscriptionStore.getState().setSdkAvailable(false);
+    });
+}
+
+/**
  * Manages Supabase auth session initialization and state change listening.
  * Restores existing sessions on mount, handles sign-in/sign-out events,
  * and syncs auth state with analytics, RevenueCat, and subscription stores.
@@ -74,24 +98,8 @@ export function useAuthSession(): { isAppReady: boolean } {
           await storeTokens(session.access_token, session.refresh_token ?? '');
           // Identify user in analytics
           identifyUser(session.user.id);
-          // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id)
-            .then(async (customerInfo) => {
-              useSubscriptionStore.getState().setCustomerInfo(customerInfo);
-              // Sync subscription to backend DB in case webhooks were missed
-              if (isRevenueCatPremium(customerInfo)) {
-                try {
-                  await api.post('/subscriptions/verify');
-                } catch (verifyError) {
-                  console.warn('Failed to verify subscription with backend:', verifyError);
-                }
-              }
-            })
-            .catch((error) => {
-              console.error('Failed to identify RevenueCat user:', error);
-              Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
-              useSubscriptionStore.getState().setSdkAvailable(false);
-            });
+          // Identify user in RevenueCat and sync subscription to backend
+          syncRevenueCat(session.user.id);
           // Restore onboarding state for returning users
           try {
             const onboardingComplete = await getOnboardingComplete();
@@ -127,24 +135,8 @@ export function useAuthSession(): { isAppReady: boolean } {
           await storeTokens(session.access_token, session.refresh_token ?? '');
           // Identify user in analytics
           identifyUser(session.user.id);
-          // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id)
-            .then(async (customerInfo) => {
-              useSubscriptionStore.getState().setCustomerInfo(customerInfo);
-              // Sync subscription to backend DB in case webhooks were missed
-              if (isRevenueCatPremium(customerInfo)) {
-                try {
-                  await api.post('/subscriptions/verify');
-                } catch (verifyError) {
-                  console.warn('Failed to verify subscription with backend:', verifyError);
-                }
-              }
-            })
-            .catch((error) => {
-              console.error('Failed to identify RevenueCat user:', error);
-              Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
-              useSubscriptionStore.getState().setSdkAvailable(false);
-            });
+          // Identify user in RevenueCat and sync subscription to backend
+          syncRevenueCat(session.user.id);
           // Restore onboarding state for returning users (same as initAuth)
           try {
             const onboardingComplete = await getOnboardingComplete();
