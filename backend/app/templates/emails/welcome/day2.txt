@@ -2,14 +2,14 @@ Hey,
 
 So why did I build Atlasi?
 
-Honestly? I'm a designer by trade, and every travel app I tried made me cringe. Visited, Been, all of them. They felt clunky and looked worse. I've been to some of the most beautiful places on earth, and I was tracking them in apps that looked like they were designed in 2012.
+Because I love to travel, but there was no app that fit my needs. Screenshots of Instagram recos buried in my camera roll. Restaurant names I swore I'd remember but didn't. Photos from incredible trips sitting in folders I never opened.
 
-I wanted something that felt as magical as traveling itself. Something that was powerful but dead simple. Something I'd actually want to share.
+I'd been to some of the most beautiful places on earth, and I had nothing to show for it. No record. No way to share it. Just scattered memories across a dozen apps.
 
-So I built it.
+So I built something that actually keeps up with how we travel now. Atlasi captures places from the content you're already scrolling. It can even scan your photo library and piece together trips you took years ago. And it makes everything look good enough to share. And it looks a lot better than the other country tracking apps, if I do say so myself.
 
-Atlasi is designed to be beautiful first, because your travels deserve that. But it's also built to be insanely shareable. Your passport view, your map, your stats. All of it looks good enough to post.
+I think you'll feel the difference the first time you use it. 
 
-Give it a spin. I think you'll feel the difference.
+And if you have any feedback, I'd love to hear it. Just drop me a reply.
 
 Emerson

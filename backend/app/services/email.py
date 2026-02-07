@@ -30,12 +30,12 @@ WELCOME_EMAILS = [
     },
     {
         "delay_hours": 24,  # Day 2
-        "subject": "The apps out there just didn't cut it",
+        "subject": "I built this because nothing else worked",
         "template": "day2",
     },
     {
         "delay_hours": 72,  # Day 4
-        "subject": "The feature I use every single day",
+        "subject": "Two features that changed everything for me",
         "template": "day4",
     },
     {
