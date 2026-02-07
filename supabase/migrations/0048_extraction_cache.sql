@@ -3,18 +3,22 @@
 -- Note: Reuses existing oembed_cache table - extraction results are same for all users
 
 -- Add extraction result columns to existing oembed_cache table
-alter table public.oembed_cache
-    add column if not exists extraction_result jsonb,
-    add column if not exists extraction_source text
-        check (extraction_source is null or extraction_source in ('caption', 'video_frames', 'carousel', 'screenshot')),
-    add column if not exists extraction_at timestamptz;
+-- Wrapped in DO block because remote migration runner cannot prepare multiple statements.
+DO $migration$
+BEGIN
+  ALTER TABLE public.oembed_cache
+      ADD COLUMN IF NOT EXISTS extraction_result jsonb,
+      ADD COLUMN IF NOT EXISTS extraction_source text
+          CHECK (extraction_source IS NULL OR extraction_source IN ('caption', 'video_frames', 'carousel', 'screenshot')),
+      ADD COLUMN IF NOT EXISTS extraction_at timestamptz;
 
--- Comment on new columns
-comment on column public.oembed_cache.extraction_result is
-    'Cached place extraction result as JSON (places array with name, city, country, entry_type)';
+  COMMENT ON COLUMN public.oembed_cache.extraction_result IS
+      'Cached place extraction result as JSON (places array with name, city, country, entry_type)';
 
-comment on column public.oembed_cache.extraction_source is
-    'How the places were extracted (caption, video_frames, carousel, screenshot)';
+  COMMENT ON COLUMN public.oembed_cache.extraction_source IS
+      'How the places were extracted (caption, video_frames, carousel, screenshot)';
 
-comment on column public.oembed_cache.extraction_at is
-    'When extraction was performed (may differ from row creation if oEmbed was cached first)';
+  COMMENT ON COLUMN public.oembed_cache.extraction_at IS
+      'When extraction was performed (may differ from row creation if oEmbed was cached first)';
+END;
+$migration$;

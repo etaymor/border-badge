@@ -7,10 +7,15 @@
 -- PostgreSQL can't choose between them when called with 3 arguments.
 -- Solution: Drop the old signature and keep only the new one with limit enforcement.
 
--- Drop all existing overloads
-DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB);
-DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB, UUID);
-DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB, INTEGER);
+-- Drop all existing overloads first, then recreate.
+-- Wrapped in DO block because remote migration runner cannot prepare multiple statements.
+DO $migration$
+BEGIN
+  DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB);
+  DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB, UUID);
+  DROP FUNCTION IF EXISTS atomic_create_entry_with_place(UUID, JSONB, JSONB, INTEGER);
+END;
+$migration$;
 
 -- Recreate with single clean signature that includes limit enforcement
 CREATE OR REPLACE FUNCTION atomic_create_entry_with_place(
