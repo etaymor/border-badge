@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text } from '@components/ui';
+import { OnboardingHookHeader } from '@components/onboarding/OnboardingHookHeader';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
@@ -10,7 +11,6 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
 const socialImage = require('../../../assets/onboarding-videos/social-exported-list.jpg');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -34,14 +34,7 @@ export function FunctionalHookScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with back button, logo, and login */}
-      <View style={styles.headerRow}>
-        <GlassBackButton onPress={() => navigation.goBack()} />
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-          <Text style={styles.loginText}>Login</Text>
-        </TouchableOpacity>
-      </View>
+      <OnboardingHookHeader onBack={() => navigation.goBack()} onLogin={handleLogin} />
 
       <View style={styles.content}>
         {/* Title */}
@@ -74,6 +67,7 @@ export function FunctionalHookScreen({ navigation }: Props) {
             activeOpacity={0.9}
             accessibilityRole="button"
             accessibilityLabel="Start saving places"
+            accessibilityHint="Proceed to create your account"
             testID="functional-hook-continue"
           >
             <Text style={styles.continueButtonText}>Start saving places</Text>
@@ -88,27 +82,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  loginButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
-  },
-  logo: {
-    width: 140,
-    height: 40,
   },
   content: {
     flex: 1,
