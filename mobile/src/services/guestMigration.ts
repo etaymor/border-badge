@@ -9,11 +9,12 @@ import { getLocalUserCountries, clearLocalUserCountries } from './countriesDb';
 // Helper to delay execution (useful for rate limiting)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Helper to retry a function with exponential backoff on 429 errors
+// Helper to retry a function with exponential backoff on retryable errors
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  baseDelay: number = 1000
+  baseDelay: number = 1000,
+  retryableStatuses: number[] = [429]
 ): Promise<T> {
   let lastError: Error | undefined;
 
@@ -24,15 +25,15 @@ async function retryWithBackoff<T>(
       const axiosError = error as AxiosError;
       const status = axiosError?.response?.status;
 
-      // Only retry on 429 (rate limit) errors
-      if (status !== 429 || attempt === maxRetries) {
+      // Only retry on specified retryable status codes
+      if (!status || !retryableStatuses.includes(status) || attempt === maxRetries) {
         throw error;
       }
 
       lastError = error as Error;
       const waitTime = baseDelay * Math.pow(2, attempt); // Exponential backoff
       console.log(
-        `Rate limited (429), retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`
+        `Retryable error (${status}), retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`
       );
       await delay(waitTime);
     }
@@ -194,14 +195,20 @@ async function doMigration(session: Session): Promise<MigrationResult> {
       // Small delay to avoid hitting rate limits after batch country requests
       await delay(500);
 
-      await retryWithBackoff(async () => {
-        await api.patch('/profile', {
-          home_country_code: homeCountry,
-          travel_motives: motivationTags,
-          persona_tags: personaTags,
-          tracking_preference: trackingPreference,
-        });
-      });
+      // Retry on 429 (rate limit) and 404 (profile not yet created by DB trigger)
+      await retryWithBackoff(
+        async () => {
+          await api.patch('/profile', {
+            home_country_code: homeCountry,
+            travel_motives: motivationTags,
+            persona_tags: personaTags,
+            tracking_preference: trackingPreference,
+          });
+        },
+        3,
+        1000,
+        [429, 404]
+      );
       migratedProfile = true;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);

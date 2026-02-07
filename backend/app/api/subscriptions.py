@@ -51,7 +51,7 @@ async def get_subscription_status(
         "user_profile",
         params={
             "select": "subscription_status,subscription_plan,subscription_expires_at",
-            "id": f"eq.{user.id}",
+            "user_id": f"eq.{user.id}",
         },
     )
 
@@ -80,7 +80,7 @@ async def get_usage_limits(
         "user_profile",
         params={
             "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start",
-            "id": f"eq.{user.id}",
+            "user_id": f"eq.{user.id}",
         },
     )
 
@@ -180,7 +180,7 @@ async def can_add_entry(
         "user_profile",
         params={
             "select": "subscription_status",
-            "id": f"eq.{user.id}",
+            "user_id": f"eq.{user.id}",
         },
     )
 
@@ -248,7 +248,7 @@ async def verify_subscription(
         "user_profile",
         params={
             "select": "revenuecat_customer_id",
-            "id": f"eq.{user.id}",
+            "user_id": f"eq.{user.id}",
         },
     )
 
