@@ -23,6 +23,7 @@ TEST_USER_COUNTRY_ID = "550e8400-e29b-41d4-a716-446655440007"
 TEST_LIST_ID = "550e8400-e29b-41d4-a716-446655440008"
 TEST_LIST_ENTRY_ID = "550e8400-e29b-41d4-a716-446655440009"
 TEST_UNCATEGORIZED_TRIP_ID = "550e8400-e29b-41d4-a716-446655440010"
+TEST_PROFILE_PK_ID = "550e8400-e29b-41d4-a716-446655440011"
 OTHER_USER_ID = "550e8400-e29b-41d4-a716-446655440099"
 
 
@@ -184,7 +185,8 @@ def sample_uncategorized_trip() -> dict[str, Any]:
 def sample_free_profile() -> dict[str, Any]:
     """Sample user profile with free subscription."""
     return {
-        "id": TEST_USER_ID,
+        "id": TEST_PROFILE_PK_ID,
+        "user_id": TEST_USER_ID,
         "subscription_status": "free",
         "subscription_plan": None,
         "subscription_expires_at": None,
@@ -198,7 +200,8 @@ def sample_free_profile() -> dict[str, Any]:
 def sample_premium_profile() -> dict[str, Any]:
     """Sample user profile with premium subscription."""
     return {
-        "id": TEST_USER_ID,
+        "id": TEST_PROFILE_PK_ID,
+        "user_id": TEST_USER_ID,
         "subscription_status": "premium",
         "subscription_plan": "annual",
         "subscription_expires_at": "2025-12-31T00:00:00+00:00",
@@ -212,7 +215,8 @@ def sample_premium_profile() -> dict[str, Any]:
 def sample_trial_profile() -> dict[str, Any]:
     """Sample user profile with trial subscription."""
     return {
-        "id": TEST_USER_ID,
+        "id": TEST_PROFILE_PK_ID,
+        "user_id": TEST_USER_ID,
         "subscription_status": "trial",
         "subscription_plan": "monthly",
         "subscription_expires_at": "2024-02-15T00:00:00+00:00",

@@ -10,6 +10,7 @@ import {
 import { identifyUser, resetUser, Analytics } from '@services/analytics';
 import {
   identifyUser as identifyRevenueCatUser,
+  isPremium as isRevenueCatPremium,
   logOutUser as logOutRevenueCatUser,
 } from '@services/revenueCat';
 import { supabase } from '@services/supabase';
@@ -74,11 +75,23 @@ export function useAuthSession(): { isAppReady: boolean } {
           // Identify user in analytics
           identifyUser(session.user.id);
           // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id).catch((error) => {
-            console.error('Failed to identify RevenueCat user:', error);
-            Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
-            useSubscriptionStore.getState().setSdkAvailable(false);
-          });
+          identifyRevenueCatUser(session.user.id)
+            .then(async (customerInfo) => {
+              useSubscriptionStore.getState().setCustomerInfo(customerInfo);
+              // Sync subscription to backend DB in case webhooks were missed
+              if (isRevenueCatPremium(customerInfo)) {
+                try {
+                  await api.post('/subscriptions/verify');
+                } catch (verifyError) {
+                  console.warn('Failed to verify subscription with backend:', verifyError);
+                }
+              }
+            })
+            .catch((error) => {
+              console.error('Failed to identify RevenueCat user:', error);
+              Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
+              useSubscriptionStore.getState().setSdkAvailable(false);
+            });
           // Restore onboarding state for returning users
           try {
             const onboardingComplete = await getOnboardingComplete();
@@ -115,11 +128,23 @@ export function useAuthSession(): { isAppReady: boolean } {
           // Identify user in analytics
           identifyUser(session.user.id);
           // Identify user in RevenueCat (links purchases to account)
-          identifyRevenueCatUser(session.user.id).catch((error) => {
-            console.error('Failed to identify RevenueCat user:', error);
-            Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
-            useSubscriptionStore.getState().setSdkAvailable(false);
-          });
+          identifyRevenueCatUser(session.user.id)
+            .then(async (customerInfo) => {
+              useSubscriptionStore.getState().setCustomerInfo(customerInfo);
+              // Sync subscription to backend DB in case webhooks were missed
+              if (isRevenueCatPremium(customerInfo)) {
+                try {
+                  await api.post('/subscriptions/verify');
+                } catch (verifyError) {
+                  console.warn('Failed to verify subscription with backend:', verifyError);
+                }
+              }
+            })
+            .catch((error) => {
+              console.error('Failed to identify RevenueCat user:', error);
+              Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
+              useSubscriptionStore.getState().setSdkAvailable(false);
+            });
           // Restore onboarding state for returning users (same as initAuth)
           try {
             const onboardingComplete = await getOnboardingComplete();

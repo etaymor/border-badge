@@ -168,7 +168,7 @@ async def create_entry(
     profile_result: list[dict[str, Any]] | None = await db.get(
         "user_profile",
         {
-            "id": f"eq.{user.id}",
+            "user_id": f"eq.{user.id}",
             "select": "subscription_status",
         },
     )

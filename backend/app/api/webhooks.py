@@ -79,6 +79,7 @@ async def revenuecat_webhook(
         "CANCELLATION": "premium",  # Still active until period end
         "EXPIRATION": "free",
         "BILLING_ISSUE": "premium",  # Grace period
+        "TRANSFER": "premium",  # Subscription transferred via logIn()
     }
 
     new_status = status_map.get(event_type)
