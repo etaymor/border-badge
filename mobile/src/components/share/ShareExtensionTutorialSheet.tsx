@@ -54,6 +54,7 @@ export function ShareExtensionTutorialSheet({
   const player = useVideoPlayer(extensionVideo, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = true;
+    playerInstance.audioMixingMode = 'mixWithOthers';
   });
 
   // Pause video on unmount for clean UX. useVideoPlayer handles release() automatically.

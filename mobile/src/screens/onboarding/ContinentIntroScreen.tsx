@@ -57,6 +57,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const player = useVideoPlayer(playerSource, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = true;
+    playerInstance.audioMixingMode = 'mixWithOthers';
   });
 
   useEffect(() => {

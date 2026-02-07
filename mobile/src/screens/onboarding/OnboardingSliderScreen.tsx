@@ -163,14 +163,17 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   const player0 = useVideoPlayer(SLIDES[0].video, (p) => {
     p.loop = true;
     p.muted = true;
+    p.audioMixingMode = 'mixWithOthers';
   });
   const player1 = useVideoPlayer(SLIDES[1].video, (p) => {
     p.loop = true;
     p.muted = true;
+    p.audioMixingMode = 'mixWithOthers';
   });
   const player2 = useVideoPlayer(SLIDES[2].video, (p) => {
     p.loop = true;
     p.muted = true;
+    p.audioMixingMode = 'mixWithOthers';
   });
 
   const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
