@@ -62,6 +62,11 @@ END;
 $$;
 
 -- Re-apply permissions (CREATE OR REPLACE doesn't affect these, but be explicit)
-REVOKE ALL ON FUNCTION update_subscription_if_newer FROM PUBLIC;
-REVOKE ALL ON FUNCTION update_subscription_if_newer FROM authenticated;
-GRANT EXECUTE ON FUNCTION update_subscription_if_newer TO service_role;
+-- Wrapped in DO block because remote migration runner cannot prepare multiple statements.
+DO $perms$
+BEGIN
+  REVOKE ALL ON FUNCTION update_subscription_if_newer FROM PUBLIC;
+  REVOKE ALL ON FUNCTION update_subscription_if_newer FROM authenticated;
+  GRANT EXECUTE ON FUNCTION update_subscription_if_newer TO service_role;
+END;
+$perms$;

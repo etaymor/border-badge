@@ -6,7 +6,7 @@ from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
 def test_build_landing_seo() -> None:
     """Test landing page SEO context generation."""
     seo = build_landing_seo("https://example.com")
-    assert seo.title == "Atlasi - Track Your Travels"
+    assert seo.title == "Atlasi - Track Countries, Import Travel Photos & Log Trips"
     assert seo.canonical_url == "https://example.com"
     assert seo.og_type == "website"
     assert "Atlasi" in seo.og_title

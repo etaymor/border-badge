@@ -47,10 +47,9 @@ body.has-hero .header .logo-image {
 
 /* Header CTA Button */
 .header .cta-button {
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: var(--color-text-main);
+  background: var(--color-midnight-navy);
+  color: var(--color-cloud-white);
+  border: 1px solid var(--color-midnight-navy);
   padding: 8px 16px;
   font-size: 0.9rem;
 }
@@ -58,7 +57,7 @@ body.has-hero .header .logo-image {
 body:has(.hero-section) .header .cta-button,
 body.has-hero .header .cta-button {
   color: var(--color-cloud-white);
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--color-midnight-navy);
 }
 
 .header .cta-button:hover {

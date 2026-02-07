@@ -19,11 +19,17 @@ class SEOContext:
 def build_landing_seo(base_url: str) -> SEOContext:
     """Build SEO context for the landing page."""
     return SEOContext(
-        title="Atlasi - Track Your Travels",
-        description="Mark countries visited, build your wishlist, and share your travel experiences with friends. Download Atlasi today.",
+        title="Atlasi - Track Countries, Import Travel Photos & Log Trips",
+        description=(
+            "Track 227 countries, import photos from your camera roll to auto-create"
+            " trips, and log every place, meal, stay, and experience. Free on iOS."
+        ),
         canonical_url=base_url,
-        og_title="Atlasi - Track Your Travels",
-        og_description="Mark countries visited, build your wishlist, and share your travel experiences with friends.",
+        og_title="Atlasi - Track Countries, Import Travel Photos & Log Trips",
+        og_description=(
+            "Track 227 countries, import travel photos to auto-create trips,"
+            " and log every place, meal, stay, and experience."
+        ),
         og_type="website",
     )
 
