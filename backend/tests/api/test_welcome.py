@@ -40,7 +40,7 @@ def mock_supabase_client():
     mock_client = AsyncMock()
     # No existing profile (first-time user)
     mock_client.get.return_value = []
-    mock_client.upsert.return_value = []
+    mock_client.patch.return_value = []
     return mock_client
 
 
@@ -391,12 +391,60 @@ class TestTriggerWelcomeEmails:
             )
 
             assert response.status_code == 200
-            # Verify upsert was called with correct args
-            mock_supabase_client.upsert.assert_called_once_with(
+            # Verify patch was called with correct args (not upsert)
+            mock_supabase_client.patch.assert_called_once_with(
                 "user_profile",
-                data=[{"user_id": mock_user.id, "welcome_emails_scheduled": True}],
-                on_conflict="user_id",
+                {"welcome_emails_scheduled": True},
+                {"user_id": f"eq.{mock_user.id}"},
             )
+            app.dependency_overrides.clear()
+
+    def test_succeeds_when_profile_missing_during_race_condition(
+        self, mock_user: AuthUser
+    ) -> None:
+        """Test that endpoint succeeds even when user_profile doesn't exist yet.
+
+        During signup, there's a race condition where the DB trigger hasn't
+        created the user_profile row yet. The patch (UPDATE) call returns an
+        empty list when no row exists, and the endpoint gracefully continues.
+        """
+        limiter.reset()
+
+        async def mock_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        mock_client = AsyncMock()
+        # No existing profile (race condition - DB trigger hasn't run yet)
+        mock_client.get.return_value = []
+        # patch returns empty list when no row matches (no error)
+        mock_client.patch.return_value = []
+
+        with (
+            patch(
+                "app.api.welcome.get_supabase_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.api.welcome.schedule_welcome_emails",
+                new_callable=AsyncMock,
+                return_value=_mock_email_result(["id1", "id2"]),
+            ),
+        ):
+            client = TestClient(app)
+            response = client.post(
+                "/welcome/emails",
+                json={"display_name": "Test User"},
+            )
+
+            # FIX: The endpoint returns 200 because patch (UPDATE)
+            # gracefully handles missing profile rows
+            assert response.status_code == 200
+            assert response.json()["status"] == "scheduled"
+            # Verify patch was called (not upsert)
+            mock_client.patch.assert_called_once()
+            mock_client.upsert.assert_not_called()
             app.dependency_overrides.clear()
 
 

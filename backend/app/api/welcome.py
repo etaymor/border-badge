@@ -141,11 +141,15 @@ async def trigger_welcome_emails(
         )
         return WelcomeEmailResponse(status="failed", email_count=0)
 
-    # At least some emails scheduled - mark as scheduled to prevent duplicates
-    await supabase.upsert(
+    # At least some emails scheduled - mark as scheduled to prevent duplicates.
+    # Use patch (UPDATE) instead of upsert to avoid NOT NULL constraint violation
+    # when user_profile row doesn't exist yet (race condition during signup).
+    # If the profile doesn't exist, patch returns empty list and we just skip -
+    # worst case is emails get re-sent on a retry.
+    await supabase.patch(
         "user_profile",
-        data=[{"user_id": user.id, "welcome_emails_scheduled": True}],
-        on_conflict="user_id",
+        {"welcome_emails_scheduled": True},
+        {"user_id": f"eq.{user.id}"},
     )
 
     # Log if partial failure
