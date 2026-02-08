@@ -38,6 +38,10 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
+// Only animate the first N stamps individually; the rest appear instantly.
+// This prevents 50+ simultaneous Spring animations + haptic pulses.
+const ANIMATED_STAMP_CAP = 10;
+
 // Stamp layout calculation - clean grid with slight rotation
 function calculateStampPositions(count: number, containerWidth: number) {
   const cols = count <= 4 ? 2 : count <= 9 ? 3 : 4;
@@ -186,25 +190,27 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   useEffect(() => {
     stampAnimations.current = [];
     for (let i = 0; i < visibleStamps.length; i++) {
-      stampAnimations.current.push(new Animated.Value(reduceMotion ? 1 : 0));
+      // Stamps beyond the cap start fully visible (no animation needed)
+      const initialValue = reduceMotion || i >= ANIMATED_STAMP_CAP ? 1 : 0;
+      stampAnimations.current.push(new Animated.Value(initialValue));
     }
   }, [visibleStamps.length, reduceMotion]);
 
   // Run stamp animations with cleanup (content-specific - staggered pop with haptics)
   useEffect(() => {
     if (reduceMotion) {
-      // Set all stamps to visible immediately
       stampAnimations.current.forEach((anim) => anim.setValue(1));
       return;
     }
 
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
-    // Stagger stamp animations - delay until screen entrance completes
     const stampDelay = 500;
     const staggerDelay = 80;
+    const animateCount = Math.min(visibleStamps.length, ANIMATED_STAMP_CAP);
 
-    visibleStamps.forEach((_, index) => {
+    // Only animate the first ANIMATED_STAMP_CAP stamps individually
+    for (let index = 0; index < animateCount; index++) {
       const timeoutId = setTimeout(
         () => {
           if (stampAnimations.current[index]) {
@@ -214,14 +220,36 @@ export function ProgressSummaryScreen({ navigation }: Props) {
               tension: 100,
               useNativeDriver: true,
             }).start();
-
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
         },
         stampDelay + index * staggerDelay
       );
       timeoutIds.push(timeoutId);
-    });
+    }
+
+    // 3 celebratory haptic pulses instead of one per stamp
+    if (visibleStamps.length > 0) {
+      const h1 = setTimeout(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }, stampDelay);
+      timeoutIds.push(h1);
+
+      const h2 = setTimeout(
+        () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        },
+        stampDelay + Math.floor(animateCount / 2) * staggerDelay
+      );
+      timeoutIds.push(h2);
+
+      const h3 = setTimeout(
+        () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        },
+        stampDelay + animateCount * staggerDelay
+      );
+      timeoutIds.push(h3);
+    }
 
     return () => {
       timeoutIds.forEach(clearTimeout);

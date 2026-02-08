@@ -78,6 +78,21 @@ export const CountryCard = React.memo(function CountryCard({
   // Press feedback animation
   const { scaleValue: pressScale, pressHandlers } = useAnimatedPress(AnimatedPressPresets.default);
 
+  // Visited inner-border fade animation
+  const visitedBorderOpacity = useRef(new Animated.Value(isVisited ? 1 : 0)).current;
+
+  useEffect(() => {
+    if (reduceMotion) {
+      visitedBorderOpacity.setValue(isVisited ? 1 : 0);
+      return;
+    }
+    Animated.timing(visitedBorderOpacity, {
+      toValue: isVisited ? 1 : 0,
+      duration: 280,
+      useNativeDriver: true,
+    }).start();
+  }, [isVisited, reduceMotion, visitedBorderOpacity]);
+
   // Wishlist button pop animation
   const wishlistScale = useRef(new Animated.Value(1)).current;
   const wishlistAnimRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -265,6 +280,12 @@ export const CountryCard = React.memo(function CountryCard({
             </Animated.View>
           </View>
         </View>
+
+        {/* Visited inner-glow border — always mounted to avoid layout shift */}
+        <Animated.View
+          style={[styles.visitedBorderOverlay, { opacity: visitedBorderOpacity }]}
+          pointerEvents="none"
+        />
       </TouchableOpacity>
     </Animated.View>
   );
@@ -370,6 +391,12 @@ const styles = StyleSheet.create({
   actionButtonWishlisted: {
     backgroundColor: colors.wishlistGold, // Override for active state
     borderColor: colors.wishlistGold,
+  },
+  visitedBorderOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: COUNTRY_CARD_LAYOUT.BORDER_RADIUS,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255, 198, 54, 0.55)', // sunsetGold at ~55% — soft warm glow
   },
   airplaneIconRotated: {
     transform: [{ rotate: '-35deg' }],

@@ -12,6 +12,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -39,6 +40,10 @@ import { fonts } from '@constants/typography';
 import type { PassportStackScreenProps } from '@navigation/types';
 
 import { PhotoTripCard } from './components/PhotoTripCard';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = PassportStackScreenProps<'PhotoTrips'>;
 
@@ -222,7 +227,11 @@ export function PhotoTripsScreen({ navigation, route }: Props) {
     if (!hasInitialImport) {
       return (
         <View style={styles.emptyContainer}>
-          <Ionicons name="images-outline" size={48} color={colors.sunsetGold} />
+          <Image
+            source={polaroidsIllustration}
+            style={styles.emptyIllustration}
+            resizeMode="contain"
+          />
           <Text style={styles.emptyTitle}>No Trips Found Yet</Text>
           <Text style={styles.emptyText}>Import photos to discover trips from your travels</Text>
           <Pressable style={styles.scanButton} onPress={handleStartScan}>
@@ -251,11 +260,15 @@ export function PhotoTripsScreen({ navigation, route }: Props) {
       <View style={styles.header}>
         <GlassBackButton onPress={handleBack} />
         <Text style={styles.headerTitle}>Trips from Photos</Text>
-        <GlassIconButton
-          icon={isSearchExpanded ? 'close' : 'search'}
-          onPress={toggleSearch}
-          accessibilityLabel={isSearchExpanded ? 'Close search' : 'Search trips'}
-        />
+        {listData.length > 0 ? (
+          <GlassIconButton
+            icon={isSearchExpanded ? 'close' : 'search'}
+            onPress={toggleSearch}
+            accessibilityLabel={isSearchExpanded ? 'Close search' : 'Search trips'}
+          />
+        ) : (
+          <View style={styles.headerIconPlaceholder} />
+        )}
       </View>
 
       {/* Animated Search Bar */}
@@ -319,6 +332,10 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
     textAlign: 'center',
   },
+  headerIconPlaceholder: {
+    width: 44,
+    height: 44,
+  },
   searchContainer: {
     paddingHorizontal: 16,
     paddingBottom: 8,
@@ -368,6 +385,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 40,
     paddingTop: 60,
+  },
+  emptyIllustration: {
+    width: 120,
+    height: 120,
+    marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,

@@ -7,6 +7,8 @@ import {
   saveLocalUserCountry,
   removeLocalUserCountry,
   clearLocalUserCountries,
+  saveHomeCountry,
+  clearHomeCountry,
   type LocalUserCountry,
 } from '@services/countriesDb';
 
@@ -147,6 +149,11 @@ export const useOnboardingStore = create<OnboardingState>()(
         }
         if (code) {
           syncToSQLite(code, 'visited', true);
+          // Persist homeCountry to SQLite as backup for migration reliability
+          // (Zustand persist rehydration can lose in-memory state)
+          saveHomeCountry(code).catch((err) =>
+            console.warn('Failed to save homeCountry to SQLite:', err)
+          );
         }
       },
 
@@ -196,6 +203,9 @@ export const useOnboardingStore = create<OnboardingState>()(
         // Clear SQLite user countries when resetting onboarding
         clearLocalUserCountries().catch((err) =>
           console.warn('Failed to clear SQLite user countries:', err)
+        );
+        clearHomeCountry().catch((err) =>
+          console.warn('Failed to clear SQLite home country:', err)
         );
       },
     }),

@@ -10,7 +10,6 @@ import {
 import { identifyUser, resetUser, Analytics } from '@services/analytics';
 import {
   identifyUser as identifyRevenueCatUser,
-  isPremium as isRevenueCatPremium,
   logOutUser as logOutRevenueCatUser,
 } from '@services/revenueCat';
 import { supabase } from '@services/supabase';
@@ -30,19 +29,22 @@ function syncRevenueCat(userId: string): void {
   identifyRevenueCatUser(userId)
     .then(async (customerInfo) => {
       useSubscriptionStore.getState().setCustomerInfo(customerInfo);
-      // Sync subscription to backend DB in case webhooks were missed
-      if (isRevenueCatPremium(customerInfo)) {
-        try {
-          await api.post('/subscriptions/verify');
-        } catch (verifyError) {
-          console.warn('Failed to verify subscription with backend:', verifyError);
-        }
+      // Sync subscription to backend DB in case webhooks were missed.
+      // Always call verify (not just for premium) so downgrades are synced too.
+      try {
+        await api.post('/subscriptions/verify');
+      } catch (verifyError) {
+        console.warn('Failed to verify subscription with backend:', verifyError);
       }
     })
     .catch((error) => {
       console.error('Failed to identify RevenueCat user:', error);
       Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
-      useSubscriptionStore.getState().setSdkAvailable(false);
+      const store = useSubscriptionStore.getState();
+      store.setSdkAvailable(false);
+      // Clear any stale persisted premium status — without SDK validation
+      // we cannot trust the cached state, so fail safe to free
+      store.setStatus('free');
     });
 }
 

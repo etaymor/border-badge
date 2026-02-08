@@ -73,13 +73,30 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     Analytics.viewOnboardingContinent(region);
   }, [region]);
 
-  // Dismiss keyboard when screen receives focus (safety net from previous screen)
+  // Pause video on blur and resume on focus (also dismiss keyboard on focus)
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
       Keyboard.dismiss();
+      if (hasVideoSource) {
+        try {
+          player.play();
+        } catch {
+          // Native player may be released
+        }
+      }
     });
-    return unsubscribe;
-  }, [navigation]);
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      try {
+        player.pause();
+      } catch {
+        // Native player may be released
+      }
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, player, hasVideoSource]);
 
   // Reset and restart animations when region changes
   useEffect(() => {
@@ -115,8 +132,9 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
-      // Use push instead of navigate to add to stack history for back navigation
-      navigation.push('ContinentIntro', {
+      // Replace instead of push to avoid stacking multiple ContinentIntro instances
+      // (each instance keeps its video player in memory)
+      navigation.replace('ContinentIntro', {
         region: REGIONS[nextIndex],
         regionIndex: nextIndex,
       });

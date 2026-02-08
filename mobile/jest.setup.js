@@ -496,6 +496,10 @@ jest.mock('@services/countriesDb', () => ({
   getLocalUserCountries: jest.fn().mockResolvedValue([]),
   clearLocalUserCountries: jest.fn().mockResolvedValue(undefined),
   hasLocalUserCountries: jest.fn().mockResolvedValue(false),
+  // Home country SQLite backup for migration reliability
+  saveHomeCountry: jest.fn().mockResolvedValue(undefined),
+  getHomeCountry: jest.fn().mockResolvedValue(null),
+  clearHomeCountry: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Reset all mocks between tests

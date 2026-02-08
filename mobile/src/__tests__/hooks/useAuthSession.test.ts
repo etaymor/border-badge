@@ -246,4 +246,82 @@ describe('useAuthSession', () => {
       });
     });
   });
+
+  describe('Stale subscription status (persisted store)', () => {
+    it('resets stale premium status to loading on session restore before RevenueCat validates', async () => {
+      // Simulate persisted store from a previous session where user was premium
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        expirationDate: '2026-03-01T00:00:00.000Z',
+        sdkAvailable: true,
+      });
+
+      // RevenueCat will eventually say user is free (trial expired)
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+
+      renderHook(() => useAuthSession());
+
+      // Status should be reset to 'loading' immediately, not staying as stale 'premium'
+      // This prevents the UI from briefly showing "Premium" before RevenueCat responds
+      await waitFor(() => {
+        const status = useSubscriptionStore.getState().status;
+        expect(status).not.toBe('premium');
+      });
+
+      // After RevenueCat responds, status should be 'free'
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+    });
+
+    it('clears stale premium status when RevenueCat SDK fails on session restore', async () => {
+      // Simulate persisted store from a previous session where user was premium
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        expirationDate: '2026-03-01T00:00:00.000Z',
+        sdkAvailable: true,
+      });
+
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockRejectedValue(new Error('Network error'));
+
+      renderHook(() => useAuthSession());
+
+      // After SDK failure, status should fall back to 'free', not remain stale 'premium'
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+    });
+
+    it('syncs downgrade to backend when RevenueCat says user is no longer premium', async () => {
+      const mockApiPost = apiModule.api.post as jest.Mock;
+
+      // User was premium before
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        sdkAvailable: true,
+      });
+
+      // RevenueCat now says free (trial/subscription expired)
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+      mockRevenueCat.isPremium.mockReturnValue(false);
+      mockApiPost.mockResolvedValue({ data: {} });
+
+      renderHook(() => useAuthSession());
+
+      // Should call verify to sync the downgrade to backend
+      await waitFor(() => {
+        expect(mockApiPost).toHaveBeenCalledWith('/subscriptions/verify');
+      });
+    });
+  });
 });

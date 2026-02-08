@@ -9,8 +9,12 @@
  */
 
 import { useCallback } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const cameraIllustration = require('../../../../assets/illustations/camera-illustration.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, {
@@ -99,10 +103,8 @@ export function PhotoTripsCallout({
         accessibilityRole="button"
         accessibilityLabel="Link your camera roll to discover trips from photos"
       >
-        {/* Camera icon */}
-        <View style={[styles.iconContainer, styles.iconContainerUnlinked]}>
-          <Ionicons name="camera-outline" size={24} color={colors.sunsetGold} />
-        </View>
+        {/* Camera illustration */}
+        <Image source={cameraIllustration} style={styles.cameraIllustration} resizeMode="contain" />
 
         {/* Text content */}
         <View style={styles.textContainer}>
@@ -133,7 +135,7 @@ export function PhotoTripsCallout({
       {/* Preview thumbnails */}
       <View style={styles.thumbnailRow}>
         {previewUris.slice(0, 3).map((uri, index) => (
-          <Image
+          <ExpoImage
             key={`thumb-${index}`}
             source={{ uri }}
             style={[
@@ -187,6 +189,11 @@ const styles = StyleSheet.create({
     backgroundColor: withAlpha(colors.sunsetGold, 0.05),
   },
   iconContainer: {
+    marginRight: 12,
+  },
+  cameraIllustration: {
+    width: 44,
+    height: 44,
     marginRight: 12,
   },
   iconContainerUnlinked: {

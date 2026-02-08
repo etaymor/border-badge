@@ -12,12 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
-import { ALL_REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -33,12 +32,12 @@ const ANTARCTICA_CODE = 'AQ';
 const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
-  const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
+  const { addVisitedContinent, toggleCountry } = useOnboardingStore();
   const { isSmallScreen, isLargeScreen } = useResponsive();
   const reduceMotion = useReducedMotion();
 
   // Premium entrance animation
-  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 3 });
 
   // Image scale animation (content-specific, keeps the premium zoom-in)
   const imageScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.95)).current;
@@ -120,22 +119,6 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
               <Text style={styles.noButtonText}>No</Text>
             </TouchableOpacity>
           </Animated.View>
-        </Animated.View>
-
-        {/* Progress indicator at bottom */}
-        <Animated.View style={[styles.progressContainer, getAnimatedStyle(3)]}>
-          {ALL_REGIONS.map((region, index) => (
-            <View
-              key={region}
-              style={[
-                styles.progressDot,
-                // Previous regions are completed if visited
-                index < 5 && visitedContinents.includes(region) && styles.progressDotCompleted,
-                // Antarctica (index 5) is always active on this screen
-                index === 5 && styles.progressDotActive,
-              ]}
-            />
-          ))}
         </Animated.View>
       </SafeAreaView>
     </View>
@@ -240,24 +223,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    paddingBottom: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });

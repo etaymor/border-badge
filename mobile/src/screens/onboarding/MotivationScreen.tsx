@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
 import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -128,7 +129,10 @@ export function MotivationScreen({ navigation }: Props) {
                 key={tag}
                 tag={tag}
                 selected={motivationTags.includes(tag)}
-                onPress={() => toggleMotivationTag(tag)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  toggleMotivationTag(tag);
+                }}
                 delay={300 + index * 60}
               />
             ))}
@@ -144,7 +148,10 @@ export function MotivationScreen({ navigation }: Props) {
                 key={tag}
                 tag={tag}
                 selected={personaTags.includes(tag)}
-                onPress={() => togglePersonaTag(tag)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  togglePersonaTag(tag);
+                }}
                 delay={700 + index * 60}
               />
             ))}

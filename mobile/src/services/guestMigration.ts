@@ -4,7 +4,44 @@ import type { AxiosError } from 'axios';
 import { queryClient } from '../queryClient';
 import { api, getStoredToken, setSuppressAutoSignOut } from './api';
 import { useOnboardingStore } from '@stores/onboardingStore';
-import { getLocalUserCountries, clearLocalUserCountries } from './countriesDb';
+import {
+  getLocalUserCountries,
+  clearLocalUserCountries,
+  getHomeCountry,
+  clearHomeCountry,
+} from './countriesDb';
+
+/**
+ * Snapshot of onboarding state captured before session/navigation changes.
+ * Prevents race conditions where Zustand persist middleware rehydration
+ * could overwrite in-memory state (e.g. homeCountry reverting to null).
+ */
+export interface OnboardingSnapshot {
+  selectedCountries: string[];
+  bucketListCountries: string[];
+  dreamDestination: string | null;
+  homeCountry: string | null;
+  motivationTags: string[];
+  personaTags: string[];
+  trackingPreference: string;
+}
+
+/**
+ * Capture a defensive snapshot of the onboarding store.
+ * Call this BEFORE setSession() to freeze state before navigation changes.
+ */
+export function captureOnboardingSnapshot(): OnboardingSnapshot {
+  const state = useOnboardingStore.getState();
+  return {
+    selectedCountries: [...state.selectedCountries],
+    bucketListCountries: [...state.bucketListCountries],
+    dreamDestination: state.dreamDestination,
+    homeCountry: state.homeCountry,
+    motivationTags: [...state.motivationTags],
+    personaTags: [...state.personaTags],
+    trackingPreference: state.trackingPreference,
+  };
+}
 
 // Helper to delay execution (useful for rate limiting)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -103,7 +140,10 @@ export interface MigrationResult {
   errors: string[];
 }
 
-export async function migrateGuestData(session: Session): Promise<MigrationResult> {
+export async function migrateGuestData(
+  session: Session,
+  snapshot: OnboardingSnapshot
+): Promise<MigrationResult> {
   // Note: isMigrating is set by the caller BEFORE calling this function
   // This ensures the session is available but query shows onboarding data during migration
 
@@ -112,7 +152,7 @@ export async function migrateGuestData(session: Session): Promise<MigrationResul
   setSuppressAutoSignOut(true);
 
   try {
-    const result = await doMigration(session);
+    const result = await doMigration(session, snapshot);
 
     // Invalidate trips and profile caches (user-countries is set directly by doMigration)
     await queryClient.invalidateQueries({ queryKey: ['trips'] });
@@ -125,7 +165,13 @@ export async function migrateGuestData(session: Session): Promise<MigrationResul
   }
 }
 
-async function doMigration(session: Session): Promise<MigrationResult> {
+async function doMigration(
+  session: Session,
+  snapshot: OnboardingSnapshot
+): Promise<MigrationResult> {
+  // Use the pre-captured snapshot instead of reading the store directly.
+  // The store's homeCountry can be null by this point due to Zustand persist
+  // middleware rehydration after setSession() triggers navigation changes.
   const {
     selectedCountries,
     bucketListCountries,
@@ -134,8 +180,7 @@ async function doMigration(session: Session): Promise<MigrationResult> {
     motivationTags,
     personaTags,
     trackingPreference,
-    reset,
-  } = useOnboardingStore.getState();
+  } = snapshot;
 
   const errors: string[] = [];
   let migratedCountries = 0;
@@ -158,10 +203,23 @@ async function doMigration(session: Session): Promise<MigrationResult> {
     console.warn('Failed to read SQLite countries for migration:', err);
   }
 
+  // Recover homeCountry from SQLite if the snapshot lost it due to Zustand persist rehydration
+  let effectiveHomeCountry = homeCountry;
+  if (!effectiveHomeCountry) {
+    try {
+      effectiveHomeCountry = await getHomeCountry();
+      if (effectiveHomeCountry) {
+        console.log('Recovered homeCountry from SQLite:', effectiveHomeCountry);
+      }
+    } catch (err) {
+      console.warn('Failed to read homeCountry from SQLite:', err);
+    }
+  }
+
   // Combine all visited countries from both Zustand store and SQLite
   const allVisitedCountries = new Set(selectedCountries);
-  if (homeCountry) {
-    allVisitedCountries.add(homeCountry);
+  if (effectiveHomeCountry) {
+    allVisitedCountries.add(effectiveHomeCountry);
   }
   // Add visited countries from SQLite
   sqliteCountries
@@ -197,7 +255,7 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   // Migrate profile preferences (home country, travel motives, persona tags, tracking preference)
   // Add a small delay to avoid rate limiting after country migrations
   const hasProfileData =
-    homeCountry ||
+    effectiveHomeCountry ||
     motivationTags.length > 0 ||
     personaTags.length > 0 ||
     trackingPreference !== 'full_atlas';
@@ -206,15 +264,21 @@ async function doMigration(session: Session): Promise<MigrationResult> {
       // Small delay to avoid hitting rate limits after batch country requests
       await delay(500);
 
+      // Build payload, only including home_country_code when it has a value
+      // to avoid overwriting with null due to race conditions
+      const profilePayload: Record<string, unknown> = {
+        travel_motives: motivationTags,
+        persona_tags: personaTags,
+        tracking_preference: trackingPreference,
+      };
+      if (effectiveHomeCountry) {
+        profilePayload.home_country_code = effectiveHomeCountry;
+      }
+
       // Retry on 429 (rate limit) and 404 (profile not yet created by DB trigger)
       await retryWithBackoff(
         async () => {
-          await api.patch('/profile', {
-            home_country_code: homeCountry,
-            travel_motives: motivationTags,
-            persona_tags: personaTags,
-            tracking_preference: trackingPreference,
-          });
+          await api.patch('/profile', profilePayload);
         },
         3,
         1000,
@@ -232,12 +296,17 @@ async function doMigration(session: Session): Promise<MigrationResult> {
   // On failure, the store is preserved so users can retry migration
   // Caller should present retry UI when success === false
   if (errors.length === 0) {
-    reset(); // Clears Zustand store (which also clears SQLite via syncToSQLite)
+    useOnboardingStore.getState().reset(); // Clears Zustand store (which also clears SQLite via syncToSQLite)
     // Explicitly clear SQLite as backup in case store reset doesn't catch everything
     try {
       await clearLocalUserCountries();
     } catch (err) {
       console.warn('Failed to clear SQLite user countries after migration:', err);
+    }
+    try {
+      await clearHomeCountry();
+    } catch (err) {
+      console.warn('Failed to clear SQLite home country after migration:', err);
     }
   }
 

@@ -5,10 +5,9 @@ import { Alert } from 'react-native';
 
 import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
 import { Analytics } from '@services/analytics';
-import { migrateGuestData } from '@services/guestMigration';
+import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
-import { useOnboardingStore } from '@stores/onboardingStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
 import { extractAuthTokensFromUrl, hasUserOnboarded } from '@utils/authHelpers';
 
@@ -150,20 +149,22 @@ export function useGoogleSignIn() {
           await storeOnboardingComplete();
           setSession(data.session);
         } else {
+          // Capture onboarding state before session change triggers re-renders
+          const snapshot = captureOnboardingSnapshot();
+
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
           setSession(data.session);
 
           // Track onboarding completion analytics
-          const onboardingState = useOnboardingStore.getState();
           const uniqueCountries = new Set([
-            ...onboardingState.selectedCountries,
-            ...(onboardingState.homeCountry ? [onboardingState.homeCountry] : []),
+            ...snapshot.selectedCountries,
+            ...(snapshot.homeCountry ? [snapshot.homeCountry] : []),
           ]);
           Analytics.completeOnboarding({
             countriesCount: uniqueCountries.size,
-            homeCountry: onboardingState.homeCountry,
-            trackingPreference: onboardingState.trackingPreference,
+            homeCountry: snapshot.homeCountry,
+            trackingPreference: snapshot.trackingPreference,
           });
 
           // Schedule welcome emails for new user
@@ -177,7 +178,7 @@ export function useGoogleSignIn() {
           }
 
           // Migrate in background - reset isMigrating when done to enable queries
-          migrateGuestData(data.session)
+          migrateGuestData(data.session, snapshot)
             .catch(() => console.warn('Migration failed for Google user'))
             .finally(() => setIsMigrating(false));
         }

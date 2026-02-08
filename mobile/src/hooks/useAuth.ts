@@ -9,7 +9,7 @@ import {
   storeTokens,
 } from '@services/api';
 import { Analytics } from '@services/analytics';
-import { migrateGuestData } from '@services/guestMigration';
+import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -75,6 +75,11 @@ export function useSignUpWithPassword() {
           throw new Error('Failed to store authentication tokens. Please try again.');
         }
 
+        // Capture onboarding state BEFORE any session/navigation changes.
+        // After setSession(), React re-renders can cause Zustand persist middleware
+        // rehydration that resets homeCountry to null.
+        const snapshot = captureOnboardingSnapshot();
+
         // Set isMigrating BEFORE setting session to prevent empty state flash
         // This ensures useUserCountries shows onboarding data immediately
         setIsMigrating(true);
@@ -93,19 +98,18 @@ export function useSignUpWithPassword() {
         setSession(data.session);
 
         // Track onboarding completion analytics
-        const onboardingState = useOnboardingStore.getState();
         const uniqueCountries = new Set([
-          ...onboardingState.selectedCountries,
-          ...(onboardingState.homeCountry ? [onboardingState.homeCountry] : []),
+          ...snapshot.selectedCountries,
+          ...(snapshot.homeCountry ? [snapshot.homeCountry] : []),
         ]);
         Analytics.completeOnboarding({
           countriesCount: uniqueCountries.size,
-          homeCountry: onboardingState.homeCountry,
-          trackingPreference: onboardingState.trackingPreference,
+          homeCountry: snapshot.homeCountry,
+          trackingPreference: snapshot.trackingPreference,
         });
 
         // Migrate in background - isMigrating will be cleared when done
-        migrateGuestData(data.session)
+        migrateGuestData(data.session, snapshot)
           .catch(() => console.warn('Migration failed for new password user'))
           .finally(() => setIsMigrating(false));
       }
@@ -163,12 +167,15 @@ export function useSignInWithPassword() {
           await storeOnboardingComplete();
           setSession(data.session);
         } else {
+          // Capture onboarding state before session change triggers re-renders
+          const snapshot = captureOnboardingSnapshot();
+
           // User exists but hasn't onboarded - set isMigrating before session
           setIsMigrating(true);
           setSession(data.session);
 
           // Migrate in background
-          migrateGuestData(data.session)
+          migrateGuestData(data.session, snapshot)
             .catch(() => console.warn('Migration failed for password user'))
             .finally(() => setIsMigrating(false));
         }

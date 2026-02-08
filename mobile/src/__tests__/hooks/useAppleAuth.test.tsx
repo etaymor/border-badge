@@ -50,6 +50,15 @@ jest.mock('@services/guestMigration', () => ({
     migratedProfile: false,
     errors: [],
   }),
+  captureOnboardingSnapshot: jest.fn().mockReturnValue({
+    selectedCountries: [],
+    bucketListCountries: [],
+    dreamDestination: null,
+    homeCountry: null,
+    motivationTags: [],
+    personaTags: [],
+    trackingPreference: 'full_atlas',
+  }),
 }));
 
 // Mock API service functions
@@ -265,7 +274,7 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
 
       // Note: Session is set via Supabase's signInWithIdToken which triggers
@@ -570,7 +579,7 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         // Should still run migration as fallback
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
     });
   });
