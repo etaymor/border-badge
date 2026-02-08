@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Image, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Image as RNImage, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
 
 import { getStampImage } from '../../assets/stampImages';
 import quillIcon from '../../../assets/quill-icon.png';
@@ -54,11 +55,12 @@ export const StampCard = React.memo(function StampCard({
       <Image
         source={stampImage}
         style={[styles.stampImage, { transform: [{ rotate: rotation }] }]}
-        resizeMode="contain"
+        contentFit="contain"
+        recyclingKey={code}
       />
       {hasTrips && (
         <View style={styles.tripsIndicator} testID={`stamp-card-trips-${code}`}>
-          <Image source={quillIcon} style={styles.tripsIcon} />
+          <RNImage source={quillIcon} style={styles.tripsIcon} />
         </View>
       )}
     </TouchableOpacity>

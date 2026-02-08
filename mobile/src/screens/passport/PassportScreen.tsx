@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Animated, FlatList, Platform } from 'react-native';
+import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
@@ -352,7 +352,7 @@ export function PassportScreen({ navigation }: Props) {
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={true}
           maxToRenderPerBatch={10}
           windowSize={5}
           initialNumToRender={10}

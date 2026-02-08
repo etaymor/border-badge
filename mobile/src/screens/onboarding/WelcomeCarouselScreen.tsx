@@ -56,7 +56,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   }, [navigation, player]);
 
   const handleNext = () => {
-    navigation.navigate('OnboardingSlider');
+    navigation.replace('OnboardingSlider');
   };
 
   const handleLogin = () => {

@@ -7,7 +7,6 @@ import {
   Alert,
   FlatList,
   Image,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -348,7 +347,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           ListFooterComponent={renderFooter}
           ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} isVisited={isVisited} />}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={true}
           maxToRenderPerBatch={10}
           windowSize={5}
           initialNumToRender={6}

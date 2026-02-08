@@ -159,37 +159,37 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     Analytics.viewOnboardingSlider();
   }, []);
 
-  // Create video players for each slide
-  const player0 = useVideoPlayer(SLIDES[0].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  });
-  const player1 = useVideoPlayer(SLIDES[1].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  });
-  const player2 = useVideoPlayer(SLIDES[2].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  });
-
+  // One player per slide — avoids replace() which causes stale-frame flashes.
+  // Only the active slide's player is playing; the others stay paused and buffered.
+  const playerConfig = useCallback(
+    (p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
+      p.loop = true;
+      p.muted = true;
+      p.audioMixingMode = 'mixWithOthers';
+    },
+    []
+  );
+  const player0 = useVideoPlayer(SLIDES[0].video, playerConfig);
+  const player1 = useVideoPlayer(SLIDES[1].video, playerConfig);
+  const player2 = useVideoPlayer(SLIDES[2].video, playerConfig);
   const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
 
-  // Play only active slide's video
+  // Play only the active slide's player, pause the rest
   useEffect(() => {
-    players.forEach((player, index) => {
-      if (index === activeIndex) {
-        player.play();
-      } else {
-        player.pause();
+    players.forEach((p, i) => {
+      try {
+        if (i === activeIndex) {
+          p.play();
+        } else {
+          p.pause();
+        }
+      } catch {
+        // Native player may be released
       }
     });
   }, [activeIndex, players]);
 
-  // Pause all video players when screen loses focus to free GPU resources
+  // Pause all players when screen loses focus, resume active on focus
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {
@@ -227,7 +227,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   }).current;
 
   const handleStartJourney = () => {
-    navigation.navigate('Motivation');
+    navigation.replace('Motivation');
   };
 
   const handleLogin = () => {
@@ -275,12 +275,14 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             },
           ]}
         >
-          <VideoView
-            player={players[index]}
-            style={[styles.video, { borderRadius: layout.videoBorderRadius }]}
-            contentFit="contain"
-            nativeControls={false}
-          />
+          <View style={[styles.video, { borderRadius: layout.videoBorderRadius }]}>
+            <VideoView
+              player={players[index]}
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
+              nativeControls={false}
+            />
+          </View>
         </View>
 
         {/* Text below video */}
