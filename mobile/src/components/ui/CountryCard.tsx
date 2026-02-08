@@ -193,7 +193,12 @@ export const CountryCard = React.memo(function CountryCard({
       >
         {/* Background Image */}
         {countryImage ? (
-          <Image source={countryImage} style={styles.countryImage} contentFit="cover" recyclingKey={code} />
+          <Image
+            source={countryImage}
+            style={styles.countryImage}
+            contentFit="cover"
+            recyclingKey={code}
+          />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Ionicons name="image-outline" size={48} color={colors.textTertiary} />

@@ -278,7 +278,13 @@ export function OnboardingSliderScreen({ navigation }: Props) {
               nativeControls={false}
             />
           ) : (
-            <View style={[styles.video, styles.videoPlaceholder, { borderRadius: layout.videoBorderRadius }]} />
+            <View
+              style={[
+                styles.video,
+                styles.videoPlaceholder,
+                { borderRadius: layout.videoBorderRadius },
+              ]}
+            />
           )}
         </View>
 
