@@ -46,22 +46,20 @@ describe('Onboarding video players do not interrupt background music', () => {
     expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');
   });
 
-  it('OnboardingSliderScreen sets audioMixingMode to mixWithOthers on all players', () => {
+  it('OnboardingSliderScreen sets audioMixingMode to mixWithOthers', () => {
     const navigation =
       mockNavigation as unknown as OnboardingStackScreenProps<'OnboardingSlider'>['navigation'];
 
     render(<OnboardingSliderScreen navigation={navigation} route={{} as never} />);
 
-    // OnboardingSliderScreen creates 3 video players (one per slide)
-    expect(useVideoPlayer).toHaveBeenCalledTimes(3);
+    // OnboardingSliderScreen uses a single video player (swaps source per slide)
+    expect(useVideoPlayer).toHaveBeenCalledTimes(1);
 
-    for (let i = 0; i < 3; i++) {
-      const callback = useVideoPlayer.mock.calls[i][1];
-      const mockPlayer = { loop: false, muted: false, audioMixingMode: 'auto' };
-      callback(mockPlayer);
+    const callback = useVideoPlayer.mock.calls[0][1];
+    const mockPlayer = { loop: false, muted: false, audioMixingMode: 'auto' };
+    callback(mockPlayer);
 
-      expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');
-    }
+    expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');
   });
 
   it('ContinentIntroScreen sets audioMixingMode to mixWithOthers', () => {

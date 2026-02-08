@@ -124,7 +124,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     addVisitedContinent(region);
-    navigation.navigate('ContinentCountryGrid', { region });
+    navigation.replace('ContinentCountryGrid', { region });
   };
 
   const handleNo = () => {

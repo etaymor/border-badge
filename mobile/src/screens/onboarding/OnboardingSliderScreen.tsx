@@ -159,59 +159,54 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     Analytics.viewOnboardingSlider();
   }, []);
 
-  // Create video players for each slide
-  const player0 = useVideoPlayer(SLIDES[0].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  });
-  const player1 = useVideoPlayer(SLIDES[1].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  });
-  const player2 = useVideoPlayer(SLIDES[2].video, (p) => {
+  // Single video player — swap source on slide change to avoid 3 simultaneous decoders
+  const player = useVideoPlayer(SLIDES[0].video, (p) => {
     p.loop = true;
     p.muted = true;
     p.audioMixingMode = 'mixWithOthers';
   });
 
-  const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
-
-  // Play only active slide's video
+  // Swap video source when active slide changes
+  const prevIndexRef = useRef(0);
   useEffect(() => {
-    players.forEach((player, index) => {
-      if (index === activeIndex) {
+    if (activeIndex !== prevIndexRef.current) {
+      prevIndexRef.current = activeIndex;
+      try {
+        player.replace(SLIDES[activeIndex].video);
         player.play();
-      } else {
-        player.pause();
+      } catch {
+        // Native player may be released
       }
-    });
-  }, [activeIndex, players]);
+    } else {
+      try {
+        player.play();
+      } catch {
+        // Native player may be released
+      }
+    }
+  }, [activeIndex, player]);
 
-  // Pause all video players when screen loses focus to free GPU resources
+  // Pause video player when screen loses focus to free GPU resources
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {
-        players[activeIndex]?.play();
+        player.play();
       } catch {
         // Native player may be released
       }
     });
     const unsubscribeBlur = navigation.addListener('blur', () => {
-      players.forEach((p) => {
-        try {
-          p.pause();
-        } catch {
-          // Native player may be released
-        }
-      });
+      try {
+        player.pause();
+      } catch {
+        // Native player may be released
+      }
     });
     return () => {
       unsubscribeFocus();
       unsubscribeBlur();
     };
-  }, [navigation, players, activeIndex]);
+  }, [navigation, player]);
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
@@ -227,7 +222,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   }).current;
 
   const handleStartJourney = () => {
-    navigation.navigate('Motivation');
+    navigation.replace('Motivation');
   };
 
   const handleLogin = () => {
@@ -275,12 +270,16 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             },
           ]}
         >
-          <VideoView
-            player={players[index]}
-            style={[styles.video, { borderRadius: layout.videoBorderRadius }]}
-            contentFit="contain"
-            nativeControls={false}
-          />
+          {index === activeIndex ? (
+            <VideoView
+              player={player}
+              style={[styles.video, { borderRadius: layout.videoBorderRadius }]}
+              contentFit="contain"
+              nativeControls={false}
+            />
+          ) : (
+            <View style={[styles.video, styles.videoPlaceholder, { borderRadius: layout.videoBorderRadius }]} />
+          )}
         </View>
 
         {/* Text below video */}
@@ -419,6 +418,9 @@ const styles = StyleSheet.create({
   video: {
     flex: 1,
     overflow: 'hidden',
+  },
+  videoPlaceholder: {
+    backgroundColor: colors.paperBeige,
   },
   textContainer: {
     alignItems: 'center',

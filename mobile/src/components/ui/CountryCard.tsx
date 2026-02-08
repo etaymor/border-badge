@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   GestureResponderEvent,
-  Image,
+  Image as RNImage,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -192,7 +193,7 @@ export const CountryCard = React.memo(function CountryCard({
       >
         {/* Background Image */}
         {countryImage ? (
-          <Image source={countryImage} style={styles.countryImage} resizeMode="cover" />
+          <Image source={countryImage} style={styles.countryImage} contentFit="cover" recyclingKey={code} />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
@@ -226,7 +227,7 @@ export const CountryCard = React.memo(function CountryCard({
             {/* Trips Indicator - Badge next to flag */}
             {hasTrips && (
               <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
-                <Image source={quillIcon} style={styles.tripsIcon} />
+                <RNImage source={quillIcon} style={styles.tripsIcon} />
               </View>
             )}
           </View>
