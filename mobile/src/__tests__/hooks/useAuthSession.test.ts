@@ -296,6 +296,74 @@ describe('useAuthSession', () => {
       await waitFor(() => {
         expect(useSubscriptionStore.getState().status).toBe('free');
       });
+
+      // plan and expirationDate should also be cleared to prevent stale metadata
+      expect(useSubscriptionStore.getState().plan).toBeNull();
+      expect(useSubscriptionStore.getState().expirationDate).toBeNull();
+    });
+
+    it('does not update subscription store if user signs out while syncRevenueCat is in-flight', async () => {
+      // Make isPremium return true so setCustomerInfo actually sets premium status
+      mockRevenueCat.isPremium.mockReturnValue(true);
+      mockRevenueCat.getSubscriptionPlan.mockReturnValue('annual');
+      mockRevenueCat.getExpirationDate.mockReturnValue(new Date('2027-01-01'));
+
+      mockGetSession.mockResolvedValue({ data: { session: null } });
+
+      let authChangeCallback: (event: string, session: typeof mockSession | null) => void;
+      mockOnAuthStateChange.mockImplementation((callback) => {
+        authChangeCallback = callback;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      });
+
+      // RevenueCat identify takes a while to resolve
+      let resolveIdentify: (value: unknown) => void;
+      mockRevenueCat.identifyUser.mockReturnValue(
+        new Promise((resolve) => {
+          resolveIdentify = resolve;
+        })
+      );
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockOnAuthStateChange).toHaveBeenCalled();
+      });
+
+      // User signs in → triggers syncRevenueCat (which is now pending)
+      authChangeCallback!('SIGNED_IN', mockSession);
+
+      await waitFor(() => {
+        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123');
+      });
+
+      // User signs out BEFORE RevenueCat responds → store is reset
+      authChangeCallback!('SIGNED_OUT', null);
+
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+
+      // Now RevenueCat finally resolves with premium customer info
+      resolveIdentify!({
+        entitlements: {
+          active: {
+            'Full Access': {
+              identifier: 'Full Access',
+              isActive: true,
+              periodType: 'NORMAL',
+              productIdentifier: 'com.atlasi.app.Annual',
+              expirationDate: '2027-01-01T00:00:00.000Z',
+            },
+          },
+        },
+      });
+
+      // Wait a tick for the promise to settle
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Store should NOT have been updated to premium — the session was invalidated
+      expect(useSubscriptionStore.getState().status).toBe('free');
     });
 
     it('syncs downgrade to backend when RevenueCat says user is no longer premium', async () => {
