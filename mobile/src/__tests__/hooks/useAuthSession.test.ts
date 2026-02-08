@@ -263,14 +263,24 @@ describe('useAuthSession', () => {
         entitlements: { active: {} },
       });
 
+      // Delay RevenueCat response so we can observe the intermediate 'loading' state
+      let resolveIdentify: (value: unknown) => void;
+      mockRevenueCat.identifyUser.mockReturnValue(
+        new Promise((resolve) => {
+          resolveIdentify = resolve;
+        })
+      );
+
       renderHook(() => useAuthSession());
 
-      // Status should be reset to 'loading' immediately, not staying as stale 'premium'
-      // This prevents the UI from briefly showing "Premium" before RevenueCat responds
+      // Status should be reset to 'loading' immediately when the session is
+      // restored, before RevenueCat has a chance to respond.
       await waitFor(() => {
-        const status = useSubscriptionStore.getState().status;
-        expect(status).not.toBe('premium');
+        expect(useSubscriptionStore.getState().status).toBe('loading');
       });
+
+      // Now let RevenueCat respond
+      resolveIdentify!({ entitlements: { active: {} } });
 
       // After RevenueCat responds, status should be 'free'
       await waitFor(() => {
@@ -366,6 +376,26 @@ describe('useAuthSession', () => {
       expect(useSubscriptionStore.getState().status).toBe('free');
     });
 
+    it('passes AbortSignal to subscription verify API call so it can be cancelled on sign-out', async () => {
+      const mockApiPost = apiModule.api.post as jest.Mock;
+
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+      mockApiPost.mockResolvedValue({ data: {} });
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockApiPost).toHaveBeenCalledWith(
+          '/subscriptions/verify',
+          undefined,
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+      });
+    });
+
     it('syncs downgrade to backend when RevenueCat says user is no longer premium', async () => {
       const mockApiPost = apiModule.api.post as jest.Mock;
 
@@ -388,7 +418,11 @@ describe('useAuthSession', () => {
 
       // Should call verify to sync the downgrade to backend
       await waitFor(() => {
-        expect(mockApiPost).toHaveBeenCalledWith('/subscriptions/verify');
+        expect(mockApiPost).toHaveBeenCalledWith(
+          '/subscriptions/verify',
+          undefined,
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
       });
     });
   });

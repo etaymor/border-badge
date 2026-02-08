@@ -80,17 +80,27 @@ export const CountryCard = React.memo(function CountryCard({
 
   // Visited inner-border fade animation
   const visitedBorderOpacity = useRef(new Animated.Value(isVisited ? 1 : 0)).current;
+  const visitedAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     if (reduceMotion) {
       visitedBorderOpacity.setValue(isVisited ? 1 : 0);
       return;
     }
-    Animated.timing(visitedBorderOpacity, {
+    // Stop any in-flight animation to avoid leaks/overlaps
+    if (visitedAnimRef.current) {
+      visitedAnimRef.current.stop();
+      visitedAnimRef.current = null;
+    }
+    const anim = Animated.timing(visitedBorderOpacity, {
       toValue: isVisited ? 1 : 0,
       duration: 280,
       useNativeDriver: true,
-    }).start();
+    });
+    visitedAnimRef.current = anim;
+    anim.start(() => {
+      visitedAnimRef.current = null;
+    });
   }, [isVisited, reduceMotion, visitedBorderOpacity]);
 
   // Wishlist button pop animation

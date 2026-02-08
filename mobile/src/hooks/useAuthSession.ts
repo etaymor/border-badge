@@ -29,6 +29,9 @@ function getErrorMessage(error: unknown): string {
  *   invalidated (e.g. user signs out) before the async work completes.
  */
 function syncRevenueCat(userId: string, signal?: AbortSignal): void {
+  // Reset to 'loading' immediately so the UI doesn't flash stale persisted
+  // state (e.g. 'premium') while the SDK call completes.
+  useSubscriptionStore.getState().setStatus('loading');
   identifyRevenueCatUser(userId)
     .then(async (customerInfo) => {
       if (signal?.aborted) return;
@@ -36,7 +39,7 @@ function syncRevenueCat(userId: string, signal?: AbortSignal): void {
       // Sync subscription to backend DB in case webhooks were missed.
       // Always call verify (not just for premium) so downgrades are synced too.
       try {
-        await api.post('/subscriptions/verify');
+        await api.post('/subscriptions/verify', undefined, { signal });
       } catch (verifyError) {
         console.warn('Failed to verify subscription with backend:', verifyError);
       }
