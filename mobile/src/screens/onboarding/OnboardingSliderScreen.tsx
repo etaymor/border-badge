@@ -161,11 +161,14 @@ export function OnboardingSliderScreen({ navigation }: Props) {
 
   // One player per slide — avoids replace() which causes stale-frame flashes.
   // Only the active slide's player is playing; the others stay paused and buffered.
-  const playerConfig = useCallback((p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
-    p.loop = true;
-    p.muted = true;
-    p.audioMixingMode = 'mixWithOthers';
-  }, []);
+  const playerConfig = useCallback(
+    (p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
+      p.loop = true;
+      p.muted = true;
+      p.audioMixingMode = 'mixWithOthers';
+    },
+    []
+  );
   const player0 = useVideoPlayer(SLIDES[0].video, playerConfig);
   const player1 = useVideoPlayer(SLIDES[1].video, playerConfig);
   const player2 = useVideoPlayer(SLIDES[2].video, playerConfig);
@@ -272,12 +275,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             },
           ]}
         >
-          <View
-            style={[
-              styles.video,
-              { borderRadius: layout.videoBorderRadius },
-            ]}
-          >
+          <View style={[styles.video, { borderRadius: layout.videoBorderRadius }]}>
             <VideoView
               player={players[index]}
               style={StyleSheet.absoluteFill}
