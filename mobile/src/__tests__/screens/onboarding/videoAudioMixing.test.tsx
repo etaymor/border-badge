@@ -56,7 +56,7 @@ describe('Onboarding video players do not interrupt background music', () => {
     expect(useVideoPlayer).toHaveBeenCalledTimes(1);
 
     const callback = useVideoPlayer.mock.calls[0][1];
-    const mockPlayer = { loop: false, muted: false, audioMixingMode: 'auto' };
+    const mockPlayer = { loop: false, muted: false, audioMixingMode: 'auto', play: jest.fn() };
     callback(mockPlayer);
 
     expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');

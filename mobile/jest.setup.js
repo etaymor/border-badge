@@ -380,6 +380,7 @@ jest.mock(
         play: jest.fn(),
         pause: jest.fn(),
         replace: jest.fn(),
+        addListener: jest.fn(() => ({ remove: jest.fn() })),
       };
       if (callback) callback(player);
       return player;

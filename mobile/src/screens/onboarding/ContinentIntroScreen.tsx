@@ -73,12 +73,13 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     Analytics.viewOnboardingContinent(region);
   }, [region]);
 
-  // Pause video on blur and resume on focus (also dismiss keyboard on focus)
+  // Release video source on blur to free native memory, restore on focus
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       Keyboard.dismiss();
       if (hasVideoSource) {
         try {
+          player.replace(playerSource);
           player.play();
         } catch {
           // Native player may be released
@@ -87,7 +88,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     });
     const unsubscribeBlur = navigation.addListener('blur', () => {
       try {
-        player.pause();
+        player.replace(null);
       } catch {
         // Native player may be released
       }
@@ -96,7 +97,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
       unsubscribeFocus();
       unsubscribeBlur();
     };
-  }, [navigation, player, hasVideoSource]);
+  }, [navigation, player, hasVideoSource, playerSource]);
 
   // Reset and restart animations when region changes
   useEffect(() => {
@@ -124,7 +125,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     addVisitedContinent(region);
-    navigation.replace('ContinentCountryGrid', { region });
+    navigation.navigate('ContinentCountryGrid', { region });
   };
 
   const handleNo = () => {
@@ -132,9 +133,9 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
-      // Replace instead of push to avoid stacking multiple ContinentIntro instances
-      // (each instance keeps its video player in memory)
-      navigation.replace('ContinentIntro', {
+      // Push so user can go back if they accidentally tapped "No"
+      // Video memory is managed via player.replace(null) on blur
+      navigation.push('ContinentIntro', {
         region: REGIONS[nextIndex],
         regionIndex: nextIndex,
       });

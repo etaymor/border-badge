@@ -1,7 +1,8 @@
 /**
- * Tests that OnboardingSliderScreen only calls player.replace() + play()
- * when the active slide actually changes, and does NOT issue a redundant
- * play() when the index stays the same.
+ * Tests that OnboardingSliderScreen video player initialization and source
+ * swapping work correctly:
+ * - play() is called once during player initialization
+ * - replace() is NOT called when activeIndex stays the same
  */
 
 import { render } from '../../utils/testUtils';
@@ -20,19 +21,20 @@ describe('OnboardingSliderScreen video source swapping', () => {
     jest.clearAllMocks();
   });
 
-  it('does not call play() redundantly when activeIndex has not changed', () => {
+  it('calls play() once during initialization and does not replace() on same index', () => {
     const navigation =
       mockNavigation as unknown as OnboardingStackScreenProps<'OnboardingSlider'>['navigation'];
 
     render(<OnboardingSliderScreen navigation={navigation} route={{} as never} />);
 
-    // Get the player returned by the mock
     const player = useVideoPlayer.mock.results[0].value;
 
-    // On initial render, activeIndex=0 and prevIndexRef=0, so the slide hasn't
-    // "changed". The player was already initialized with SLIDES[0].video by
-    // useVideoPlayer, so no replace() or play() should be needed.
+    // play() should be called exactly once — from the useVideoPlayer initializer
+    // callback, NOT from the slide-change effect (activeIndex=0 === prevIndexRef=0).
+    expect(player.play).toHaveBeenCalledTimes(1);
+
+    // replace() should NOT be called — the player was already initialized with
+    // SLIDES[0].video, so no source swap is needed on the initial render.
     expect(player.replace).not.toHaveBeenCalled();
-    expect(player.play).not.toHaveBeenCalled();
   });
 });

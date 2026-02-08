@@ -154,6 +154,9 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
 
+  // Animated opacity for fading in video after source swap
+  const videoOpacity = useRef(new Animated.Value(1)).current;
+
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingSlider();
@@ -164,13 +167,29 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     p.loop = true;
     p.muted = true;
     p.audioMixingMode = 'mixWithOthers';
+    p.play();
   });
+
+  // Fade in the VideoView once the new source is ready to play
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay') {
+        Animated.timing(videoOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+    return () => subscription.remove();
+  }, [player, videoOpacity]);
 
   // Swap video source when active slide changes
   const prevIndexRef = useRef(0);
   useEffect(() => {
     if (activeIndex !== prevIndexRef.current) {
       prevIndexRef.current = activeIndex;
+      videoOpacity.setValue(0);
       try {
         player.replace(SLIDES[activeIndex].video);
         player.play();
@@ -178,7 +197,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
         // Native player may be released
       }
     }
-  }, [activeIndex, player]);
+  }, [activeIndex, player, videoOpacity]);
 
   // Pause video player when screen loses focus to free GPU resources
   useEffect(() => {
@@ -265,12 +284,19 @@ export function OnboardingSliderScreen({ navigation }: Props) {
           ]}
         >
           {index === activeIndex ? (
-            <VideoView
-              player={player}
-              style={[styles.video, { borderRadius: layout.videoBorderRadius }]}
-              contentFit="contain"
-              nativeControls={false}
-            />
+            <Animated.View
+              style={[
+                styles.video,
+                { borderRadius: layout.videoBorderRadius, opacity: videoOpacity },
+              ]}
+            >
+              <VideoView
+                player={player}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                nativeControls={false}
+              />
+            </Animated.View>
           ) : (
             <View
               style={[
