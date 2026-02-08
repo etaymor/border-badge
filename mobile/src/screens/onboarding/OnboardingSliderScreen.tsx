@@ -177,12 +177,6 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       } catch {
         // Native player may be released
       }
-    } else {
-      try {
-        player.play();
-      } catch {
-        // Native player may be released
-      }
     }
   }, [activeIndex, player]);
 

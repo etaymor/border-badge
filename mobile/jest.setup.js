@@ -379,6 +379,7 @@ jest.mock(
         currentTime: 0,
         play: jest.fn(),
         pause: jest.fn(),
+        replace: jest.fn(),
       };
       if (callback) callback(player);
       return player;
