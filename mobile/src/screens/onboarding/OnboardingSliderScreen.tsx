@@ -154,72 +154,61 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
 
-  // Animated opacity for fading in video after source swap
-  const videoOpacity = useRef(new Animated.Value(1)).current;
-
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingSlider();
   }, []);
 
-  // Single video player — swap source on slide change to avoid 3 simultaneous decoders
-  const player = useVideoPlayer(SLIDES[0].video, (p) => {
+  // One player per slide — avoids replace() which causes stale-frame flashes.
+  // Only the active slide's player is playing; the others stay paused and buffered.
+  const playerConfig = useCallback((p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
     p.loop = true;
     p.muted = true;
     p.audioMixingMode = 'mixWithOthers';
-    p.play();
-  });
+  }, []);
+  const player0 = useVideoPlayer(SLIDES[0].video, playerConfig);
+  const player1 = useVideoPlayer(SLIDES[1].video, playerConfig);
+  const player2 = useVideoPlayer(SLIDES[2].video, playerConfig);
+  const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
 
-  // Fade in the VideoView once the new source is ready to play
+  // Play only the active slide's player, pause the rest
   useEffect(() => {
-    const subscription = player.addListener('statusChange', ({ status }) => {
-      if (status === 'readyToPlay') {
-        Animated.timing(videoOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
-      }
-    });
-    return () => subscription.remove();
-  }, [player, videoOpacity]);
-
-  // Swap video source when active slide changes
-  const prevIndexRef = useRef(0);
-  useEffect(() => {
-    if (activeIndex !== prevIndexRef.current) {
-      prevIndexRef.current = activeIndex;
-      videoOpacity.setValue(0);
+    players.forEach((p, i) => {
       try {
-        player.replace(SLIDES[activeIndex].video);
-        player.play();
+        if (i === activeIndex) {
+          p.play();
+        } else {
+          p.pause();
+        }
       } catch {
         // Native player may be released
       }
-    }
-  }, [activeIndex, player, videoOpacity]);
+    });
+  }, [activeIndex, players]);
 
-  // Pause video player when screen loses focus to free GPU resources
+  // Pause all players when screen loses focus, resume active on focus
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {
-        player.play();
+        players[activeIndex]?.play();
       } catch {
         // Native player may be released
       }
     });
     const unsubscribeBlur = navigation.addListener('blur', () => {
-      try {
-        player.pause();
-      } catch {
-        // Native player may be released
-      }
+      players.forEach((p) => {
+        try {
+          p.pause();
+        } catch {
+          // Native player may be released
+        }
+      });
     });
     return () => {
       unsubscribeFocus();
       unsubscribeBlur();
     };
-  }, [navigation, player]);
+  }, [navigation, players, activeIndex]);
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
@@ -283,29 +272,19 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             },
           ]}
         >
-          {index === activeIndex ? (
-            <Animated.View
-              style={[
-                styles.video,
-                { borderRadius: layout.videoBorderRadius, opacity: videoOpacity },
-              ]}
-            >
-              <VideoView
-                player={player}
-                style={StyleSheet.absoluteFill}
-                contentFit="contain"
-                nativeControls={false}
-              />
-            </Animated.View>
-          ) : (
-            <View
-              style={[
-                styles.video,
-                styles.videoPlaceholder,
-                { borderRadius: layout.videoBorderRadius },
-              ]}
+          <View
+            style={[
+              styles.video,
+              { borderRadius: layout.videoBorderRadius },
+            ]}
+          >
+            <VideoView
+              player={players[index]}
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
+              nativeControls={false}
             />
-          )}
+          </View>
         </View>
 
         {/* Text below video */}
@@ -444,9 +423,6 @@ const styles = StyleSheet.create({
   video: {
     flex: 1,
     overflow: 'hidden',
-  },
-  videoPlaceholder: {
-    backgroundColor: colors.paperBeige,
   },
   textContainer: {
     alignItems: 'center',
