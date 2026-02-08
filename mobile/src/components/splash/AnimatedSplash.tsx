@@ -34,6 +34,7 @@ function AnimatedSplashComponent({
   const player = useVideoPlayer(splashVideo, (p) => {
     p.loop = true;
     p.muted = true;
+    p.audioMixingMode = 'mixWithOthers';
     p.play();
   });
 

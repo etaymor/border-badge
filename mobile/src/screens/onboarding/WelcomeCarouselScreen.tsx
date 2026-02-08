@@ -24,6 +24,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
   const player = useVideoPlayer(welcomeVideo, (player) => {
     player.loop = true;
     player.muted = true;
+    player.audioMixingMode = 'mixWithOthers';
     player.play();
   });
 
