@@ -361,3 +361,44 @@ export async function hasLocalUserCountries(): Promise<boolean> {
   );
   return (result?.count ?? 0) > 0;
 }
+
+// =============================================================================
+// Home Country - SQLite backup for onboarding migration reliability
+// =============================================================================
+
+const HOME_COUNTRY_KEY = 'onboarding_home_country';
+
+/**
+ * Save the home country code to SQLite as a backup for migration.
+ * Zustand persist middleware can lose in-memory state during rehydration,
+ * so SQLite serves as a reliable secondary source of truth.
+ */
+export async function saveHomeCountry(countryCode: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)', [
+    HOME_COUNTRY_KEY,
+    countryCode,
+  ]);
+}
+
+/**
+ * Get the home country code from SQLite.
+ * Returns null if not set.
+ */
+export async function getHomeCountry(): Promise<string | null> {
+  const database = await getDb();
+  const result = await database.getFirstAsync<{ value: string }>(
+    'SELECT value FROM sync_metadata WHERE key = ?',
+    [HOME_COUNTRY_KEY]
+  );
+  return result?.value ?? null;
+}
+
+/**
+ * Clear the home country code from SQLite.
+ * Called after successful migration or store reset.
+ */
+export async function clearHomeCountry(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM sync_metadata WHERE key = ?', [HOME_COUNTRY_KEY]);
+}

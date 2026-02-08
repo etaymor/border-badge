@@ -189,6 +189,30 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     });
   }, [activeIndex, players]);
 
+  // Pause all video players when screen loses focus to free GPU resources
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      try {
+        players[activeIndex]?.play();
+      } catch {
+        // Native player may be released
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      players.forEach((p) => {
+        try {
+          p.pause();
+        } catch {
+          // Native player may be released
+        }
+      });
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, players, activeIndex]);
+
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index !== null) {

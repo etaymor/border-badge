@@ -33,6 +33,28 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     Analytics.viewOnboardingWelcome();
   }, []);
 
+  // Pause video when screen loses focus to free GPU resources
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      try {
+        player.play();
+      } catch {
+        // Native player may be released
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      try {
+        player.pause();
+      } catch {
+        // Native player may be released
+      }
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, player]);
+
   const handleNext = () => {
     navigation.navigate('OnboardingSlider');
   };

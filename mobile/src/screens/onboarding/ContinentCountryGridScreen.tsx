@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -256,10 +257,15 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
 
+  // Cap staggered animations to above-the-fold items; cards beyond the cap
+  // render at full opacity instantly (getAnimatedStyle returns opacity:1 for out-of-range indices)
+  const STAGGER_ANIMATION_CAP = 8;
+  const animatedItemCount = Math.min(regionCountries.length, STAGGER_ANIMATION_CAP);
+
   // Staggered entrance animation for country cards (40ms delay for smooth wave)
   const { getAnimatedStyle, startAnimation, resetAnimation, isFirstComplete } =
     useStaggeredEntrance({
-      itemCount: regionCountries.length,
+      itemCount: animatedItemCount,
       staggerDelay: 40,
       autoStart: false, // We'll start manually when region changes
     });
@@ -400,22 +406,32 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     }
   };
 
+  // Throttle haptics to prevent rapid-fire when toggling many countries quickly
+  const lastHapticRef = useRef(0);
+  const throttledHaptic = useCallback(() => {
+    const now = Date.now();
+    if (now - lastHapticRef.current > 100) {
+      lastHapticRef.current = now;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
+
   const handleToggleVisited = useCallback(
     (code: string) => {
       Keyboard.dismiss();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      throttledHaptic();
       toggleCountry(code);
     },
-    [toggleCountry]
+    [toggleCountry, throttledHaptic]
   );
 
   const handleToggleWishlist = useCallback(
     (code: string) => {
       Keyboard.dismiss();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      throttledHaptic();
       toggleBucketListCountry(code);
     },
-    [toggleBucketListCountry]
+    [toggleBucketListCountry, throttledHaptic]
   );
 
   const handleSearchToggle = useCallback(() => {
@@ -578,6 +594,11 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
       {/* Footer */}
       <Animated.View style={[styles.footer, { opacity: footerOpacity }]}>
+        <LinearGradient
+          colors={['rgba(253, 246, 237, 0)', colors.warmCream]}
+          locations={[0, 0.4]}
+          style={StyleSheet.absoluteFill}
+        />
         <TouchableOpacity
           style={styles.continueButton}
           onPress={handleSaveAndContinue}
@@ -720,12 +741,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: colors.warmCream,
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 40,
-    borderTopWidth: 1,
-    borderTopColor: colors.paperBeige,
   },
   continueButton: {
     flexDirection: 'row',

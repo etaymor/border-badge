@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -449,6 +451,12 @@ export function AuthScreen({ navigation }: Props) {
                 <Text style={styles.startFreshText}>New here? Start fresh</Text>
               </TouchableOpacity>
             </Animated.View>
+
+            {/* Version info for debugging OTA updates */}
+            <Text style={styles.versionText}>
+              v{Constants.expoConfig?.version ?? '?'}
+              {Updates.updateId ? ` (${Updates.updateId.slice(0, 8)})` : ''}
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -623,5 +631,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     textDecorationLine: 'underline',
+  },
+  versionText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 10,
+    color: 'rgba(0, 0, 0, 0.2)',
+    textAlign: 'center',
+    marginTop: 12,
   },
 });

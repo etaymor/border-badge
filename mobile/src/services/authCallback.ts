@@ -14,7 +14,7 @@
  */
 
 import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
-import { migrateGuestData } from '@services/guestMigration';
+import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getSafeLogMessage } from '@utils/authErrors';
@@ -143,13 +143,16 @@ export async function processAuthCallback(url: string): Promise<AuthCallbackResu
       await storeOnboardingComplete();
       authStore.setSession(session);
     } else {
+      // Capture onboarding state before session change triggers re-renders
+      const snapshot = captureOnboardingSnapshot();
+
       // New user - set isMigrating before session to prevent empty state flash
       authStore.setIsMigrating(true);
       authStore.setSession(session);
 
       // Attempt migration and always clear isMigrating when done
       try {
-        await migrateGuestData(session);
+        await migrateGuestData(session, snapshot);
       } catch {
         console.warn('Migration failed for auth callback user');
       } finally {

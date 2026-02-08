@@ -246,4 +246,184 @@ describe('useAuthSession', () => {
       });
     });
   });
+
+  describe('Stale subscription status (persisted store)', () => {
+    it('resets stale premium status to loading on session restore before RevenueCat validates', async () => {
+      // Simulate persisted store from a previous session where user was premium
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        expirationDate: '2026-03-01T00:00:00.000Z',
+        sdkAvailable: true,
+      });
+
+      // RevenueCat will eventually say user is free (trial expired)
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+
+      // Delay RevenueCat response so we can observe the intermediate 'loading' state
+      let resolveIdentify: (value: unknown) => void;
+      mockRevenueCat.identifyUser.mockReturnValue(
+        new Promise((resolve) => {
+          resolveIdentify = resolve;
+        })
+      );
+
+      renderHook(() => useAuthSession());
+
+      // Status should be reset to 'loading' immediately when the session is
+      // restored, before RevenueCat has a chance to respond.
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('loading');
+      });
+
+      // Now let RevenueCat respond
+      resolveIdentify!({ entitlements: { active: {} } });
+
+      // After RevenueCat responds, status should be 'free'
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+    });
+
+    it('clears stale premium status when RevenueCat SDK fails on session restore', async () => {
+      // Simulate persisted store from a previous session where user was premium
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        expirationDate: '2026-03-01T00:00:00.000Z',
+        sdkAvailable: true,
+      });
+
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockRejectedValue(new Error('Network error'));
+
+      renderHook(() => useAuthSession());
+
+      // After SDK failure, status should fall back to 'free', not remain stale 'premium'
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+
+      // plan and expirationDate should also be cleared to prevent stale metadata
+      expect(useSubscriptionStore.getState().plan).toBeNull();
+      expect(useSubscriptionStore.getState().expirationDate).toBeNull();
+    });
+
+    it('does not update subscription store if user signs out while syncRevenueCat is in-flight', async () => {
+      // Make isPremium return true so setCustomerInfo actually sets premium status
+      mockRevenueCat.isPremium.mockReturnValue(true);
+      mockRevenueCat.getSubscriptionPlan.mockReturnValue('annual');
+      mockRevenueCat.getExpirationDate.mockReturnValue(new Date('2027-01-01'));
+
+      mockGetSession.mockResolvedValue({ data: { session: null } });
+
+      let authChangeCallback: (event: string, session: typeof mockSession | null) => void;
+      mockOnAuthStateChange.mockImplementation((callback) => {
+        authChangeCallback = callback;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      });
+
+      // RevenueCat identify takes a while to resolve
+      let resolveIdentify: (value: unknown) => void;
+      mockRevenueCat.identifyUser.mockReturnValue(
+        new Promise((resolve) => {
+          resolveIdentify = resolve;
+        })
+      );
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockOnAuthStateChange).toHaveBeenCalled();
+      });
+
+      // User signs in → triggers syncRevenueCat (which is now pending)
+      authChangeCallback!('SIGNED_IN', mockSession);
+
+      await waitFor(() => {
+        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123');
+      });
+
+      // User signs out BEFORE RevenueCat responds → store is reset
+      authChangeCallback!('SIGNED_OUT', null);
+
+      await waitFor(() => {
+        expect(useSubscriptionStore.getState().status).toBe('free');
+      });
+
+      // Now RevenueCat finally resolves with premium customer info
+      resolveIdentify!({
+        entitlements: {
+          active: {
+            'Full Access': {
+              identifier: 'Full Access',
+              isActive: true,
+              periodType: 'NORMAL',
+              productIdentifier: 'com.atlasi.app.Annual',
+              expirationDate: '2027-01-01T00:00:00.000Z',
+            },
+          },
+        },
+      });
+
+      // Wait a tick for the promise to settle
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Store should NOT have been updated to premium — the session was invalidated
+      expect(useSubscriptionStore.getState().status).toBe('free');
+    });
+
+    it('passes AbortSignal to subscription verify API call so it can be cancelled on sign-out', async () => {
+      const mockApiPost = apiModule.api.post as jest.Mock;
+
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+      mockApiPost.mockResolvedValue({ data: {} });
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockApiPost).toHaveBeenCalledWith(
+          '/subscriptions/verify',
+          undefined,
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+      });
+    });
+
+    it('syncs downgrade to backend when RevenueCat says user is no longer premium', async () => {
+      const mockApiPost = apiModule.api.post as jest.Mock;
+
+      // User was premium before
+      useSubscriptionStore.setState({
+        status: 'premium',
+        plan: 'annual',
+        sdkAvailable: true,
+      });
+
+      // RevenueCat now says free (trial/subscription expired)
+      mockGetSession.mockResolvedValue({ data: { session: mockSession } });
+      mockRevenueCat.identifyUser.mockResolvedValue({
+        entitlements: { active: {} },
+      });
+      mockRevenueCat.isPremium.mockReturnValue(false);
+      mockApiPost.mockResolvedValue({ data: {} });
+
+      renderHook(() => useAuthSession());
+
+      // Should call verify to sync the downgrade to backend
+      await waitFor(() => {
+        expect(mockApiPost).toHaveBeenCalledWith(
+          '/subscriptions/verify',
+          undefined,
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+      });
+    });
+  });
 });

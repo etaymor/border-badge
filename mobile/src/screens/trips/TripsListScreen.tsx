@@ -4,6 +4,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Pressable,
   RefreshControl,
   SectionList,
@@ -27,6 +28,10 @@ import type { TripsStackScreenProps } from '@navigation/types';
 
 import { PhotoTripsCallout } from '../lists/components/PhotoTripsCallout';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const backpackIllustration = require('../../../assets/illustations/backpack-illustration-compressed.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 type Props = TripsStackScreenProps<'TripsList'>;
 
 // Memoized components and helpers for SectionList performance
@@ -49,9 +54,7 @@ const SectionHeader = memo(function SectionHeader({ title }: { title: string }) 
 function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
   return (
     <View style={styles.emptyContainer}>
-      <View style={styles.emptyIconCircle}>
-        <Text style={styles.emptyIcon}>✈️</Text>
-      </View>
+      <Image source={backpackIllustration} style={styles.emptyIllustration} resizeMode="contain" />
       <Text style={styles.emptyTitle}>The World Awaits</Text>
       <Text style={styles.emptySubtitle}>
         Your passport is ready. Add your first trip to start your collection of memories.
@@ -148,6 +151,8 @@ export function TripsListScreen({ navigation }: Props) {
     }
     return result;
   }, [trips, visitedCountryCodes, searchQuery, countriesMap]);
+
+  const hasTrips = sections.reduce((sum, s) => sum + s.data.length, 0) > 0;
 
   const handleAddTrip = useCallback(() => {
     navigation.navigate('TripForm', {});
@@ -276,7 +281,7 @@ export function TripsListScreen({ navigation }: Props) {
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         ListHeaderComponent={renderHeader}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, !hasTrips && styles.listContentEmpty]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -292,12 +297,14 @@ export function TripsListScreen({ navigation }: Props) {
         }
       />
 
-      {/* FAB for adding new trip - blooms into place */}
-      <Animated.View style={[styles.fabContainer, getButtonStyle(3)]}>
-        <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
-          <Ionicons name="add" size={28} color={colors.midnightNavy} />
-        </Pressable>
-      </Animated.View>
+      {/* FAB for adding new trip - only when user has trips */}
+      {hasTrips && (
+        <Animated.View style={[styles.fabContainer, getButtonStyle(3)]}>
+          <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
+            <Ionicons name="add" size={28} color={colors.midnightNavy} />
+          </Pressable>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -416,6 +423,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 130, // Space for FAB + Tab Bar
   },
+  listContentEmpty: {
+    paddingBottom: 80, // No FAB when empty; space for Tab Bar
+  },
   tripCardWrapper: {
     marginBottom: 24, // Space for shadow to render below card
   },
@@ -441,25 +451,16 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     padding: 32,
-    marginTop: 60,
+    paddingTop: 24,
+    marginTop: 0,
   },
-  emptyIconCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
-    justifyContent: 'center',
-    alignItems: 'center',
+  emptyIllustration: {
+    width: 120,
+    height: 120,
     marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.3)',
-    borderStyle: 'dashed',
-  },
-  emptyIcon: {
-    fontSize: 48,
   },
   emptyTitle: {
     fontSize: 24,
