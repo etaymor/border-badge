@@ -433,24 +433,6 @@ export const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 16,
   },
-  warningBannerScanning: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.sunsetGold + '15',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 24,
-    marginHorizontal: 20,
-  },
-  warningText: {
-    flex: 1,
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.midnightNavy,
-    marginLeft: 8,
-    lineHeight: 18,
-  },
-
   // Loading & Empty states
   loadingContainer: {
     flex: 1,

@@ -20,6 +20,7 @@ import {
   cachePhotos,
   clearPhotoCache,
   abortBackgroundSync,
+  type DiscoveredCountry,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -28,20 +29,14 @@ import {
   type CachedPhoto,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
+import { getCountryName } from '@utils/countries';
 import { isAbortError, createAbortError } from './photoImportUtils';
 
 /** Batch size for incremental cache commits during scanning */
 const INCREMENTAL_CACHE_BATCH = 500;
 
-/** Resolve country code to display name */
-const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-function getCountryName(code: string): string {
-  try {
-    return regionNames.of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
+/** Reason the scan produced no usable results (not an error, just no data) */
+export type ScanFailureReason = 'no-photos' | 'no-trips';
 
 export interface ScanResult {
   candidates: TripCandidateDisplay[];
@@ -51,6 +46,12 @@ export interface ScanResult {
   importTime: number;
   isIncremental: boolean;
 }
+
+/** Return value from startScan */
+export type ScanOutcome =
+  | { success: true }
+  | { success: false; reason: ScanFailureReason; title: string; message: string }
+  | { success: false; reason: null };
 
 export interface UsePhotoScanOptions {
   homeCountry: string | null;
@@ -70,14 +71,14 @@ export function usePhotoScan({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const startScan = useCallback(
-    async (forceRefresh = false) => {
+    async (forceRefresh = false): Promise<ScanOutcome> => {
       if (!homeCountry) {
         Alert.alert(
           'Set Home Country',
           'Please set your home country in settings first. This helps us filter out local photos.',
           [{ text: 'OK' }]
         );
-        return false;
+        return { success: false, reason: null };
       }
 
       // Abort any background sync in progress to prevent conflicts
@@ -106,16 +107,21 @@ export function usePhotoScan({
 
         // Track discovered countries for live progress feed
         const discoveredCountryCodes = new Set<string>();
-        const discoveredCountries: Array<{ code: string; name: string }> = [];
+        const discoveredCountries: DiscoveredCountry[] = [];
 
         // Accumulate photos for incremental caching
         let pendingCachePhotos: PhotoWithLocation[] = [];
+        // Map photo ID -> pre-computed country code from iso1A2Code (avoids double lookup)
+        const photoCountryCodes = new Map<string, string | null>();
+        // Track fire-and-forget cache write promises to await before final read
+        const cachePromises: Promise<void>[] = [];
 
         // Batch callback: cache incrementally and detect countries
         const handleBatch = (batchPhotos: PhotoWithLocation[]) => {
-          // Detect new countries from this batch
+          // Detect new countries from this batch and store the computed code for reuse
           for (const photo of batchPhotos) {
             const code = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+            photoCountryCodes.set(photo.id, code ?? null);
             if (code && !discoveredCountryCodes.has(code)) {
               discoveredCountryCodes.add(code);
               discoveredCountries.push({ code, name: getCountryName(code) });
@@ -127,12 +133,15 @@ export function usePhotoScan({
 
           // Commit to SQLite every INCREMENTAL_CACHE_BATCH photos
           if (pendingCachePhotos.length >= INCREMENTAL_CACHE_BATCH) {
-            const toCache = pendingCachePhotos.map(photoToCachedPhoto);
+            const toCache = pendingCachePhotos.map((p) =>
+              photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+            );
             pendingCachePhotos = [];
             // Fire-and-forget cache write (don't block scanning)
-            cachePhotos(toCache).catch((err) => {
+            const promise = cachePhotos(toCache).catch((err) => {
               if (__DEV__) console.warn('[PhotoImport] Incremental cache write failed:', err);
             });
+            cachePromises.push(promise);
           }
         };
 
@@ -141,7 +150,8 @@ export function usePhotoScan({
           if (controller.signal.aborted) return;
           onScanProgress({
             ...progress,
-            discoveredCountries: discoveredCountries.length > 0 ? discoveredCountries : undefined,
+            discoveredCountries:
+              discoveredCountries.length > 0 ? [...discoveredCountries] : undefined,
           });
         };
 
@@ -185,9 +195,14 @@ export function usePhotoScan({
           throw createAbortError('Scan aborted');
         }
 
+        // Wait for all in-flight incremental cache writes to complete
+        await Promise.all(cachePromises);
+
         // Flush any remaining photos to cache
         if (pendingCachePhotos.length > 0) {
-          const remainingCached = pendingCachePhotos.map(photoToCachedPhoto);
+          const remainingCached = pendingCachePhotos.map((p) =>
+            photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+          );
           await cachePhotos(remainingCached);
         }
 
@@ -200,19 +215,20 @@ export function usePhotoScan({
         // missing photos taken during the scan. Falls back to Date.now() if no photos.
         const importTime =
           newPhotos.length > 0
-            ? Math.max(...newPhotos.map((p) => p.creationTime.getTime()))
+            ? newPhotos.reduce((max, p) => Math.max(max, p.creationTime.getTime()), 0)
             : Date.now();
         await setLastImportTime(importTime);
 
         // Check if we have any photos at all
         if (allCachedPhotos.length === 0 && newPhotos.length === 0) {
-          Alert.alert(
-            'No Photos Found',
-            'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
-            [{ text: 'OK' }]
-          );
           abortControllerRef.current = null;
-          return false;
+          return {
+            success: false,
+            reason: 'no-photos',
+            title: 'No Photos Found',
+            message:
+              'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
+          };
         }
 
         // Segment trips from cached data (fast: no geocoding needed)
@@ -223,15 +239,15 @@ export function usePhotoScan({
         }
 
         if (candidates.length === 0) {
-          Alert.alert(
-            'No Trips Found',
-            filterCountryCode
+          abortControllerRef.current = null;
+          return {
+            success: false,
+            reason: 'no-trips',
+            title: 'No Trips Found',
+            message: filterCountryCode
               ? `No travel photos found for this country. Photos taken in your home country (${homeCountry}) are filtered out.`
               : `No travel photos found. Photos taken in your home country (${homeCountry}) are filtered out.`,
-            [{ text: 'OK' }]
-          );
-          abortControllerRef.current = null;
-          return false;
+          };
         }
 
         const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
@@ -254,12 +270,12 @@ export function usePhotoScan({
         });
 
         abortControllerRef.current = null;
-        return true;
+        return { success: true };
       } catch (error) {
         abortControllerRef.current = null;
         if (isAbortError(error)) {
           // Scan was cancelled, not an error
-          return false;
+          return { success: false, reason: null };
         } else if (error instanceof HomeCountryNotSetError) {
           Alert.alert('Set Home Country', 'Please set your home country in settings first.');
           Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
@@ -271,7 +287,7 @@ export function usePhotoScan({
           });
         }
         onScanError();
-        return false;
+        return { success: false, reason: null };
       }
     },
     [homeCountry, filterCountryCode, onScanProgress, onScanComplete, onScanError]

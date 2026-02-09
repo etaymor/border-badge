@@ -429,10 +429,19 @@ function cachedPhotoToPhotoWithLocation(cached: CachedPhoto): PhotoWithLocation 
 /**
  * Convert PhotoWithLocation to CachedPhoto for storage.
  * Computes geohash and country code for caching.
+ *
+ * @param photo - Photo with location data
+ * @param precomputedCountryCode - Optional pre-computed country code to avoid redundant iso1A2Code lookup
  */
-export function photoToCachedPhoto(photo: PhotoWithLocation): CachedPhoto {
+export function photoToCachedPhoto(
+  photo: PhotoWithLocation,
+  precomputedCountryCode?: string | null
+): CachedPhoto {
   const hash = geohash.encode(photo.location.latitude, photo.location.longitude, GEOHASH_PRECISION);
-  const countryCode = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+  const countryCode =
+    precomputedCountryCode !== undefined
+      ? precomputedCountryCode
+      : (iso1A2Code([photo.location.longitude, photo.location.latitude]) ?? null);
 
   return {
     id: photo.id,

@@ -129,7 +129,9 @@ export function useAutoStartWorkflow({
 
         // If no country filter, just start a scan (e.g., first-time from PhotoTripsScreen)
         if (!filterCountryCode) {
-          startScan(false);
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
           return;
         }
 
@@ -149,7 +151,9 @@ export function useAutoStartWorkflow({
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] cache empty -> startScan');
             }
-            startScan(false);
+            startScan(false).catch(() => {
+              /* error handled by scan hook */
+            });
             return;
           }
 
@@ -163,7 +167,9 @@ export function useAutoStartWorkflow({
           if (candidates.length === 0) {
             // No candidates for this country - shouldn't happen if UI showed button
             // but fallback to scan just in case
-            startScan(false);
+            startScan(false).catch(() => {
+              /* error handled by scan hook */
+            });
             return;
           }
 
@@ -258,7 +264,9 @@ export function useAutoStartWorkflow({
           }
         } else {
           // Normal incremental scan
-          startScan(false);
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
         }
       })();
     }

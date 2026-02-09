@@ -14,6 +14,7 @@ import type {
   PlaceSuggestion,
 } from '@services/photoImport';
 import type { EntryType } from '@navigation/types';
+import type { ScanFailureReason } from './usePhotoScan';
 
 /**
  * Represents multiple clusters that resolved to the same place (by place_id).
@@ -64,6 +65,10 @@ export interface PhotoImportWorkflowResult {
   isIncremental: boolean;
   /** Cluster IDs that have been dismissed/processed (confirmed entries) */
   dismissedClusterIdsInternal: Set<string>;
+  /** Set when scan completes with no usable results (no photos or no trips) */
+  scanFailure: { reason: ScanFailureReason; title: string; message: string } | null;
+  /** Clear the scan failure after showing alert */
+  clearScanFailure: () => void;
 
   /** Photo upload states for all active uploads, keyed by cluster ID */
   uploadStates: Map<string, ClusterUploadState>;

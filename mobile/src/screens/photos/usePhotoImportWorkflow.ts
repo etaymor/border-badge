@@ -24,7 +24,7 @@ import type {
   PhotoImportWorkflowResult,
   UsePhotoImportWorkflowOptions,
 } from './photoImportTypes';
-import { usePhotoScan, ScanResult } from './usePhotoScan';
+import { usePhotoScan, type ScanResult, type ScanFailureReason } from './usePhotoScan';
 import { usePlaceSuggestions } from './usePlaceSuggestions';
 import { useEntryCreation } from './useEntryCreation';
 import { useWorkflowAnalytics } from './useWorkflowAnalytics';
@@ -58,6 +58,17 @@ export function usePhotoImportWorkflow({
   const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId ?? null);
   const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
   const [isIncremental, setIsIncremental] = useState<boolean>(false);
+
+  // Scan failure state: set when scan completes with no usable results, cleared after alert shown
+  const [scanFailure, setScanFailure] = useState<{
+    reason: ScanFailureReason;
+    title: string;
+    message: string;
+  } | null>(null);
+
+  const clearScanFailure = useCallback(() => {
+    setScanFailure(null);
+  }, []);
 
   // Track dismissed clusters to mark as processed after confirm
   const [dismissedClusterIdsInternal, setDismissedClusterIdsInternal] = useState<Set<string>>(
@@ -169,10 +180,20 @@ export function usePhotoImportWorkflow({
 
   const startScan = useCallback(
     async (forceRefresh = false) => {
+      setScanFailure(null);
       setPhase('scanning');
-      const success = await startScanInternal(forceRefresh);
-      if (!success) {
+      const outcome = await startScanInternal(forceRefresh);
+      if (!outcome.success) {
         setPhase('idle');
+        // If there's a specific failure reason (no-photos or no-trips), surface it
+        // so the screen can show the alert and navigate back on dismiss
+        if (outcome.reason) {
+          setScanFailure({
+            reason: outcome.reason,
+            title: outcome.title,
+            message: outcome.message,
+          });
+        }
       }
     },
     [startScanInternal]
@@ -353,6 +374,8 @@ export function usePhotoImportWorkflow({
     isIncremental,
     isSaving: createEntry.isPending,
     dismissedClusterIdsInternal,
+    scanFailure,
+    clearScanFailure,
     uploadStates,
     getUploadState,
     uploadingClusterIds,

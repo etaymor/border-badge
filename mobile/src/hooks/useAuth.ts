@@ -10,6 +10,7 @@ import {
 } from '@services/api';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
+import { clearPhotoCache } from '@services/photoImport/photoCacheDb';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -212,6 +213,8 @@ export function useSignOut() {
       queryClient.clear(); // Clear all cached data
       await clearTokens();
       await clearOnboardingComplete();
+      // Clear cached GPS data to prevent leaking location data to next user
+      await clearPhotoCache().catch(() => {});
     },
     onError: (error) => {
       console.error('Sign out failed:', getSafeLogMessage(error));
@@ -246,6 +249,8 @@ export function useDeleteAccount() {
       queryClient.clear();
       await clearTokens();
       await clearOnboardingComplete();
+      // Clear cached GPS data to prevent leaking location data to next user
+      await clearPhotoCache().catch(() => {});
     },
     onError: (error) => {
       console.error('Account deletion failed:', getSafeLogMessage(error));

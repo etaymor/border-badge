@@ -9,7 +9,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -19,7 +18,6 @@ import {
   View,
 } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -48,6 +46,7 @@ import {
   PhotoTripSwitcherSheet,
 } from './components';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
+import { useScanLifecycle } from './useScanLifecycle';
 import { styles } from './photoImportStyles';
 
 /** Display item that can be a merged suggestion, single suggestion, or photo-only cluster */
@@ -206,6 +205,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     isIncremental,
     isSaving,
     dismissedClusterIdsInternal,
+    scanFailure,
+    clearScanFailure,
     getUploadState,
     uploadingClusterIds,
     isPremium,
@@ -232,76 +233,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     skipToSuggestions,
   });
 
-  // Track whether a scan was ever started (to detect failed auto-start)
-  const scanAttemptedRef = useRef(false);
-  useEffect(() => {
-    if (phase === 'scanning') {
-      scanAttemptedRef.current = true;
-    }
-  }, [phase]);
-
-  // Auto-navigate back when auto-started scan fails (returns to idle after scanning)
-  useEffect(() => {
-    if (autoStart && phase === 'idle' && scanAttemptedRef.current) {
-      navigation.goBack();
-    }
-  }, [autoStart, phase, navigation]);
-
-  // Keep screen awake during scanning
-  useEffect(() => {
-    if (phase === 'scanning') {
-      activateKeepAwakeAsync('photo-scan');
-    } else {
-      deactivateKeepAwake('photo-scan');
-    }
-    return () => {
-      deactivateKeepAwake('photo-scan');
-    };
-  }, [phase]);
-
-  // Track scan start time for cancel confirmation
-  const scanStartTimeRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (phase === 'scanning') {
-      scanStartTimeRef.current = Date.now();
-    } else {
-      scanStartTimeRef.current = null;
-    }
-  }, [phase]);
-
-  // Block back navigation during scanning with confirmation
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      if (phase !== 'scanning') return;
-
-      e.preventDefault();
-      Alert.alert('Scan in Progress', "If you leave now, you'll need to restart the scan.", [
-        { text: 'Keep Scanning', style: 'cancel' },
-        {
-          text: 'Stop Scan',
-          style: 'destructive',
-          onPress: () => {
-            cancelScan();
-            navigation.dispatch(e.data.action);
-          },
-        },
-      ]);
-    });
-    return unsubscribe;
-  }, [navigation, phase, cancelScan]);
-
-  // Cancel with confirmation when scan has been running >30 seconds
-  const handleCancelScan = useCallback(() => {
-    const elapsed = scanStartTimeRef.current ? Date.now() - scanStartTimeRef.current : 0;
-    if (elapsed > 30000) {
-      Alert.alert('Cancel Scan?', 'Your scan is in progress. Are you sure you want to cancel?', [
-        { text: 'Keep Scanning', style: 'cancel' },
-        { text: 'Cancel Scan', style: 'destructive', onPress: cancelScan },
-      ]);
-    } else {
-      cancelScan();
-    }
-  }, [cancelScan]);
+  const { handleCancelScan } = useScanLifecycle({
+    phase,
+    cancelScan,
+    scanFailure,
+    clearScanFailure,
+    autoStart,
+    navigation,
+  });
 
   // Wrap handleConfirmPlace to track when a place is confirmed for review trigger
   const handleConfirmPlaceWithTracking = useCallback(

@@ -16,6 +16,12 @@ export interface PhotoWithLocation {
   };
 }
 
+// Country discovered during photo scanning
+export interface DiscoveredCountry {
+  code: string;
+  name: string;
+}
+
 // Progress reporting during scan
 export interface ScanProgress {
   phase: 'counting' | 'scanning' | 'geocoding' | 'complete';
@@ -25,7 +31,7 @@ export interface ScanProgress {
   /** Number of photos found with GPS data (only populated during scanning phase) */
   gpsPhotoCount?: number;
   /** Countries discovered so far during scanning (for live discovery feed) */
-  discoveredCountries?: Array<{ code: string; name: string }>;
+  discoveredCountries?: DiscoveredCountry[];
 }
 
 // Location cluster from geohash grouping

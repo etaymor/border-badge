@@ -336,7 +336,7 @@ describe('usePhotoImportWorkflow', () => {
       expect(mockedPhotoImport.clearPhotoCache).toHaveBeenCalled();
     });
 
-    it('shows alert when no photos with location found', async () => {
+    it('sets scanFailure when no photos with location found', async () => {
       mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([]);
       mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([]);
 
@@ -348,15 +348,16 @@ describe('usePhotoImportWorkflow', () => {
         await result.current.startScan();
       });
 
-      expect(global.__mockAlert.alert).toHaveBeenCalledWith(
-        'No Photos Found',
-        expect.stringContaining('No photos with location data'),
-        expect.any(Array)
+      expect(result.current.scanFailure).toEqual(
+        expect.objectContaining({
+          title: 'No Photos Found',
+          message: expect.stringContaining('No photos with location data'),
+        })
       );
       expect(result.current.phase).toBe('idle');
     });
 
-    it('shows alert when no trips found (all photos from home country)', async () => {
+    it('sets scanFailure when no trips found (all photos from home country)', async () => {
       mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
       mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
         candidates: [], // Empty - all filtered out as home country
@@ -373,10 +374,11 @@ describe('usePhotoImportWorkflow', () => {
         await result.current.startScan();
       });
 
-      expect(global.__mockAlert.alert).toHaveBeenCalledWith(
-        'No Trips Found',
-        expect.stringContaining('No travel photos found'),
-        expect.any(Array)
+      expect(result.current.scanFailure).toEqual(
+        expect.objectContaining({
+          title: 'No Trips Found',
+          message: expect.stringContaining('No travel photos found'),
+        })
       );
       expect(result.current.phase).toBe('idle');
     });
