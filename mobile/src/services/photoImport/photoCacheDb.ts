@@ -720,7 +720,7 @@ export async function performBackgroundPhotoSync(
 
     // Cache new photos if found
     if (newPhotos.length > 0) {
-      const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
+      const newCachedPhotos = newPhotos.map((p) => photoToCachedPhoto(p));
       await cachePhotos(newCachedPhotos);
     }
 

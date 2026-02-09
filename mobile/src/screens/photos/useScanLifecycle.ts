@@ -43,8 +43,10 @@ export function useScanLifecycle({
 }: UseScanLifecycleOptions): UseScanLifecycleResult {
   // Ref that tracks scanning state synchronously to avoid stale closures in beforeRemove
   const scanningRef = useRef(false);
+  const phaseRef = useRef(phase);
   useEffect(() => {
     scanningRef.current = phase === 'scanning';
+    phaseRef.current = phase;
   }, [phase]);
 
   // Show alert when scan finds no photos or no trips, navigate back on dismiss
@@ -55,7 +57,7 @@ export function useScanLifecycle({
         text: 'OK',
         onPress: () => {
           clearScanFailure();
-          if (autoStart) {
+          if (autoStart && phaseRef.current === 'idle') {
             navigation.goBack();
           }
         },
@@ -66,7 +68,7 @@ export function useScanLifecycle({
   // Keep screen awake during scanning
   useEffect(() => {
     if (phase === 'scanning') {
-      activateKeepAwakeAsync('photo-scan');
+      activateKeepAwakeAsync('photo-scan').catch(() => {});
     } else {
       deactivateKeepAwake('photo-scan');
     }

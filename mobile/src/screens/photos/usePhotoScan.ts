@@ -151,7 +151,7 @@ export function usePhotoScan({
           onScanProgress({
             ...progress,
             discoveredCountries:
-              discoveredCountries.length > 0 ? [...discoveredCountries] : undefined,
+              discoveredCountries.length > 0 ? discoveredCountries.slice(-10) : undefined,
           });
         };
 
@@ -192,6 +192,8 @@ export function usePhotoScan({
 
         // Check for abort after photo extraction
         if (controller.signal.aborted) {
+          // Wait for any in-flight cache writes before throwing
+          await Promise.all(cachePromises).catch(() => {});
           throw createAbortError('Scan aborted');
         }
 
