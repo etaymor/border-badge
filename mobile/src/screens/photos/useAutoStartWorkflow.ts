@@ -117,10 +117,7 @@ export function useAutoStartWorkflow({
       });
     }
     const canAutoStart =
-      autoStart &&
-      filterCountryCode &&
-      !autoStartAttemptedRef.current &&
-      (homeCountry || skipToSuggestions);
+      autoStart && !autoStartAttemptedRef.current && (homeCountry || skipToSuggestions);
 
     if (canAutoStart) {
       autoStartAttemptedRef.current = true;
@@ -129,6 +126,13 @@ export function useAutoStartWorkflow({
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] Starting sequence');
         }
+
+        // If no country filter, just start a scan (e.g., first-time from PhotoTripsScreen)
+        if (!filterCountryCode) {
+          startScan(false);
+          return;
+        }
+
         const lastImport = await getLastImportTime();
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] lastImport', lastImport);

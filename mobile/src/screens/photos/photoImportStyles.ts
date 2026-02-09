@@ -103,6 +103,25 @@ export const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: colors.sunsetGold,
   },
+  scanningHint: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  discoveryFeed: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  discoveryItem: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    color: colors.midnightNavy,
+    marginBottom: 4,
+  },
   cancelButton: {
     marginTop: 24,
     padding: 12,

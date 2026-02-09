@@ -54,12 +54,14 @@ export async function presentLimitedPhotoPicker(): Promise<void> {
  * @param onProgress - Callback for progress updates
  * @param signal - Optional AbortSignal for cancellation
  * @param since - Optional date to only extract photos created after this time (for incremental imports)
+ * @param onBatch - Optional callback receiving each batch of photos with GPS as they're found (for incremental caching)
  * @returns Array of photos with location data
  */
 export async function extractPhotosWithLocation(
   onProgress: (progress: ScanProgress) => void,
   signal?: AbortSignal,
-  since?: Date
+  since?: Date,
+  onBatch?: (photos: PhotoWithLocation[]) => void
 ): Promise<PhotoWithLocation[]> {
   // 1. Request permissions with location access
   const { granted, limited } = await requestPhotoPermissions();
@@ -141,7 +143,13 @@ export async function extractPhotosWithLocation(
     });
 
     const batchResults = await Promise.all(batchPromises);
-    photos.push(...batchResults.filter((p): p is PhotoWithLocation => p !== null));
+    const batchPhotos = batchResults.filter((p): p is PhotoWithLocation => p !== null);
+    photos.push(...batchPhotos);
+
+    // Notify about this batch for incremental caching and country discovery
+    if (batchPhotos.length > 0 && onBatch) {
+      onBatch(batchPhotos);
+    }
 
     processedCount += result.assets.length;
     onProgress({

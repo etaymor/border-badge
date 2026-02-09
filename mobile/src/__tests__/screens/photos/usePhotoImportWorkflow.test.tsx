@@ -310,7 +310,8 @@ describe('usePhotoImportWorkflow', () => {
       expect(mockedPhotoImport.extractPhotosWithLocation).toHaveBeenCalledWith(
         expect.any(Function),
         expect.any(AbortSignal),
-        expect.any(Date) // createdAfter date
+        expect.any(Date), // createdAfter date
+        expect.any(Function) // onBatch callback
       );
     });
 
@@ -439,7 +440,13 @@ describe('usePhotoImportWorkflow', () => {
 
     it('caches new photos after scan', async () => {
       const mockPhotos = [createMockPhoto('photo-1')];
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue(mockPhotos);
+      // Mock extractPhotosWithLocation to call onBatch with the photos (simulating incremental caching)
+      mockedPhotoImport.extractPhotosWithLocation.mockImplementation(
+        async (_onProgress, _signal, _since, onBatch) => {
+          if (onBatch) onBatch(mockPhotos);
+          return mockPhotos;
+        }
+      );
       mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
         candidates: [createMockTripCandidate('trip-1')],
         photoLookup: new Map(),

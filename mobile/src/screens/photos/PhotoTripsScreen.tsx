@@ -161,7 +161,7 @@ export function PhotoTripsScreen({ navigation, route }: Props) {
 
   // Handle starting a new photo scan
   const handleStartScan = useCallback(() => {
-    navigation.navigate('PhotoImport', {});
+    navigation.navigate('PhotoImport', { autoStart: true });
   }, [navigation]);
 
   // Render list item

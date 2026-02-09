@@ -7,6 +7,8 @@
 import { useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 
+import { iso1A2Code } from '@rapideditor/country-coder';
+
 import {
   extractPhotosWithLocation,
   segmentTripsFromCache,
@@ -27,6 +29,19 @@ import {
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
 import { isAbortError, createAbortError } from './photoImportUtils';
+
+/** Batch size for incremental cache commits during scanning */
+const INCREMENTAL_CACHE_BATCH = 500;
+
+/** Resolve country code to display name */
+const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+function getCountryName(code: string): string {
+  try {
+    return regionNames.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
 
 export interface ScanResult {
   candidates: TripCandidateDisplay[];
@@ -89,6 +104,47 @@ export function usePhotoScan({
         let allCachedPhotos: CachedPhoto[] = [];
         let newPhotos: PhotoWithLocation[] = [];
 
+        // Track discovered countries for live progress feed
+        const discoveredCountryCodes = new Set<string>();
+        const discoveredCountries: Array<{ code: string; name: string }> = [];
+
+        // Accumulate photos for incremental caching
+        let pendingCachePhotos: PhotoWithLocation[] = [];
+
+        // Batch callback: cache incrementally and detect countries
+        const handleBatch = (batchPhotos: PhotoWithLocation[]) => {
+          // Detect new countries from this batch
+          for (const photo of batchPhotos) {
+            const code = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+            if (code && !discoveredCountryCodes.has(code)) {
+              discoveredCountryCodes.add(code);
+              discoveredCountries.push({ code, name: getCountryName(code) });
+            }
+          }
+
+          // Accumulate for incremental caching
+          pendingCachePhotos.push(...batchPhotos);
+
+          // Commit to SQLite every INCREMENTAL_CACHE_BATCH photos
+          if (pendingCachePhotos.length >= INCREMENTAL_CACHE_BATCH) {
+            const toCache = pendingCachePhotos.map(photoToCachedPhoto);
+            pendingCachePhotos = [];
+            // Fire-and-forget cache write (don't block scanning)
+            cachePhotos(toCache).catch((err) => {
+              if (__DEV__) console.warn('[PhotoImport] Incremental cache write failed:', err);
+            });
+          }
+        };
+
+        // Wrap progress to include discovered countries
+        const progressWithCountries = (progress: ScanProgress) => {
+          if (controller.signal.aborted) return;
+          onScanProgress({
+            ...progress,
+            discoveredCountries: discoveredCountries.length > 0 ? discoveredCountries : undefined,
+          });
+        };
+
         if (doIncremental) {
           // Incremental import: load cached photos and scan only new ones
           if (__DEV__) {
@@ -103,12 +159,10 @@ export function usePhotoScan({
 
           // Scan only photos created after last import
           newPhotos = await extractPhotosWithLocation(
-            (progress) => {
-              if (controller.signal.aborted) return;
-              onScanProgress(progress);
-            },
+            progressWithCountries,
             controller.signal,
-            new Date(cachedImportTime)
+            new Date(cachedImportTime),
+            handleBatch
           );
 
           if (__DEV__) {
@@ -118,10 +172,12 @@ export function usePhotoScan({
           }
         } else {
           // Full scan: no cache, scan all photos
-          newPhotos = await extractPhotosWithLocation((progress) => {
-            if (controller.signal.aborted) return;
-            onScanProgress(progress);
-          }, controller.signal);
+          newPhotos = await extractPhotosWithLocation(
+            progressWithCountries,
+            controller.signal,
+            undefined,
+            handleBatch
+          );
         }
 
         // Check for abort after photo extraction
@@ -129,11 +185,15 @@ export function usePhotoScan({
           throw createAbortError('Scan aborted');
         }
 
-        // Cache new photos if we found any
+        // Flush any remaining photos to cache
+        if (pendingCachePhotos.length > 0) {
+          const remainingCached = pendingCachePhotos.map(photoToCachedPhoto);
+          await cachePhotos(remainingCached);
+        }
+
+        // Reload all cached photos to get the full set (including incrementally cached ones)
         if (newPhotos.length > 0) {
-          const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
-          await cachePhotos(newCachedPhotos);
-          allCachedPhotos = [...allCachedPhotos, ...newCachedPhotos];
+          allCachedPhotos = await getAllCachedPhotos();
         }
 
         // Update last import time using the newest photo's creationTime to avoid

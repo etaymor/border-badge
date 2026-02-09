@@ -24,6 +24,8 @@ export interface ScanProgress {
   percentage: number;
   /** Number of photos found with GPS data (only populated during scanning phase) */
   gpsPhotoCount?: number;
+  /** Countries discovered so far during scanning (for live discovery feed) */
+  discoveredCountries?: Array<{ code: string; name: string }>;
 }
 
 // Location cluster from geohash grouping

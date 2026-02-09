@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -18,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -229,6 +231,77 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     autoStart,
     skipToSuggestions,
   });
+
+  // Track whether a scan was ever started (to detect failed auto-start)
+  const scanAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (phase === 'scanning') {
+      scanAttemptedRef.current = true;
+    }
+  }, [phase]);
+
+  // Auto-navigate back when auto-started scan fails (returns to idle after scanning)
+  useEffect(() => {
+    if (autoStart && phase === 'idle' && scanAttemptedRef.current) {
+      navigation.goBack();
+    }
+  }, [autoStart, phase, navigation]);
+
+  // Keep screen awake during scanning
+  useEffect(() => {
+    if (phase === 'scanning') {
+      activateKeepAwakeAsync('photo-scan');
+    } else {
+      deactivateKeepAwake('photo-scan');
+    }
+    return () => {
+      deactivateKeepAwake('photo-scan');
+    };
+  }, [phase]);
+
+  // Track scan start time for cancel confirmation
+  const scanStartTimeRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (phase === 'scanning') {
+      scanStartTimeRef.current = Date.now();
+    } else {
+      scanStartTimeRef.current = null;
+    }
+  }, [phase]);
+
+  // Block back navigation during scanning with confirmation
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (phase !== 'scanning') return;
+
+      e.preventDefault();
+      Alert.alert('Scan in Progress', "If you leave now, you'll need to restart the scan.", [
+        { text: 'Keep Scanning', style: 'cancel' },
+        {
+          text: 'Stop Scan',
+          style: 'destructive',
+          onPress: () => {
+            cancelScan();
+            navigation.dispatch(e.data.action);
+          },
+        },
+      ]);
+    });
+    return unsubscribe;
+  }, [navigation, phase, cancelScan]);
+
+  // Cancel with confirmation when scan has been running >30 seconds
+  const handleCancelScan = useCallback(() => {
+    const elapsed = scanStartTimeRef.current ? Date.now() - scanStartTimeRef.current : 0;
+    if (elapsed > 30000) {
+      Alert.alert('Cancel Scan?', 'Your scan is in progress. Are you sure you want to cancel?', [
+        { text: 'Keep Scanning', style: 'cancel' },
+        { text: 'Cancel Scan', style: 'destructive', onPress: cancelScan },
+      ]);
+    } else {
+      cancelScan();
+    }
+  }, [cancelScan]);
 
   // Wrap handleConfirmPlace to track when a place is confirmed for review trigger
   const handleConfirmPlaceWithTracking = useCallback(
@@ -556,7 +629,13 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           }}
         />
         <Text style={styles.headerTitle}>
-          {phase === 'suggestions' ? 'Trip Suggestions' : 'We Found Trips'}
+          {phase === 'suggestions'
+            ? 'Trip Suggestions'
+            : phase === 'scanning'
+              ? 'Scanning Photos'
+              : phase === 'candidates'
+                ? 'We Found Trips'
+                : 'Import Photos'}
         </Text>
         {/* Show swap button only if multiple photo trips exist for this country */}
         {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
@@ -621,40 +700,40 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
       {/* Scanning State */}
       {phase === 'scanning' && (
-        <>
-          <View style={styles.scanningContainer}>
-            <ActivityIndicator size="large" color={colors.sunsetGold} />
-            <Text style={styles.scanningTitle}>
-              {scanProgress?.phase === 'geocoding'
-                ? 'Identifying Countries...'
-                : isIncremental
-                  ? 'Checking for New Photos...'
-                  : 'Scanning Photos...'}
-            </Text>
-            <Text style={styles.scanningProgress}>
-              {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
-              {scanProgress?.phase === 'scanning' &&
-                scanProgress?.gpsPhotoCount !== undefined &&
-                ` (${scanProgress.gpsPhotoCount} with GPS)`}
-            </Text>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
-            </View>
-            <TouchableOpacity onPress={cancelScan} style={styles.cancelButton}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
+        <View style={styles.scanningContainer}>
+          <ActivityIndicator size="large" color={colors.sunsetGold} />
+          <Text style={styles.scanningTitle}>
+            {scanProgress?.phase === 'geocoding'
+              ? 'Identifying Countries...'
+              : isIncremental
+                ? 'Checking for New Photos...'
+                : 'Scanning Photos...'}
+          </Text>
+          <Text style={styles.scanningProgress}>
+            {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
+            {scanProgress?.phase === 'scanning' &&
+              scanProgress?.gpsPhotoCount !== undefined &&
+              ` (${scanProgress.gpsPhotoCount} with GPS)`}
+          </Text>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
           </View>
-          {/* Large library warning */}
-          {scanProgress?.gpsPhotoCount !== undefined && scanProgress.gpsPhotoCount > 5000 && (
-            <View style={styles.warningBannerScanning}>
-              <Ionicons name="information-circle-outline" size={20} color={colors.sunsetGold} />
-              <Text style={styles.warningText}>
-                Large photo library detected ({scanProgress.gpsPhotoCount.toLocaleString()} photos).
-                For best performance, filter by country after scanning.
-              </Text>
+          <Text style={styles.scanningHint}>
+            Please keep the app open while we scan your photos. This usually takes 1-3 minutes.
+          </Text>
+          {scanProgress?.discoveredCountries && scanProgress.discoveredCountries.length > 0 && (
+            <View style={styles.discoveryFeed}>
+              {scanProgress.discoveredCountries.slice(-5).map((country) => (
+                <Text key={country.code} style={styles.discoveryItem}>
+                  {getFlagEmoji(country.code)} Found photos from {country.name}
+                </Text>
+              ))}
             </View>
           )}
-        </>
+          <TouchableOpacity onPress={handleCancelScan} style={styles.cancelButton}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Candidates List */}
