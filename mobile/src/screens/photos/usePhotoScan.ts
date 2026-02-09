@@ -208,9 +208,15 @@ export function usePhotoScan({
           await cachePhotos(remainingCached);
         }
 
-        // Reload all cached photos to get the full set (including incrementally cached ones)
+        // Append newly cached photos in memory instead of reloading from SQLite.
+        // Both paths already have the data: incremental has allCachedPhotos from
+        // the initial load, full scan starts empty. Converting newPhotos avoids a
+        // full table scan that grows linearly with library size.
         if (newPhotos.length > 0) {
-          allCachedPhotos = await getAllCachedPhotos();
+          const newCached = newPhotos.map((p) =>
+            photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+          );
+          allCachedPhotos = [...allCachedPhotos, ...newCached];
         }
 
         // Update last import time using the newest photo's creationTime to avoid
