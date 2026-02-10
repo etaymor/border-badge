@@ -49,15 +49,19 @@ export function useScanLifecycle({
     phaseRef.current = phase;
   }, [phase]);
 
-  // Show alert when scan finds no photos or no trips, navigate back on dismiss
+  // Show alert when scan finds no photos or no trips, navigate back on dismiss.
+  // Capture phase at alert-show time to avoid TOCTOU race: if the user starts
+  // a new scan while the alert is visible, phaseRef would have changed by the
+  // time they press OK, incorrectly skipping navigation.
   useEffect(() => {
     if (!scanFailure) return;
+    const phaseWhenShown = phaseRef.current;
     Alert.alert(scanFailure.title, scanFailure.message, [
       {
         text: 'OK',
         onPress: () => {
           clearScanFailure();
-          if (autoStart && phaseRef.current === 'idle') {
+          if (autoStart && phaseWhenShown === 'idle') {
             navigation.goBack();
           }
         },

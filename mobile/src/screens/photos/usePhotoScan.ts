@@ -35,8 +35,8 @@ import { isAbortError, createAbortError } from './photoImportUtils';
 /** Batch size for incremental cache commits during scanning */
 const INCREMENTAL_CACHE_BATCH = 500;
 
-/** Reason the scan produced no usable results (not an error, just no data) */
-export type ScanFailureReason = 'no-photos' | 'no-trips';
+/** Reason the scan did not succeed */
+export type ScanFailureReason = 'no-photos' | 'no-trips' | 'home-country' | 'scan-error';
 
 export interface ScanResult {
   candidates: TripCandidateDisplay[];
@@ -288,17 +288,27 @@ export function usePhotoScan({
           // Scan was cancelled, not an error
           return { success: false, reason: null };
         } else if (error instanceof HomeCountryNotSetError) {
-          Alert.alert('Set Home Country', 'Please set your home country in settings first.');
           Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
+          onScanError();
+          return {
+            success: false,
+            reason: 'home-country',
+            title: 'Set Home Country',
+            message: 'Please set your home country in settings first.',
+          };
         } else {
           if (__DEV__) console.error('[PhotoImport] Scan error:', error);
-          Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
           Analytics.photoImportScanFailed({
             error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
           });
+          onScanError();
+          return {
+            success: false,
+            reason: 'scan-error',
+            title: 'Scan Failed',
+            message: 'Failed to scan photos. Please try again.',
+          };
         }
-        onScanError();
-        return { success: false, reason: null };
       }
     },
     [homeCountry, filterCountryCode, onScanProgress, onScanComplete, onScanError]

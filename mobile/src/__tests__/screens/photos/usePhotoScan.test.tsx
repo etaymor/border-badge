@@ -91,6 +91,127 @@ describe('usePhotoScan', () => {
     mockedPhotoImport.clearPhotoCache.mockResolvedValue(undefined);
   });
 
+  describe('error handling - structured outcomes', () => {
+    it('returns home-country reason without showing alert for HomeCountryNotSetError', async () => {
+      mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
+        new photoImportService.HomeCountryNotSetError()
+      );
+
+      const onScanError = jest.fn();
+
+      const { result } = renderHook(() =>
+        usePhotoScan({
+          homeCountry: 'US',
+          onScanProgress: jest.fn(),
+          onScanComplete: jest.fn(),
+          onScanError,
+        })
+      );
+
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current.startScan();
+      });
+
+      // Should NOT show alert directly - caller handles it via outcome
+      expect(global.__mockAlert.alert).not.toHaveBeenCalled();
+
+      // Should return structured outcome with reason and message
+      expect(outcome).toEqual({
+        success: false,
+        reason: 'home-country',
+        title: 'Set Home Country',
+        message: expect.stringContaining('home country'),
+      });
+
+      expect(onScanError).toHaveBeenCalled();
+    });
+
+    it('returns scan-error reason without showing alert for generic errors', async () => {
+      mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
+        new Error('Permission denied')
+      );
+
+      const onScanError = jest.fn();
+
+      const { result } = renderHook(() =>
+        usePhotoScan({
+          homeCountry: 'US',
+          onScanProgress: jest.fn(),
+          onScanComplete: jest.fn(),
+          onScanError,
+        })
+      );
+
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current.startScan();
+      });
+
+      // Should NOT show alert directly - caller handles it via outcome
+      expect(global.__mockAlert.alert).not.toHaveBeenCalled();
+
+      // Should return structured outcome
+      expect(outcome).toEqual({
+        success: false,
+        reason: 'scan-error',
+        title: 'Scan Failed',
+        message: expect.stringContaining('try again'),
+      });
+
+      expect(onScanError).toHaveBeenCalled();
+    });
+
+    it('returns distinct reasons for different error types', async () => {
+      // HomeCountryNotSetError path
+      mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
+        new photoImportService.HomeCountryNotSetError()
+      );
+
+      const { result: result1 } = renderHook(() =>
+        usePhotoScan({
+          homeCountry: 'US',
+          onScanProgress: jest.fn(),
+          onScanComplete: jest.fn(),
+          onScanError: jest.fn(),
+        })
+      );
+
+      let outcome1: unknown;
+      await act(async () => {
+        outcome1 = await result1.current.startScan();
+      });
+
+      // Generic error path
+      jest.clearAllMocks();
+      mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
+        new Error('Something broke')
+      );
+
+      const { result: result2 } = renderHook(() =>
+        usePhotoScan({
+          homeCountry: 'US',
+          onScanProgress: jest.fn(),
+          onScanComplete: jest.fn(),
+          onScanError: jest.fn(),
+        })
+      );
+
+      let outcome2: unknown;
+      await act(async () => {
+        outcome2 = await result2.current.startScan();
+      });
+
+      // Outcomes should have distinct reasons
+      expect((outcome1 as { reason: string }).reason).toBe('home-country');
+      expect((outcome2 as { reason: string }).reason).toBe('scan-error');
+    });
+  });
+
   describe('incremental scan avoids unnecessary SQLite reload', () => {
     it('does not call getAllCachedPhotos a second time when new photos exist', async () => {
       const cachedPhotos = [createMockCachedPhoto('old-1'), createMockCachedPhoto('old-2')];
