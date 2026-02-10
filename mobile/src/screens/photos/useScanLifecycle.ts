@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
-interface UseScanLifecycleOptions {
+export interface UseScanLifecycleOptions {
   /** Current workflow phase (e.g. 'idle', 'scanning', 'candidates', 'suggestions') */
   phase: string;
   /** Cancels the running scan */
@@ -82,6 +82,17 @@ export function useScanLifecycle({
       deactivateKeepAwake('photo-scan');
     };
   }, [phase]);
+
+  // Abort scan on unmount (e.g., app backgrounding) when navigation guards don't fire
+  const cancelScanRef = useRef(cancelScan);
+  cancelScanRef.current = cancelScan;
+  useEffect(() => {
+    return () => {
+      if (scanningRef.current) {
+        cancelScanRef.current();
+      }
+    };
+  }, []);
 
   // Track scan start time for cancel confirmation
   const scanStartTimeRef = useRef<number | null>(null);

@@ -1,6 +1,9 @@
 import { renderHook } from '@testing-library/react-native';
 
-import { useScanLifecycle } from '../../../screens/photos/useScanLifecycle';
+import {
+  useScanLifecycle,
+  type UseScanLifecycleOptions,
+} from '../../../screens/photos/useScanLifecycle';
 
 // expo-keep-awake is used by useScanLifecycle
 jest.mock('expo-keep-awake', () => ({
@@ -33,19 +36,16 @@ describe('useScanLifecycle', () => {
       const navigation = createMockNavigation();
       const clearScanFailure = jest.fn();
 
-      const { rerender } = renderHook(
-        (props) => useScanLifecycle(props),
-        {
-          initialProps: {
-            phase: 'idle',
-            cancelScan: jest.fn(),
-            scanFailure: null as { title: string; message: string } | null,
-            clearScanFailure,
-            autoStart: true as boolean | undefined,
-            navigation,
-          },
-        }
-      );
+      const { rerender } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'idle',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure,
+          autoStart: true as boolean | undefined,
+          navigation,
+        },
+      });
 
       // Scan fails, scanFailure is set while phase is idle
       rerender({
@@ -78,19 +78,16 @@ describe('useScanLifecycle', () => {
       const navigation = createMockNavigation();
       const clearScanFailure = jest.fn();
 
-      const { rerender } = renderHook(
-        (props) => useScanLifecycle(props),
-        {
-          initialProps: {
-            phase: 'idle',
-            cancelScan: jest.fn(),
-            scanFailure: null as { title: string; message: string } | null,
-            clearScanFailure,
-            autoStart: true as boolean | undefined,
-            navigation,
-          },
-        }
-      );
+      const { rerender } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'idle',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure,
+          autoStart: true as boolean | undefined,
+          navigation,
+        },
+      });
 
       // Step 1: Scan fails with no-photos, phase = idle, scanFailure set
       rerender({
@@ -126,24 +123,66 @@ describe('useScanLifecycle', () => {
     });
   });
 
+  describe('unmount cleanup', () => {
+    it('aborts scan when component unmounts during scanning', () => {
+      const navigation = createMockNavigation();
+      const cancelScan = jest.fn();
+
+      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'scanning',
+          cancelScan,
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
+
+      expect(cancelScan).not.toHaveBeenCalled();
+
+      // Unmount while scanning (e.g., app backgrounding forces unmount)
+      unmount();
+
+      expect(cancelScan).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not abort scan when component unmounts while not scanning', () => {
+      const navigation = createMockNavigation();
+      const cancelScan = jest.fn();
+
+      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'candidates',
+          cancelScan,
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
+
+      unmount();
+
+      expect(cancelScan).not.toHaveBeenCalled();
+    });
+  });
+
   describe('scan failure alert - non-autoStart', () => {
     it('does not navigate back when autoStart is false', () => {
       const navigation = createMockNavigation();
       const clearScanFailure = jest.fn();
 
-      const { rerender } = renderHook(
-        (props) => useScanLifecycle(props),
-        {
-          initialProps: {
-            phase: 'idle',
-            cancelScan: jest.fn(),
-            scanFailure: null as { title: string; message: string } | null,
-            clearScanFailure,
-            autoStart: false as boolean | undefined,
-            navigation,
-          },
-        }
-      );
+      const { rerender } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'idle',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure,
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
 
       rerender({
         phase: 'idle',

@@ -130,9 +130,7 @@ describe('usePhotoScan', () => {
 
     it('returns scan-error reason without showing alert for generic errors', async () => {
       mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
-      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
-        new Error('Permission denied')
-      );
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(new Error('Permission denied'));
 
       const onScanError = jest.fn();
 
@@ -188,9 +186,7 @@ describe('usePhotoScan', () => {
       // Generic error path
       jest.clearAllMocks();
       mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
-      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(
-        new Error('Something broke')
-      );
+      mockedPhotoImport.extractPhotosWithLocation.mockRejectedValue(new Error('Something broke'));
 
       const { result: result2 } = renderHook(() =>
         usePhotoScan({
