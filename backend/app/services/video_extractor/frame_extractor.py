@@ -4,7 +4,7 @@ Extracts frames from video files at regular intervals for multimodal analysis.
 Optimized for single-pass extraction using ffmpeg's video filter chain.
 
 Usage:
-    frames = await extract_frames(video_path, max_frames=15)
+    frames = await extract_frames(video_path, max_frames=30)
     # frames is list of JPEG bytes, each resized to 640x360
 """
 
@@ -23,8 +23,8 @@ class FrameExtractionError(Exception):
 
 
 # Frame extraction parameters
-DEFAULT_FPS = 0.5  # 1 frame every 2 seconds
-DEFAULT_MAX_FRAMES = 15
+DEFAULT_FPS = 1.0  # 1 frame per second
+DEFAULT_MAX_FRAMES = 30
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
 JPEG_QUALITY = 2  # ffmpeg quality scale (2 = high quality, lower file size)

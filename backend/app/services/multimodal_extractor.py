@@ -66,7 +66,7 @@ ALLOWED_MAGIC = {
 # Output frame size for multimodal API (258 tokens per frame at LOW resolution)
 OUTPUT_WIDTH = 640
 OUTPUT_HEIGHT = 360
-MAX_FRAMES_PER_REQUEST = 15
+MAX_FRAMES_PER_REQUEST = 30
 
 # =============================================================================
 # Entry Types

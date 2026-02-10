@@ -134,7 +134,7 @@ class ExtractionOrchestrator:
         *,
         video_download_timeout: float = 12.0,
         total_timeout: float = 15.0,
-        max_video_frames: int = 15,
+        max_video_frames: int = 30,
         enable_video_fallback: bool = True,
     ):
         """Initialize the orchestrator.
@@ -966,15 +966,15 @@ class ExtractionOrchestrator:
         return None
 
     def _calculate_max_frames(self, duration_seconds: float | None) -> int:
-        """Calculate max frames based on duration (1 frame every 2s)."""
+        """Calculate max frames based on duration (1 frame per second)."""
         if not duration_seconds or duration_seconds <= 0:
             return self.max_video_frames
 
-        max_frames = max(1, int(duration_seconds / 2))
+        max_frames = max(1, int(duration_seconds))
 
         # Short-video heuristic to avoid oversampling
         if duration_seconds <= 12:
-            max_frames = min(max_frames, 6)
+            max_frames = min(max_frames, 12)
 
         return min(self.max_video_frames, max_frames)
 
