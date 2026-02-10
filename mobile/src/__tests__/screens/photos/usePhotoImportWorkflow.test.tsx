@@ -11,6 +11,12 @@ import * as photoImportService from '../../../services/photoImport';
 import * as photoImportHooks from '../../../hooks/usePhotoImport';
 import { Analytics } from '../../../services/analytics';
 
+const mockCreateEntryMutateAsync = jest.fn();
+const mockUploadPhotos = jest.fn();
+const mockGetUploadState = jest.fn();
+const mockCancelUpload = jest.fn();
+const mockResetUpload = jest.fn();
+
 // Mock dependencies
 jest.mock('../../../stores/onboardingStore', () => ({
   useOnboardingStore: jest.fn(),
@@ -63,8 +69,18 @@ jest.mock('../../../hooks/usePhotoImport', () => {
 
 jest.mock('../../../hooks/useEntries', () => ({
   useCreateEntry: jest.fn(() => ({
-    mutateAsync: jest.fn().mockResolvedValue({ id: 'entry-1' }),
+    mutateAsync: mockCreateEntryMutateAsync,
     isPending: false,
+  })),
+}));
+
+jest.mock('../../../hooks/useMultiClusterUpload', () => ({
+  useMultiClusterUpload: jest.fn(() => ({
+    uploads: new Map(),
+    getUploadState: mockGetUploadState,
+    uploadPhotos: mockUploadPhotos,
+    cancel: mockCancelUpload,
+    reset: mockResetUpload,
   })),
 }));
 
@@ -196,6 +212,9 @@ describe('usePhotoImportWorkflow', () => {
   beforeEach(() => {
     queryClient = createTestQueryClient();
     jest.clearAllMocks();
+    mockCreateEntryMutateAsync.mockResolvedValue({ id: 'entry-1' });
+    mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+    mockGetUploadState.mockReturnValue(null);
 
     // Default mocks
     mockedOnboardingStore.useOnboardingStore.mockReturnValue('US');
@@ -657,6 +676,77 @@ describe('usePhotoImportWorkflow', () => {
       );
       // Cluster should be dismissed after confirmation
       expect(result.current.dismissedClusterIdsInternal.has('cluster-1')).toBe(true);
+    });
+
+    it('uploads photos from additional merged clusters when confirming', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      mockCandidate.locationClusterIds = ['cluster-1', 'cluster-2'];
+
+      const clusterOnePhoto = createMockPhoto('photo-1');
+      const clusterTwoPhoto = createMockPhoto('photo-2');
+      const clusterOne = { ...createMockCluster('cluster-1'), photos: [clusterOnePhoto] };
+      const clusterTwo = { ...createMockCluster('cluster-2'), photos: [clusterTwoPhoto] };
+
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['photo-1', 'photo-2'],
+        places: [],
+      };
+      const mockPlace = {
+        place_id: 'ChIJ123',
+        name: 'Test Place',
+        address: 'Test Address',
+        location: {
+          latitude: 35.6762,
+          longitude: 139.6503,
+        },
+        category: 'place' as const,
+        distance_m: 50,
+        types: ['tourist_attraction'],
+      };
+
+      mockedPhotoImport.getFullCluster.mockImplementation((clusterId: string) => {
+        if (clusterId === 'cluster-1') return clusterOne;
+        if (clusterId === 'cluster-2') return clusterTwo;
+        return undefined;
+      });
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({
+        mediaIds: ['media-1', 'media-2'],
+        failedCount: 0,
+      });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmPlace(mockSuggestion, mockPlace, false, ['cluster-2']);
+      });
+
+      expect(mockUploadPhotos).toHaveBeenCalledWith(
+        'cluster-1',
+        expect.arrayContaining([clusterOnePhoto, clusterTwoPhoto]),
+        'trip-123'
+      );
+      const uploadedPhotos = mockUploadPhotos.mock.calls[0][1] as Array<{ id: string }>;
+      expect(uploadedPhotos).toHaveLength(2);
+      expect(result.current.dismissedClusterIdsInternal.has('cluster-1')).toBe(true);
+      expect(result.current.dismissedClusterIdsInternal.has('cluster-2')).toBe(true);
+      expect(mockedPhotoImport.markClusterProcessed).toHaveBeenCalledWith('cluster-2', 'confirmed');
+      expect(mockCreateEntryMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pending_media_ids: ['media-1', 'media-2'],
+        })
+      );
     });
 
     it('shows error if no trip selected', async () => {
