@@ -134,7 +134,7 @@ class ExtractionOrchestrator:
         *,
         video_download_timeout: float = 12.0,
         total_timeout: float = 15.0,
-        max_video_frames: int = 15,
+        max_video_frames: int = 30,
         enable_video_fallback: bool = True,
     ):
         """Initialize the orchestrator.
@@ -654,21 +654,26 @@ class ExtractionOrchestrator:
         remaining = self._get_remaining_time(start_time)
 
         if remaining <= 0:
-            logger.debug("video_extraction_skipped: no_time_remaining")
+            logger.info("video_extraction_skipped: no_time_remaining")
             await self._cancel_video_task(video_task)
             return self._VideoResult(places=[])
 
         try:
             # Wait for video download to complete (may already be done)
+            logger.info(
+                "video_extraction_started",
+                extra={"remaining_seconds": round(remaining, 1)},
+            )
             video_path = await asyncio.wait_for(video_task, timeout=remaining)
 
             if not video_path:
+                logger.info("video_extraction_skipped: download_returned_none")
                 return self._VideoResult(places=[])
 
             # Recalculate remaining time after video download
             remaining = self._get_remaining_time(start_time)
             if remaining <= 0:
-                logger.debug("video_extraction_skipped: no_time_after_download")
+                logger.info("video_extraction_skipped: no_time_after_download")
                 return self._VideoResult(places=[])
 
             # Determine dynamic frame count (1 frame every 2s, cap for short videos)
@@ -680,7 +685,7 @@ class ExtractionOrchestrator:
             # Recalculate remaining time before frame extraction
             remaining = self._get_remaining_time(start_time)
             if remaining <= 0:
-                logger.debug("video_extraction_skipped: no_time_for_frames")
+                logger.info("video_extraction_skipped: no_time_for_frames")
                 return self._VideoResult(places=[])
 
             # Extract frames
@@ -691,13 +696,13 @@ class ExtractionOrchestrator:
             )
 
             if not frames:
-                logger.debug("video_extraction_no_frames")
+                logger.info("video_extraction_skipped: no_frames_extracted")
                 return self._VideoResult(places=[])
 
             # Recalculate remaining time before multimodal extraction
             remaining = self._get_remaining_time(start_time)
             if remaining <= 0:
-                logger.debug("video_extraction_skipped: no_time_for_multimodal")
+                logger.info("video_extraction_skipped: no_time_for_multimodal")
                 return self._VideoResult(places=[])
 
             # Extract places from frames using multimodal LLM
@@ -706,6 +711,10 @@ class ExtractionOrchestrator:
             )
 
             if not multimodal_result.places:
+                logger.info(
+                    "video_extraction_skipped: multimodal_no_places",
+                    extra={"frames_processed": multimodal_result.frames_processed},
+                )
                 return self._VideoResult(places=[])
 
             # Convert ExtractedPlace to DetectedPlace
@@ -725,7 +734,7 @@ class ExtractionOrchestrator:
             return self._VideoResult(places=places)
 
         except TimeoutError:
-            logger.debug("video_extraction_timeout")
+            logger.info("video_extraction_timeout")
             await self._cancel_video_task(video_task)
             return self._VideoResult(places=[])
         except asyncio.CancelledError:
@@ -957,15 +966,15 @@ class ExtractionOrchestrator:
         return None
 
     def _calculate_max_frames(self, duration_seconds: float | None) -> int:
-        """Calculate max frames based on duration (1 frame every 2s)."""
+        """Calculate max frames based on duration (1 frame per second)."""
         if not duration_seconds or duration_seconds <= 0:
             return self.max_video_frames
 
-        max_frames = max(1, int(duration_seconds / 2))
+        max_frames = max(1, int(duration_seconds))
 
         # Short-video heuristic to avoid oversampling
         if duration_seconds <= 12:
-            max_frames = min(max_frames, 6)
+            max_frames = min(max_frames, 12)
 
         return min(self.max_video_frames, max_frames)
 

@@ -73,12 +73,12 @@ async def test_negative_cache_saved_when_no_places():
 
 
 def test_calculate_max_frames_duration_based():
-    orchestrator = ExtractionOrchestrator(max_video_frames=15)
+    orchestrator = ExtractionOrchestrator(max_video_frames=30)
 
-    assert orchestrator._calculate_max_frames(None) == 15
-    assert orchestrator._calculate_max_frames(20.0) == 10
-    assert orchestrator._calculate_max_frames(12.0) == 6
-    assert orchestrator._calculate_max_frames(5.0) == 2
+    assert orchestrator._calculate_max_frames(None) == 30
+    assert orchestrator._calculate_max_frames(20.0) == 20
+    assert orchestrator._calculate_max_frames(12.0) == 12
+    assert orchestrator._calculate_max_frames(5.0) == 5
 
 
 @pytest.fixture

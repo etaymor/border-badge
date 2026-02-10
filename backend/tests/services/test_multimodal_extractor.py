@@ -484,11 +484,11 @@ class TestMultimodalExtractor:
                 return_value=mock_client,
             ):
                 extractor = MultimodalExtractor()
-                # Pass 20 frames (should batch into 2 requests)
-                frames = [small_jpeg_bytes] * 20
+                # Pass 40 frames (should batch into 2 requests at 30 per batch)
+                frames = [small_jpeg_bytes] * 40
                 result = await extractor.extract_places(frames)
 
-                assert result.frames_processed == 20
+                assert result.frames_processed == 40
                 assert mock_client.post.call_count == 2
 
     @pytest.mark.asyncio
