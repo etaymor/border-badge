@@ -68,7 +68,9 @@ export function useScanLifecycle({
   // Keep screen awake during scanning
   useEffect(() => {
     if (phase === 'scanning') {
-      activateKeepAwakeAsync('photo-scan').catch(() => {});
+      activateKeepAwakeAsync('photo-scan').catch((err) => {
+        if (__DEV__) console.warn('[PhotoImport] Failed to activate keep-awake:', err);
+      });
     } else {
       deactivateKeepAwake('photo-scan');
     }

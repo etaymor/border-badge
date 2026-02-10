@@ -193,7 +193,9 @@ export function usePhotoScan({
         // Check for abort after photo extraction
         if (controller.signal.aborted) {
           // Wait for any in-flight cache writes before throwing
-          await Promise.all(cachePromises).catch(() => {});
+          await Promise.all(cachePromises).catch((err) => {
+            if (__DEV__) console.error('[PhotoImport] Failed to write batch during abort:', err);
+          });
           throw createAbortError('Scan aborted');
         }
 
@@ -219,14 +221,6 @@ export function usePhotoScan({
           allCachedPhotos = [...allCachedPhotos, ...newCached];
         }
 
-        // Update last import time using the newest photo's creationTime to avoid
-        // missing photos taken during the scan. Falls back to Date.now() if no photos.
-        const importTime =
-          newPhotos.length > 0
-            ? newPhotos.reduce((max, p) => Math.max(max, p.creationTime.getTime()), 0)
-            : Date.now();
-        await setLastImportTime(importTime);
-
         // Check if we have any photos at all
         if (allCachedPhotos.length === 0 && newPhotos.length === 0) {
           abortControllerRef.current = null;
@@ -238,6 +232,15 @@ export function usePhotoScan({
               'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
           };
         }
+
+        // Update last import time using the newest photo's creationTime to avoid
+        // missing photos taken during the scan. Falls back to Date.now() for
+        // incremental scans where only cached photos exist (no new photos found).
+        const importTime =
+          newPhotos.length > 0
+            ? newPhotos.reduce((max, p) => Math.max(max, p.creationTime.getTime()), 0)
+            : Date.now();
+        await setLastImportTime(importTime);
 
         // Segment trips from cached data (fast: no geocoding needed)
         const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);

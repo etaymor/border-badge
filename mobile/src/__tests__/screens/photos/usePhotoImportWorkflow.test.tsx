@@ -741,6 +741,7 @@ describe('usePhotoImportWorkflow', () => {
       expect(uploadedPhotos).toHaveLength(2);
       expect(result.current.dismissedClusterIdsInternal.has('cluster-1')).toBe(true);
       expect(result.current.dismissedClusterIdsInternal.has('cluster-2')).toBe(true);
+      expect(mockedPhotoImport.markClusterProcessed).toHaveBeenCalledWith('cluster-1', 'confirmed');
       expect(mockedPhotoImport.markClusterProcessed).toHaveBeenCalledWith('cluster-2', 'confirmed');
       expect(mockCreateEntryMutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({
