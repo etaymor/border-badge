@@ -402,7 +402,7 @@ class MultimodalExtractor:
         )
 
         if not self.api_key:
-            logger.debug("multimodal_extraction_skipped: no_api_key")
+            logger.info("multimodal_extraction_skipped: no_api_key")
             return empty_result
 
         if not images:
