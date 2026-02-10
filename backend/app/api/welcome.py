@@ -101,6 +101,24 @@ async def trigger_welcome_emails(
         )
         return WelcomeEmailResponse(status="already_scheduled")
 
+    # Secondary idempotency check: if profile flag wasn't set (e.g. race condition
+    # where user_profile didn't exist yet on first call), check the scheduled_email
+    # table directly. If emails are already in there, we've already scheduled them.
+    existing_emails = await supabase.get(
+        "scheduled_email",
+        params={
+            "user_id": f"eq.{user.id}",
+            "select": "id",
+            "limit": "1",
+        },
+    )
+    if existing_emails:
+        logger.info(
+            "Welcome emails already in scheduled_email table, skipping",
+            extra={"user_id": user.id, "recipient_hash": redacted_email},
+        )
+        return WelcomeEmailResponse(status="already_scheduled")
+
     # Get unsubscribe token for email links
     unsubscribe_token = profiles[0].get("unsubscribe_token") if profiles else None
 

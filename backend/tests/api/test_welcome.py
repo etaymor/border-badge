@@ -38,8 +38,16 @@ def mock_user() -> AuthUser:
 def mock_supabase_client():
     """Create a mock Supabase client that returns no existing profile."""
     mock_client = AsyncMock()
-    # No existing profile (first-time user)
-    mock_client.get.return_value = []
+
+    # get() is called twice: first for user_profile, then for scheduled_email
+    async def mock_get(table, params=None):
+        if table == "user_profile":
+            return []  # No existing profile (first-time user)
+        if table == "scheduled_email":
+            return []  # No existing scheduled emails
+        return []
+
+    mock_client.get.side_effect = mock_get
     mock_client.patch.return_value = []
     return mock_client
 
@@ -48,8 +56,14 @@ def mock_supabase_client():
 def mock_supabase_client_with_scheduled():
     """Create a mock Supabase client that returns an already-scheduled profile."""
     mock_client = AsyncMock()
-    # Profile exists with welcome_emails_scheduled = True
-    mock_client.get.return_value = [{"welcome_emails_scheduled": True}]
+
+    # Profile flag is set, so the endpoint short-circuits before scheduled_email check
+    async def mock_get(table, params=None):
+        if table == "user_profile":
+            return [{"welcome_emails_scheduled": True}]
+        return []
+
+    mock_client.get.side_effect = mock_get
     return mock_client
 
 
@@ -416,8 +430,12 @@ class TestTriggerWelcomeEmails:
         app.dependency_overrides[get_current_user] = mock_get_current_user
 
         mock_client = AsyncMock()
-        # No existing profile (race condition - DB trigger hasn't run yet)
-        mock_client.get.return_value = []
+
+        # No existing profile, no scheduled emails (first-time call)
+        async def mock_get(table, params=None):
+            return []
+
+        mock_client.get.side_effect = mock_get
         # patch returns empty list when no row matches (no error)
         mock_client.patch.return_value = []
 
@@ -438,7 +456,7 @@ class TestTriggerWelcomeEmails:
                 json={"display_name": "Test User"},
             )
 
-            # FIX: The endpoint returns 200 because patch (UPDATE)
+            # Endpoint returns 200 because patch (UPDATE)
             # gracefully handles missing profile rows
             assert response.status_code == 200
             assert response.json()["status"] == "scheduled"
@@ -446,6 +464,71 @@ class TestTriggerWelcomeEmails:
             mock_client.patch.assert_called_once()
             mock_client.upsert.assert_not_called()
             app.dependency_overrides.clear()
+
+    def test_no_duplicate_emails_when_profile_missing_on_retry(
+        self, mock_user: AuthUser
+    ) -> None:
+        """Test that retry is blocked by scheduled_email table when profile flag unset.
+
+        When user_profile doesn't exist during signup, patch() updates zero
+        rows and the welcome_emails_scheduled flag is never set. The secondary
+        idempotency check on the scheduled_email table prevents duplicates.
+        """
+        limiter.reset()
+
+        async def mock_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        # Track call count to vary get() responses between first and second request
+        get_call_count = 0
+
+        async def mock_get(table, params=None):
+            nonlocal get_call_count
+            get_call_count += 1
+            if table == "user_profile":
+                # No profile exists (race condition)
+                return []
+            if table == "scheduled_email":
+                # First request: no records yet. Second request: records exist.
+                if get_call_count <= 2:
+                    return []
+                return [{"id": "existing-record"}]
+            return []
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = mock_get
+        # patch updates zero rows — flag never set
+        mock_client.patch.return_value = []
+
+        with (
+            patch(
+                "app.api.welcome.get_supabase_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.api.welcome.schedule_welcome_emails",
+                new_callable=AsyncMock,
+                return_value=_mock_email_result(["id1", "id2"]),
+            ) as schedule_fn,
+        ):
+            test_client = TestClient(app)
+
+            # First call — schedules emails
+            resp1 = test_client.post("/welcome/emails", json={"display_name": "Test"})
+            assert resp1.status_code == 200
+            assert resp1.json()["status"] == "scheduled"
+
+            # Second call — blocked by scheduled_email check
+            resp2 = test_client.post("/welcome/emails", json={"display_name": "Test"})
+            assert resp2.status_code == 200
+            assert resp2.json()["status"] == "already_scheduled"
+
+            # schedule_welcome_emails should only be called once
+            assert schedule_fn.call_count == 1
+
+        app.dependency_overrides.clear()
 
 
 class TestRateLimiting:

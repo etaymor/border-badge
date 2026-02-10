@@ -259,8 +259,8 @@ class TestScheduleWelcomeEmails:
             assert payload["to"] == ["user@example.com"]
 
     @pytest.mark.asyncio
-    async def test_includes_scheduled_at(self) -> None:
-        """Test that scheduled_at is set for each email."""
+    async def test_omits_scheduled_at_for_immediate_email(self) -> None:
+        """Test that scheduled_at is omitted for delay_hours=0 (immediate send)."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"id": "email_123"}
         mock_response.raise_for_status = MagicMock()
@@ -278,11 +278,62 @@ class TestScheduleWelcomeEmails:
 
             await schedule_welcome_emails("test@example.com", "Test User")
 
-            for call in mock_client.post.call_args_list:
+            # Email #1 (delay_hours=0) should NOT have scheduled_at
+            first_payload = mock_client.post.call_args_list[0].kwargs["json"]
+            assert "scheduled_at" not in first_payload
+
+            # Emails #2-4 (delay_hours > 0) SHOULD have scheduled_at
+            for call in mock_client.post.call_args_list[1:]:
                 payload = call.kwargs["json"]
                 assert "scheduled_at" in payload
-                # ISO format should include "T" separator
                 assert "T" in payload["scheduled_at"]
+
+    @pytest.mark.asyncio
+    async def test_retries_on_rate_limit(self) -> None:
+        """Test that 429 responses are retried with backoff."""
+        rate_limit_response = MagicMock()
+        rate_limit_response.status_code = 429
+
+        success_response = MagicMock()
+        success_response.status_code = 200
+        success_response.json.return_value = {"id": "email_123"}
+        success_response.raise_for_status = MagicMock()
+
+        with (
+            patch("app.services.email.get_settings") as mock_settings,
+            patch("httpx.AsyncClient") as mock_client_class,
+            patch("app.services.email.asyncio.sleep", new_callable=AsyncMock),
+            patch("app.services.email.logger") as mock_logger,
+        ):
+            mock_settings.return_value.resend_api_key = "re_test_key"
+            mock_settings.return_value.welcome_email_from = "hello@test.com"
+
+            # First email: 429, then success. Remaining emails: success.
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [
+                rate_limit_response,  # email #1, attempt 1: 429
+                success_response,  # email #1, attempt 2: success
+                success_response,  # email #2
+                success_response,  # email #3
+                success_response,  # email #4
+            ]
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await schedule_welcome_emails("test@example.com", "Test User")
+
+            assert result.success_count == 4
+            assert result.failed_count == 0
+            # 5 total post calls (1 retry + 4 emails)
+            assert mock_client.post.call_count == 5
+            # Should have logged a rate limit warning
+            mock_logger.warning.assert_any_call(
+                "Resend rate limited, retrying",
+                extra={
+                    "template": "welcome",
+                    "attempt": 1,
+                    "wait_seconds": 1.0,
+                },
+            )
 
     @pytest.mark.asyncio
     async def test_continues_on_single_email_failure(self) -> None:

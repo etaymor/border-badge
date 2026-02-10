@@ -1,5 +1,6 @@
 """Email service for sending transactional emails via Resend."""
 
+import asyncio
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
@@ -197,18 +198,50 @@ async def schedule_welcome_emails(
                     "to": [email],
                     "subject": config["subject"],
                     "text": body,
-                    "scheduled_at": scheduled_at,
                 }
 
-                response = await client.post(
-                    RESEND_API_URL, headers=headers, json=payload, timeout=30.0
-                )
-                response.raise_for_status()
-                result = response.json()
-                resend_email_id = result["id"]
+                # Only include scheduled_at for future emails.
+                # Resend silently drops emails with scheduled_at ≈ now.
+                if config["delay_hours"] > 0:
+                    payload["scheduled_at"] = scheduled_at
+
+                # Retry with backoff for rate limits (Resend allows 2 req/s)
+                resend_email_id = None
+                for attempt in range(3):
+                    response = await client.post(
+                        RESEND_API_URL, headers=headers, json=payload, timeout=30.0
+                    )
+                    if response.status_code == 429:
+                        wait = 1.0 * (attempt + 1)
+                        logger.warning(
+                            "Resend rate limited, retrying",
+                            extra={
+                                "template": config["template"],
+                                "attempt": attempt + 1,
+                                "wait_seconds": wait,
+                            },
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    response.raise_for_status()
+                    result = response.json()
+                    resend_email_id = result["id"]
+                    break
+                else:
+                    # All retries exhausted — treat as failure
+                    logger.error(
+                        "Resend rate limit persisted after retries",
+                        extra={
+                            "template": config["template"],
+                            "recipient_hash": redacted_email,
+                        },
+                    )
+                    continue
+
                 email_ids.append(resend_email_id)
 
-                # Store scheduled email record for cancellation if user_id provided
+                # Store email record for tracking/cancellation if user_id provided
+                is_immediate = config["delay_hours"] == 0
                 if db and user_id:
                     try:
                         await db.post(
@@ -218,7 +251,7 @@ async def schedule_welcome_emails(
                                 "resend_email_id": resend_email_id,
                                 "template_name": config["template"],
                                 "scheduled_at": scheduled_at,
-                                "status": "scheduled",
+                                "status": "sent" if is_immediate else "scheduled",
                             },
                         )
                     except Exception as db_err:
@@ -241,6 +274,9 @@ async def schedule_welcome_emails(
                         "recipient_hash": redacted_email,
                     },
                 )
+
+                # Pace requests to stay under Resend's 2 req/s limit
+                await asyncio.sleep(0.6)
 
             except httpx.HTTPStatusError as e:
                 logger.error(
