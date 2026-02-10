@@ -86,11 +86,16 @@ async def extract_frames(
 
         logger.debug("ffmpeg_extract_start", extra={"video": str(video_path)})
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            raise FrameExtractionError(
+                "ffmpeg not found - install ffmpeg to enable video frame extraction"
+            ) from None
 
         try:
             _stdout, stderr = await asyncio.wait_for(
@@ -159,7 +164,7 @@ async def get_video_duration(video_path: Path, timeout: float = 5.0) -> float | 
         if proc.returncode == 0 and stdout:
             duration_str = stdout.decode().strip()
             return float(duration_str)
-    except (TimeoutError, ValueError):
+    except (TimeoutError, ValueError, FileNotFoundError, OSError):
         pass
 
     return None
