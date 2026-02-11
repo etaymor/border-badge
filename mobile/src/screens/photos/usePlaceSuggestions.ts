@@ -20,6 +20,7 @@ import {
   getFullCluster,
   getCachedSuggestions,
   cacheSuggestions,
+  computeTimeHint,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
@@ -207,6 +208,7 @@ export function usePlaceSuggestions({
             })),
             start_time: c.timeRange.start.toISOString(),
             end_time: c.timeRange.end.toISOString(),
+            time_hint: computeTimeHint(c),
           })),
         });
 

@@ -107,6 +107,7 @@ export interface PlaceSuggestion {
   category: EntryType;
   distance_m: number;
   types: string[];
+  vision_category?: string | null;
 }
 
 // Cluster suggestion from backend
@@ -115,6 +116,9 @@ export interface ClusterSuggestion {
   photo_ids: string[];
   places: PlaceSuggestion[];
 }
+
+// Time-of-day category hint for place matching
+export type TimeHint = 'food' | 'attraction' | 'nightlife' | 'quick_stop';
 
 // Request body for place suggestion API
 export interface PlaceSuggestionRequest {
@@ -132,6 +136,8 @@ export interface PlaceSuggestionRequest {
     }>;
     start_time?: string;
     end_time?: string;
+    time_hint?: TimeHint | null;
+    vision_image_base64?: string | null;
   }>;
 }
 

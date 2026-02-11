@@ -18,6 +18,14 @@ from app.core.config import get_settings
 
 from .cache import places_cache
 from .constants import (
+    BAYESIAN_CONFIDENCE,
+    BAYESIAN_PRIOR_MEAN,
+    DENSITY_SEARCH_RADII,
+    DENSITY_THRESHOLD_DENSE,
+    DENSITY_THRESHOLD_MEDIUM,
+    DWELL_BONUS_TIERS,
+    FAME_FLOOR_REVIEWS,
+    FAME_SCALE,
     FIELD_MASK,
     INSTITUTIONAL_TYPES,
     MAX_CONCURRENT_PLACES_REQUESTS,
@@ -25,9 +33,12 @@ from .constants import (
     MAX_SUGGESTIONS_PER_CLUSTER,
     MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
+    NON_TOURIST_TYPES,
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
+    TIME_HINT_TYPE_MATCHES,
     TYPE_TO_CATEGORY,
+    DensityLevel,
 )
 from .exceptions import ConfigurationError, QuotaExhaustedError, RateLimitError
 from .utils import haversine, sanitize_address, sanitize_place_name
@@ -131,6 +142,7 @@ class PlaceMatcher:
             ranked_places = self._rank_by_distance(
                 places=places,
                 cluster=cluster,
+                time_hint=cluster.get("time_hint"),
             )
 
             # Always return cluster (with or without suggestions)
@@ -171,31 +183,68 @@ class PlaceMatcher:
 
         return successful, failed_count
 
+    @staticmethod
+    def _detect_density(result_count_at_first_radius: int) -> DensityLevel:
+        """Detect area density from first-tier search result count.
+
+        Thresholds are calibrated for type-filtered results (our 49
+        SEARCHABLE_PLACE_TYPES), not raw unfiltered counts.
+        """
+        if result_count_at_first_radius >= DENSITY_THRESHOLD_DENSE:
+            return DensityLevel.DENSE
+        elif result_count_at_first_radius >= DENSITY_THRESHOLD_MEDIUM:
+            return DensityLevel.MEDIUM
+        else:
+            return DensityLevel.SPARSE
+
     async def _search_nearby_tiered(
         self,
         latitude: float,
         longitude: float,
     ) -> tuple[list[dict], int]:
         """
-        Tiered radius search: 15m → 30m → 75m
+        Density-adaptive tiered radius search.
 
-        Smaller radius = more precise match for restaurants/hotels.
-        Expands radius until quality places are found (not just any places).
+        First search at smallest radius detects density level, then uses
+        density-appropriate radii for subsequent tiers.
 
         Returns:
             Tuple of (quality_places, radius_used)
         """
-        for radius in SEARCH_RADII_METERS:
+        # First search at smallest radius (always 15m for density detection)
+        first_radius = SEARCH_RADII_METERS[0]
+        first_places = await self._execute_search(
+            latitude, longitude, first_radius
+        )
+
+        # Detect density from raw result count (BEFORE quality filtering)
+        density = self._detect_density(len(first_places))
+        logger.debug(
+            f"Density detection: {len(first_places)} results at "
+            f"{first_radius}m -> {density.value}"
+        )
+
+        # Quality-filter the first tier results
+        if first_places:
+            quality_places = self._filter_low_quality_places(first_places)
+            if quality_places:
+                return quality_places, first_radius
+            logger.debug(
+                f"Radius {first_radius}m: {len(first_places)} places found "
+                f"but 0 passed quality filter, expanding"
+            )
+
+        # Use density-adaptive radii for remaining tiers (skip first)
+        remaining_radii = DENSITY_SEARCH_RADII[density.value][1:]
+        for radius in remaining_radii:
             places = await self._execute_search(latitude, longitude, radius)
             if places:
-                # Apply quality filter before deciding to stop
-                # This ensures we expand radius if only low-quality places found
                 quality_places = self._filter_low_quality_places(places)
                 if quality_places:
                     return quality_places, radius
-                # Found places but none passed quality - continue to wider radius
                 logger.debug(
-                    f"Radius {radius}m: {len(places)} places found but 0 passed quality filter, expanding"
+                    f"Radius {radius}m: {len(places)} places found but "
+                    f"0 passed quality filter, expanding"
                 )
 
         return [], 0
@@ -353,12 +402,13 @@ class PlaceMatcher:
         places: list[dict],
     ) -> list[dict]:
         """
-        Filter out low-quality places that would result in poor suggestions.
+        Filter out low-quality and non-tourist places.
 
         Filtering criteria (must pass ALL):
+        - Not a non-tourist type (laundromats, gas stations, etc.)
         - Not permanently closed
         - Has a non-empty display name
-        - Has at least MIN_REVIEW_COUNT reviews (no exceptions)
+        - Has at least MIN_REVIEW_COUNT reviews (or is institutional)
 
         Args:
             places: Raw places from API response
@@ -374,6 +424,12 @@ class PlaceMatcher:
             rating_count = place.get("userRatingCount", 0) or 0
             business_status = place.get("businessStatus", "OPERATIONAL")
             primary_type = place.get("primaryType", "unknown")
+            place_types = set(place.get("types", []))
+
+            # Hard filter: non-tourist types (check primary type AND all types)
+            if primary_type in NON_TOURIST_TYPES or place_types & NON_TOURIST_TYPES:
+                logger.debug(f"Filtered (non-tourist): {name} | type={primary_type}")
+                continue
 
             # Skip permanently closed
             if business_status == "CLOSED_PERMANENTLY":
@@ -402,27 +458,106 @@ class PlaceMatcher:
         )
         return filtered
 
+    @staticmethod
+    def _bayesian_rating(rating: float, review_count: int) -> float:
+        """Shrink raw rating toward global mean based on review count.
+
+        Places with few reviews collapse toward 3.8 (average).
+        Places with many reviews keep their actual rating.
+
+        Examples:
+          4.8 stars, 5 reviews   -> 3.89
+          4.2 stars, 500 reviews  -> 4.16
+          4.5 stars, 2000 reviews -> 4.48
+        """
+        if not rating or review_count == 0:
+            return BAYESIAN_PRIOR_MEAN
+        return (review_count * rating + BAYESIAN_CONFIDENCE * BAYESIAN_PRIOR_MEAN) / (
+            review_count + BAYESIAN_CONFIDENCE
+        )
+
+    @staticmethod
+    def _fame_bonus(review_count: int) -> float:
+        """Continuous fame signal with diminishing returns.
+
+        Returns: 0.0 for <50 reviews, ~0.5 for 500, ~1.0 for 5000
+        """
+        if review_count < FAME_FLOOR_REVIEWS:
+            return 0.0
+        return max(
+            0,
+            (math.log10(review_count) - math.log10(FAME_FLOOR_REVIEWS)) * FAME_SCALE,
+        )
+
+    @staticmethod
+    def _dwell_category_bonus(
+        dwell_minutes: float | None,
+        place_types: list[str],
+        time_hint: str | None,
+    ) -> float:
+        """Dwell-tiered time bonus with category matching.
+
+        Dwell time is a stronger signal than time-of-day.
+        Category matching adds a soft bonus, never a hard filter.
+        """
+        bonus = 0.0
+
+        # Dwell-based bonus
+        if dwell_minutes is not None:
+            for min_m, max_m, tier_bonus in DWELL_BONUS_TIERS:
+                if min_m <= dwell_minutes < max_m:
+                    bonus = tier_bonus
+                    break
+
+        # Time hint category match bonus (soft)
+        if time_hint and time_hint in TIME_HINT_TYPE_MATCHES:
+            matching_types = TIME_HINT_TYPE_MATCHES[time_hint]
+            if any(t in matching_types for t in place_types):
+                bonus += 0.3
+
+        return bonus
+
     def _rank_by_distance(
         self,
         places: list[dict],
         cluster: dict,
+        time_hint: str | None = None,
     ) -> list[dict]:
         """
-        Rank places by distance, with quality as tie-breaker.
+        Rank places by enhanced scoring algorithm.
 
-        Users see "15m away" and decide Yes/No. Distance is primary.
-        Quality (review count) breaks ties for places at similar distances.
+        Scoring: distance/20 - log10(reviews) - bayesian_rating_bonus
+                 - fame - dwell_category_bonus
 
         Args:
             places: Places from API response
-            cluster: Cluster with centroid
+            cluster: Cluster with centroid and time data
+            time_hint: Optional time hint (food/attraction/nightlife/quick_stop)
 
         Returns:
-            List of place suggestions sorted by distance (quality tie-break)
+            List of place suggestions sorted by score (lower = better)
         """
         ranked = []
         cluster_lat = cluster["centroid"]["latitude"]
         cluster_lng = cluster["centroid"]["longitude"]
+
+        # Compute dwell minutes from cluster time range
+        dwell_minutes: float | None = None
+        start_time = cluster.get("start_time")
+        end_time = cluster.get("end_time")
+        if start_time and end_time:
+            # Handle both datetime objects and ISO strings
+            if isinstance(start_time, str):
+                from datetime import datetime
+
+                start_time = datetime.fromisoformat(
+                    start_time.replace("Z", "+00:00")
+                )
+                end_time = datetime.fromisoformat(
+                    end_time.replace("Z", "+00:00")
+                )
+            dwell_ms = (end_time - start_time).total_seconds() * 1000
+            dwell_minutes = dwell_ms / (1000 * 60)
 
         for place in places:
             place_loc = place.get("location", {})
@@ -435,8 +570,10 @@ class PlaceMatcher:
             primary_type = place.get("primaryType", "point_of_interest")
             category = TYPE_TO_CATEGORY.get(primary_type, "place")
 
-            # Quality signal for tie-breaking
+            # Quality signals
             rating_count = place.get("userRatingCount", 0) or 0
+            rating = place.get("rating", 0) or 0
+            place_types = place.get("types", [])
 
             # Defensive access for displayName with sanitization
             display_name = place.get("displayName", {})
@@ -454,35 +591,46 @@ class PlaceMatcher:
                     },
                     "category": category,
                     "distance_m": round(distance_m, 1),
-                    "types": place.get("types", []),
-                    "_rating_count": rating_count,  # Internal field for sorting
+                    "types": place_types,
+                    "_rating_count": rating_count,
+                    "_rating": rating,
+                    "_primary_type": primary_type,
                 }
             )
 
-        # Sort by combined score: distance penalty + review bonus
-        # Photo GPS is typically 5-15m accuracy, so we use 20m buckets
-        # Places with significantly more reviews can overcome small distance differences
         def sort_key(x: dict) -> float:
             distance_m = x["distance_m"]
             review_count = x["_rating_count"]
+            r = x["_rating"]
 
-            # Distance penalty: 1 point per 20m bucket
+            # Distance penalty: 1 point per 20m bucket (unchanged)
             distance_penalty = distance_m / 20.0
 
-            # Review bonus: log scale so 1000 reviews >> 10 reviews >> 1 review
-            # log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
-            review_bonus = math.log10(max(review_count, 1) + 1)  # +1 to avoid log(0)
+            # Review bonus: log scale (unchanged)
+            review_bonus = math.log10(max(review_count, 1) + 1)
+
+            # Rating bonus: Bayesian-adjusted
+            adj_rating = self._bayesian_rating(r, review_count)
+            rating_bonus = max(0, (adj_rating - BAYESIAN_PRIOR_MEAN) * 0.75)
+
+            # Fame bonus: continuous log scale
+            fame = self._fame_bonus(review_count)
+
+            # Dwell-aware category bonus
+            dwell_cat = self._dwell_category_bonus(
+                dwell_minutes, x["types"], time_hint
+            )
 
             # Lower score = better rank
-            # A place 20m away with 1000 reviews (bonus=3) beats
-            # a place 0m away with 10 reviews (bonus=1)
-            return distance_penalty - review_bonus
+            return distance_penalty - review_bonus - rating_bonus - fame - dwell_cat
 
         ranked.sort(key=sort_key)
 
-        # Remove internal field before returning
+        # Remove internal fields before returning
         for r in ranked:
             del r["_rating_count"]
+            del r["_rating"]
+            del r["_primary_type"]
 
         return ranked
 

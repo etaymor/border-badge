@@ -11,7 +11,9 @@ from app.schemas.entries import EntryType
 from app.services.place_matcher import (
     INSTITUTIONAL_TYPES,
     MIN_REVIEW_COUNT,
+    NON_TOURIST_TYPES,
     TYPE_TO_CATEGORY,
+    DensityLevel,
     PlaceMatcher,
     PlacesCache,
 )
@@ -1143,6 +1145,308 @@ class TestQualityRanking:
         ranked = matcher._rank_by_distance(places, cluster)
 
         assert "_rating_count" not in ranked[0]
+        assert "_rating" not in ranked[0]
+        assert "_primary_type" not in ranked[0]
         assert "place_id" in ranked[0]
         assert "name" in ranked[0]
         assert "distance_m" in ranked[0]
+
+
+# ============================================================================
+# Density Detection Tests
+# ============================================================================
+
+
+class TestDensityDetection:
+    """Tests for _detect_density static method."""
+
+    def test_dense_when_3_or_more_results(self) -> None:
+        assert PlaceMatcher._detect_density(3) == DensityLevel.DENSE
+        assert PlaceMatcher._detect_density(10) == DensityLevel.DENSE
+
+    def test_medium_when_1_or_2_results(self) -> None:
+        assert PlaceMatcher._detect_density(1) == DensityLevel.MEDIUM
+        assert PlaceMatcher._detect_density(2) == DensityLevel.MEDIUM
+
+    def test_sparse_when_0_results(self) -> None:
+        assert PlaceMatcher._detect_density(0) == DensityLevel.SPARSE
+
+
+# ============================================================================
+# Tourist Relevance Filter Tests
+# ============================================================================
+
+
+class TestTouristRelevanceFilter:
+    """Tests for NON_TOURIST_TYPES filtering in _filter_low_quality_places."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_filters_laundromat_by_primary_type(self, matcher) -> None:
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Quick Clean Laundry"},
+                "userRatingCount": 50,
+                "primaryType": "laundry",
+                "types": ["laundry"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 0
+
+    def test_filters_gas_station(self, matcher) -> None:
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Shell Station"},
+                "userRatingCount": 100,
+                "primaryType": "gas_station",
+                "types": ["gas_station"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 0
+
+    def test_filters_parking(self, matcher) -> None:
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "City Parking"},
+                "userRatingCount": 200,
+                "primaryType": "parking",
+                "types": ["parking"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 0
+
+    def test_filters_place_with_non_tourist_secondary_type(self, matcher) -> None:
+        """Place tagged as both restaurant and parking should be filtered."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Restaurant with Parking"},
+                "userRatingCount": 100,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "parking"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 0
+
+    def test_keeps_tourist_places(self, matcher) -> None:
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Sushi Dai"},
+                "userRatingCount": 500,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 1
+
+    def test_all_non_tourist_types_are_strings(self) -> None:
+        """Ensure all NON_TOURIST_TYPES are valid strings."""
+        for t in NON_TOURIST_TYPES:
+            assert isinstance(t, str)
+            assert len(t) > 0
+
+
+# ============================================================================
+# Enhanced Ranking Tests
+# ============================================================================
+
+
+class TestBayesianRating:
+    """Tests for Bayesian rating adjustment."""
+
+    def test_low_review_count_pulls_toward_mean(self) -> None:
+        """4.8 stars with 5 reviews should be pulled toward 3.8."""
+        result = PlaceMatcher._bayesian_rating(4.8, 5)
+        assert 3.8 < result < 4.0
+
+    def test_high_review_count_preserves_rating(self) -> None:
+        """4.5 stars with 2000 reviews should be close to 4.5."""
+        result = PlaceMatcher._bayesian_rating(4.5, 2000)
+        assert result > 4.4
+
+    def test_zero_reviews_returns_prior_mean(self) -> None:
+        result = PlaceMatcher._bayesian_rating(5.0, 0)
+        assert result == 3.8
+
+    def test_no_rating_returns_prior_mean(self) -> None:
+        result = PlaceMatcher._bayesian_rating(0, 100)
+        assert result == 3.8
+
+
+class TestFameBonus:
+    """Tests for continuous fame bonus."""
+
+    def test_below_floor_returns_zero(self) -> None:
+        assert PlaceMatcher._fame_bonus(10) == 0.0
+        assert PlaceMatcher._fame_bonus(49) == 0.0
+
+    def test_at_floor_returns_zero(self) -> None:
+        assert PlaceMatcher._fame_bonus(50) == 0.0
+
+    def test_increases_with_reviews(self) -> None:
+        bonus_500 = PlaceMatcher._fame_bonus(500)
+        bonus_5000 = PlaceMatcher._fame_bonus(5000)
+        assert bonus_500 > 0
+        assert bonus_5000 > bonus_500
+
+    def test_diminishing_returns(self) -> None:
+        """Growth rate slows at higher review counts."""
+        bonus_500 = PlaceMatcher._fame_bonus(500)
+        bonus_5000 = PlaceMatcher._fame_bonus(5000)
+        bonus_50000 = PlaceMatcher._fame_bonus(50000)
+        # Each 10x increase in reviews adds the same absolute bonus (log scale)
+        # but relative growth is smaller
+        assert bonus_50000 > bonus_5000 > bonus_500
+        assert bonus_50000 < bonus_5000 * 3  # Not linear growth
+
+
+class TestDwellCategoryBonus:
+    """Tests for dwell-tiered time bonus with category matching."""
+
+    def test_long_dwell_high_bonus(self) -> None:
+        bonus = PlaceMatcher._dwell_category_bonus(150, ["museum"], None)
+        assert bonus == 0.8
+
+    def test_medium_dwell(self) -> None:
+        bonus = PlaceMatcher._dwell_category_bonus(90, ["restaurant"], None)
+        assert bonus == 0.5
+
+    def test_short_dwell(self) -> None:
+        bonus = PlaceMatcher._dwell_category_bonus(30, ["cafe"], None)
+        assert bonus == 0.3
+
+    def test_very_short_dwell(self) -> None:
+        bonus = PlaceMatcher._dwell_category_bonus(10, ["store"], None)
+        assert bonus == 0.2
+
+    def test_time_hint_match_adds_bonus(self) -> None:
+        """Category match with time_hint adds 0.3."""
+        bonus_with = PlaceMatcher._dwell_category_bonus(
+            30, ["restaurant"], "food"
+        )
+        bonus_without = PlaceMatcher._dwell_category_bonus(30, ["restaurant"], None)
+        assert bonus_with == bonus_without + 0.3
+
+    def test_time_hint_no_match_no_extra_bonus(self) -> None:
+        """Non-matching hint doesn't add bonus."""
+        bonus = PlaceMatcher._dwell_category_bonus(30, ["museum"], "food")
+        assert bonus == 0.3  # Just dwell bonus, no category match
+
+    def test_none_dwell_only_time_hint(self) -> None:
+        """When dwell is None, only time hint contributes."""
+        bonus = PlaceMatcher._dwell_category_bonus(None, ["restaurant"], "food")
+        assert bonus == 0.3  # Only category match bonus
+
+
+class TestEnhancedRanking:
+    """Tests for the enhanced ranking algorithm with all signals."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    def test_famous_landmark_beats_random_business(self, matcher) -> None:
+        """A famous 4.5-star landmark at 40m should beat a random 3.5-star at 10m."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        places = [
+            {
+                "id": "random-biz",
+                "displayName": {"text": "Random Business"},
+                "location": {"latitude": 35.67621, "longitude": 139.6503},  # ~1m
+                "userRatingCount": 15,
+                "rating": 3.5,
+                "primaryType": "store",
+                "types": ["store"],
+            },
+            {
+                "id": "famous-landmark",
+                "displayName": {"text": "Famous Temple"},
+                "location": {"latitude": 35.67656, "longitude": 139.6503},  # ~40m
+                "userRatingCount": 5000,
+                "rating": 4.5,
+                "primaryType": "tourist_attraction",
+                "types": ["tourist_attraction"],
+            },
+        ]
+        ranked = matcher._rank_by_distance(places, cluster)
+        assert ranked[0]["place_id"] == "famous-landmark"
+
+    def test_time_hint_boosts_matching_category(self, matcher) -> None:
+        """With time_hint='food', a restaurant should rank higher."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+            "start_time": "2024-01-15T12:00:00Z",
+            "end_time": "2024-01-15T12:30:00Z",
+        }
+        places = [
+            {
+                "id": "museum",
+                "displayName": {"text": "Museum"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "museum",
+                "types": ["museum"],
+            },
+            {
+                "id": "restaurant",
+                "displayName": {"text": "Restaurant"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+        ranked = matcher._rank_by_distance(places, cluster, time_hint="food")
+        assert ranked[0]["place_id"] == "restaurant"
+
+    def test_internal_fields_removed_from_output(self, matcher) -> None:
+        """Verify all internal fields are stripped from results."""
+        cluster = {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Test Place"},
+                "location": {"latitude": 35.6763, "longitude": 139.6503},
+                "userRatingCount": 100,
+                "rating": 4.0,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+        ]
+        ranked = matcher._rank_by_distance(places, cluster)
+        assert "_rating_count" not in ranked[0]
+        assert "_rating" not in ranked[0]
+        assert "_primary_type" not in ranked[0]

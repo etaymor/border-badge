@@ -75,6 +75,16 @@ class PhotoCluster(BaseModel):
     )
     start_time: datetime | None = None
     end_time: datetime | None = None
+    time_hint: str | None = Field(
+        None,
+        description="Time-of-day category hint: food, attraction, nightlife, quick_stop",
+        pattern="^(food|attraction|nightlife|quick_stop)$",
+    )
+    vision_image_base64: str | None = Field(
+        None,
+        description="Representative photo as base64 JPEG (768px max, ~50-80KB)",
+        max_length=200_000,  # ~150KB base64 ceiling
+    )
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "PhotoCluster":
@@ -113,6 +123,7 @@ class PlaceSuggestion(BaseModel):
     category: EntryType
     distance_m: float  # Users see "15m away" and decide Yes/No
     types: list[str] = Field(default_factory=list)
+    vision_category: str | None = None  # What vision detected (for debugging/analytics)
 
 
 class ClusterSuggestion(BaseModel):
