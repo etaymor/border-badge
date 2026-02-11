@@ -133,7 +133,7 @@ class ExtractionOrchestrator:
         self,
         *,
         video_download_timeout: float = 12.0,
-        total_timeout: float = 15.0,
+        total_timeout: float = 30.0,
         max_video_frames: int = 30,
         enable_video_fallback: bool = True,
     ):

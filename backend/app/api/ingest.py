@@ -252,7 +252,7 @@ async def ingest_social_url(
             # via yt-dlp, so we disable video fallback for those URLs.
             orchestrator = ExtractionOrchestrator(
                 enable_video_fallback=not is_photo_slideshow,
-                total_timeout=10.0 if is_photo_slideshow else 15.0,
+                total_timeout=10.0 if is_photo_slideshow else 30.0,
             )
 
             extraction_result = await orchestrator.extract(
