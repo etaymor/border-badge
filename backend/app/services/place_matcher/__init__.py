@@ -7,7 +7,6 @@ Uses tiered radius search (10m → 30m → 75m) for optimal precision.
 from .cache import PlacesCache, places_cache
 from .constants import (
     DENSITY_SEARCH_RADII,
-    DensityLevel,
     FIELD_MASK,
     INSTITUTIONAL_TYPES,
     MAX_ADDRESS_LENGTH,
@@ -23,6 +22,7 @@ from .constants import (
     TEXT_SEARCH_URL,
     TIME_HINT_TYPE_MATCHES,
     TYPE_TO_CATEGORY,
+    DensityLevel,
 )
 from .exceptions import (
     ConfigurationError,

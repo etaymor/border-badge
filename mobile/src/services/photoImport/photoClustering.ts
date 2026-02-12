@@ -31,7 +31,7 @@ const GEOHASH_PREFIX_LEN = 5; // Clusters not sharing 5-char prefix are >4.9km a
  * Calculate distance in meters between two coordinates using Haversine formula.
  * At <300m distances, haversine error is <1m vs Vincenty — well within GPS accuracy (5-15m).
  */
-function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);

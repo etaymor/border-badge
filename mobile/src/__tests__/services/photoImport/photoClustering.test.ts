@@ -343,8 +343,8 @@ describe('photoClustering', () => {
     it('merges two clusters within 80m threshold', () => {
       // Two points ~50m apart (same 5-char geohash prefix)
       const clusters = [
-        createCluster('c1', 35.67620, 139.65030, 'xn76ur1', 5),
-        createCluster('c2', 35.67660, 139.65030, 'xn76ur2', 3),
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 5),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 3),
       ];
       const merged = mergeAdjacentClusters(clusters, 80);
       expect(merged).toHaveLength(1);
@@ -364,9 +364,9 @@ describe('photoClustering', () => {
     it('merges transitive chain (A-B close, B-C close, A-C far)', () => {
       // 3 clusters in a chain: each ~50m from neighbor, but first and last ~100m
       const clusters = [
-        createCluster('c1', 35.67600, 139.6503, 'xn76u00', 2),
+        createCluster('c1', 35.676, 139.6503, 'xn76u00', 2),
         createCluster('c2', 35.67645, 139.6503, 'xn76u01', 3),
-        createCluster('c3', 35.67690, 139.6503, 'xn76u02', 1),
+        createCluster('c3', 35.6769, 139.6503, 'xn76u02', 1),
       ];
       const merged = mergeAdjacentClusters(clusters, 80);
       // All 3 should merge via union-find transitivity
@@ -376,8 +376,8 @@ describe('photoClustering', () => {
 
     it('preserves largest constituent cluster ID', () => {
       const clusters = [
-        createCluster('small-cluster', 35.67620, 139.65030, 'xn76ur1', 2),
-        createCluster('big-cluster', 35.67660, 139.65030, 'xn76ur2', 10),
+        createCluster('small-cluster', 35.6762, 139.6503, 'xn76ur1', 2),
+        createCluster('big-cluster', 35.6766, 139.6503, 'xn76ur2', 10),
       ];
       const merged = mergeAdjacentClusters(clusters, 80);
       expect(merged).toHaveLength(1);
@@ -388,8 +388,8 @@ describe('photoClustering', () => {
       // c1 at lat=35.6762 with 10 photos, c2 at lat=35.6766 with 2 photos
       // Weighted centroid should be closer to c1
       const clusters = [
-        createCluster('c1', 35.67620, 139.65030, 'xn76ur1', 10),
-        createCluster('c2', 35.67660, 139.65030, 'xn76ur2', 2),
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 10),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 2),
       ];
       const merged = mergeAdjacentClusters(clusters, 80);
       expect(merged).toHaveLength(1);
@@ -399,8 +399,8 @@ describe('photoClustering', () => {
 
     it('extends time range across merged clusters', () => {
       const clusters = [
-        createCluster('c1', 35.67620, 139.65030, 'xn76ur1', 1, 10, 8),
-        createCluster('c2', 35.67660, 139.65030, 'xn76ur2', 1, 5, 3),
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 1, 10, 8),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 1, 5, 3),
       ];
       const merged = mergeAdjacentClusters(clusters, 80);
       expect(merged).toHaveLength(1);

@@ -1,9 +1,10 @@
 /**
  * PlaceSuggestionCard - Displays a place suggestion with photo previews
- * and confirm/reject actions. Supports swipe-left-to-dismiss and upload progress.
+ * and confirm/reject actions. Supports swipe-left-to-dismiss, upload progress,
+ * and cycling through alternative place suggestions.
  */
 
-import { useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -54,8 +55,21 @@ export function PlaceSuggestionCard({
   onCancelUpload,
 }: PlaceSuggestionCardProps) {
   const swipeableRef = useRef<Swipeable>(null);
-  const topPlace = suggestion.places[0];
-  if (!topPlace) return null;
+  const [placeIndex, setPlaceIndex] = useState(0);
+
+  const places = suggestion.places;
+  const hasAlternatives = places.length > 1;
+
+  const goToPrevPlace = useCallback(() => {
+    setPlaceIndex((prev) => (prev > 0 ? prev - 1 : places.length - 1));
+  }, [places.length]);
+
+  const goToNextPlace = useCallback(() => {
+    setPlaceIndex((prev) => (prev < places.length - 1 ? prev + 1 : 0));
+  }, [places.length]);
+
+  const currentPlace = places[placeIndex];
+  if (!currentPlace) return null;
 
   const heroUri = previewUris[0];
 
@@ -125,7 +139,7 @@ export function PlaceSuggestionCard({
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.floatingActionButton, styles.floatingConfirmButton]}
-              onPress={() => onConfirm(suggestion, topPlace)}
+              onPress={() => onConfirm(suggestion, currentPlace)}
             >
               <Ionicons name="checkmark" size={24} color={colors.white} />
             </TouchableOpacity>
@@ -134,16 +148,37 @@ export function PlaceSuggestionCard({
 
         {/* Place info */}
         <View style={styles.suggestionContent}>
-          <Text style={styles.suggestionName}>{topPlace.name}</Text>
+          <Text style={styles.suggestionName}>{currentPlace.name}</Text>
           <Text style={styles.suggestionAddress} numberOfLines={1}>
-            {topPlace.address}
+            {currentPlace.address}
           </Text>
           <View style={styles.suggestionMeta}>
             <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{topPlace.category}</Text>
+              <Text style={styles.categoryText}>{currentPlace.category}</Text>
             </View>
-            <Text style={styles.distanceText}>{Math.round(topPlace.distance_m)}m away</Text>
+            <Text style={styles.distanceText}>{Math.round(currentPlace.distance_m)}m away</Text>
           </View>
+
+          {/* Alternative places navigation */}
+          {hasAlternatives && !isUploading && (
+            <View style={localStyles.alternativesRow}>
+              <TouchableOpacity
+                onPress={goToPrevPlace}
+                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-back" size={18} color={colors.textTertiary} />
+              </TouchableOpacity>
+              <Text style={localStyles.alternativesText}>
+                {placeIndex + 1} of {places.length} options
+              </Text>
+              <TouchableOpacity
+                onPress={goToNextPlace}
+                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Upload progress */}
           {isUploading && (
@@ -190,6 +225,21 @@ const localStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 4,
+  },
+  alternativesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    gap: 12,
+  },
+  alternativesText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textTertiary,
   },
   uploadContainerInline: {
     marginTop: 16,

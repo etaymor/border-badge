@@ -137,6 +137,7 @@ export interface PlaceSuggestionRequest {
     start_time?: string;
     end_time?: string;
     time_hint?: TimeHint | null;
+    vision_images_base64?: string[] | null;
     vision_image_base64?: string | null;
   }>;
 }

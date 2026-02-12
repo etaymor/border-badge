@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from app.schemas.entries import EntryType
+from app.services.photo_vision import VisionResult
 from app.services.place_matcher import (
     INSTITUTIONAL_TYPES,
     MIN_REVIEW_COUNT,
@@ -16,6 +17,11 @@ from app.services.place_matcher import (
     DensityLevel,
     PlaceMatcher,
     PlacesCache,
+    RateLimitError,
+)
+from app.services.place_matcher._matcher_ranking import (
+    VISION_HIGH_CONFIDENCE_BONUS,
+    VISION_MEDIUM_CONFIDENCE_BONUS,
 )
 
 
@@ -1340,9 +1346,7 @@ class TestDwellCategoryBonus:
 
     def test_time_hint_match_adds_bonus(self) -> None:
         """Category match with time_hint adds 0.3."""
-        bonus_with = PlaceMatcher._dwell_category_bonus(
-            30, ["restaurant"], "food"
-        )
+        bonus_with = PlaceMatcher._dwell_category_bonus(30, ["restaurant"], "food")
         bonus_without = PlaceMatcher._dwell_category_bonus(30, ["restaurant"], None)
         assert bonus_with == bonus_without + 0.3
 
@@ -1450,3 +1454,362 @@ class TestEnhancedRanking:
         assert "_rating_count" not in ranked[0]
         assert "_rating" not in ranked[0]
         assert "_primary_type" not in ranked[0]
+
+
+# ============================================================================
+# Vision Ranking Tests
+# ============================================================================
+
+
+class TestVisionRanking:
+    """Tests for vision-based ranking bonus in _rank_by_distance."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        """Create a PlaceMatcher with mocked settings."""
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        mock_client = AsyncMock()
+        return PlaceMatcher(http_client=mock_client)
+
+    @pytest.fixture
+    def cluster(self) -> dict[str, Any]:
+        """Standard cluster for vision ranking tests."""
+        return {
+            "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        }
+
+    @pytest.fixture
+    def two_equidistant_places(self) -> list[dict[str, Any]]:
+        """Two places at the same distance with same reviews: one food, one museum."""
+        return [
+            {
+                "id": "museum-1",
+                "displayName": {"text": "Tokyo Museum"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "museum",
+                "types": ["museum", "tourist_attraction"],
+            },
+            {
+                "id": "restaurant-1",
+                "displayName": {"text": "Sushi Dai"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+        ]
+
+    def test_high_confidence_boosts_matching_place_types(
+        self, matcher, cluster, two_equidistant_places
+    ) -> None:
+        """Vision with high confidence food should boost the restaurant over the museum."""
+        vision = VisionResult(
+            category="food",
+            detected_text=["Sushi Dai"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=vision
+        )
+
+        # Restaurant should be ranked first because vision says "food" with high confidence
+        assert ranked[0]["place_id"] == "restaurant-1"
+        assert ranked[1]["place_id"] == "museum-1"
+
+    def test_medium_confidence_gives_smaller_boost(
+        self, matcher, cluster, two_equidistant_places
+    ) -> None:
+        """Vision with medium confidence food should still boost restaurant, but less."""
+        vision_medium = VisionResult(
+            category="food",
+            detected_text=[],
+            confidence="medium",
+        )
+        vision_high = VisionResult(
+            category="food",
+            detected_text=[],
+            confidence="high",
+        )
+
+        ranked_medium = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=vision_medium
+        )
+        ranked_high = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=vision_high
+        )
+
+        # Both should rank restaurant first
+        assert ranked_medium[0]["place_id"] == "restaurant-1"
+        assert ranked_high[0]["place_id"] == "restaurant-1"
+
+        # Verify the constants reflect high > medium
+        assert VISION_HIGH_CONFIDENCE_BONUS > VISION_MEDIUM_CONFIDENCE_BONUS
+
+    def test_low_confidence_is_ignored(
+        self, matcher, cluster, two_equidistant_places
+    ) -> None:
+        """Vision with low confidence should produce same ranking as no vision."""
+        vision_low = VisionResult(
+            category="food",
+            detected_text=[],
+            confidence="low",
+        )
+
+        ranked_with_low = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=vision_low
+        )
+        ranked_without = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=None
+        )
+
+        # Rankings should be identical when confidence is low vs no vision
+        assert [p["place_id"] for p in ranked_with_low] == [
+            p["place_id"] for p in ranked_without
+        ]
+
+    def test_no_matching_types_gives_no_bonus(self, matcher, cluster) -> None:
+        """Vision category with no matching place types should not change ranking."""
+        # "transport" maps to airport/train_station types, neither place has those
+        vision = VisionResult(
+            category="transport",
+            detected_text=[],
+            confidence="high",
+        )
+
+        places = [
+            {
+                "id": "restaurant-1",
+                "displayName": {"text": "Sushi Place"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+            },
+            {
+                "id": "museum-1",
+                "displayName": {"text": "Art Museum"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 200,
+                "rating": 4.2,
+                "primaryType": "museum",
+                "types": ["museum"],
+            },
+        ]
+
+        ranked_with_vision = matcher._rank_by_distance(
+            places, cluster, vision_result=vision
+        )
+        ranked_without = matcher._rank_by_distance(places, cluster, vision_result=None)
+
+        # Order should be the same - transport doesn't match restaurant or museum
+        assert [p["place_id"] for p in ranked_with_vision] == [
+            p["place_id"] for p in ranked_without
+        ]
+
+    def test_vision_category_included_in_output(
+        self, matcher, cluster, two_equidistant_places
+    ) -> None:
+        """Vision result should populate vision_category field in output."""
+        vision = VisionResult(
+            category="food",
+            detected_text=[],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=vision
+        )
+
+        # All results should have the vision category set
+        for place in ranked:
+            assert place["vision_category"] == "food"
+
+    def test_no_vision_result_sets_vision_category_none(
+        self, matcher, cluster, two_equidistant_places
+    ) -> None:
+        """Without vision result, vision_category should be None."""
+        ranked = matcher._rank_by_distance(
+            two_equidistant_places, cluster, vision_result=None
+        )
+
+        for place in ranked:
+            assert place["vision_category"] is None
+
+    def test_ranking_weights_change_ordering(self, matcher, cluster) -> None:
+        """Changing configured weights should change rank preference."""
+        places = [
+            {
+                "id": "close-low-signal",
+                "displayName": {"text": "Close Place"},
+                "location": {"latitude": 35.67625, "longitude": 139.6503},
+                "userRatingCount": 5,
+                "rating": 3.8,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+            {
+                "id": "far-high-signal",
+                "displayName": {"text": "Famous Place"},
+                "location": {"latitude": 35.6773, "longitude": 139.6503},
+                "userRatingCount": 5000,
+                "rating": 4.8,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+        ]
+
+        # Favor review/rating/fame over distance.
+        matcher._settings.places_rank_distance_weight = 0.2
+        matcher._settings.places_rank_review_weight = 2.0
+        matcher._settings.places_rank_rating_weight = 2.0
+        matcher._settings.places_rank_fame_weight = 2.0
+        matcher._settings.places_rank_dwell_weight = 1.0
+        matcher._settings.places_rank_vision_weight = 1.0
+        ranked_signal_heavy = matcher._rank_by_distance(places, cluster)
+        assert ranked_signal_heavy[0]["place_id"] == "far-high-signal"
+
+        # Favor distance over quality signals.
+        matcher._settings.places_rank_distance_weight = 3.0
+        matcher._settings.places_rank_review_weight = 0.1
+        matcher._settings.places_rank_rating_weight = 0.1
+        matcher._settings.places_rank_fame_weight = 0.1
+        matcher._settings.places_rank_dwell_weight = 1.0
+        matcher._settings.places_rank_vision_weight = 1.0
+        ranked_distance_heavy = matcher._rank_by_distance(places, cluster)
+        assert ranked_distance_heavy[0]["place_id"] == "close-low-signal"
+
+    @pytest.mark.asyncio
+    async def test_find_places_for_clusters_passes_vision_to_ranking(
+        self, matcher, monkeypatch
+    ) -> None:
+        """find_places_for_clusters should pass vision results to _rank_by_distance."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            },
+        ]
+
+        mock_places_response = {
+            "places": [
+                {
+                    "id": "place-123",
+                    "displayName": {"text": "Test Restaurant"},
+                    "formattedAddress": "123 Test St",
+                    "location": {"latitude": 35.6762, "longitude": 139.6503},
+                    "primaryType": "restaurant",
+                    "types": ["restaurant", "food"],
+                    "rating": 4.5,
+                    "userRatingCount": 100,
+                    "businessStatus": "OPERATIONAL",
+                }
+            ]
+        }
+
+        async def mock_post(*args, **kwargs):
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_places_response
+            return mock_response
+
+        matcher._client.post = mock_post
+
+        # Clear module-level cache
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        # Create a resolved task with vision results
+        vision_result = VisionResult(
+            category="food",
+            detected_text=["Test Restaurant"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        vision_task = asyncio.ensure_future(make_vision_task())
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=vision_task
+        )
+
+        assert failed_count == 0
+        assert len(results) == 1
+        # The vision_category should be set on the returned places
+        assert results[0]["places"][0]["vision_category"] == "food"
+
+        await places_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_text_search_rate_limit_falls_back_to_nearby_results(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Rate-limited text search should not fail cluster suggestion results."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            },
+        ]
+
+        nearby_places = [
+            {
+                "id": "place-nearby-1",
+                "displayName": {"text": "Nearby Cafe"},
+                "formattedAddress": "123 Nearby St",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "cafe",
+                "types": ["cafe", "coffee_shop"],
+                "rating": 4.3,
+                "userRatingCount": 120,
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(
+            latitude: float, longitude: float
+        ) -> tuple[list[dict], int]:
+            return nearby_places, 15
+
+        async def mock_execute_text_search(
+            text_query: str, latitude: float, longitude: float, radius: float = 200.0
+        ) -> list[dict]:
+            raise RateLimitError("Text search rate limited")
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+
+        vision_result = VisionResult(
+            category="food",
+            detected_text=["Nearby Cafe"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        vision_task = asyncio.ensure_future(make_vision_task())
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=vision_task
+        )
+
+        assert failed_count == 0
+        assert len(results) == 1
+        assert len(results[0]["places"]) == 1
+        assert results[0]["places"][0]["place_id"] == "place-nearby-1"

@@ -82,9 +82,25 @@ class PhotoCluster(BaseModel):
     )
     vision_image_base64: str | None = Field(
         None,
-        description="Representative photo as base64 JPEG (768px max, ~50-80KB)",
+        description="Legacy single representative photo (base64 JPEG)",
         max_length=200_000,  # ~150KB base64 ceiling
     )
+    vision_images_base64: list[str] | None = Field(
+        None,
+        description="Up to 3 representative photos as base64 JPEG strings",
+        min_length=1,
+        max_length=3,
+    )
+
+    @field_validator("vision_images_base64")
+    @classmethod
+    def validate_vision_images_base64(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        for image in v:
+            if len(image) > 200_000:
+                raise ValueError("vision_images_base64 items must be <= 200000 chars")
+        return v
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "PhotoCluster":

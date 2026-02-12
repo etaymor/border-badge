@@ -53,6 +53,8 @@ jest.mock('../../../services/photoImport', () => ({
   cacheSuggestions: jest.fn().mockResolvedValue(undefined),
   getLastSelectedCandidateId: jest.fn().mockResolvedValue(null),
   setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
+  computeTimeHint: jest.fn().mockReturnValue(null),
+  getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
 }));
 
 // Import actual error classes to use in tests - these are the same classes used by the real code

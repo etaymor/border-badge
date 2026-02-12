@@ -21,6 +21,7 @@ import {
   getCachedSuggestions,
   cacheSuggestions,
   computeTimeHint,
+  getVisionImagesForCluster,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
@@ -28,6 +29,31 @@ import {
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { truncateCoordinate } from './photoImportUtils';
+
+const VISION_PREP_CONCURRENCY = 3;
+
+async function prepareVisionImagesBounded(
+  clusters: LocationCluster[],
+  maxConcurrency: number = VISION_PREP_CONCURRENCY
+): Promise<string[][]> {
+  if (clusters.length === 0) return [];
+
+  const results: string[][] = Array.from({ length: clusters.length }, () => []);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < clusters.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await getVisionImagesForCluster(clusters[index]);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, maxConcurrency), clusters.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
+}
 
 export interface UsePlaceSuggestionsOptions {
   clusterLookupRef: React.RefObject<Map<string, LocationCluster>>;
@@ -193,8 +219,11 @@ export function usePlaceSuggestions({
       }
 
       try {
+        // Prepare vision images with bounded concurrency to reduce memory pressure.
+        const visionImages = await prepareVisionImagesBounded(uncachedClusters);
+
         const result = await suggestPlacesMutation.mutateAsync({
-          clusters: uncachedClusters.map((c) => ({
+          clusters: uncachedClusters.map((c, i) => ({
             id: c.id,
             centroid: {
               latitude: truncateCoordinate(c.centroid.latitude),
@@ -209,6 +238,9 @@ export function usePlaceSuggestions({
             start_time: c.timeRange.start.toISOString(),
             end_time: c.timeRange.end.toISOString(),
             time_hint: computeTimeHint(c),
+            vision_images_base64: visionImages[i],
+            // Backwards compatibility for older backend versions.
+            vision_image_base64: visionImages[i][0] ?? null,
           })),
         });
 

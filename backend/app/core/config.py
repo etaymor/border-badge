@@ -104,6 +104,42 @@ class Settings(BaseSettings):
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
     )
+    places_rank_distance_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for distance penalty term in place ranking",
+    )
+    places_rank_review_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for review-count bonus term in place ranking",
+    )
+    places_rank_rating_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for Bayesian rating bonus term in place ranking",
+    )
+    places_rank_fame_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for fame bonus term in place ranking",
+    )
+    places_rank_dwell_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for dwell/time-hint bonus term in place ranking",
+    )
+    places_rank_vision_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for vision category bonus term in place ranking",
+    )
 
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)
