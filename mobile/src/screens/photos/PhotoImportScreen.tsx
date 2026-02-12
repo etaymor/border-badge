@@ -55,6 +55,9 @@ type ClusterDisplayItem =
   | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
   | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
+
 type Props = PassportStackScreenProps<'PhotoImport'>;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -609,7 +612,11 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           ) : (
             // Normal idle state for manual start
             <>
-              <Ionicons name="images-outline" size={64} color={colors.sunsetGold} />
+              <Image
+                source={polaroidsIllustration}
+                style={{ width: 120, height: 120 }}
+                contentFit="contain"
+              />
               <Text style={styles.idleTitle}>Import Travel Photos</Text>
               <Text style={styles.idleDescription}>
                 {lastImportTime
@@ -664,7 +671,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             <View style={styles.discoveryFeed}>
               {scanProgress.discoveredCountries.slice(-5).map((country) => (
                 <Text key={country.code} style={styles.discoveryItem}>
-                  {getFlagEmoji(country.code)} Found photos from {country.name}
+                  Found photos from {getFlagEmoji(country.code)}
                 </Text>
               ))}
             </View>

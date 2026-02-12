@@ -4,6 +4,9 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from app.schemas.photos import PhotoCluster
 
 
 @pytest.fixture
@@ -14,6 +17,52 @@ def sample_photo_cluster() -> dict[str, Any]:
         "centroid": {"latitude": 35.6762, "longitude": 139.6503},
         "photo_ids": ["photo-1", "photo-2", "photo-3"],
     }
+
+
+def _make_cluster(**overrides: Any) -> dict[str, Any]:
+    """Build a valid PhotoCluster dict with optional overrides."""
+    base: dict[str, Any] = {
+        "id": "cluster-1",
+        "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+        "photos": [
+            {
+                "asset_id": "photo-1",
+                "latitude": 35.6762,
+                "longitude": 139.6503,
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+class TestPhotoClusterVisionImages:
+    """Regression: empty vision_images_base64 must not cause 422."""
+
+    def test_none_is_accepted(self) -> None:
+        cluster = PhotoCluster(**_make_cluster(vision_images_base64=None))
+        assert cluster.vision_images_base64 is None
+
+    def test_omitted_is_accepted(self) -> None:
+        cluster = PhotoCluster(**_make_cluster())
+        assert cluster.vision_images_base64 is None
+
+    def test_empty_list_is_coerced_to_none(self) -> None:
+        """Empty list from mobile when ExpoImageManipulator is unavailable."""
+        cluster = PhotoCluster(**_make_cluster(vision_images_base64=[]))
+        assert cluster.vision_images_base64 is None
+
+    def test_valid_images_accepted(self) -> None:
+        cluster = PhotoCluster(**_make_cluster(vision_images_base64=["abc123"]))
+        assert cluster.vision_images_base64 == ["abc123"]
+
+    def test_too_many_images_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            PhotoCluster(**_make_cluster(vision_images_base64=["a", "b", "c", "d"]))
+
+    def test_oversized_image_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            PhotoCluster(**_make_cluster(vision_images_base64=["x" * 200_001]))
 
 
 class TestSuggestPlaces:

@@ -6,8 +6,6 @@
  * the vision classification API.
  */
 
-import * as ImageManipulator from 'expo-image-manipulator';
-import { SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'react-native';
 
 import { haversine } from './photoClustering';
@@ -98,6 +96,8 @@ export function selectRepresentativePhoto(cluster: LocationCluster): PhotoWithLo
  */
 export async function prepareVisionImage(photoUri: string): Promise<string | null> {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
     const { width, height } = await getImageDimensions(photoUri);
     const shouldResize = width > VISION_MAX_DIMENSION || height > VISION_MAX_DIMENSION;
     const resizeActions = shouldResize
@@ -109,7 +109,7 @@ export async function prepareVisionImage(photoUri: string): Promise<string | nul
         ]
       : [];
 
-    const result = await ImageManipulator.manipulateAsync(photoUri, resizeActions, {
+    const result = await manipulateAsync(photoUri, resizeActions, {
       format: SaveFormat.JPEG,
       compress: VISION_JPEG_QUALITY,
       base64: true,

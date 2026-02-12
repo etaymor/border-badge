@@ -83,14 +83,13 @@ class PhotoCluster(BaseModel):
     vision_images_base64: list[str] | None = Field(
         None,
         description="Up to 3 representative photos as base64 JPEG strings",
-        min_length=1,
         max_length=3,
     )
 
     @field_validator("vision_images_base64")
     @classmethod
     def validate_vision_images_base64(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
+        if v is None or len(v) == 0:
             return None
         for image in v:
             if len(image) > 200_000:
