@@ -218,6 +218,7 @@ class SearchMixin:
 
         Used when vision detects readable business-name text on a sign/facade.
         Location bias centers results near the cluster centroid.
+        Results are cached using the same single-flight cache as nearby search.
 
         Args:
             text_query: Business name text to search for
@@ -231,7 +232,10 @@ class SearchMixin:
         if not self._settings.google_places_api_key:
             raise ConfigurationError("Google Places API key not configured")
 
-        try:
+        # Cache key includes query text and truncated coordinates
+        cache_key = f"text_{text_query}_{round(latitude, 5)}_{round(longitude, 5)}"
+
+        async def fetch_from_api() -> list[dict]:
             response = await self._client.post(
                 TEXT_SEARCH_URL,
                 json={
@@ -268,6 +272,8 @@ class SearchMixin:
             logger.info(f"Text Search for '{text_query}': found {len(places)} places")
             return places
 
+        try:
+            return await places_cache.get_or_fetch(cache_key, fetch_from_api)
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
             return []

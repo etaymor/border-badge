@@ -18,7 +18,7 @@ from app.schemas.photos import (
     PlaceSuggestionRequest,
     PlaceSuggestionResponse,
 )
-from app.services.photo_vision import PhotoClassifier, VisionResult
+from app.services.photo_vision import classify_cluster_photos
 from app.services.place_matcher import (
     ConfigurationError,
     PlaceMatcher,
@@ -28,67 +28,6 @@ from app.services.place_matcher import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/photos", tags=["photos"])
-
-
-async def _classify_cluster_photos(
-    clusters: list[dict],
-) -> dict[str, VisionResult]:
-    """Run vision classification for clusters with vision image payloads.
-
-    Returns a dict mapping cluster_id -> VisionResult.
-    Failures are silently ignored (returns empty dict for failed clusters).
-    """
-    classifier = PhotoClassifier(timeout=5.0)
-    vision_clusters = [
-        c
-        for c in clusters
-        if c.get("vision_images_base64") or c.get("vision_image_base64")
-    ]
-
-    if not vision_clusters:
-        return {}
-
-    async def classify_one(cluster: dict) -> tuple[str, VisionResult | None]:
-        images: list[str] = []
-        if cluster.get("vision_images_base64"):
-            images = list(cluster["vision_images_base64"][:3])
-        elif cluster.get("vision_image_base64"):
-            images = [cluster["vision_image_base64"]]
-
-        if not images:
-            return cluster["id"], None
-
-        single_results = await asyncio.gather(
-            *[classifier.classify(image_base64) for image_base64 in images],
-            return_exceptions=True,
-        )
-
-        parsed_results: list[VisionResult | None] = []
-        for item in single_results:
-            if isinstance(item, VisionResult):
-                parsed_results.append(item)
-            else:
-                parsed_results.append(None)
-
-        return cluster["id"], PhotoClassifier.aggregate_results(parsed_results)
-
-    results = await asyncio.gather(
-        *[classify_one(c) for c in vision_clusters],
-        return_exceptions=True,
-    )
-
-    vision_map: dict[str, VisionResult] = {}
-    for r in results:
-        if isinstance(r, tuple) and r[1] is not None:
-            vision_map[r[0]] = r[1]
-
-    if vision_map:
-        logger.info(
-            f"Vision classification: {len(vision_map)}/{len(vision_clusters)} "
-            f"clusters classified successfully"
-        )
-
-    return vision_map
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
@@ -103,9 +42,9 @@ async def suggest_places(
 
     Users see "15m away" and decide Yes/No - no confidence percentages.
 
-    When vision image payloads are provided per cluster (single legacy image or
-    up to 3 representative images), runs vision classification in parallel with
-    place matching to improve accuracy.
+    When vision image payloads are provided per cluster (up to 3 representative
+    images), runs vision classification in parallel with place matching to
+    improve accuracy.
 
     Rate limited to 30 requests/minute per user to allow reasonable batch imports.
     """
@@ -122,10 +61,10 @@ async def suggest_places(
     async with httpx.AsyncClient(timeout=settings.places_api_timeout_seconds) as client:
         matcher = PlaceMatcher(http_client=client)
 
-        try:
-            # Run vision + place matching in parallel
-            vision_task = asyncio.create_task(_classify_cluster_photos(cluster_dicts))
+        # Run vision + place matching in parallel
+        vision_task = asyncio.create_task(classify_cluster_photos(cluster_dicts))
 
+        try:
             suggestion_dicts, failed_count = await matcher.find_places_for_clusters(
                 cluster_dicts, vision_results_task=vision_task
             )
@@ -174,6 +113,9 @@ async def suggest_places(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to find place suggestions",
             ) from e
+        finally:
+            if not vision_task.done():
+                vision_task.cancel()
 
 
 # NOTE: No /confirm-entries endpoint - reuse existing entry creation at

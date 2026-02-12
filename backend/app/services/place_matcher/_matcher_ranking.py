@@ -1,7 +1,9 @@
 """Ranking logic for PlaceMatcher."""
 
 import math
-from typing import Any
+
+from app.services.photo_vision import VisionResult
+from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
 from .constants import (
     BAYESIAN_CONFIDENCE,
@@ -86,7 +88,7 @@ class RankingMixin:
         places: list[dict],
         cluster: dict,
         time_hint: str | None = None,
-        vision_result: Any | None = None,
+        vision_result: VisionResult | None = None,
     ) -> list[dict]:
         """
         Rank places by enhanced scoring algorithm.
@@ -118,8 +120,7 @@ class RankingMixin:
 
                 start_time = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                 end_time = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-            dwell_ms = (end_time - start_time).total_seconds() * 1000
-            dwell_minutes = dwell_ms / (1000 * 60)
+            dwell_minutes = (end_time - start_time).total_seconds() / 60
 
         for place in places:
             place_loc = place.get("location", {})
@@ -162,9 +163,6 @@ class RankingMixin:
                     "_primary_type": primary_type,
                 }
             )
-
-        # Import vision type mapping only when needed (avoids circular imports)
-        from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
         def _vision_bonus(place_types: list[str]) -> float:
             """Score bonus based on vision category match.

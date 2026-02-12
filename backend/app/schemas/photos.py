@@ -80,11 +80,6 @@ class PhotoCluster(BaseModel):
         description="Time-of-day category hint: food, attraction, nightlife, quick_stop",
         pattern="^(food|attraction|nightlife|quick_stop)$",
     )
-    vision_image_base64: str | None = Field(
-        None,
-        description="Legacy single representative photo (base64 JPEG)",
-        max_length=200_000,  # ~150KB base64 ceiling
-    )
     vision_images_base64: list[str] | None = Field(
         None,
         description="Up to 3 representative photos as base64 JPEG strings",

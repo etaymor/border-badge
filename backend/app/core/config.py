@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     play_store_url: str = ""  # Google Play Store URL (placeholder)
 
     # OpenRouter Configuration (for traveler classification)
-    openrouter_api_key: str = ""
+    openrouter_api_key: str = Field(default="", repr=False)
     openrouter_model: str = "google/gemini-2.5-flash-lite"
     multimodal_model: str = "google/gemini-2.5-flash-lite"
 

@@ -4,7 +4,7 @@
  * and cycling through alternative place suggestions.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -56,6 +56,11 @@ export function PlaceSuggestionCard({
 }: PlaceSuggestionCardProps) {
   const swipeableRef = useRef<Swipeable>(null);
   const [placeIndex, setPlaceIndex] = useState(0);
+
+  // Reset to first place when suggestion changes (e.g. different cluster)
+  useEffect(() => {
+    setPlaceIndex(0);
+  }, [suggestion.cluster_id]);
 
   const places = suggestion.places;
   const hasAlternatives = places.length > 1;

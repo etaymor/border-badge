@@ -239,8 +239,6 @@ export function usePlaceSuggestions({
             end_time: c.timeRange.end.toISOString(),
             time_hint: computeTimeHint(c),
             vision_images_base64: visionImages[i],
-            // Backwards compatibility for older backend versions.
-            vision_image_base64: visionImages[i][0] ?? null,
           })),
         });
 

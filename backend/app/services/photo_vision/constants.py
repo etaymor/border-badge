@@ -85,18 +85,6 @@ VISION_TO_PLACE_TYPES: dict[str, set[str]] = {
     },
 }
 
-# Map vision categories to entry categories for the app
-VISION_TO_ENTRY_CATEGORY: dict[str, str] = {
-    "food": "food",
-    "landmark": "experience",
-    "stay": "stay",
-    "shopping": "experience",
-    "nature": "experience",
-    "nightlife": "experience",
-    "transport": "place",
-    "unknown": "place",
-}
-
 # OpenRouter structured output schema for classification
 CLASSIFICATION_RESPONSE_FORMAT = {
     "type": "json_schema",

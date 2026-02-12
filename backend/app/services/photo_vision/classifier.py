@@ -1,5 +1,6 @@
 """Photo vision classifier using Gemini Flash Lite via OpenRouter."""
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -31,7 +32,6 @@ class VisionResult:
     )
     detected_text: list[str] = field(default_factory=list)
     confidence: str = "low"  # high, medium, low
-    reasoning: str = ""
 
     @property
     def has_business_name(self) -> bool:
@@ -175,13 +175,10 @@ class PhotoClassifier:
         # Ensure all items are strings
         detected_text = [str(t) for t in detected_text if t]
 
-        reasoning = str(data.get("reasoning", ""))[:200]
-
         return VisionResult(
             category=category,
             detected_text=detected_text,
             confidence=confidence,
-            reasoning=reasoning,
         )
 
     @staticmethod
@@ -240,5 +237,66 @@ class PhotoClassifier:
             category=best_category,
             detected_text=detected_text,
             confidence=aggregate_confidence,
-            reasoning=f"Aggregated from {len(valid_results)} photos",
         )
+
+
+MAX_CONCURRENT_VISION_REQUESTS = 5
+
+
+async def classify_cluster_photos(
+    clusters: list[dict],
+) -> dict[str, VisionResult]:
+    """Run vision classification for clusters with vision image payloads.
+
+    Returns a dict mapping cluster_id -> VisionResult.
+    Failures are silently ignored (returns empty dict for failed clusters).
+    """
+    classifier = PhotoClassifier(timeout=5.0)
+    vision_clusters = [c for c in clusters if c.get("vision_images_base64")]
+
+    if not vision_clusters:
+        return {}
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_VISION_REQUESTS)
+
+    async def classify_one(cluster: dict) -> tuple[str, VisionResult | None]:
+        images: list[str] = list(cluster["vision_images_base64"][:3])
+
+        if not images:
+            return cluster["id"], None
+
+        async def classify_with_limit(image_base64: str) -> VisionResult | None:
+            async with semaphore:
+                return await classifier.classify(image_base64)
+
+        single_results = await asyncio.gather(
+            *[classify_with_limit(image_base64) for image_base64 in images],
+            return_exceptions=True,
+        )
+
+        parsed_results: list[VisionResult | None] = []
+        for item in single_results:
+            if isinstance(item, VisionResult):
+                parsed_results.append(item)
+            else:
+                parsed_results.append(None)
+
+        return cluster["id"], PhotoClassifier.aggregate_results(parsed_results)
+
+    results = await asyncio.gather(
+        *[classify_one(c) for c in vision_clusters],
+        return_exceptions=True,
+    )
+
+    vision_map: dict[str, VisionResult] = {}
+    for r in results:
+        if isinstance(r, tuple) and r[1] is not None:
+            vision_map[r[0]] = r[1]
+
+    if vision_map:
+        logger.info(
+            f"Vision classification: {len(vision_map)}/{len(vision_clusters)} "
+            f"clusters classified successfully"
+        )
+
+    return vision_map

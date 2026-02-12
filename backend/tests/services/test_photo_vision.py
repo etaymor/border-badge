@@ -151,7 +151,6 @@ class TestParseResponse:
         assert result.category == "food"
         assert result.detected_text == ["Sushi Dai", "Tsukiji"]
         assert result.confidence == "high"
-        assert result.reasoning == "Restaurant interior with sushi counter visible"
 
     def test_invalid_json_returns_none(self) -> None:
         """Non-JSON content should return None."""
@@ -195,24 +194,6 @@ class TestParseResponse:
         assert result is not None
         assert result.confidence == "low"
 
-    def test_truncates_reasoning_to_200_chars(self) -> None:
-        """Reasoning longer than 200 characters should be truncated."""
-        long_reasoning = "A" * 300
-        content = json.dumps(
-            {
-                "category": "landmark",
-                "detected_text": [],
-                "confidence": "medium",
-                "reasoning": long_reasoning,
-            }
-        )
-
-        result = PhotoClassifier._parse_response(content)
-
-        assert result is not None
-        assert len(result.reasoning) == 200
-        assert result.reasoning == "A" * 200
-
     def test_missing_fields_use_defaults(self) -> None:
         """Missing fields should use sensible defaults."""
         content = json.dumps({})
@@ -223,7 +204,6 @@ class TestParseResponse:
         assert result.category == "unknown"
         assert result.detected_text == []
         assert result.confidence == "low"
-        assert result.reasoning == ""
 
     def test_detected_text_non_list_defaults_to_empty(self) -> None:
         """If detected_text is not a list, default to empty list."""

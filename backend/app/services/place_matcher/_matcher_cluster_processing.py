@@ -1,8 +1,12 @@
 """Cluster-processing flow for PlaceMatcher."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any
+
+from app.services.photo_vision import VisionResult
 
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
@@ -19,7 +23,7 @@ class ClusterProcessingMixin:
     async def find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
-        vision_results_task: Any | None = None,
+        vision_results_task: asyncio.Task[dict[str, VisionResult]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Find place suggestions for photo clusters.
@@ -101,60 +105,80 @@ class ClusterProcessingMixin:
         )
 
         # Await vision results (non-blocking if already done, empty dict on failure)
-        vision_map: dict[str, Any] = {}
+        vision_map: dict[str, VisionResult] = {}
         if vision_results_task is not None:
             try:
                 vision_map = await vision_results_task
             except Exception as e:
                 logger.warning(f"Vision classification failed: {e}")
 
-        # Rank and build suggestions with vision data + text search
-        successful = []
+        # Collect successful search results and identify text search needs
+        search_results: list[tuple[dict, list[dict], int]] = []
         failed_count = 0
 
         for r in results:
             if r is None or isinstance(r, BaseException):
                 failed_count += 1
                 continue
+            search_results.append(r)
 
-            cluster, places, _radius_used = r
+        # Run text searches concurrently for clusters with vision-detected names
+        text_search_map: dict[str, list[dict]] = {}
+
+        async def text_search_for_cluster(
+            cluster_id: str,
+            text_query: str,
+            lat: float,
+            lng: float,
+        ) -> tuple[str, list[dict]]:
+            try:
+                places = await self._execute_text_search(text_query, lat, lng)
+                if places:
+                    places = self._filter_low_quality_places(places)
+                    logger.info(
+                        f"Cluster {cluster_id}: text search for "
+                        f"'{text_query}' found {len(places)} quality places"
+                    )
+                return cluster_id, places
+            except (RateLimitError, QuotaExhaustedError) as e:
+                logger.warning(
+                    f"Cluster {cluster_id}: text search unavailable "
+                    f"({type(e).__name__}), falling back to nearby results"
+                )
+                return cluster_id, []
+
+        text_search_tasks = []
+        for cluster, _places, _radius_used in search_results:
             cluster_id = cluster["id"]
             vision_result = vision_map.get(cluster_id)
-
-            # Text Search: if vision detected a business name, search by text
-            text_search_places: list[dict] = []
             if (
                 vision_result is not None
                 and vision_result.confidence != "low"
                 and vision_result.has_business_name
             ):
                 candidates = vision_result.business_name_candidates
-                # Use the first (longest/most specific) candidate
                 if candidates:
-                    text_query = candidates[0]
                     lat = cluster["centroid"]["latitude"]
                     lng = cluster["centroid"]["longitude"]
-                    try:
-                        text_search_places = await self._execute_text_search(
-                            text_query, lat, lng
-                        )
-                    except (RateLimitError, QuotaExhaustedError) as e:
-                        # Text search is an optional enhancement, so keep nearby
-                        # results when text search is temporarily unavailable.
-                        logger.warning(
-                            f"Cluster {cluster_id}: text search unavailable "
-                            f"({type(e).__name__}), falling back to nearby results"
-                        )
-                        text_search_places = []
-                    if text_search_places:
-                        text_search_places = self._filter_low_quality_places(
-                            text_search_places
-                        )
-                        logger.info(
-                            f"Cluster {cluster_id}: text search for "
-                            f"'{text_query}' found {len(text_search_places)} "
-                            f"quality places"
-                        )
+                    text_search_tasks.append(
+                        text_search_for_cluster(cluster_id, candidates[0], lat, lng)
+                    )
+
+        if text_search_tasks:
+            text_results = await asyncio.gather(
+                *text_search_tasks, return_exceptions=True
+            )
+            for tr in text_results:
+                if isinstance(tr, tuple):
+                    text_search_map[tr[0]] = tr[1]
+
+        # Rank and build suggestions with vision data + text search
+        successful = []
+
+        for cluster, places, _radius_used in search_results:
+            cluster_id = cluster["id"]
+            vision_result = vision_map.get(cluster_id)
+            text_search_places = text_search_map.get(cluster_id, [])
 
             # Merge text search results with nearby search results
             # Text search results are prepended (higher priority)

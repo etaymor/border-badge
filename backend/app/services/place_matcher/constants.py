@@ -2,6 +2,8 @@
 
 from enum import Enum
 
+from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
+
 # Concurrency limit for parallel Places API calls
 MAX_CONCURRENT_PLACES_REQUESTS = 5
 
@@ -106,33 +108,12 @@ DWELL_BONUS_TIERS: list[tuple[float, float, float]] = [
 # Time Hint Category Mappings
 # ============================================================================
 
-# Maps time_hint values to Google Places types that are boosted (soft bonus)
+# Maps time_hint values to Google Places types that are boosted (soft bonus).
+# Reuses VISION_TO_PLACE_TYPES where categories overlap to avoid duplication.
 TIME_HINT_TYPE_MATCHES: dict[str, set[str]] = {
-    "food": {
-        "restaurant",
-        "cafe",
-        "coffee_shop",
-        "bar",
-        "bakery",
-        "fine_dining_restaurant",
-        "seafood_restaurant",
-        "steak_house",
-        "pizza_restaurant",
-        "sushi_restaurant",
-        "ice_cream_shop",
-        "wine_bar",
-        "pub",
-        "tea_house",
-        "italian_restaurant",
-        "french_restaurant",
-        "japanese_restaurant",
-        "thai_restaurant",
-        "indian_restaurant",
-        "mexican_restaurant",
-        "mediterranean_restaurant",
-        "fast_food_restaurant",
-        "breakfast_restaurant",
-        "brunch_restaurant",
+    "food": VISION_TO_PLACE_TYPES["food"]
+    | {
+        # Additional cuisine-specific types not in vision mapping
         "chinese_restaurant",
         "vietnamese_restaurant",
         "korean_restaurant",
@@ -143,34 +124,14 @@ TIME_HINT_TYPE_MATCHES: dict[str, set[str]] = {
         "turkish_restaurant",
         "ramen_restaurant",
     },
-    "attraction": {
-        "museum",
-        "art_gallery",
-        "historical_landmark",
-        "monument",
-        "tourist_attraction",
-        "cultural_landmark",
+    "attraction": VISION_TO_PLACE_TYPES["landmark"]
+    | VISION_TO_PLACE_TYPES["nature"]
+    | {
         "amusement_park",
         "aquarium",
         "zoo",
-        "botanical_garden",
-        "national_park",
-        "park",
-        "beach",
-        "hiking_area",
-        "garden",
-        "wildlife_park",
-        "observation_deck",
-        "performing_arts_theater",
     },
-    "nightlife": {
-        "bar",
-        "night_club",
-        "casino",
-        "wine_bar",
-        "pub",
-        "comedy_club",
-    },
+    "nightlife": VISION_TO_PLACE_TYPES["nightlife"],
     "quick_stop": {
         "cafe",
         "coffee_shop",
