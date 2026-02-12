@@ -9,7 +9,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
-from app.core.llm_utils import OPENROUTER_API_URL
+from app.core.llm_utils import OPENROUTER_API_URL, extract_content
 
 from .constants import (
     CLASSIFICATION_RESPONSE_FORMAT,
@@ -139,7 +139,9 @@ class PhotoClassifier:
                 return None
 
             data = response.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = extract_content(data)
+            if not content:
+                return None
 
             return self._parse_response(content)
 

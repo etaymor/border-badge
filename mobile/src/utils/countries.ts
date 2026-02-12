@@ -8,12 +8,14 @@ const regionNames: RegionNamesApi | null = (() => {
       typeof Intl !== 'undefined' &&
       typeof (Intl as typeof Intl & { DisplayNames?: unknown }).DisplayNames === 'function'
     ) {
-      const DisplayNamesCtor = (Intl as typeof Intl & {
-        DisplayNames: new (
-          locales?: string | string[],
-          options?: { type: 'language' | 'region' | 'script' | 'currency' }
-        ) => RegionNamesApi;
-      }).DisplayNames;
+      const DisplayNamesCtor = (
+        Intl as typeof Intl & {
+          DisplayNames: new (
+            locales?: string | string[],
+            options?: { type: 'language' | 'region' | 'script' | 'currency' }
+          ) => RegionNamesApi;
+        }
+      ).DisplayNames;
       return new DisplayNamesCtor(['en'], { type: 'region' });
     }
   } catch {

@@ -451,6 +451,40 @@ describe('photoClustering', () => {
       const merged = mergeAdjacentClusters(clusters, 80);
       expect(merged).toHaveLength(1);
     });
+
+    it('produces valid centroid and dates when merging clusters with no photos', () => {
+      // Regression: if all clusters in a merge group have 0 photos,
+      // totalPhotos=0 causes division-by-zero in centroid (NaN),
+      // and earliest/latest from photos loop remain Infinity/-Infinity.
+      // After fix: should fall back to existing timeRange and average centroid.
+      const now = new Date();
+      const emptyCluster1: LocationCluster = {
+        id: 'empty1',
+        geohash: 'xn76ur1',
+        centroid: { latitude: 35.6762, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+      const emptyCluster2: LocationCluster = {
+        id: 'empty2',
+        geohash: 'xn76ur2',
+        centroid: { latitude: 35.6766, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 172800000), end: now },
+        countryCode: 'JP',
+      };
+
+      // These clusters are close enough to merge, and both have 0 photos
+      const merged = mergeAdjacentClusters([emptyCluster1, emptyCluster2], 80);
+      expect(merged).toHaveLength(1);
+      // Centroid must be valid (not NaN from 0/0 division)
+      expect(merged[0].centroid.latitude).not.toBeNaN();
+      expect(merged[0].centroid.longitude).not.toBeNaN();
+      // Dates must be valid (not NaN / Invalid Date)
+      expect(merged[0].timeRange.start.getTime()).not.toBeNaN();
+      expect(merged[0].timeRange.end.getTime()).not.toBeNaN();
+    });
   });
 
   describe('computeTimeHint', () => {

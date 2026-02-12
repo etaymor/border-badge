@@ -30,7 +30,7 @@ export const ENTRY_TYPES: EntryTypeConfig[] = [
   {
     type: 'experience',
     icon: 'sparkles',
-    label: 'Exp',
+    label: 'Experience',
     color: colors.entryExperience,
     emoji: '✨',
   },

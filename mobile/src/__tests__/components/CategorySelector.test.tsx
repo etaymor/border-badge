@@ -49,7 +49,7 @@ describe('CategorySelector', () => {
       expect(screen.getByText('Place')).toBeTruthy();
       expect(screen.getByText('Food')).toBeTruthy();
       expect(screen.getByText('Stay')).toBeTruthy();
-      expect(screen.getByText('Exp')).toBeTruthy();
+      expect(screen.getByText('Experience')).toBeTruthy();
     });
   });
 
@@ -94,7 +94,7 @@ describe('CategorySelector', () => {
 
     it('displays correct type for each entry type', () => {
       const entryTypes: EntryType[] = ['place', 'food', 'stay', 'experience'];
-      const labels = ['Place', 'Food', 'Stay', 'Exp'];
+      const labels = ['Place', 'Food', 'Stay', 'Experience'];
 
       entryTypes.forEach((type, index) => {
         const { unmount } = renderSelector({ entryType: type, hasSelectedType: true });

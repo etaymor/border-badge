@@ -155,6 +155,7 @@ export function mergeAdjacentClusters(
       weightedLng += c.centroid.longitude * w;
       totalPhotos += w;
       allPhotos.push(...c.photos);
+      // Use timeRange from constituent clusters (works even when photos is empty)
       const s = c.timeRange.start.getTime();
       const e = c.timeRange.end.getTime();
       if (s < earliest) earliest = s;
@@ -166,12 +167,25 @@ export function mergeAdjacentClusters(
       clusters[idx].photos.length > clusters[best].photos.length ? idx : best
     );
 
+    // Fall back to simple average of centroids when all clusters have 0 photos
+    let centroidLat: number;
+    let centroidLng: number;
+    if (totalPhotos > 0) {
+      centroidLat = weightedLat / totalPhotos;
+      centroidLng = weightedLng / totalPhotos;
+    } else {
+      centroidLat =
+        indices.reduce((sum, idx) => sum + clusters[idx].centroid.latitude, 0) / indices.length;
+      centroidLng =
+        indices.reduce((sum, idx) => sum + clusters[idx].centroid.longitude, 0) / indices.length;
+    }
+
     merged.push({
       id: clusters[largestIdx].id,
       geohash: clusters[largestIdx].geohash,
       centroid: {
-        latitude: weightedLat / totalPhotos,
-        longitude: weightedLng / totalPhotos,
+        latitude: centroidLat,
+        longitude: centroidLng,
       },
       photos: allPhotos,
       timeRange: {

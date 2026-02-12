@@ -2,6 +2,9 @@
 
 import json
 import logging
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services.photo_vision import PhotoClassifier, VisionResult
 
@@ -336,3 +339,68 @@ class TestAggregateResults:
 
         assert merged is not None
         assert merged.detected_text == ["Sushi Dai", "Menu", "Open"]
+
+
+# ============================================================================
+# PhotoClassifier.classify — empty choices edge cases
+# ============================================================================
+
+
+class TestClassifyEmptyChoices:
+    """Regression: API returning empty choices array must not raise IndexError."""
+
+    @pytest.mark.asyncio
+    async def test_empty_choices_array_returns_none(self) -> None:
+        """When the API returns {"choices": []}, classify should return None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"choices": []}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        with (
+            patch(
+                "app.services.photo_vision.classifier.get_http_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.services.photo_vision.classifier.get_settings",
+            ) as mock_settings,
+        ):
+            mock_settings.return_value.openrouter_api_key = "test-key"
+            mock_settings.return_value.multimodal_model = "test-model"
+            mock_settings.return_value.base_url = "http://test"
+
+            classifier = PhotoClassifier(timeout=5.0)
+            result = await classifier.classify("base64data")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_missing_choices_key_returns_none(self) -> None:
+        """When the API returns {} (no choices key), classify should return None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        with (
+            patch(
+                "app.services.photo_vision.classifier.get_http_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.services.photo_vision.classifier.get_settings",
+            ) as mock_settings,
+        ):
+            mock_settings.return_value.openrouter_api_key = "test-key"
+            mock_settings.return_value.multimodal_model = "test-model"
+            mock_settings.return_value.base_url = "http://test"
+
+            classifier = PhotoClassifier(timeout=5.0)
+            result = await classifier.classify("base64data")
+
+        assert result is None

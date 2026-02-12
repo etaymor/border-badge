@@ -37,6 +37,7 @@ from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.core.llm_utils import (
     OPENROUTER_API_URL,
+    extract_content,
     fix_trailing_commas,
     strip_code_fence,
 )
@@ -539,9 +540,9 @@ class MultimodalExtractor:
                 return []
 
             data = response.json()
-            response_content = (
-                data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            )
+            response_content = extract_content(data)
+            if not response_content:
+                return []
             return _parse_multimodal_response(response_content)
 
         except httpx.TimeoutException:
