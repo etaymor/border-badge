@@ -3,11 +3,9 @@
  */
 
 export * from './types';
-export * from './errors';
 export * from './photoImportService';
 export * from './photoClustering';
 export * from './photoCacheDb';
-export * from './visionPhoto';
 
 // Re-export OptimizedTripData type from photoClustering
 export type { OptimizedTripData } from './photoClustering';

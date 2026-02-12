@@ -23,6 +23,14 @@ jest.mock('../../../stores/onboardingStore', () => ({
   selectHomeCountry: jest.fn(),
 }));
 
+jest.mock('../../../services/photoImport/visionPhoto', () => ({
+  getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
+  selectRepresentativePhotos: jest.fn().mockReturnValue([]),
+  selectRepresentativePhoto: jest.fn().mockReturnValue(null),
+  prepareVisionImage: jest.fn().mockResolvedValue(null),
+  getVisionImageForCluster: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../../services/photoImport', () => ({
   extractPhotosWithLocation: jest.fn(),
   segmentTripsFromCache: jest.fn(),

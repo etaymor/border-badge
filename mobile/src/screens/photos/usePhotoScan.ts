@@ -9,11 +9,11 @@ import { Alert } from 'react-native';
 
 import { iso1A2Code } from '@rapideditor/country-coder';
 
+import { HomeCountryNotSetError } from '@services/photoImport/errors';
 import {
   extractPhotosWithLocation,
   segmentTripsFromCache,
   photoToCachedPhoto,
-  HomeCountryNotSetError,
   getLastImportTime,
   setLastImportTime,
   getAllCachedPhotos,

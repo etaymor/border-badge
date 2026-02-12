@@ -4,32 +4,32 @@ import { usePhotoScan } from '../../../screens/photos/usePhotoScan';
 import * as photoImportService from '../../../services/photoImport';
 
 // Mock dependencies
-jest.mock('../../../services/photoImport', () => ({
-  extractPhotosWithLocation: jest.fn(),
-  segmentTripsFromCache: jest.fn(),
-  photoToCachedPhoto: jest.fn((photo, countryCode) => ({
-    id: photo.id,
-    uri: photo.uri,
-    filename: photo.filename,
-    creationTime: photo.creationTime.getTime(),
-    latitude: photo.location.latitude,
-    longitude: photo.location.longitude,
-    geohash: 'xn76urx',
-    countryCode: countryCode ?? null,
-  })),
-  HomeCountryNotSetError: class HomeCountryNotSetError extends Error {
-    constructor() {
-      super('Home country not set');
-      this.name = 'HomeCountryNotSetError';
-    }
-  },
-  getLastImportTime: jest.fn(),
-  setLastImportTime: jest.fn(),
-  getAllCachedPhotos: jest.fn(),
-  cachePhotos: jest.fn(),
-  clearPhotoCache: jest.fn(),
-  abortBackgroundSync: jest.fn(),
-}));
+// errors module is NOT mocked - we use the real error classes so instanceof checks work
+jest.mock('../../../services/photoImport', () => {
+  const { HomeCountryNotSetError } = jest.requireActual('../../../services/photoImport/errors');
+  return {
+    extractPhotosWithLocation: jest.fn(),
+    segmentTripsFromCache: jest.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    photoToCachedPhoto: jest.fn((photo: any, countryCode: any) => ({
+      id: photo.id,
+      uri: photo.uri,
+      filename: photo.filename,
+      creationTime: photo.creationTime.getTime(),
+      latitude: photo.location.latitude,
+      longitude: photo.location.longitude,
+      geohash: 'xn76urx',
+      countryCode: countryCode ?? null,
+    })),
+    HomeCountryNotSetError,
+    getLastImportTime: jest.fn(),
+    setLastImportTime: jest.fn(),
+    getAllCachedPhotos: jest.fn(),
+    cachePhotos: jest.fn(),
+    clearPhotoCache: jest.fn(),
+    abortBackgroundSync: jest.fn(),
+  };
+});
 
 jest.mock('@rapideditor/country-coder', () => ({
   iso1A2Code: jest.fn(() => 'JP'),

@@ -21,11 +21,11 @@ import {
   getCachedSuggestions,
   cacheSuggestions,
   computeTimeHint,
-  getVisionImagesForCluster,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
 } from '@services/photoImport';
+import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { truncateCoordinate } from './photoImportUtils';
