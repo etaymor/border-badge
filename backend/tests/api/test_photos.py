@@ -53,8 +53,11 @@ class TestPhotoClusterVisionImages:
         assert cluster.vision_images_base64 is None
 
     def test_valid_images_accepted(self) -> None:
-        cluster = PhotoCluster(**_make_cluster(vision_images_base64=["abc123"]))
-        assert cluster.vision_images_base64 == ["abc123"]
+        import base64
+
+        valid_b64 = base64.b64encode(b"test-image-data").decode()
+        cluster = PhotoCluster(**_make_cluster(vision_images_base64=[valid_b64]))
+        assert cluster.vision_images_base64 == [valid_b64]
 
     def test_too_many_images_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -63,6 +66,19 @@ class TestPhotoClusterVisionImages:
     def test_oversized_image_rejected(self) -> None:
         with pytest.raises(ValidationError):
             PhotoCluster(**_make_cluster(vision_images_base64=["x" * 200_001]))
+
+    def test_invalid_base64_rejected(self) -> None:
+        """Malformed base64 should be rejected at validation time."""
+        with pytest.raises(ValidationError, match="valid base64"):
+            PhotoCluster(**_make_cluster(vision_images_base64=["not!valid@base64$$$"]))
+
+    def test_valid_base64_accepted(self) -> None:
+        """Properly encoded base64 should pass validation."""
+        import base64
+
+        valid_b64 = base64.b64encode(b"fake-jpeg-data").decode()
+        cluster = PhotoCluster(**_make_cluster(vision_images_base64=[valid_b64]))
+        assert cluster.vision_images_base64 == [valid_b64]
 
 
 class TestSuggestPlaces:

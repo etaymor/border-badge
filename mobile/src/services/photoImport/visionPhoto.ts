@@ -14,6 +14,7 @@ import type { LocationCluster, PhotoWithLocation } from './types';
 const VISION_MAX_DIMENSION = 768;
 const VISION_JPEG_QUALITY = 0.8;
 const MAX_VISION_PHOTOS_PER_CLUSTER = 3;
+const MAX_VISION_BASE64_LENGTH = 200_000; // Matches backend 200,000 char limit
 
 function getImageDimensions(photoUri: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -114,7 +115,14 @@ export async function prepareVisionImage(photoUri: string): Promise<string | nul
       compress: VISION_JPEG_QUALITY,
       base64: true,
     });
-    return result.base64 ?? null;
+    const base64 = result.base64 ?? null;
+    if (base64 && base64.length > MAX_VISION_BASE64_LENGTH) {
+      if (__DEV__) {
+        console.warn(`[VisionPhoto] Image too large after compression: ${base64.length} chars`);
+      }
+      return null;
+    }
+    return base64;
   } catch {
     if (__DEV__) {
       console.warn('[VisionPhoto] Failed to prepare vision image');

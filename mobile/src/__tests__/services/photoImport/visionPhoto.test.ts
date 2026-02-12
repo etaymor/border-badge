@@ -187,6 +187,24 @@ describe('prepareVisionImage', () => {
     expect(result).toBeNull();
   });
 
+  it('returns null when base64 exceeds size limit', async () => {
+    const oversizedBase64 = 'x'.repeat(200_001);
+    mockManipulate.mockResolvedValue({ uri: 'resized.jpg', base64: oversizedBase64 });
+
+    const result = await prepareVisionImage('file://photo.jpg');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns base64 when exactly at size limit', async () => {
+    const maxBase64 = 'x'.repeat(200_000);
+    mockManipulate.mockResolvedValue({ uri: 'resized.jpg', base64: maxBase64 });
+
+    const result = await prepareVisionImage('file://photo.jpg');
+
+    expect(result).toBe(maxBase64);
+  });
+
   it('returns null when image dimensions cannot be read', async () => {
     mockGetSize.mockImplementation((_uri, _success, failure) => failure?.());
 

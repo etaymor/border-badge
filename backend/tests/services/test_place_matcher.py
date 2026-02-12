@@ -1813,3 +1813,99 @@ class TestVisionRanking:
         assert len(results) == 1
         assert len(results[0]["places"]) == 1
         assert results[0]["places"][0]["place_id"] == "place-nearby-1"
+
+    @pytest.mark.asyncio
+    async def test_text_search_respects_semaphore_concurrency(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Text searches must be bounded by the same semaphore as nearby searches.
+
+        Regression test: text searches previously used unbounded asyncio.gather,
+        which could fire all requests concurrently and exhaust API quota.
+        """
+        num_clusters = 10
+        clusters = [
+            {
+                "id": f"cluster-{i}",
+                "centroid": {"latitude": 35.6762 + i * 0.01, "longitude": 139.6503},
+                "photos": [{"asset_id": f"photo-{i}"}],
+            }
+            for i in range(num_clusters)
+        ]
+
+        nearby_place_template = {
+            "formattedAddress": "123 Nearby St",
+            "primaryType": "cafe",
+            "types": ["cafe"],
+            "rating": 4.0,
+            "userRatingCount": 100,
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search_nearby_tiered(
+            latitude: float, longitude: float
+        ) -> tuple[list[dict], int]:
+            return [
+                {
+                    **nearby_place_template,
+                    "id": f"nearby-{latitude:.4f}",
+                    "displayName": {"text": "Nearby Place"},
+                    "location": {"latitude": latitude, "longitude": longitude},
+                }
+            ], 15
+
+        # Track peak concurrency of text searches
+        concurrent_text_searches = 0
+        peak_text_concurrency = 0
+
+        async def mock_execute_text_search(
+            text_query: str,
+            latitude: float,
+            longitude: float,
+            radius: float = 200.0,
+        ) -> list[dict]:
+            nonlocal concurrent_text_searches, peak_text_concurrency
+            concurrent_text_searches += 1
+            peak_text_concurrency = max(peak_text_concurrency, concurrent_text_searches)
+            await asyncio.sleep(0.05)  # Simulate API latency
+            concurrent_text_searches -= 1
+            return [
+                {
+                    **nearby_place_template,
+                    "id": f"text-{latitude:.4f}",
+                    "displayName": {"text": text_query},
+                    "location": {"latitude": latitude, "longitude": longitude},
+                }
+            ]
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+
+        # Every cluster gets a vision result with a business name → triggers text search
+        vision_map = {
+            f"cluster-{i}": VisionResult(
+                category="food",
+                detected_text=[f"Restaurant {i}"],
+                confidence="high",
+            )
+            for i in range(num_clusters)
+        }
+
+        async def make_vision_task():
+            return vision_map
+
+        vision_task = asyncio.ensure_future(make_vision_task())
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=vision_task
+        )
+
+        assert failed_count == 0
+        assert len(results) == num_clusters
+        # The semaphore limit is MAX_CONCURRENT_PLACES_REQUESTS (5).
+        # Peak concurrency must not exceed it.
+        assert peak_text_concurrency <= 5, (
+            f"Text search peak concurrency was {peak_text_concurrency}, "
+            f"expected <= 5 (semaphore limit). "
+            f"Text searches are bypassing the concurrency semaphore."
+        )

@@ -131,21 +131,22 @@ class ClusterProcessingMixin:
             lat: float,
             lng: float,
         ) -> tuple[str, list[dict]]:
-            try:
-                places = await self._execute_text_search(text_query, lat, lng)
-                if places:
-                    places = self._filter_low_quality_places(places)
-                    logger.info(
-                        f"Cluster {cluster_id}: text search for "
-                        f"'{text_query}' found {len(places)} quality places"
+            async with semaphore:
+                try:
+                    places = await self._execute_text_search(text_query, lat, lng)
+                    if places:
+                        places = self._filter_low_quality_places(places)
+                        logger.info(
+                            f"Cluster {cluster_id}: text search for "
+                            f"'{text_query}' found {len(places)} quality places"
+                        )
+                    return cluster_id, places
+                except (RateLimitError, QuotaExhaustedError) as e:
+                    logger.warning(
+                        f"Cluster {cluster_id}: text search unavailable "
+                        f"({type(e).__name__}), falling back to nearby results"
                     )
-                return cluster_id, places
-            except (RateLimitError, QuotaExhaustedError) as e:
-                logger.warning(
-                    f"Cluster {cluster_id}: text search unavailable "
-                    f"({type(e).__name__}), falling back to nearby results"
-                )
-                return cluster_id, []
+                    return cluster_id, []
 
         text_search_tasks = []
         for cluster, _places, _radius_used in search_results:

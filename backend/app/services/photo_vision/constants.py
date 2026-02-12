@@ -1,7 +1,11 @@
 """Constants for photo vision classification."""
 
-# Valid vision categories
-VISION_CATEGORIES = {
+# Vision categories optimized for travel photo classification.
+# These 8 categories map directly to the place types returned by Google Places
+# Nearby Search (see VISION_TO_PLACE_TYPES below), enabling the matcher to
+# boost places whose type matches the visual content. "transport" and "unknown"
+# have no place-type mapping and act as fallback/no-signal categories.
+VISION_CATEGORIES: set[str] = {
     "food",
     "landmark",
     "stay",
@@ -13,7 +17,7 @@ VISION_CATEGORIES = {
 }
 
 # Confidence levels
-VISION_CONFIDENCE_LEVELS = {"high", "medium", "low"}
+VISION_CONFIDENCE_LEVELS: set[str] = {"high", "medium", "low"}
 
 # Map vision categories to Google Places type families for filtering/boosting
 VISION_TO_PLACE_TYPES: dict[str, set[str]] = {

@@ -149,6 +149,14 @@ RESEND_API_KEY=<resend-api-key>  # Optional: for welcome email drip campaign (ge
 WELCOME_EMAIL_FROM=Emerson <hello@atlasi.com>  # From address for welcome emails
 POSTHOG_API_KEY=<posthog-api-key>  # Optional: same project key as mobile app, for LLM accuracy tracking
 POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
+PLACES_API_TIMEOUT_SECONDS=5.0  # Optional: timeout for Google Places API requests (default 5s)
+PLACES_CLUSTER_TIMEOUT_SECONDS=15.0  # Optional: timeout for processing a single cluster (default 15s)
+PLACES_RANK_DISTANCE_WEIGHT=1.0  # Optional: ranking weight for distance penalty (0.0-5.0)
+PLACES_RANK_REVIEW_WEIGHT=1.0  # Optional: ranking weight for review-count bonus (0.0-5.0)
+PLACES_RANK_RATING_WEIGHT=1.0  # Optional: ranking weight for Bayesian rating bonus (0.0-5.0)
+PLACES_RANK_FAME_WEIGHT=1.0  # Optional: ranking weight for fame bonus (0.0-5.0)
+PLACES_RANK_DWELL_WEIGHT=1.0  # Optional: ranking weight for dwell/time-hint bonus (0.0-5.0)
+PLACES_RANK_VISION_WEIGHT=1.0  # Optional: ranking weight for vision category bonus (0.0-5.0)
 ```
 
 ## Key Architecture Patterns
@@ -288,6 +296,19 @@ The `trip` table supports system trips (like "Saved Places") via the `is_system`
 2. Apply via Supabase dashboard
 3. Update relevant Pydantic schemas
 4. Update TypeScript types if needed
+
+### Tuning Place Matcher Ranking Weights
+
+Use the offline evaluator to tune ranking weights against a labeled dataset:
+
+```bash
+cd backend
+poetry run python scripts/eval_place_matcher.py \
+  --dataset docs/place_matcher_eval_dataset.sample.json \
+  --trials 200 --optimize-for top1
+```
+
+The script runs random search over the 6 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
 
 ## Testing
 

@@ -26,6 +26,7 @@ const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
 const MAX_PREVIEW_URIS = 5; // Limit preview URIs stored per candidate/cluster
 const DEFAULT_MERGE_THRESHOLD_M = 80; // Merge clusters whose centroids are within 80m
 const GEOHASH_PREFIX_LEN = 5; // Clusters not sharing 5-char prefix are >4.9km apart
+const MAX_CLUSTERS_FOR_MERGE = 200; // Safety cap: skip O(N^2) merge above this
 
 /**
  * Calculate distance in meters between two coordinates using Haversine formula.
@@ -60,6 +61,16 @@ export function mergeAdjacentClusters(
 ): LocationCluster[] {
   const n = clusters.length;
   if (n <= 1) return clusters;
+
+  // Safety cap: O(N^2) pairwise comparisons become expensive beyond 200 clusters.
+  if (n > MAX_CLUSTERS_FOR_MERGE) {
+    if (__DEV__) {
+      console.warn(
+        `[PhotoClustering] Skipping merge: ${n} clusters exceeds safety cap of ${MAX_CLUSTERS_FOR_MERGE}`
+      );
+    }
+    return clusters;
+  }
 
   // Union-Find with Int32Array (4 bytes/element vs 8 for regular arrays)
   const parent = new Int32Array(n);

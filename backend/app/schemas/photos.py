@@ -8,6 +8,7 @@ for accurate place matching. Since photos are from past trips (not real-time
 tracking), this provides better accuracy without significant privacy concerns.
 """
 
+import base64
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -94,6 +95,12 @@ class PhotoCluster(BaseModel):
         for image in v:
             if len(image) > 200_000:
                 raise ValueError("vision_images_base64 items must be <= 200000 chars")
+            try:
+                base64.b64decode(image, validate=True)
+            except Exception as e:
+                raise ValueError(
+                    "vision_images_base64 items must be valid base64"
+                ) from e
         return v
 
     @model_validator(mode="after")

@@ -31,7 +31,7 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
-@limiter.limit("30/minute")  # Allow burst usage for users with many clusters
+@limiter.limit("10/minute")  # Vision-enabled endpoint: limit API cost exposure
 async def suggest_places(
     request: Request,  # Required for rate limiter
     data: PlaceSuggestionRequest,
@@ -46,7 +46,7 @@ async def suggest_places(
     images), runs vision classification in parallel with place matching to
     improve accuracy.
 
-    Rate limited to 30 requests/minute per user to allow reasonable batch imports.
+    Rate limited to 10 requests/minute per user to control vision API costs.
     """
     logger.info(
         f"Processing {len(data.clusters)} clusters for user {user.id}",
@@ -62,9 +62,9 @@ async def suggest_places(
         matcher = PlaceMatcher(http_client=client)
 
         # Run vision + place matching in parallel
-        vision_task = asyncio.create_task(classify_cluster_photos(cluster_dicts))
-
+        vision_task: asyncio.Task | None = None
         try:
+            vision_task = asyncio.create_task(classify_cluster_photos(cluster_dicts))
             suggestion_dicts, failed_count = await matcher.find_places_for_clusters(
                 cluster_dicts, vision_results_task=vision_task
             )
@@ -114,7 +114,7 @@ async def suggest_places(
                 detail="Failed to find place suggestions",
             ) from e
         finally:
-            if not vision_task.done():
+            if vision_task is not None and not vision_task.done():
                 vision_task.cancel()
 
 

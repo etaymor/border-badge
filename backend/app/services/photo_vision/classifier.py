@@ -147,7 +147,7 @@ class PhotoClassifier:
             logger.debug("Vision classification timed out")
             return None
         except (httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.debug(f"Vision classification error: {e}")
+            logger.warning(f"Vision classification error: {e}")
             return None
 
     @staticmethod
@@ -156,6 +156,7 @@ class PhotoClassifier:
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
+            logger.warning("Vision response is not valid JSON")
             return None
 
         if not isinstance(data, dict):

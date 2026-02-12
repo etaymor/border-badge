@@ -20,7 +20,6 @@ import {
   getFullCluster,
   getCachedSuggestions,
   cacheSuggestions,
-  computeTimeHint,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
@@ -28,7 +27,7 @@ import {
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
-import { truncateCoordinate } from './photoImportUtils';
+import { mapClusterToApiPayload } from './photoImportUtils';
 
 const VISION_PREP_CONCURRENCY = 3;
 
@@ -223,23 +222,7 @@ export function usePlaceSuggestions({
         const visionImages = await prepareVisionImagesBounded(uncachedClusters);
 
         const result = await suggestPlacesMutation.mutateAsync({
-          clusters: uncachedClusters.map((c, i) => ({
-            id: c.id,
-            centroid: {
-              latitude: truncateCoordinate(c.centroid.latitude),
-              longitude: truncateCoordinate(c.centroid.longitude),
-            },
-            photos: c.photos.map((p) => ({
-              asset_id: p.id,
-              latitude: truncateCoordinate(p.location.latitude),
-              longitude: truncateCoordinate(p.location.longitude),
-              timestamp: p.creationTime.toISOString(),
-            })),
-            start_time: c.timeRange.start.toISOString(),
-            end_time: c.timeRange.end.toISOString(),
-            time_hint: computeTimeHint(c),
-            vision_images_base64: visionImages[i].length > 0 ? visionImages[i] : undefined,
-          })),
+          clusters: uncachedClusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
         });
 
         if (__DEV__) {

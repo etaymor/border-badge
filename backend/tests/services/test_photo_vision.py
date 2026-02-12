@@ -1,6 +1,7 @@
 """Tests for the photo_vision classifier service."""
 
 import json
+import logging
 
 from app.services.photo_vision import PhotoClassifier, VisionResult
 
@@ -278,6 +279,18 @@ class TestParseResponse:
             assert (
                 result.confidence == level
             ), f"Confidence '{level}' should be accepted"
+
+    def test_invalid_json_logs_warning(self, caplog) -> None:
+        """Invalid JSON should log a warning."""
+        with caplog.at_level(logging.WARNING):
+            PhotoClassifier._parse_response("not json at all")
+        assert "not valid JSON" in caplog.text
+
+    def test_valid_json_does_not_log_warning(self, caplog) -> None:
+        """Valid JSON should not produce any warnings."""
+        with caplog.at_level(logging.WARNING):
+            PhotoClassifier._parse_response('{"category": "food"}')
+        assert caplog.text == ""
 
 
 # ============================================================================

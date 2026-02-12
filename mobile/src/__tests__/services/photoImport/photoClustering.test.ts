@@ -428,6 +428,29 @@ describe('photoClustering', () => {
       const merged = mergeAdjacentClusters([]);
       expect(merged).toHaveLength(0);
     });
+
+    it('returns clusters unmerged when count exceeds safety cap', () => {
+      // Create 201 clusters (above MAX_CLUSTERS_FOR_MERGE = 200)
+      const clusters: LocationCluster[] = Array.from({ length: 201 }, (_, i) =>
+        createCluster(`c${i}`, 35.6762, 139.6503, `xn76u${String(i).padStart(3, '0')}`)
+      );
+
+      const merged = mergeAdjacentClusters(clusters);
+
+      // Safety cap triggered — all 201 returned unmerged
+      expect(merged).toHaveLength(201);
+    });
+
+    it('still merges when cluster count is at the safety cap boundary', () => {
+      // 2 close clusters (well under 200) — should still merge normally
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 5),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 3),
+      ];
+
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+    });
   });
 
   describe('computeTimeHint', () => {
