@@ -20,6 +20,7 @@ import {
   cachePhotos,
   clearPhotoCache,
   abortBackgroundSync,
+  saveTripSegments,
   type DiscoveredCountry,
   type ScanProgress,
   type TripCandidateDisplay,
@@ -215,8 +216,8 @@ export function usePhotoScan({
           throw createAbortError('Scan aborted');
         }
 
-        // Flush any remaining photos to cache
-        if (pendingCachePhotos.length > 0) {
+        // Flush any remaining photos to cache (skip if scan was aborted)
+        if (pendingCachePhotos.length > 0 && !controller.signal.aborted) {
           const remainingCached = pendingCachePhotos.map((p) =>
             photoToCachedPhoto(p, photoCountryCodes.get(p.id))
           );
@@ -260,6 +261,25 @@ export function usePhotoScan({
 
         // Segment trips from cached data (fast: no geocoding needed)
         const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
+
+        // Persist trip segments so usePhotoTrips can load summary rows
+        // instead of re-clustering all photos from scratch.
+        saveTripSegments(
+          optimizedData.candidates.map((c) => ({
+            id: c.id,
+            countryCode: c.countryCode,
+            startTime: c.dateRange.start.getTime(),
+            endTime: c.dateRange.end.getTime(),
+            photoCount: c.photoCount,
+            clusterCount: c.locationClusterIds.length,
+            previewUris: c.previewUris,
+            clusterIds: c.locationClusterIds,
+            photoIds: c.photoIds,
+          }))
+        ).catch((err) => {
+          if (__DEV__) console.warn('[PhotoImport] Failed to save trip segments:', err);
+        });
+
         let candidates = optimizedData.candidates;
         if (filterCountryCode) {
           candidates = candidates.filter((c) => c.countryCode === filterCountryCode);

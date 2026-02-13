@@ -129,6 +129,19 @@ async function initSchema(): Promise<void> {
       cached_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS cached_trip_segments (
+      id TEXT PRIMARY KEY NOT NULL,
+      country_code TEXT NOT NULL,
+      start_time INTEGER NOT NULL,
+      end_time INTEGER NOT NULL,
+      photo_count INTEGER NOT NULL,
+      cluster_count INTEGER NOT NULL,
+      preview_uris TEXT NOT NULL,
+      cluster_ids TEXT NOT NULL,
+      photo_ids TEXT NOT NULL,
+      cached_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_country_code ON cached_photos(country_code);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_geohash ON cached_photos(geohash);
@@ -380,6 +393,7 @@ export async function clearPhotoCache(): Promise<void> {
     await database.runAsync('DELETE FROM cached_photos');
     await database.runAsync('DELETE FROM processed_clusters');
     await database.runAsync('DELETE FROM cached_place_suggestions');
+    await database.runAsync('DELETE FROM cached_trip_segments');
     await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
     await database.runAsync(
       "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
@@ -389,6 +403,98 @@ export async function clearPhotoCache(): Promise<void> {
     // so there is no SQL injection risk here.
     await database.runAsync("DELETE FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'");
   });
+}
+
+// ── Trip segment caching ──────────────────────────────────────────────
+
+export interface TripSegmentRow {
+  id: string;
+  countryCode: string;
+  startTime: number;
+  endTime: number;
+  photoCount: number;
+  clusterCount: number;
+  previewUris: string[];
+  clusterIds: string[];
+  photoIds: string[];
+}
+
+/**
+ * Save pre-computed trip segments, replacing any previous data.
+ * Called at the end of a scan so usePhotoTrips can read lightweight rows
+ * instead of loading the entire cached_photos table.
+ */
+export async function saveTripSegments(segments: TripSegmentRow[]): Promise<void> {
+  const database = await getDb();
+  const now = Date.now();
+  const BATCH_SIZE = 50;
+
+  await database.withTransactionAsync(async () => {
+    await database.runAsync('DELETE FROM cached_trip_segments');
+
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      const batch = segments.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const values = batch.flatMap((s) => [
+        s.id,
+        s.countryCode,
+        s.startTime,
+        s.endTime,
+        s.photoCount,
+        s.clusterCount,
+        JSON.stringify(s.previewUris),
+        JSON.stringify(s.clusterIds),
+        JSON.stringify(s.photoIds),
+        now,
+      ]);
+
+      await database.runAsync(
+        `INSERT INTO cached_trip_segments
+         (id, country_code, start_time, end_time, photo_count, cluster_count, preview_uris, cluster_ids, photo_ids, cached_at)
+         VALUES ${placeholders}`,
+        values
+      );
+    }
+  });
+}
+
+/**
+ * Get all cached trip segments.
+ * Returns lightweight summary rows — no individual photo data loaded.
+ */
+export async function getTripSegments(): Promise<TripSegmentRow[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{
+    id: string;
+    country_code: string;
+    start_time: number;
+    end_time: number;
+    photo_count: number;
+    cluster_count: number;
+    preview_uris: string;
+    cluster_ids: string;
+    photo_ids: string;
+  }>('SELECT * FROM cached_trip_segments ORDER BY start_time DESC');
+
+  return rows.map((row) => ({
+    id: row.id,
+    countryCode: row.country_code,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    photoCount: row.photo_count,
+    clusterCount: row.cluster_count,
+    previewUris: JSON.parse(row.preview_uris) as string[],
+    clusterIds: JSON.parse(row.cluster_ids) as string[],
+    photoIds: JSON.parse(row.photo_ids) as string[],
+  }));
+}
+
+/**
+ * Clear cached trip segments.
+ */
+export async function clearTripSegments(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM cached_trip_segments');
 }
 
 /**

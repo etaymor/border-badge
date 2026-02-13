@@ -54,6 +54,7 @@ jest.mock('../../../services/photoImport', () => ({
   getAllCachedPhotos: jest.fn(),
   cachePhotos: jest.fn(),
   clearPhotoCache: jest.fn(),
+  saveTripSegments: jest.fn().mockResolvedValue(undefined),
   abortBackgroundSync: jest.fn(),
   markClusterProcessed: jest.fn(),
   getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
