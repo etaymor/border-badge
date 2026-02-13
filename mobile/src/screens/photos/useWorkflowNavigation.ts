@@ -31,6 +31,8 @@ export interface UseWorkflowNavigationOptions {
   setSelectedTripId: (tripId: string | null) => void;
   /** Set phase state */
   setPhase: (phase: ImportPhase) => void;
+  /** Set fetching suggestions flag (covers entire fetch lifecycle including cache + vision prep) */
+  setFetchingSuggestions: (value: boolean) => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
     candidate: TripCandidateDisplay
@@ -68,6 +70,7 @@ export function useWorkflowNavigation({
   setSelectedCandidate,
   setSelectedTripId,
   setPhase,
+  setFetchingSuggestions,
   fetchSuggestions,
   resetSuggestPlacesMutation,
   clearFetchedCache,
@@ -140,18 +143,23 @@ export function useWorkflowNavigation({
 
       setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
+      setFetchingSuggestions(true);
 
       // Persist the candidate selection for this destination trip
       setLastSelectedCandidateId(tripIdToSelect, candidateToUse.id).catch(() => {
         // Swallow persistence errors - not critical
       });
 
-      const fetchResult = await fetchSuggestions(candidateToUse);
-      if (fetchResult?.gatedByPremium) {
-        handlePremiumGate('selectTrip-fetch', {
-          nextPhase: 'suggestions',
-          candidate: candidateToUse,
-        });
+      try {
+        const fetchResult = await fetchSuggestions(candidateToUse);
+        if (fetchResult?.gatedByPremium) {
+          handlePremiumGate('selectTrip-fetch', {
+            nextPhase: 'suggestions',
+            candidate: candidateToUse,
+          });
+        }
+      } finally {
+        setFetchingSuggestions(false);
       }
     },
     [
@@ -163,6 +171,7 @@ export function useWorkflowNavigation({
       currentCandidateIdRef,
       setSelectedTripId,
       setPhase,
+      setFetchingSuggestions,
     ]
   );
 
@@ -215,6 +224,7 @@ export function useWorkflowNavigation({
 
       // Update selected candidate
       setSelectedCandidate(newCandidate);
+      setFetchingSuggestions(true);
 
       // Persist the selection for this destination trip
       setLastSelectedCandidateId(selectedTripId, newCandidate.id).catch(() => {
@@ -222,12 +232,16 @@ export function useWorkflowNavigation({
       });
 
       // Fetch suggestions for new candidate
-      const fetchResult = await fetchSuggestions(newCandidate);
-      if (fetchResult?.gatedByPremium) {
-        handlePremiumGate('switchCandidate-fetch', {
-          nextPhase: 'suggestions',
-          candidate: newCandidate,
-        });
+      try {
+        const fetchResult = await fetchSuggestions(newCandidate);
+        if (fetchResult?.gatedByPremium) {
+          handlePremiumGate('switchCandidate-fetch', {
+            nextPhase: 'suggestions',
+            candidate: newCandidate,
+          });
+        }
+      } finally {
+        setFetchingSuggestions(false);
       }
 
       // Note: fetchSuggestions handles its own state updates via React Query mutation.
@@ -244,6 +258,7 @@ export function useWorkflowNavigation({
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedCandidate,
+      setFetchingSuggestions,
     ]
   );
 

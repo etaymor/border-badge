@@ -58,13 +58,15 @@ export function useEntryCreation({
    * Confirm a place suggestion and create an entry.
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
    * @param additionalClusterIds - Additional cluster IDs to mark as processed (for merged suggestions)
+   * @param excludedPhotos - Photo IDs the user deselected in the gallery
    */
   const handleConfirmPlace = useCallback(
     async (
       suggestion: ClusterSuggestion,
       place: PlaceSuggestion,
       wasFromCache = false,
-      additionalClusterIds: string[] = []
+      additionalClusterIds: string[] = [],
+      excludedPhotos?: Set<string>
     ) => {
       if (__DEV__) {
         console.log('[EntryCreation] handleConfirmPlace called:', {
@@ -105,9 +107,15 @@ export function useEntryCreation({
         const additionalClusters: LocationCluster[] = additionalClusterIds
           .map((id) => getFullCluster(id, clusterLookup))
           .filter((c): c is LocationCluster => c !== undefined);
-        const photosToUpload = [cluster, ...additionalClusters]
+        let photosToUpload = [cluster, ...additionalClusters]
           .flatMap((c) => c.photos)
           .filter((photo, index, self) => self.findIndex((p) => p.id === photo.id) === index);
+
+        // Filter out photos the user deselected in the gallery
+        if (excludedPhotos && excludedPhotos.size > 0) {
+          photosToUpload = photosToUpload.filter((p) => !excludedPhotos.has(p.id));
+        }
+
         const earliestEntryDate = [cluster, ...additionalClusters].reduce(
           (earliest, c) => (c.timeRange.start < earliest ? c.timeRange.start : earliest),
           cluster.timeRange.start

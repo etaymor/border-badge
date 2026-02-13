@@ -3,19 +3,9 @@
  */
 
 export * from './types';
-export * from './errors';
 export * from './photoImportService';
 export * from './photoClustering';
+export * from './photoClusteringDisplay';
+export * from './photoClusteringCache';
 export * from './photoCacheDb';
-
-// Re-export OptimizedTripData type from photoClustering
-export type { OptimizedTripData } from './photoClustering';
-
-// Explicit re-exports for background sync (for clarity)
-export {
-  performBackgroundPhotoSync,
-  isBackgroundSyncInProgress,
-  abortBackgroundSync,
-  getLastSelectedCandidateId,
-  setLastSelectedCandidateId,
-} from './photoCacheDb';
+export * from './photoBackgroundSync';

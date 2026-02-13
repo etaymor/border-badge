@@ -23,6 +23,14 @@ jest.mock('../../../stores/onboardingStore', () => ({
   selectHomeCountry: jest.fn(),
 }));
 
+jest.mock('../../../services/photoImport/visionPhoto', () => ({
+  getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
+  selectRepresentativePhotos: jest.fn().mockReturnValue([]),
+  selectRepresentativePhoto: jest.fn().mockReturnValue(null),
+  prepareVisionImage: jest.fn().mockResolvedValue(null),
+  getVisionImageForCluster: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../../services/photoImport', () => ({
   extractPhotosWithLocation: jest.fn(),
   segmentTripsFromCache: jest.fn(),
@@ -53,6 +61,8 @@ jest.mock('../../../services/photoImport', () => ({
   cacheSuggestions: jest.fn().mockResolvedValue(undefined),
   getLastSelectedCandidateId: jest.fn().mockResolvedValue(null),
   setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
+  computeTimeHint: jest.fn().mockReturnValue(null),
+  getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
 }));
 
 // Import actual error classes to use in tests - these are the same classes used by the real code

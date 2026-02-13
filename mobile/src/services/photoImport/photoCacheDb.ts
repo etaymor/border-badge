@@ -16,6 +16,9 @@ import type { CachedPhoto } from './types';
 const DB_NAME = 'photos.db';
 const SCHEMA_VERSION = 1;
 
+/** Empty suggestions expire after 24 hours so transient failures get retried. */
+const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
+
 /**
  * SQLite has a default limit of 999 bound parameters per query.
  * All batch operations use sizes well under this limit:
@@ -141,7 +144,7 @@ async function initSchema(): Promise<void> {
 /**
  * Get metadata value by key.
  */
-async function getMetadata(key: string): Promise<string | null> {
+export async function getMetadata(key: string): Promise<string | null> {
   const database = await getDb();
   const result = await database.getFirstAsync<{ value: string }>(
     'SELECT value FROM photo_cache_metadata WHERE key = ?',
@@ -153,7 +156,7 @@ async function getMetadata(key: string): Promise<string | null> {
 /**
  * Set metadata value.
  */
-async function setMetadata(key: string, value: string): Promise<void> {
+export async function setMetadata(key: string, value: string): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
@@ -395,7 +398,7 @@ export async function clearPhotoCache(): Promise<void> {
 // Processed Clusters (for hiding already-processed suggestions)
 // =============================================================================
 
-export type ProcessedClusterStatus = 'confirmed' | 'hidden';
+export type ProcessedClusterStatus = 'confirmed' | 'hidden' | 'split';
 
 /**
  * Mark a cluster as processed (confirmed or hidden).
@@ -506,14 +509,26 @@ export async function getCachedSuggestions(
     const rows = await database.getAllAsync<{
       cluster_id: string;
       suggestions_json: string;
+      cached_at: number;
     }>(
-      `SELECT cluster_id, suggestions_json FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
+      `SELECT cluster_id, suggestions_json, cached_at FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
       batch
     );
 
+    const now = Date.now();
     for (const row of rows) {
       try {
         const places = JSON.parse(row.suggestions_json);
+        // Empty suggestions expire after TTL so transient failures get retried
+        if (Array.isArray(places) && places.length === 0) {
+          const age = now - (row.cached_at ?? 0);
+          if (age > EMPTY_SUGGESTION_TTL_MS) {
+            if (__DEV__) {
+              console.log(`[PhotoCache] Expired empty cache for cluster ${row.cluster_id}`);
+            }
+            continue;
+          }
+        }
         result.set(row.cluster_id, places);
       } catch {
         // Skip invalid JSON entries
@@ -571,188 +586,4 @@ export async function getCachedSuggestionCount(): Promise<number> {
     'SELECT COUNT(*) as count FROM cached_place_suggestions'
   );
   return result?.count ?? 0;
-}
-
-// =============================================================================
-// Background Photo Sync
-// =============================================================================
-
-// Lazy imports to avoid circular dependency
-// These are only used by performBackgroundPhotoSync
-let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
-let _photoToCachedPhoto: typeof import('./photoClustering').photoToCachedPhoto;
-let _MediaLibrary: typeof import('expo-media-library');
-
-async function getBackgroundSyncDeps() {
-  if (!_extractPhotosWithLocation) {
-    const { extractPhotosWithLocation } = await import('./photoImportService');
-    _extractPhotosWithLocation = extractPhotosWithLocation;
-  }
-  if (!_photoToCachedPhoto) {
-    const { photoToCachedPhoto } = await import('./photoClustering');
-    _photoToCachedPhoto = photoToCachedPhoto;
-  }
-  if (!_MediaLibrary) {
-    _MediaLibrary = await import('expo-media-library');
-  }
-  return {
-    extractPhotosWithLocation: _extractPhotosWithLocation,
-    photoToCachedPhoto: _photoToCachedPhoto,
-    MediaLibrary: _MediaLibrary,
-  };
-}
-
-// Module-level state for background sync coordination
-let backgroundSyncController: AbortController | null = null;
-let backgroundSyncInProgress = false;
-
-// Minimum interval between background syncs (1 hour)
-const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-
-/**
- * Check if a background sync is currently in progress.
- */
-export function isBackgroundSyncInProgress(): boolean {
-  return backgroundSyncInProgress;
-}
-
-/**
- * Abort any in-progress background sync.
- * Call this before starting a manual scan to prevent conflicts.
- */
-export function abortBackgroundSync(): void {
-  if (backgroundSyncController) {
-    backgroundSyncController.abort();
-    backgroundSyncController = null;
-    backgroundSyncInProgress = false;
-  }
-}
-
-/**
- * Get the timestamp of the last background sync.
- */
-export async function getLastBackgroundSyncTime(): Promise<number | null> {
-  const value = await getMetadata('last_background_sync_time');
-  return value ? parseInt(value, 10) : null;
-}
-
-/**
- * Set the timestamp of the last background sync.
- */
-async function setLastBackgroundSyncTime(timestamp: number): Promise<void> {
-  await setMetadata('last_background_sync_time', timestamp.toString());
-}
-
-/**
- * Perform a silent background photo sync.
- *
- * Called when app comes to foreground to keep the photo cache fresh.
- * Only runs if:
- * 1. Home country is set (required for filtering)
- * 2. Photo permissions are granted (checked without prompting)
- * 3. Enough time has passed since last sync (1 hour)
- * 4. A previous import exists (user has used photo import)
- *
- * Errors are swallowed silently - this is a convenience feature.
- */
-export async function performBackgroundPhotoSync(
-  homeCountry: string | null
-): Promise<{ newPhotos: number } | null> {
-  // Skip if no home country set
-  if (!homeCountry) {
-    return null;
-  }
-
-  // Atomically check and acquire lock before any async operations to prevent race conditions.
-  // In JavaScript's single-threaded event loop, synchronous code runs to completion,
-  // so this check-and-set is atomic as long as it happens before any `await`.
-  // This is sufficient for our use case: preventing duplicate background syncs from
-  // concurrent UI events (e.g., rapid button presses). True thread-safety is not needed
-  // since React Native runs on a single JS thread.
-  if (backgroundSyncInProgress) {
-    return null;
-  }
-  backgroundSyncInProgress = true;
-  backgroundSyncController = new AbortController();
-
-  // Capture controller locally to avoid race condition where abortBackgroundSync()
-  // sets backgroundSyncController to null before we check the aborted signal.
-  // The captured localController will still reflect the aborted signal even after
-  // the global reference is cleared.
-  const localController = backgroundSyncController;
-
-  try {
-    // Lazy load dependencies to avoid circular imports
-    const { extractPhotosWithLocation, photoToCachedPhoto, MediaLibrary } =
-      await getBackgroundSyncDeps();
-
-    // Check permissions without prompting
-    const { status } = await MediaLibrary.getPermissionsAsync();
-    if (status !== 'granted') {
-      return null;
-    }
-
-    // Check if we have a previous import (cache exists)
-    const lastImportTime = await getLastImportTime();
-    if (!lastImportTime) {
-      // No previous import - user hasn't used photo import yet
-      return null;
-    }
-
-    // Check if enough time has passed since last background sync
-    const lastBackgroundSync = await getLastBackgroundSyncTime();
-    const now = Date.now();
-    if (lastBackgroundSync && now - lastBackgroundSync < BACKGROUND_SYNC_INTERVAL_MS) {
-      return null;
-    }
-
-    // Perform incremental scan (only photos since last import)
-    const newPhotos = await extractPhotosWithLocation(
-      () => {}, // No-op progress callback
-      localController.signal,
-      new Date(lastImportTime)
-    );
-
-    // Check if aborted (use local controller to avoid race with abortBackgroundSync)
-    if (localController.signal.aborted) {
-      return null;
-    }
-
-    // Cache new photos if found
-    if (newPhotos.length > 0) {
-      const newCachedPhotos = newPhotos.map((p) => photoToCachedPhoto(p));
-      await cachePhotos(newCachedPhotos);
-    }
-
-    // Update timestamps (skip if aborted to avoid updating state after cancellation)
-    if (localController.signal.aborted) {
-      return null;
-    }
-
-    // Update last_import_time to the newest photo's creation time (not wall-clock).
-    // This prevents skipping photos created during the scan window.
-    // Only update if we processed photos; otherwise keep the previous value.
-    if (newPhotos.length > 0) {
-      const newestPhotoTime = Math.max(...newPhotos.map((p) => p.creationTime.getTime()));
-      await setLastImportTime(newestPhotoTime);
-    }
-
-    // Background sync time uses wall-clock to throttle sync frequency
-    await setLastBackgroundSyncTime(Date.now());
-
-    if (__DEV__) {
-      console.log(`[PhotoSync] Background sync complete: ${newPhotos.length} new photos`);
-    }
-
-    return { newPhotos: newPhotos.length };
-  } catch (error) {
-    // Swallow all errors - this is a convenience feature
-    if (__DEV__) {
-      console.log('[PhotoSync] Background sync failed:', error);
-    }
-    return null;
-  } finally {
-    backgroundSyncInProgress = false;
-    backgroundSyncController = null;
-  }
 }

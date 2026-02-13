@@ -1,8 +1,10 @@
 """Photo import API endpoints.
 
 Provides place suggestions for photo GPS clusters using Google Places Nearby Search.
+Optionally uses vision classification (Gemini Flash Lite) to improve accuracy.
 """
 
+import asyncio
 import logging
 
 import httpx
@@ -16,6 +18,7 @@ from app.schemas.photos import (
     PlaceSuggestionRequest,
     PlaceSuggestionResponse,
 )
+from app.services.photo_vision import classify_cluster_photos
 from app.services.place_matcher import (
     ConfigurationError,
     PlaceMatcher,
@@ -28,7 +31,7 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
-@limiter.limit("30/minute")  # Allow burst usage for users with many clusters
+@limiter.limit("10/minute")  # Vision-enabled endpoint: limit API cost exposure
 async def suggest_places(
     request: Request,  # Required for rate limiter
     data: PlaceSuggestionRequest,
@@ -39,21 +42,33 @@ async def suggest_places(
 
     Users see "15m away" and decide Yes/No - no confidence percentages.
 
-    Rate limited to 30 requests/minute per user to allow reasonable batch imports.
+    When vision image payloads are provided per cluster (up to 3 representative
+    images), runs vision classification in parallel with place matching to
+    improve accuracy.
+
+    Rate limited to 10 requests/minute per user to control vision API costs.
     """
     logger.info(
         f"Processing {len(data.clusters)} clusters for user {user.id}",
         extra={"cluster_count": len(data.clusters), "user_id": str(user.id)},
     )
 
-    # Caller owns client lifecycle
+    cluster_dicts = [c.model_dump() for c in data.clusters]
+
+    # Run vision classification in parallel with place matching setup
+    # Vision results are used during ranking (not blocking search)
     settings = get_settings()
     async with httpx.AsyncClient(timeout=settings.places_api_timeout_seconds) as client:
         matcher = PlaceMatcher(http_client=client)
+
+        # Run vision + place matching in parallel
+        vision_task: asyncio.Task | None = None
         try:
+            vision_task = asyncio.create_task(classify_cluster_photos(cluster_dicts))
             suggestion_dicts, failed_count = await matcher.find_places_for_clusters(
-                [c.model_dump() for c in data.clusters]
+                cluster_dicts, vision_results_task=vision_task
             )
+
             # Convert dicts to ClusterSuggestion models for validation
             suggestions = [
                 ClusterSuggestion.model_validate(s) for s in suggestion_dicts
@@ -63,35 +78,30 @@ async def suggest_places(
                 failed_cluster_count=failed_count,
             )
         except QuotaExhaustedError as e:
-            # Daily quota exhausted - tell user to try again tomorrow
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Place suggestion service quota exceeded. Please try again tomorrow.",
-                headers={"Retry-After": "3600"},  # Hint to wait longer
+                headers={"Retry-After": "3600"},
             ) from e
         except RateLimitError as e:
-            # Temporary rate limit - can retry soon
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests to places service. Please wait a moment and try again.",
                 headers={"Retry-After": "60"},
             ) from e
         except ConfigurationError as e:
-            # Service not properly configured (missing API key)
             logger.error(f"Place matcher configuration error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Place suggestion service is not configured. Please contact support.",
             ) from e
         except httpx.TimeoutException as e:
-            # External service timeout
             logger.warning(f"Place matching timeout: {e}")
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="Place suggestion service timed out. Please try again.",
             ) from e
         except httpx.RequestError as e:
-            # Network/connection errors
             logger.error(f"Place matching network error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -103,6 +113,9 @@ async def suggest_places(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to find place suggestions",
             ) from e
+        finally:
+            if vision_task is not None and not vision_task.done():
+                vision_task.cancel()
 
 
 # NOTE: No /confirm-entries endpoint - reuse existing entry creation at

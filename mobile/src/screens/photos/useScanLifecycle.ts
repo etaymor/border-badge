@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 export interface UseScanLifecycleOptions {
   /** Current workflow phase (e.g. 'idle', 'scanning', 'candidates', 'suggestions') */
@@ -70,16 +69,20 @@ export function useScanLifecycle({
   }, [scanFailure, clearScanFailure, autoStart, navigation]);
 
   // Keep screen awake during scanning
+  // Lazy require to avoid loading native module at app startup (PassportNavigator
+  // statically imports PhotoImportScreen, which would eagerly evaluate this module).
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const KeepAwake = require('expo-keep-awake');
     if (phase === 'scanning') {
-      activateKeepAwakeAsync('photo-scan').catch((err) => {
+      KeepAwake.activateKeepAwakeAsync('photo-scan').catch((err: unknown) => {
         if (__DEV__) console.warn('[PhotoImport] Failed to activate keep-awake:', err);
       });
     } else {
-      deactivateKeepAwake('photo-scan');
+      KeepAwake.deactivateKeepAwake('photo-scan');
     }
     return () => {
-      deactivateKeepAwake('photo-scan');
+      KeepAwake.deactivateKeepAwake('photo-scan');
     };
   }, [phase]);
 

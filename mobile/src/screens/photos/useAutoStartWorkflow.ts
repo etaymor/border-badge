@@ -73,6 +73,8 @@ export interface UseAutoStartWorkflowOptions {
   setSelectedTripId: (tripId: string | null) => void;
   /** Set phase state */
   setPhase: (phase: ImportPhase) => void;
+  /** Ref tracking whether the parent component has unmounted */
+  unmountedRef: React.MutableRefObject<boolean>;
 }
 
 export function useAutoStartWorkflow({
@@ -99,6 +101,7 @@ export function useAutoStartWorkflow({
   setSelectedCandidate,
   setSelectedTripId,
   setPhase,
+  unmountedRef,
 }: UseAutoStartWorkflowOptions): void {
   // Track whether auto-start has been attempted
   const autoStartAttemptedRef = useRef(false);
@@ -172,6 +175,9 @@ export function useAutoStartWorkflow({
             });
             return;
           }
+
+          // Bail out if component unmounted during async work
+          if (unmountedRef.current) return;
 
           // Set state from cache (photoLookup only stored in ref - not needed for UI updates)
           setClusterLookup(optimizedData.clusterLookup);

@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.core.llm_utils import (
     OPENROUTER_API_URL,
+    extract_content,
     fix_trailing_commas,
     strip_code_fence,
 )
@@ -375,7 +376,9 @@ async def try_llm_multi_place_extraction(
             return empty_result
 
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = extract_content(data)
+        if not content:
+            return empty_result
         llm_response = _parse_llm_response(content)
 
         if not llm_response.places:

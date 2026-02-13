@@ -10,8 +10,11 @@ import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import {
   abortBackgroundSync,
+  createSubCluster,
   getLastImportTime,
   getProcessedClusterIds,
+  markClusterProcessed,
+  toLocationClusterDisplay,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -58,6 +61,7 @@ export function usePhotoImportWorkflow({
   const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId ?? null);
   const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
   const [isIncremental, setIsIncremental] = useState<boolean>(false);
+  const [fetchingSuggestions, setFetchingSuggestions] = useState(false);
 
   // Scan failure state: set when scan completes with no usable results, cleared after alert shown
   const [scanFailure, setScanFailure] = useState<{
@@ -110,6 +114,9 @@ export function usePhotoImportWorkflow({
   // Track current candidate ID to prevent race conditions during rapid switching
   const currentCandidateIdRef = useRef<string | null>(null);
 
+  // Track unmount state so async operations don't re-populate cleared refs
+  const unmountedRef = useRef(false);
+
   // ==========================================================================
   // Load persisted state on mount
   // ==========================================================================
@@ -123,6 +130,8 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
+
       // Abort any in-progress background sync to prevent closures from holding
       // references to large data structures after unmount
       abortBackgroundSync();
@@ -154,6 +163,7 @@ export function usePhotoImportWorkflow({
   // Photo Scan Hook
   // ==========================================================================
   const onScanComplete = useCallback((result: ScanResult) => {
+    if (unmountedRef.current) return;
     setClusterLookup(result.clusterLookup);
     setClusterDisplays(result.clusterDisplays);
     photoLookupRef.current = result.photoLookup;
@@ -212,6 +222,7 @@ export function usePhotoImportWorkflow({
     suggestPlacesMutation,
     cachedSuggestions,
     fetchSuggestions,
+    fetchForClusters,
     clearFetchedCache,
     isPremium,
     canImportPhotos,
@@ -295,6 +306,61 @@ export function usePhotoImportWorkflow({
   );
 
   // ==========================================================================
+  // Cluster Split
+  // ==========================================================================
+  const handleSplitCluster = useCallback(
+    async (clusterId: string, groupAPhotoIds: string[], groupBPhotoIds: string[]) => {
+      const parent = clusterLookup.get(clusterId);
+      if (!parent) {
+        if (__DEV__) console.warn('[PhotoImport] Cannot split: cluster not found:', clusterId);
+        return;
+      }
+
+      // Create two sub-clusters
+      const subA = createSubCluster(parent, new Set(groupAPhotoIds), 'a');
+      const subB = createSubCluster(parent, new Set(groupBPhotoIds), 'b');
+      const displayA = toLocationClusterDisplay(subA);
+      const displayB = toLocationClusterDisplay(subB);
+
+      // Register in lookups (state + refs)
+      setClusterLookup((prev) => {
+        const next = new Map(prev);
+        next.set(subA.id, subA);
+        next.set(subB.id, subB);
+        return next;
+      });
+      setClusterDisplays((prev) => {
+        const next = new Map(prev);
+        next.set(subA.id, displayA);
+        next.set(subB.id, displayB);
+        return next;
+      });
+      clusterLookupRef.current.set(subA.id, subA);
+      clusterLookupRef.current.set(subB.id, subB);
+      clusterDisplaysRef.current.set(subA.id, displayA);
+      clusterDisplaysRef.current.set(subB.id, displayB);
+
+      // Replace parent in selectedCandidate's cluster IDs
+      setSelectedCandidate((prev) => {
+        if (!prev) return prev;
+        const idx = prev.locationClusterIds.indexOf(clusterId);
+        if (idx === -1) return prev;
+        const newIds = [...prev.locationClusterIds];
+        newIds.splice(idx, 1, subA.id, subB.id);
+        return { ...prev, locationClusterIds: newIds };
+      });
+
+      // Dismiss parent cluster
+      setDismissedClusterIdsInternal((prev) => new Set(prev).add(clusterId));
+      await markClusterProcessed(clusterId, 'split');
+
+      // Fetch suggestions for the two new sub-clusters
+      await fetchForClusters([subA, subB]);
+    },
+    [clusterLookup, fetchForClusters]
+  );
+
+  // ==========================================================================
   // Workflow Navigation Hook
   // ==========================================================================
   const {
@@ -313,6 +379,7 @@ export function usePhotoImportWorkflow({
     setSelectedCandidate,
     setSelectedTripId,
     setPhase,
+    setFetchingSuggestions,
     fetchSuggestions,
     resetSuggestPlacesMutation: suggestPlacesMutation.reset,
     clearFetchedCache,
@@ -345,6 +412,7 @@ export function usePhotoImportWorkflow({
     setSelectedCandidate,
     setSelectedTripId,
     setPhase,
+    unmountedRef,
   });
 
   // ==========================================================================
@@ -370,6 +438,7 @@ export function usePhotoImportWorkflow({
     manualSearchCluster,
     suggestPlacesMutation,
     cachedSuggestions,
+    fetchingSuggestions,
     lastImportTime,
     isIncremental,
     isSaving: createEntry.isPending,
@@ -392,6 +461,7 @@ export function usePhotoImportWorkflow({
     handleRejectPlace,
     handleHideCluster,
     handleHideMultipleClusters,
+    handleSplitCluster,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,

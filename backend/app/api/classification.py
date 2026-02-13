@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.core.config import get_settings
 from app.core.llm_utils import (
     OPENROUTER_API_URL,
+    extract_content,
     fix_trailing_commas,
     strip_code_fence,
 )
@@ -383,7 +384,9 @@ async def call_openrouter_llm(
             return None
 
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = extract_content(data)
+        if not content:
+            return None
 
         # Parse JSON from the response content
         # Strip code fences and fix trailing commas (common LLM JSON issues)

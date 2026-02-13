@@ -19,7 +19,7 @@ import { styles } from '../photoImportStyles';
 export interface PhotoClusterCardProps {
   cluster: LocationClusterDisplay;
   onAddEntry: (cluster: LocationClusterDisplay) => void;
-  onPhotoPress: (uri: string, allUris: string[]) => void;
+  onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
 }
 
@@ -71,7 +71,7 @@ export function PhotoClusterCard({
         <View style={styles.suggestionHeroContainer}>
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => onPhotoPress(cluster.previewUris[0], cluster.previewUris)}
+            onPress={() => onPhotoPress(cluster.previewUris[0])}
             style={{ flex: 1 }}
           >
             <Image

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { TripCandidateDisplay } from '@services/photoImport/types';
-import type { OptimizedTripData } from '@services/photoImport/photoClustering';
+import type { OptimizedTripData } from '@services/photoImport/photoClusteringDisplay';
 import {
   getAllCachedPhotos,
   getCachedPhotoCount,

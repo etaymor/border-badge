@@ -70,6 +70,9 @@ export interface PhotoImportWorkflowResult {
   /** Clear the scan failure after showing alert */
   clearScanFailure: () => void;
 
+  /** True from when suggestions fetch starts (including cache check + vision prep) until it completes */
+  fetchingSuggestions: boolean;
+
   /** Photo upload states for all active uploads, keyed by cluster ID */
   uploadStates: Map<string, ClusterUploadState>;
   /** Get upload state for a specific cluster */
@@ -99,6 +102,11 @@ export interface PhotoImportWorkflowResult {
   handleRejectPlace: (suggestion: ClusterSuggestion) => void;
   handleHideCluster: (clusterId: string) => Promise<void>;
   handleHideMultipleClusters: (clusterIds: string[]) => Promise<void>;
+  handleSplitCluster: (
+    clusterId: string,
+    groupAPhotoIds: string[],
+    groupBPhotoIds: string[]
+  ) => Promise<void>;
   handleAddEntryForCluster: (clusterId: string) => void;
   handleManualSelect: (
     place: SelectedPlace,
