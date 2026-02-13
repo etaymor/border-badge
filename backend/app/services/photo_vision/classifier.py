@@ -135,7 +135,13 @@ class PhotoClassifier:
             )
 
             if response.status_code != 200:
-                logger.debug(f"Vision API error: status={response.status_code}")
+                if response.status_code in (401, 403):
+                    logger.error(
+                        f"Vision API auth error: status={response.status_code} "
+                        f"— check OPENROUTER_API_KEY"
+                    )
+                else:
+                    logger.debug(f"Vision API error: status={response.status_code}")
                 return None
 
             data = response.json()

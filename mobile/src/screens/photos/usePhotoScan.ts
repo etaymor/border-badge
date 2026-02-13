@@ -202,6 +202,11 @@ export function usePhotoScan({
         // Wait for all in-flight incremental cache writes to complete
         await Promise.all(cachePromises);
 
+        // Re-check abort after awaiting cache writes
+        if (controller.signal.aborted) {
+          throw createAbortError('Scan aborted');
+        }
+
         // Flush any remaining photos to cache
         if (pendingCachePhotos.length > 0) {
           const remainingCached = pendingCachePhotos.map((p) =>
