@@ -44,6 +44,7 @@ async function getBackgroundSyncDeps() {
 // Module-level state for background sync coordination
 let backgroundSyncController: AbortController | null = null;
 let backgroundSyncInProgress = false;
+let backgroundSyncId = 0;
 
 // Minimum interval between background syncs (1 hour)
 const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -105,14 +106,12 @@ export async function performBackgroundPhotoSync(
   // Atomically check and acquire lock before any async operations to prevent race conditions.
   // In JavaScript's single-threaded event loop, synchronous code runs to completion,
   // so this check-and-set is atomic as long as it happens before any `await`.
-  // This is sufficient for our use case: preventing duplicate background syncs from
-  // concurrent UI events (e.g., rapid button presses). True thread-safety is not needed
-  // since React Native runs on a single JS thread.
   if (backgroundSyncInProgress) {
     return null;
   }
   backgroundSyncInProgress = true;
   backgroundSyncController = new AbortController();
+  const mySyncId = ++backgroundSyncId;
 
   // Capture controller locally to avoid race condition where abortBackgroundSync()
   // sets backgroundSyncController to null before we check the aborted signal.
@@ -191,7 +190,11 @@ export async function performBackgroundPhotoSync(
     }
     return null;
   } finally {
-    backgroundSyncInProgress = false;
-    backgroundSyncController = null;
+    // Only clear lock if we still own it. If abortBackgroundSync() was called
+    // and a new sync started, backgroundSyncId will have advanced past mySyncId.
+    if (backgroundSyncId === mySyncId) {
+      backgroundSyncInProgress = false;
+      backgroundSyncController = null;
+    }
   }
 }

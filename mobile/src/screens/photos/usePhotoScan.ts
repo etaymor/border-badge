@@ -118,6 +118,9 @@ export function usePhotoScan({
 
         // Batch callback: cache incrementally and detect countries
         const handleBatch = (batchPhotos: PhotoWithLocation[]) => {
+          // Skip processing if scan was already cancelled
+          if (controller.signal.aborted) return;
+
           // Detect new countries from this batch and store the computed code for reuse
           for (const photo of batchPhotos) {
             const code = iso1A2Code([photo.location.longitude, photo.location.latitude]);
@@ -137,7 +140,9 @@ export function usePhotoScan({
               photoToCachedPhoto(p, photoCountryCodes.get(p.id))
             );
             pendingCachePhotos = [];
-            // Fire-and-forget cache write (don't block scanning)
+            // Fire-and-forget cache write (don't block scanning).
+            // Check abort before starting the write to avoid unnecessary work.
+            if (controller.signal.aborted) return;
             const promise = cachePhotos(toCache).catch((err) => {
               if (__DEV__) console.warn('[PhotoImport] Incremental cache write failed:', err);
             });
@@ -225,6 +230,9 @@ export function usePhotoScan({
           );
           allCachedPhotos = [...allCachedPhotos, ...newCached];
         }
+
+        // Release country code map now that caching is done
+        photoCountryCodes.clear();
 
         // Check if we have any photos at all
         if (allCachedPhotos.length === 0 && newPhotos.length === 0) {

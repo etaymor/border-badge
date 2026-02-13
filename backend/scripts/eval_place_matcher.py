@@ -149,7 +149,6 @@ def parse_vision_result(raw: dict[str, Any] | None) -> VisionResult | None:
         category=str(raw.get("category", "unknown")),
         detected_text=[str(t) for t in raw.get("detected_text", []) if t],
         confidence=str(raw.get("confidence", "low")),
-        reasoning=str(raw.get("reasoning", "")),
     )
 
 

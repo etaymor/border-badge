@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.photo_vision import PhotoClassifier, VisionResult
+from app.services.photo_vision.classifier import classify_cluster_photos
 
 # ============================================================================
 # VisionResult.has_business_name Tests
@@ -404,3 +405,77 @@ class TestClassifyEmptyChoices:
             result = await classifier.classify("base64data")
 
         assert result is None
+
+
+# ============================================================================
+# classify_cluster_photos — exception logging Tests
+# ============================================================================
+
+
+class TestClassifyClusterPhotosLogging:
+    """Exceptions from vision classification must be logged, not silently swallowed."""
+
+    @pytest.mark.asyncio
+    async def test_logs_per_image_exceptions(self, caplog) -> None:
+        """When an individual image classification raises, it should be logged."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "vision_images_base64": ["img1"],
+            }
+        ]
+
+        with (
+            patch.object(
+                PhotoClassifier,
+                "classify",
+                side_effect=RuntimeError("API exploded"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await classify_cluster_photos(clusters)
+
+        assert "cluster-1" not in result
+        assert "Vision classification exception" in caplog.text
+        assert "API exploded" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_logs_cluster_level_exceptions(self, caplog) -> None:
+        """When an entire cluster task raises, it should be logged."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "vision_images_base64": ["img1"],
+            }
+        ]
+
+        async def exploding_classify(_self, _img):
+            raise RuntimeError("cluster boom")
+
+        with (
+            patch.object(PhotoClassifier, "classify", exploding_classify),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await classify_cluster_photos(clusters)
+
+        assert "cluster-1" not in result
+        assert "boom" in caplog.text
+
+
+# ============================================================================
+# VisionResult dataclass field safety
+# ============================================================================
+
+
+class TestVisionResultFieldSafety:
+    """VisionResult must reject unexpected keyword arguments."""
+
+    def test_rejects_unknown_reasoning_field(self) -> None:
+        """Passing reasoning= to VisionResult must raise TypeError."""
+        with pytest.raises(TypeError, match="reasoning"):
+            VisionResult(
+                category="food",
+                detected_text=["test"],
+                confidence="high",
+                reasoning="should not exist",  # type: ignore[call-arg]
+            )

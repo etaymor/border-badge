@@ -287,6 +287,13 @@ async def classify_cluster_photos(
         for item in single_results:
             if isinstance(item, VisionResult):
                 parsed_results.append(item)
+            elif isinstance(item, BaseException):
+                logger.warning(
+                    "Vision classification exception for cluster %s: %s",
+                    cluster["id"],
+                    item,
+                )
+                parsed_results.append(None)
             else:
                 parsed_results.append(None)
 
@@ -298,9 +305,20 @@ async def classify_cluster_photos(
     )
 
     vision_map: dict[str, VisionResult] = {}
+    failed_count = 0
     for r in results:
         if isinstance(r, tuple) and r[1] is not None:
             vision_map[r[0]] = r[1]
+        elif isinstance(r, BaseException):
+            failed_count += 1
+            logger.warning("Vision cluster-level exception: %s", r)
+
+    if failed_count:
+        logger.warning(
+            "Vision classification: %d/%d clusters raised exceptions",
+            failed_count,
+            len(vision_clusters),
+        )
 
     if vision_map:
         logger.info(

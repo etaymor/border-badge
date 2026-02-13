@@ -42,25 +42,19 @@ export function useScanLifecycle({
 }: UseScanLifecycleOptions): UseScanLifecycleResult {
   // Ref that tracks scanning state synchronously to avoid stale closures in beforeRemove
   const scanningRef = useRef(false);
-  const phaseRef = useRef(phase);
   useEffect(() => {
     scanningRef.current = phase === 'scanning';
-    phaseRef.current = phase;
   }, [phase]);
 
   // Show alert when scan finds no photos or no trips, navigate back on dismiss.
-  // Capture phase at alert-show time to avoid TOCTOU race: if the user starts
-  // a new scan while the alert is visible, phaseRef would have changed by the
-  // time they press OK, incorrectly skipping navigation.
   useEffect(() => {
     if (!scanFailure) return;
-    const phaseWhenShown = phaseRef.current;
     Alert.alert(scanFailure.title, scanFailure.message, [
       {
         text: 'OK',
         onPress: () => {
           clearScanFailure();
-          if (autoStart && phaseWhenShown === 'idle') {
+          if (autoStart) {
             navigation.goBack();
           }
         },
