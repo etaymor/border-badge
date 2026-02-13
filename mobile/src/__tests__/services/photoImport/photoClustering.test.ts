@@ -14,8 +14,10 @@ jest.mock('expo-location', () => ({
 
 import {
   clusterByLocation,
-  segmentTripsByTimeGap,
+  mergeAdjacentClusters,
+  computeTimeHint,
 } from '../../../services/photoImport/photoClustering';
+import { segmentTripsByTimeGap } from '../../../services/photoImport/photoClusteringTrips';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
 
 // Helper to create test photos
@@ -301,6 +303,266 @@ describe('photoClustering', () => {
       // Most recent (US, 5 days ago) should be first
       expect(trips[0].countryCode).toBe('US');
       expect(trips[1].countryCode).toBe('JP');
+    });
+  });
+
+  describe('mergeAdjacentClusters', () => {
+    function createCluster(
+      id: string,
+      lat: number,
+      lng: number,
+      geohash: string,
+      photoCount: number = 1,
+      startDaysAgo: number = 5,
+      endDaysAgo: number = 5
+    ): LocationCluster {
+      const photos = Array.from({ length: photoCount }, (_, i) =>
+        createTestPhoto(`${id}-photo-${i}`, lat, lng, startDaysAgo)
+      );
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - startDaysAgo);
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() - endDaysAgo);
+      return {
+        id,
+        geohash,
+        centroid: { latitude: lat, longitude: lng },
+        photos,
+        timeRange: { start: startDate, end: endDate },
+        countryCode: 'JP',
+      };
+    }
+
+    it('returns same clusters when only 1 cluster', () => {
+      const clusters = [createCluster('c1', 35.6762, 139.6503, 'xn76urg')];
+      const merged = mergeAdjacentClusters(clusters);
+      expect(merged).toHaveLength(1);
+    });
+
+    it('merges two clusters within 80m threshold', () => {
+      // Two points ~50m apart (same 5-char geohash prefix)
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 5),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 3),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].photos).toHaveLength(8); // Combined photos
+    });
+
+    it('does not merge clusters beyond threshold', () => {
+      // Two points ~500m apart
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1'),
+        createCluster('c2', 35.6812, 139.6503, 'xn76ur9'),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 40);
+      expect(merged).toHaveLength(2);
+    });
+
+    it('merges transitive chain (A-B close, B-C close, A-C far)', () => {
+      // 3 clusters in a chain: each ~50m from neighbor, but first and last ~100m
+      const clusters = [
+        createCluster('c1', 35.676, 139.6503, 'xn76u00', 2),
+        createCluster('c2', 35.67645, 139.6503, 'xn76u01', 3),
+        createCluster('c3', 35.6769, 139.6503, 'xn76u02', 1),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 80);
+      // All 3 should merge via union-find transitivity
+      expect(merged).toHaveLength(1);
+      expect(merged[0].photos).toHaveLength(6);
+    });
+
+    it('preserves largest constituent cluster ID', () => {
+      const clusters = [
+        createCluster('small-cluster', 35.6762, 139.6503, 'xn76ur1', 2),
+        createCluster('big-cluster', 35.6766, 139.6503, 'xn76ur2', 10),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].id).toBe('big-cluster');
+    });
+
+    it('computes weighted centroid by photo count', () => {
+      // c1 at lat=35.6762 with 10 photos, c2 at lat=35.6766 with 2 photos
+      // Weighted centroid should be closer to c1
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 10),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 2),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+      // Weighted: (35.6762 * 10 + 35.6766 * 2) / 12 ≈ 35.67627
+      expect(merged[0].centroid.latitude).toBeCloseTo(35.67627, 4);
+    });
+
+    it('extends time range across merged clusters', () => {
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 1, 10, 8),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 1, 5, 3),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+      // Start should be from c1 (10 days ago), end from c2 (3 days ago)
+      expect(merged[0].timeRange.start.getTime()).toBeLessThanOrEqual(
+        clusters[0].timeRange.start.getTime()
+      );
+      expect(merged[0].timeRange.end.getTime()).toBeGreaterThanOrEqual(
+        clusters[1].timeRange.end.getTime()
+      );
+    });
+
+    it('skips haversine for clusters with different 5-char geohash prefix', () => {
+      // Two clusters with totally different geohash prefixes (>4.9km apart)
+      // Even with a huge threshold, they should not merge
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76u00'),
+        createCluster('c2', 40.7128, -74.006, 'dr5ru00'),
+      ];
+      const merged = mergeAdjacentClusters(clusters, 999999);
+      expect(merged).toHaveLength(2);
+    });
+
+    it('returns empty array for empty input', () => {
+      const merged = mergeAdjacentClusters([]);
+      expect(merged).toHaveLength(0);
+    });
+
+    it('returns clusters unmerged when count exceeds safety cap', () => {
+      // Create 201 clusters (above MAX_CLUSTERS_FOR_MERGE = 200)
+      const clusters: LocationCluster[] = Array.from({ length: 201 }, (_, i) =>
+        createCluster(`c${i}`, 35.6762, 139.6503, `xn76u${String(i).padStart(3, '0')}`)
+      );
+
+      const merged = mergeAdjacentClusters(clusters);
+
+      // Safety cap triggered — all 201 returned unmerged
+      expect(merged).toHaveLength(201);
+    });
+
+    it('still merges when cluster count is at the safety cap boundary', () => {
+      // 2 close clusters (well under 200) — should still merge normally
+      const clusters = [
+        createCluster('c1', 35.6762, 139.6503, 'xn76ur1', 5),
+        createCluster('c2', 35.6766, 139.6503, 'xn76ur2', 3),
+      ];
+
+      const merged = mergeAdjacentClusters(clusters, 80);
+      expect(merged).toHaveLength(1);
+    });
+
+    it('produces valid centroid and dates when merging clusters with no photos', () => {
+      // Regression: if all clusters in a merge group have 0 photos,
+      // totalPhotos=0 causes division-by-zero in centroid (NaN),
+      // and earliest/latest from photos loop remain Infinity/-Infinity.
+      // After fix: should fall back to existing timeRange and average centroid.
+      const now = new Date();
+      const emptyCluster1: LocationCluster = {
+        id: 'empty1',
+        geohash: 'xn76ur1',
+        centroid: { latitude: 35.6762, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+      const emptyCluster2: LocationCluster = {
+        id: 'empty2',
+        geohash: 'xn76ur2',
+        centroid: { latitude: 35.6766, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 172800000), end: now },
+        countryCode: 'JP',
+      };
+
+      // These clusters are close enough to merge, and both have 0 photos
+      const merged = mergeAdjacentClusters([emptyCluster1, emptyCluster2], 80);
+      expect(merged).toHaveLength(1);
+      // Centroid must be valid (not NaN from 0/0 division)
+      expect(merged[0].centroid.latitude).not.toBeNaN();
+      expect(merged[0].centroid.longitude).not.toBeNaN();
+      // Dates must be valid (not NaN / Invalid Date)
+      expect(merged[0].timeRange.start.getTime()).not.toBeNaN();
+      expect(merged[0].timeRange.end.getTime()).not.toBeNaN();
+    });
+
+    it('warns in dev mode when encountering 0-photo clusters', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const now = new Date();
+      const emptyCluster: LocationCluster = {
+        id: 'empty1',
+        geohash: 'xn76ur1',
+        centroid: { latitude: 35.6762, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+      const normalCluster: LocationCluster = {
+        id: 'normal',
+        geohash: 'xn76ur2',
+        centroid: { latitude: 35.6766, longitude: 139.6503 },
+        photos: [createTestPhoto('p1', 35.6766, 139.6503)],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+
+      mergeAdjacentClusters([emptyCluster, normalCluster], 80);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('0-photo cluster'),
+        expect.any(String)
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('computeTimeHint', () => {
+    function createClusterWithTime(startHour: number, dwellMinutes: number): LocationCluster {
+      const start = new Date(2024, 0, 15, startHour, 0, 0);
+      const end = new Date(start.getTime() + dwellMinutes * 60 * 1000);
+      return {
+        id: 'test',
+        geohash: 'test',
+        centroid: { latitude: 35.6762, longitude: 139.6503 },
+        photos: [createTestPhoto('p1', 35.6762, 139.6503)],
+        timeRange: { start, end },
+      };
+    }
+
+    it('returns attraction for long dwell (>= 90min)', () => {
+      expect(computeTimeHint(createClusterWithTime(14, 120))).toBe('attraction');
+    });
+
+    it('returns nightlife for late night short dwell', () => {
+      expect(computeTimeHint(createClusterWithTime(23, 60))).toBe('nightlife');
+    });
+
+    it('returns food for meal time short dwell (lunch)', () => {
+      expect(computeTimeHint(createClusterWithTime(12, 30))).toBe('food');
+    });
+
+    it('returns food for meal time short dwell (dinner)', () => {
+      expect(computeTimeHint(createClusterWithTime(19, 40))).toBe('food');
+    });
+
+    it('returns food for morning short dwell (breakfast)', () => {
+      expect(computeTimeHint(createClusterWithTime(8, 20))).toBe('food');
+    });
+
+    it('returns quick_stop for short dwell outside meal times', () => {
+      expect(computeTimeHint(createClusterWithTime(15, 15))).toBe('quick_stop');
+    });
+
+    it('returns food for medium dwell at meal time (leisurely meal)', () => {
+      expect(computeTimeHint(createClusterWithTime(13, 60))).toBe('food');
+    });
+
+    it('returns null for medium dwell outside meal time', () => {
+      expect(computeTimeHint(createClusterWithTime(15, 60))).toBeNull();
+    });
+
+    it('prioritizes dwell over time-of-day (long dwell at lunchtime = attraction)', () => {
+      expect(computeTimeHint(createClusterWithTime(12, 180))).toBe('attraction');
     });
   });
 });

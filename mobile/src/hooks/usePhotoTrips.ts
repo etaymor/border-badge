@@ -11,12 +11,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { TripCandidateDisplay } from '@services/photoImport/types';
-import type { OptimizedTripData } from '@services/photoImport/photoClustering';
 import {
-  getAllCachedPhotos,
   getCachedPhotoCount,
   getLastImportTime,
+  getTripSegments,
+  getAllCachedPhotos,
   segmentTripsFromCache,
+  saveTripSegments,
+  type TripSegmentRow,
 } from '@services/photoImport';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useCountries, type Country } from './useCountries';
@@ -55,8 +57,6 @@ export interface UsePhotoTripsResult {
   filteredTripsByCountry: Map<string, TripCandidateDisplay[]>;
   /** Preview URIs from recent trips (for callout display) */
   previewUris: string[];
-  /** Full optimized data including lookup maps */
-  optimizedData: OptimizedTripData | null;
   /** Filtered trips grouped by year (most recent first) */
   filteredTripsByYear: Map<number, TripCandidateDisplay[]>;
   /** Years in descending order (most recent first) */
@@ -111,13 +111,30 @@ function groupByYear(trips: TripCandidateDisplay[]): Map<number, TripCandidateDi
   return map;
 }
 
+/**
+ * Convert a stored TripSegmentRow back to TripCandidateDisplay.
+ */
+function segmentToDisplay(row: TripSegmentRow): TripCandidateDisplay {
+  return {
+    id: row.id,
+    countryCode: row.countryCode,
+    dateRange: {
+      start: new Date(row.startTime),
+      end: new Date(row.endTime),
+    },
+    photoIds: row.photoIds,
+    photoCount: row.photoCount,
+    previewUris: row.previewUris,
+    locationClusterIds: row.clusterIds,
+  };
+}
+
 export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResult {
   const { initialCountryCode } = options ?? {};
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const { data: countries } = useCountries();
 
   const [trips, setTrips] = useState<TripCandidateDisplay[]>([]);
-  const [optimizedData, setOptimizedData] = useState<OptimizedTripData | null>(null);
   const [totalPhotoCount, setTotalPhotoCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -127,18 +144,19 @@ export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResu
     initialCountryCode ?? null
   );
 
-  // Use ref for cleanup to avoid memory leaks
   const isMountedRef = useRef(true);
-  const dataRef = useRef<OptimizedTripData | null>(null);
 
   // Build country name lookup for search filtering
   const countryNameMap = useMemo(() => buildCountryNameMap(countries), [countries]);
 
-  // Load data from SQLite cache
+  // Load data from SQLite cache.
+  // Prefers lightweight trip segments (written by usePhotoScan) to avoid
+  // loading every individual photo row into memory. Falls back to the full
+  // clustering path for databases that predate the segments table.
   const loadFromCache = useCallback(async () => {
     try {
-      const [cachedPhotos, importTime, photoCount] = await Promise.all([
-        getAllCachedPhotos(),
+      const [segments, importTime, photoCount] = await Promise.all([
+        getTripSegments(),
         getLastImportTime(),
         getCachedPhotoCount(),
       ]);
@@ -148,14 +166,34 @@ export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResu
       setLastImportTime(importTime);
       setTotalPhotoCount(photoCount);
 
-      if (cachedPhotos.length > 0) {
+      if (segments.length > 0) {
+        // Fast path: reconstruct TripCandidateDisplay from pre-computed segments
+        setTrips(segments.map(segmentToDisplay));
+      } else if (photoCount > 0) {
+        // Fallback: segments not yet written (pre-existing DB). Cluster from photos
+        // and persist for next load.
+        const cachedPhotos = await getAllCachedPhotos();
+        if (!isMountedRef.current) return;
         const data = segmentTripsFromCache(cachedPhotos, homeCountry);
-        dataRef.current = data;
-        setOptimizedData(data);
         setTrips(data.candidates);
+
+        // Persist so future loads use the fast path
+        saveTripSegments(
+          data.candidates.map((c) => ({
+            id: c.id,
+            countryCode: c.countryCode,
+            startTime: c.dateRange.start.getTime(),
+            endTime: c.dateRange.end.getTime(),
+            photoCount: c.photoCount,
+            clusterCount: c.locationClusterIds.length,
+            previewUris: c.previewUris,
+            clusterIds: c.locationClusterIds,
+            photoIds: c.photoIds,
+          }))
+        ).catch((err) => {
+          if (__DEV__) console.warn('[usePhotoTrips] Failed to persist segments:', err);
+        });
       } else {
-        dataRef.current = null;
-        setOptimizedData(null);
         setTrips([]);
       }
     } catch (error) {
@@ -176,13 +214,6 @@ export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResu
 
     return () => {
       isMountedRef.current = false;
-      // Clear Maps to free memory
-      if (dataRef.current) {
-        dataRef.current.photoLookup.clear();
-        dataRef.current.clusterLookup.clear();
-        dataRef.current.clusterDisplays.clear();
-        dataRef.current = null;
-      }
     };
   }, [loadFromCache]);
 
@@ -267,6 +298,5 @@ export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResu
     filteredTripsByYear,
     sortedYears,
     previewUris,
-    optimizedData,
   };
 }

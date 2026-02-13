@@ -1,0 +1,216 @@
+[
+  {
+    "id": "tokyo-food-signage",
+    "cluster": {
+      "centroid": {
+        "latitude": 35.665541,
+        "longitude": 139.770912
+      },
+      "time_hint": "food",
+      "start_time": "2024-04-11T11:55:00Z",
+      "end_time": "2024-04-11T12:40:00Z"
+    },
+    "expected_place_id": "place-tsukiji-ramen",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["Tsukiji Ramen"],
+        "confidence": "high"
+      },
+      {
+        "category": "food",
+        "detected_text": ["Tsukiji Ramen", "Open"],
+        "confidence": "medium"
+      },
+      {
+        "category": "landmark",
+        "detected_text": [],
+        "confidence": "low"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-tsukiji-ramen",
+        "displayName": {
+          "text": "Tsukiji Ramen"
+        },
+        "formattedAddress": "1 Chome-3 Tsukiji, Chuo City, Tokyo",
+        "location": {
+          "latitude": 35.66556,
+          "longitude": 139.7709
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "ramen_restaurant", "food"],
+        "rating": 4.4,
+        "userRatingCount": 420
+      },
+      {
+        "id": "place-market",
+        "displayName": {
+          "text": "Tsukiji Outer Market"
+        },
+        "formattedAddress": "4 Chome-16 Tsukiji, Chuo City, Tokyo",
+        "location": {
+          "latitude": 35.66549,
+          "longitude": 139.77094
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction", "market"],
+        "rating": 4.3,
+        "userRatingCount": 3100
+      },
+      {
+        "id": "place-cafe",
+        "displayName": {
+          "text": "Morning Beans Cafe"
+        },
+        "formattedAddress": "2 Chome-9 Tsukiji, Chuo City, Tokyo",
+        "location": {
+          "latitude": 35.6657,
+          "longitude": 139.7706
+        },
+        "primaryType": "cafe",
+        "types": ["cafe", "coffee_shop", "food"],
+        "rating": 4.2,
+        "userRatingCount": 85
+      }
+    ]
+  },
+  {
+    "id": "paris-landmark-afternoon",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.85834,
+        "longitude": 2.29448
+      },
+      "time_hint": "attraction",
+      "start_time": "2024-06-20T15:05:00Z",
+      "end_time": "2024-06-20T17:40:00Z"
+    },
+    "expected_place_id": "place-eiffel",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-eiffel",
+        "displayName": {
+          "text": "Eiffel Tower"
+        },
+        "formattedAddress": "Champ de Mars, 5 Av. Anatole France, Paris",
+        "location": {
+          "latitude": 48.85826,
+          "longitude": 2.2945
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction", "historical_landmark", "monument"],
+        "rating": 4.7,
+        "userRatingCount": 425000
+      },
+      {
+        "id": "place-river-cruise",
+        "displayName": {
+          "text": "Seine River Cruise Dock"
+        },
+        "formattedAddress": "Port de la Bourdonnais, Paris",
+        "location": {
+          "latitude": 48.8592,
+          "longitude": 2.2972
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction"],
+        "rating": 4.5,
+        "userRatingCount": 9800
+      },
+      {
+        "id": "place-cafe-nearby",
+        "displayName": {
+          "text": "Cafe de Mars"
+        },
+        "formattedAddress": "11 Rue Augereau, Paris",
+        "location": {
+          "latitude": 48.85811,
+          "longitude": 2.29803
+        },
+        "primaryType": "cafe",
+        "types": ["cafe", "coffee_shop", "food"],
+        "rating": 4.3,
+        "userRatingCount": 1240
+      }
+    ]
+  },
+  {
+    "id": "new-york-nightlife",
+    "cluster": {
+      "centroid": {
+        "latitude": 40.73059,
+        "longitude": -73.98656
+      },
+      "time_hint": "nightlife",
+      "start_time": "2024-09-12T23:15:00Z",
+      "end_time": "2024-09-13T01:10:00Z"
+    },
+    "expected_place_id": "place-east-village-bar",
+    "vision_results": [
+      {
+        "category": "nightlife",
+        "detected_text": ["Neon Cellar"],
+        "confidence": "medium"
+      },
+      {
+        "category": "nightlife",
+        "detected_text": ["Cocktails", "Neon Cellar"],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-east-village-bar",
+        "displayName": {
+          "text": "Neon Cellar"
+        },
+        "formattedAddress": "130 2nd Ave, New York, NY",
+        "location": {
+          "latitude": 40.73062,
+          "longitude": -73.98653
+        },
+        "primaryType": "bar",
+        "types": ["bar", "night_club", "pub"],
+        "rating": 4.5,
+        "userRatingCount": 670
+      },
+      {
+        "id": "place-pizza",
+        "displayName": {
+          "text": "East Village Pizza"
+        },
+        "formattedAddress": "145 2nd Ave, New York, NY",
+        "location": {
+          "latitude": 40.7304,
+          "longitude": -73.98685
+        },
+        "primaryType": "pizza_restaurant",
+        "types": ["pizza_restaurant", "restaurant", "food"],
+        "rating": 4.6,
+        "userRatingCount": 2400
+      },
+      {
+        "id": "place-speakeasy",
+        "displayName": {
+          "text": "The Velvet Room"
+        },
+        "formattedAddress": "121 3rd Ave, New York, NY",
+        "location": {
+          "latitude": 40.73102,
+          "longitude": -73.98614
+        },
+        "primaryType": "night_club",
+        "types": ["night_club", "bar"],
+        "rating": 4.4,
+        "userRatingCount": 810
+      }
+    ]
+  }
+]

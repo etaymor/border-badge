@@ -16,6 +16,12 @@ export interface PhotoWithLocation {
   };
 }
 
+// Country discovered during photo scanning
+export interface DiscoveredCountry {
+  code: string;
+  name: string;
+}
+
 // Progress reporting during scan
 export interface ScanProgress {
   phase: 'counting' | 'scanning' | 'geocoding' | 'complete';
@@ -24,6 +30,8 @@ export interface ScanProgress {
   percentage: number;
   /** Number of photos found with GPS data (only populated during scanning phase) */
   gpsPhotoCount?: number;
+  /** Countries discovered so far during scanning (for live discovery feed) */
+  discoveredCountries?: DiscoveredCountry[];
 }
 
 // Location cluster from geohash grouping
@@ -99,6 +107,7 @@ export interface PlaceSuggestion {
   category: EntryType;
   distance_m: number;
   types: string[];
+  vision_category?: string | null;
 }
 
 // Cluster suggestion from backend
@@ -107,6 +116,9 @@ export interface ClusterSuggestion {
   photo_ids: string[];
   places: PlaceSuggestion[];
 }
+
+// Time-of-day category hint for place matching
+export type TimeHint = 'food' | 'attraction' | 'nightlife' | 'quick_stop';
 
 // Request body for place suggestion API
 export interface PlaceSuggestionRequest {
@@ -124,6 +136,8 @@ export interface PlaceSuggestionRequest {
     }>;
     start_time?: string;
     end_time?: string;
+    time_hint?: TimeHint | null;
+    vision_images_base64?: string[] | null;
   }>;
 }
 

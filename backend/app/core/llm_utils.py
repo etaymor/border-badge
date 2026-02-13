@@ -10,6 +10,23 @@ CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 TRAILING_COMMA_PATTERN = re.compile(r",\s*([}\]])")
 
 
+def extract_content(data: dict) -> str:
+    """Safely extract message content from an OpenRouter chat completion response.
+
+    Handles missing or empty ``choices`` arrays without raising ``IndexError``.
+
+    Args:
+        data: Parsed JSON response from the OpenRouter API.
+
+    Returns:
+        The assistant message content string, or ``""`` when unavailable.
+    """
+    choices = data.get("choices", [])
+    if not choices:
+        return ""
+    return choices[0].get("message", {}).get("content", "")
+
+
 def strip_code_fence(content: str) -> str:
     """Remove markdown code fence from LLM output.
 

@@ -10,6 +10,7 @@ import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 
 import type { LocationClusterDisplay } from '@services/photoImport';
 import { colors } from '@constants/colors';
@@ -19,7 +20,7 @@ import { styles } from '../photoImportStyles';
 export interface PhotoClusterCardProps {
   cluster: LocationClusterDisplay;
   onAddEntry: (cluster: LocationClusterDisplay) => void;
-  onPhotoPress: (uri: string, allUris: string[]) => void;
+  onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
 }
 
@@ -40,10 +41,15 @@ export function PhotoClusterCard({
       outputRange: [0.8, 1],
       extrapolate: 'clamp',
     });
+    const opacity = progress.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0, 0.8, 1],
+      extrapolate: 'clamp',
+    });
 
     return (
       <View style={localStyles.swipeActionContainer}>
-        <Animated.View style={[localStyles.swipeAction, { transform: [{ scale }] }]}>
+        <Animated.View style={[localStyles.swipeAction, { transform: [{ scale }], opacity }]}>
           <Ionicons name="close-circle" size={28} color={colors.white} />
           <Text style={localStyles.swipeActionText}>Skip</Text>
         </Animated.View>
@@ -52,6 +58,7 @@ export function PhotoClusterCard({
   };
 
   const handleSwipeOpen = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (onDismiss) {
       onDismiss(cluster.id);
     }
@@ -62,16 +69,16 @@ export function PhotoClusterCard({
       ref={swipeableRef}
       renderRightActions={renderRightActions}
       onSwipeableOpen={handleSwipeOpen}
-      friction={2}
-      rightThreshold={80}
-      overshootRight={false}
+      friction={3}
+      rightThreshold={120}
+      overshootRight={true}
     >
       <View style={styles.suggestionCard}>
         {/* Hero Image - matching PlaceSuggestionCard style */}
         <View style={styles.suggestionHeroContainer}>
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => onPhotoPress(cluster.previewUris[0], cluster.previewUris)}
+            onPress={() => onPhotoPress(cluster.previewUris[0])}
             style={{ flex: 1 }}
           >
             <Image

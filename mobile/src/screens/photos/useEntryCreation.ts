@@ -58,13 +58,15 @@ export function useEntryCreation({
    * Confirm a place suggestion and create an entry.
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
    * @param additionalClusterIds - Additional cluster IDs to mark as processed (for merged suggestions)
+   * @param excludedPhotos - Photo IDs the user deselected in the gallery
    */
   const handleConfirmPlace = useCallback(
     async (
       suggestion: ClusterSuggestion,
       place: PlaceSuggestion,
       wasFromCache = false,
-      additionalClusterIds: string[] = []
+      additionalClusterIds: string[] = [],
+      excludedPhotos?: Set<string>
     ) => {
       if (__DEV__) {
         console.log('[EntryCreation] handleConfirmPlace called:', {
@@ -100,10 +102,29 @@ export function useEntryCreation({
       resetUpload(suggestion.cluster_id);
 
       try {
+        // For merged suggestions, upload photos from all related clusters
+        // (primary + additional) so accepted cards include every previewed photo.
+        const additionalClusters: LocationCluster[] = additionalClusterIds
+          .map((id) => getFullCluster(id, clusterLookup))
+          .filter((c): c is LocationCluster => c !== undefined);
+        let photosToUpload = [cluster, ...additionalClusters]
+          .flatMap((c) => c.photos)
+          .filter((photo, index, self) => self.findIndex((p) => p.id === photo.id) === index);
+
+        // Filter out photos the user deselected in the gallery
+        if (excludedPhotos && excludedPhotos.size > 0) {
+          photosToUpload = photosToUpload.filter((p) => !excludedPhotos.has(p.id));
+        }
+
+        const earliestEntryDate = [cluster, ...additionalClusters].reduce(
+          (earliest, c) => (c.timeRange.start < earliest ? c.timeRange.start : earliest),
+          cluster.timeRange.start
+        );
+
         // Upload photos first
         const { mediaIds, failedCount } = await uploadPhotos(
           suggestion.cluster_id,
-          cluster.photos,
+          photosToUpload,
           selectedTripId
         );
 
@@ -124,7 +145,7 @@ export function useEntryCreation({
           title: place.name,
           place: placeInput,
           // Get entry date from cluster's earliest photo timestamp
-          entry_date: cluster.timeRange.start.toISOString().split('T')[0],
+          entry_date: earliestEntryDate.toISOString().split('T')[0],
           // Attach uploaded photos
           pending_media_ids: mediaIds.length > 0 ? mediaIds : undefined,
         };
@@ -164,12 +185,22 @@ export function useEntryCreation({
           );
         }
       } catch (err) {
+        const allClusterIds = [suggestion.cluster_id, ...additionalClusterIds];
+
         // Check if this is a 409 Conflict (place already exists in trip)
         const axiosError = err as AxiosError;
         if (axiosError.response?.status === 409) {
           // Place already exists - mark cluster as processed and show friendly message
-          setDismissedClusterIds((prev) => new Set(prev).add(suggestion.cluster_id));
-          await markClusterProcessed(suggestion.cluster_id, 'confirmed');
+          setDismissedClusterIds((prev) => {
+            const next = new Set(prev);
+            for (const id of allClusterIds) {
+              next.add(id);
+            }
+            return next;
+          });
+          for (const id of allClusterIds) {
+            await markClusterProcessed(id, 'confirmed');
+          }
           Alert.alert(
             'Already Saved',
             `"${place.name}" is already in this trip. You can add photos to it from the trip details.`

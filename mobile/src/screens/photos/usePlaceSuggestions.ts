@@ -23,10 +23,45 @@ import {
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
+  type PlaceSuggestion,
 } from '@services/photoImport';
+import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
-import { truncateCoordinate } from './photoImportUtils';
+import { mapClusterToApiPayload } from './photoImportUtils';
+
+const VISION_PREP_CONCURRENCY = 3;
+
+/** Validate that a cached entry has the shape of a PlaceSuggestion. */
+function isPlaceSuggestion(item: unknown): item is PlaceSuggestion {
+  if (typeof item !== 'object' || item === null) return false;
+  const obj = item as Record<string, unknown>;
+  return typeof obj.place_id === 'string' && typeof obj.name === 'string';
+}
+
+async function prepareVisionImagesBounded(
+  clusters: LocationCluster[],
+  maxConcurrency: number = VISION_PREP_CONCURRENCY
+): Promise<string[][]> {
+  if (clusters.length === 0) return [];
+
+  const results: string[][] = Array.from({ length: clusters.length }, () => []);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const index = nextIndex++;
+      if (index >= clusters.length) break;
+      results[index] = await getVisionImagesForCluster(clusters[index]);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, maxConcurrency), clusters.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
+}
 
 export interface UsePlaceSuggestionsOptions {
   clusterLookupRef: React.RefObject<Map<string, LocationCluster>>;
@@ -120,10 +155,11 @@ export function usePlaceSuggestions({
       for (const cluster of allClusters) {
         const cached = cachedSuggestionsMap.get(cluster.id);
         if (cached !== undefined) {
+          const validPlaces = cached.filter(isPlaceSuggestion);
           cachedResults.push({
             cluster_id: cluster.id,
             photo_ids: cluster.photos.map((p) => p.id),
-            places: cached as ClusterSuggestion['places'],
+            places: validPlaces,
           });
         }
       }
@@ -192,22 +228,11 @@ export function usePlaceSuggestions({
       }
 
       try {
+        // Prepare vision images with bounded concurrency to reduce memory pressure.
+        const visionImages = await prepareVisionImagesBounded(uncachedClusters);
+
         const result = await suggestPlacesMutation.mutateAsync({
-          clusters: uncachedClusters.map((c) => ({
-            id: c.id,
-            centroid: {
-              latitude: truncateCoordinate(c.centroid.latitude),
-              longitude: truncateCoordinate(c.centroid.longitude),
-            },
-            photos: c.photos.map((p) => ({
-              asset_id: p.id,
-              latitude: truncateCoordinate(p.location.latitude),
-              longitude: truncateCoordinate(p.location.longitude),
-              timestamp: p.creationTime.toISOString(),
-            })),
-            start_time: c.timeRange.start.toISOString(),
-            end_time: c.timeRange.end.toISOString(),
-          })),
+          clusters: uncachedClusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
         });
 
         if (__DEV__) {
@@ -312,6 +337,58 @@ export function usePlaceSuggestions({
   );
 
   /**
+   * Fetch place suggestions for specific clusters (e.g., after manual split).
+   * Bypasses candidate-level caching since these are new synthetic clusters.
+   */
+  const fetchForClusters = useCallback(
+    async (clusters: LocationCluster[]) => {
+      if (clusters.length === 0) return;
+
+      try {
+        const visionImages = await prepareVisionImagesBounded(clusters);
+        const result = await suggestPlacesMutation.mutateAsync({
+          clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        });
+
+        // Cache results to SQLite
+        const toCache = clusters.map((cluster) => {
+          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+          return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
+        });
+        await cacheSuggestions(toCache);
+
+        // Add to in-memory cached suggestions for immediate display
+        const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
+          cluster_id: s.cluster_id,
+          photo_ids: s.photo_ids,
+          places: s.places,
+        }));
+        setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+      } catch (error) {
+        if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
+
+        if (error instanceof QuotaExhaustedError) {
+          Alert.alert(
+            'Service Temporarily Unavailable',
+            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+          );
+        } else if (error instanceof RateLimitError) {
+          Alert.alert(
+            'Too Many Requests',
+            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
+          );
+        } else {
+          Alert.alert(
+            'Failed to Get Suggestions',
+            'Unable to find place suggestions for the split clusters. You can add entries manually.'
+          );
+        }
+      }
+    },
+    [suggestPlacesMutation]
+  );
+
+  /**
    * Clear the session cache and cached suggestions.
    * Called when navigating away or on unmount.
    */
@@ -324,6 +401,7 @@ export function usePlaceSuggestions({
     suggestPlacesMutation,
     cachedSuggestions,
     fetchSuggestions,
+    fetchForClusters,
     clearFetchedCache,
     fetchedCandidatesRef,
     // Premium gating state

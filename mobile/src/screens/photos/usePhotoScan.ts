@@ -7,17 +7,21 @@
 import { useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 
+import { iso1A2Code } from '@rapideditor/country-coder';
+
+import { HomeCountryNotSetError } from '@services/photoImport/errors';
 import {
   extractPhotosWithLocation,
   segmentTripsFromCache,
   photoToCachedPhoto,
-  HomeCountryNotSetError,
   getLastImportTime,
   setLastImportTime,
   getAllCachedPhotos,
   cachePhotos,
   clearPhotoCache,
   abortBackgroundSync,
+  saveTripSegments,
+  type DiscoveredCountry,
   type ScanProgress,
   type TripCandidateDisplay,
   type LocationCluster,
@@ -26,7 +30,14 @@ import {
   type CachedPhoto,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
+import { getCountryName } from '@utils/countries';
 import { isAbortError, createAbortError } from './photoImportUtils';
+
+/** Batch size for incremental cache commits during scanning */
+const INCREMENTAL_CACHE_BATCH = 500;
+
+/** Reason the scan did not succeed */
+export type ScanFailureReason = 'no-photos' | 'no-trips' | 'home-country' | 'scan-error';
 
 export interface ScanResult {
   candidates: TripCandidateDisplay[];
@@ -36,6 +47,12 @@ export interface ScanResult {
   importTime: number;
   isIncremental: boolean;
 }
+
+/** Return value from startScan */
+export type ScanOutcome =
+  | { success: true }
+  | { success: false; reason: ScanFailureReason; title: string; message: string }
+  | { success: false; reason: null };
 
 export interface UsePhotoScanOptions {
   homeCountry: string | null;
@@ -55,14 +72,14 @@ export function usePhotoScan({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const startScan = useCallback(
-    async (forceRefresh = false) => {
+    async (forceRefresh = false): Promise<ScanOutcome> => {
       if (!homeCountry) {
         Alert.alert(
           'Set Home Country',
           'Please set your home country in settings first. This helps us filter out local photos.',
           [{ text: 'OK' }]
         );
-        return false;
+        return { success: false, reason: null };
       }
 
       // Abort any background sync in progress to prevent conflicts
@@ -89,6 +106,61 @@ export function usePhotoScan({
         let allCachedPhotos: CachedPhoto[] = [];
         let newPhotos: PhotoWithLocation[] = [];
 
+        // Track discovered countries for live progress feed
+        const discoveredCountryCodes = new Set<string>();
+        const discoveredCountries: DiscoveredCountry[] = [];
+
+        // Accumulate photos for incremental caching
+        let pendingCachePhotos: PhotoWithLocation[] = [];
+        // Map photo ID -> pre-computed country code from iso1A2Code (avoids double lookup)
+        const photoCountryCodes = new Map<string, string | null>();
+        // Track fire-and-forget cache write promises to await before final read
+        const cachePromises: Promise<void>[] = [];
+
+        // Batch callback: cache incrementally and detect countries
+        const handleBatch = (batchPhotos: PhotoWithLocation[]) => {
+          // Skip processing if scan was already cancelled
+          if (controller.signal.aborted) return;
+
+          // Detect new countries from this batch and store the computed code for reuse
+          for (const photo of batchPhotos) {
+            const code = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+            photoCountryCodes.set(photo.id, code ?? null);
+            if (code && !discoveredCountryCodes.has(code)) {
+              discoveredCountryCodes.add(code);
+              discoveredCountries.push({ code, name: getCountryName(code) });
+            }
+          }
+
+          // Accumulate for incremental caching
+          pendingCachePhotos.push(...batchPhotos);
+
+          // Commit to SQLite every INCREMENTAL_CACHE_BATCH photos
+          if (pendingCachePhotos.length >= INCREMENTAL_CACHE_BATCH) {
+            const toCache = pendingCachePhotos.map((p) =>
+              photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+            );
+            pendingCachePhotos = [];
+            // Fire-and-forget cache write (don't block scanning).
+            // Check abort before starting the write to avoid unnecessary work.
+            if (controller.signal.aborted) return;
+            const promise = cachePhotos(toCache).catch((err) => {
+              if (__DEV__) console.warn('[PhotoImport] Incremental cache write failed:', err);
+            });
+            cachePromises.push(promise);
+          }
+        };
+
+        // Wrap progress to include discovered countries
+        const progressWithCountries = (progress: ScanProgress) => {
+          if (controller.signal.aborted) return;
+          onScanProgress({
+            ...progress,
+            discoveredCountries:
+              discoveredCountries.length > 0 ? discoveredCountries.slice(-10) : undefined,
+          });
+        };
+
         if (doIncremental) {
           // Incremental import: load cached photos and scan only new ones
           if (__DEV__) {
@@ -103,12 +175,10 @@ export function usePhotoScan({
 
           // Scan only photos created after last import
           newPhotos = await extractPhotosWithLocation(
-            (progress) => {
-              if (controller.signal.aborted) return;
-              onScanProgress(progress);
-            },
+            progressWithCountries,
             controller.signal,
-            new Date(cachedImportTime)
+            new Date(cachedImportTime),
+            handleBatch
           );
 
           if (__DEV__) {
@@ -118,60 +188,113 @@ export function usePhotoScan({
           }
         } else {
           // Full scan: no cache, scan all photos
-          newPhotos = await extractPhotosWithLocation((progress) => {
-            if (controller.signal.aborted) return;
-            onScanProgress(progress);
-          }, controller.signal);
+          newPhotos = await extractPhotosWithLocation(
+            progressWithCountries,
+            controller.signal,
+            undefined,
+            handleBatch
+          );
         }
 
         // Check for abort after photo extraction
         if (controller.signal.aborted) {
+          // Release maps early since we won't reach the happy-path .clear()
+          photoCountryCodes.clear();
+          // Wait for any in-flight cache writes before throwing
+          await Promise.all(cachePromises).catch((err) => {
+            if (__DEV__) console.error('[PhotoImport] Failed to write batch during abort:', err);
+          });
           throw createAbortError('Scan aborted');
         }
 
-        // Cache new photos if we found any
-        if (newPhotos.length > 0) {
-          const newCachedPhotos = newPhotos.map(photoToCachedPhoto);
-          await cachePhotos(newCachedPhotos);
-          allCachedPhotos = [...allCachedPhotos, ...newCachedPhotos];
+        // Wait for all in-flight incremental cache writes to complete
+        await Promise.all(cachePromises);
+
+        // Re-check abort after awaiting cache writes
+        if (controller.signal.aborted) {
+          photoCountryCodes.clear();
+          throw createAbortError('Scan aborted');
         }
 
-        // Update last import time using the newest photo's creationTime to avoid
-        // missing photos taken during the scan. Falls back to Date.now() if no photos.
-        const importTime =
-          newPhotos.length > 0
-            ? Math.max(...newPhotos.map((p) => p.creationTime.getTime()))
-            : Date.now();
-        await setLastImportTime(importTime);
+        // Flush any remaining photos to cache (skip if scan was aborted)
+        if (pendingCachePhotos.length > 0 && !controller.signal.aborted) {
+          const remainingCached = pendingCachePhotos.map((p) =>
+            photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+          );
+          await cachePhotos(remainingCached);
+        }
+
+        // Append newly cached photos in memory instead of reloading from SQLite.
+        // Both paths already have the data: incremental has allCachedPhotos from
+        // the initial load, full scan starts empty. Converting newPhotos avoids a
+        // full table scan that grows linearly with library size.
+        if (newPhotos.length > 0) {
+          const newCached = newPhotos.map((p) =>
+            photoToCachedPhoto(p, photoCountryCodes.get(p.id))
+          );
+          allCachedPhotos = [...allCachedPhotos, ...newCached];
+        }
+
+        // Release country code map now that caching is done
+        photoCountryCodes.clear();
 
         // Check if we have any photos at all
         if (allCachedPhotos.length === 0 && newPhotos.length === 0) {
-          Alert.alert(
-            'No Photos Found',
-            'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
-            [{ text: 'OK' }]
-          );
           abortControllerRef.current = null;
-          return false;
+          return {
+            success: false,
+            reason: 'no-photos',
+            title: 'No Photos Found',
+            message:
+              'No photos with location data were found in your library. Make sure location services were enabled when you took the photos.',
+          };
         }
+
+        // Update last import time using the newest photo's creationTime to avoid
+        // missing photos taken during the scan. Falls back to Date.now() for
+        // incremental scans where only cached photos exist (no new photos found).
+        const importTime =
+          newPhotos.length > 0
+            ? newPhotos.reduce((max, p) => Math.max(max, p.creationTime.getTime()), 0)
+            : Date.now();
+        await setLastImportTime(importTime);
 
         // Segment trips from cached data (fast: no geocoding needed)
         const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
+
+        // Persist trip segments so usePhotoTrips can load summary rows
+        // instead of re-clustering all photos from scratch.
+        saveTripSegments(
+          optimizedData.candidates.map((c) => ({
+            id: c.id,
+            countryCode: c.countryCode,
+            startTime: c.dateRange.start.getTime(),
+            endTime: c.dateRange.end.getTime(),
+            photoCount: c.photoCount,
+            clusterCount: c.locationClusterIds.length,
+            previewUris: c.previewUris,
+            clusterIds: c.locationClusterIds,
+            photoIds: c.photoIds,
+          }))
+        ).catch((err) => {
+          if (__DEV__) console.warn('[PhotoImport] Failed to save trip segments:', err);
+        });
+
         let candidates = optimizedData.candidates;
         if (filterCountryCode) {
           candidates = candidates.filter((c) => c.countryCode === filterCountryCode);
         }
 
         if (candidates.length === 0) {
-          Alert.alert(
-            'No Trips Found',
-            filterCountryCode
+          abortControllerRef.current = null;
+          return {
+            success: false,
+            reason: 'no-trips',
+            title: 'No Trips Found',
+            message: filterCountryCode
               ? `No travel photos found for this country. Photos taken in your home country (${homeCountry}) are filtered out.`
               : `No travel photos found. Photos taken in your home country (${homeCountry}) are filtered out.`,
-            [{ text: 'OK' }]
-          );
-          abortControllerRef.current = null;
-          return false;
+          };
         }
 
         const totalPhotoCount = candidates.reduce((sum, c) => sum + c.photoCount, 0);
@@ -194,24 +317,34 @@ export function usePhotoScan({
         });
 
         abortControllerRef.current = null;
-        return true;
+        return { success: true };
       } catch (error) {
         abortControllerRef.current = null;
         if (isAbortError(error)) {
           // Scan was cancelled, not an error
-          return false;
+          return { success: false, reason: null };
         } else if (error instanceof HomeCountryNotSetError) {
-          Alert.alert('Set Home Country', 'Please set your home country in settings first.');
           Analytics.photoImportScanFailed({ error: 'home_country_not_set' });
+          onScanError();
+          return {
+            success: false,
+            reason: 'home-country',
+            title: 'Set Home Country',
+            message: 'Please set your home country in settings first.',
+          };
         } else {
           if (__DEV__) console.error('[PhotoImport] Scan error:', error);
-          Alert.alert('Scan Failed', 'Failed to scan photos. Please try again.');
           Analytics.photoImportScanFailed({
             error: error instanceof Error ? error.message.slice(0, 100) : 'unknown',
           });
+          onScanError();
+          return {
+            success: false,
+            reason: 'scan-error',
+            title: 'Scan Failed',
+            message: 'Failed to scan photos. Please try again.',
+          };
         }
-        onScanError();
-        return false;
       }
     },
     [homeCountry, filterCountryCode, onScanProgress, onScanComplete, onScanError]

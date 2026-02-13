@@ -73,6 +73,8 @@ export interface UseAutoStartWorkflowOptions {
   setSelectedTripId: (tripId: string | null) => void;
   /** Set phase state */
   setPhase: (phase: ImportPhase) => void;
+  /** Ref tracking whether the parent component has unmounted */
+  unmountedRef: React.MutableRefObject<boolean>;
 }
 
 export function useAutoStartWorkflow({
@@ -99,6 +101,7 @@ export function useAutoStartWorkflow({
   setSelectedCandidate,
   setSelectedTripId,
   setPhase,
+  unmountedRef,
 }: UseAutoStartWorkflowOptions): void {
   // Track whether auto-start has been attempted
   const autoStartAttemptedRef = useRef(false);
@@ -117,10 +120,7 @@ export function useAutoStartWorkflow({
       });
     }
     const canAutoStart =
-      autoStart &&
-      filterCountryCode &&
-      !autoStartAttemptedRef.current &&
-      (homeCountry || skipToSuggestions);
+      autoStart && !autoStartAttemptedRef.current && (homeCountry || skipToSuggestions);
 
     if (canAutoStart) {
       autoStartAttemptedRef.current = true;
@@ -129,6 +129,15 @@ export function useAutoStartWorkflow({
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] Starting sequence');
         }
+
+        // If no country filter, just start a scan (e.g., first-time from PhotoTripsScreen)
+        if (!filterCountryCode) {
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
+          return;
+        }
+
         const lastImport = await getLastImportTime();
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] lastImport', lastImport);
@@ -145,7 +154,9 @@ export function useAutoStartWorkflow({
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] cache empty -> startScan');
             }
-            startScan(false);
+            startScan(false).catch(() => {
+              /* error handled by scan hook */
+            });
             return;
           }
 
@@ -159,9 +170,14 @@ export function useAutoStartWorkflow({
           if (candidates.length === 0) {
             // No candidates for this country - shouldn't happen if UI showed button
             // but fallback to scan just in case
-            startScan(false);
+            startScan(false).catch(() => {
+              /* error handled by scan hook */
+            });
             return;
           }
+
+          // Bail out if component unmounted during async work
+          if (unmountedRef.current) return;
 
           // Set state from cache (photoLookup only stored in ref - not needed for UI updates)
           setClusterLookup(optimizedData.clusterLookup);
@@ -254,7 +270,9 @@ export function useAutoStartWorkflow({
           }
         } else {
           // Normal incremental scan
-          startScan(false);
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
         }
       })();
     }

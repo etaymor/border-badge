@@ -15,6 +15,7 @@ export type { Country } from '@services/countriesDb';
 // Module-level cache for countries data - avoids repeated SQLite reads
 let countriesCache: Country[] | null = null;
 let countriesCachePromise: Promise<Country[]> | null = null;
+const countriesCacheListeners = new Set<() => void>();
 
 /**
  * Get all countries with module-level caching.
@@ -44,6 +45,9 @@ async function getCachedCountries(): Promise<Country[]> {
 export function invalidateCountriesCache(): void {
   countriesCache = null;
   countriesCachePromise = null;
+  for (const listener of countriesCacheListeners) {
+    listener();
+  }
 }
 
 /**
@@ -78,13 +82,20 @@ export function useCountries() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    const handleCacheInvalidated = () => {
+      // Cache invalidation means underlying SQLite data changed; reload consumers.
+      void loadCountries();
+    };
+    countriesCacheListeners.add(handleCacheInvalidated);
+
     // Safe to call even if multiple components mount simultaneously -
     // getCachedCountries() uses promise deduplication to prevent duplicate SQLite reads
     if (!countriesCache) {
-      loadCountries();
+      void loadCountries();
     }
 
     return () => {
+      countriesCacheListeners.delete(handleCacheInvalidated);
       isMountedRef.current = false;
     };
   }, [loadCountries]);

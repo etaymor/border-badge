@@ -1,5 +1,9 @@
 """Constants for place matching operations."""
 
+from enum import Enum
+
+from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
+
 # Concurrency limit for parallel Places API calls
 MAX_CONCURRENT_PLACES_REQUESTS = 5
 
@@ -7,8 +11,9 @@ MAX_CONCURRENT_PLACES_REQUESTS = 5
 MAX_PLACE_NAME_LENGTH = 200
 MAX_ADDRESS_LENGTH = 500
 
-# Google Places API endpoint (New API v1)
+# Google Places API endpoints (New API v1)
 NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
+TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
 # Configuration
 SEARCH_RADII_METERS = [
@@ -19,6 +24,124 @@ SEARCH_RADII_METERS = [
 MAX_PLACES_PER_SEARCH = 10
 MAX_SUGGESTIONS_PER_CLUSTER = 3  # Top 3 by distance
 # Note: Timeout is configurable via PLACES_API_TIMEOUT_SECONDS env var (see config.py)
+
+
+# ============================================================================
+# Density Detection
+# ============================================================================
+
+
+class DensityLevel(Enum):
+    DENSE = "dense"
+    MEDIUM = "medium"
+    SPARSE = "sparse"
+
+
+# Thresholds calibrated for type-filtered results (49 SEARCHABLE_PLACE_TYPES)
+DENSITY_THRESHOLD_DENSE = 3  # 3+ results at first radius = dense
+DENSITY_THRESHOLD_MEDIUM = 1  # 1-2 results = medium
+
+# Density-adaptive search radii
+DENSITY_SEARCH_RADII: dict[str, list[int]] = {
+    "dense": [15, 35, 75],
+    "medium": [15, 50, 125],  # Current behavior
+    "sparse": [25, 100, 250],
+}
+
+
+# ============================================================================
+# Tourist Relevance Filter
+# ============================================================================
+
+# Hard filter: these place types are removed entirely before ranking.
+# Our includedTypes in the API request already acts as allowlist (49 tourist types).
+# This blocklist catches types that appear via secondary type tagging.
+NON_TOURIST_TYPES: set[str] = {
+    # Services
+    "laundry",
+    "dry_cleaner",
+    "gas_station",
+    "car_wash",
+    "car_repair",
+    "bank",
+    "atm",
+    "post_office",
+    "local_government_office",
+    "storage",
+    # Medical (non-emergency)
+    "doctor",
+    "dentist",
+    "pharmacy",
+    # Professional offices
+    "real_estate_agency",
+    "insurance_agency",
+    "accounting",
+    "lawyer",
+    # Parking
+    "parking",
+}
+
+
+# ============================================================================
+# Enhanced Ranking Constants
+# ============================================================================
+
+# Bayesian-adjusted rating (IMDB-style shrinkage estimator)
+BAYESIAN_PRIOR_MEAN = 3.8  # Approximate global mean Google rating
+BAYESIAN_CONFIDENCE = 50  # ~25th percentile of review counts in typical results
+
+# Continuous fame bonus (replaces hard 1000-review threshold)
+FAME_FLOOR_REVIEWS = 50  # Below this: no fame bonus
+FAME_SCALE = 0.5  # Controls magnitude
+
+# Dwell-tiered time bonus (stronger signal than time-of-day)
+DWELL_BONUS_TIERS: list[tuple[float, float, float]] = [
+    # (min_minutes, max_minutes, bonus)
+    (120, float("inf"), 0.8),  # Long visit: strong attraction signal
+    (60, 120, 0.5),  # Medium-long visit
+    (20, 60, 0.3),  # Typical meal/quick attraction
+    (0, 20, 0.2),  # Very short stop
+]
+
+
+# ============================================================================
+# Time Hint Category Mappings
+# ============================================================================
+
+# Maps time_hint values to Google Places types that are boosted (soft bonus).
+# Reuses VISION_TO_PLACE_TYPES where categories overlap to avoid duplication.
+TIME_HINT_TYPE_MATCHES: dict[str, set[str]] = {
+    "food": VISION_TO_PLACE_TYPES["food"]
+    | {
+        # Additional cuisine-specific types not in vision mapping
+        "chinese_restaurant",
+        "vietnamese_restaurant",
+        "korean_restaurant",
+        "greek_restaurant",
+        "american_restaurant",
+        "middle_eastern_restaurant",
+        "spanish_restaurant",
+        "turkish_restaurant",
+        "ramen_restaurant",
+    },
+    "attraction": VISION_TO_PLACE_TYPES["landmark"]
+    | VISION_TO_PLACE_TYPES["nature"]
+    | {
+        "amusement_park",
+        "aquarium",
+        "zoo",
+    },
+    "nightlife": VISION_TO_PLACE_TYPES["nightlife"],
+    "quick_stop": {
+        "cafe",
+        "coffee_shop",
+        "bakery",
+        "ice_cream_shop",
+        "market",
+        "store",
+        "shopping_mall",
+    },
+}
 
 # Place types to search for in Nearby Search API (Table A types only)
 # See: https://developers.google.com/maps/documentation/places/web-service/place-types#table-a
