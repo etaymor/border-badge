@@ -172,18 +172,21 @@ class PlacesCache:
                 self._in_flight.pop(key, None)
 
             return result
-        except Exception as error:
-            # On error, clean up and propagate exception to waiters
+        except BaseException as error:
+            # Use BaseException to also catch CancelledError (which doesn't
+            # inherit from Exception in Python 3.9+). Without this, a
+            # cancelled owner task would leave stale _in_flight entries and
+            # unresolved futures, causing waiters to hang forever.
             async with self._lock:
                 self._in_flight.pop(key, None)
                 if not our_future.done():
-                    # Propagate the exception to waiting callers so they receive
-                    # the actual error instead of CancelledError.
-                    # Catch secondary errors to ensure original error is not lost.
                     try:
-                        our_future.set_exception(error)
+                        if isinstance(error, asyncio.CancelledError):
+                            our_future.cancel()
+                        else:
+                            our_future.set_exception(error)
                     except Exception:
-                        # set_exception failed (e.g., InvalidStateError) - already done
+                        # set_exception/cancel failed (e.g., InvalidStateError)
                         pass
             raise
 

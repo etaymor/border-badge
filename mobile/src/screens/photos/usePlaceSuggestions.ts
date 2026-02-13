@@ -23,6 +23,7 @@ import {
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
+  type PlaceSuggestion,
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
@@ -30,6 +31,13 @@ import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/
 import { mapClusterToApiPayload } from './photoImportUtils';
 
 const VISION_PREP_CONCURRENCY = 3;
+
+/** Validate that a cached entry has the shape of a PlaceSuggestion. */
+function isPlaceSuggestion(item: unknown): item is PlaceSuggestion {
+  if (typeof item !== 'object' || item === null) return false;
+  const obj = item as Record<string, unknown>;
+  return typeof obj.place_id === 'string' && typeof obj.name === 'string';
+}
 
 async function prepareVisionImagesBounded(
   clusters: LocationCluster[],
@@ -146,10 +154,11 @@ export function usePlaceSuggestions({
       for (const cluster of allClusters) {
         const cached = cachedSuggestionsMap.get(cluster.id);
         if (cached !== undefined) {
+          const validPlaces = cached.filter(isPlaceSuggestion);
           cachedResults.push({
             cluster_id: cluster.id,
             photo_ids: cluster.photos.map((p) => p.id),
-            places: cached as ClusterSuggestion['places'],
+            places: validPlaces,
           });
         }
       }

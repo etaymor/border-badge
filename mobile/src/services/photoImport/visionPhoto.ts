@@ -123,9 +123,12 @@ export async function prepareVisionImage(photoUri: string): Promise<string | nul
       return null;
     }
     return base64;
-  } catch {
+  } catch (error) {
     if (__DEV__) {
-      console.warn('[VisionPhoto] Failed to prepare vision image');
+      console.warn(
+        '[VisionPhoto] Failed to prepare vision image:',
+        error instanceof Error ? error.message : error
+      );
     }
     return null;
   }

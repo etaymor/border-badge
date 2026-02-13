@@ -1,12 +1,13 @@
 """Tests for the photos API endpoint."""
 
+import base64
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.schemas.photos import PhotoCluster
+from app.schemas.photos import PhotoCluster, PlaceSuggestionRequest
 
 
 @pytest.fixture
@@ -67,6 +68,13 @@ class TestPhotoClusterVisionImages:
         with pytest.raises(ValidationError):
             PhotoCluster(**_make_cluster(vision_images_base64=["x" * 200_001]))
 
+    def test_oversized_valid_base64_rejected_before_decode(self) -> None:
+        """Length must be checked BEFORE base64.b64decode to prevent memory exhaustion."""
+        oversized = base64.b64encode(b"\x00" * 200_001).decode()
+        assert len(oversized) > 200_000  # valid base64 but too large
+        with pytest.raises(ValidationError, match="<= 200000"):
+            PhotoCluster(**_make_cluster(vision_images_base64=[oversized]))
+
     def test_invalid_base64_rejected(self) -> None:
         """Malformed base64 should be rejected at validation time."""
         with pytest.raises(ValidationError, match="valid base64"):
@@ -79,6 +87,36 @@ class TestPhotoClusterVisionImages:
         valid_b64 = base64.b64encode(b"fake-jpeg-data").decode()
         cluster = PhotoCluster(**_make_cluster(vision_images_base64=[valid_b64]))
         assert cluster.vision_images_base64 == [valid_b64]
+
+
+class TestRequestLevelVisionImageLimit:
+    """Request-level limit on total vision images across all clusters."""
+
+    def test_total_vision_images_within_limit(self) -> None:
+        """50 total vision images across clusters is accepted."""
+        valid_b64 = base64.b64encode(b"img").decode()
+        clusters = [
+            _make_cluster(
+                id=f"c-{i}",
+                vision_images_base64=[valid_b64, valid_b64],
+            )
+            for i in range(25)
+        ]
+        req = PlaceSuggestionRequest(clusters=clusters)
+        assert len(req.clusters) == 25
+
+    def test_total_vision_images_exceeds_limit(self) -> None:
+        """More than 50 total vision images across clusters is rejected."""
+        valid_b64 = base64.b64encode(b"img").decode()
+        clusters = [
+            _make_cluster(
+                id=f"c-{i}",
+                vision_images_base64=[valid_b64, valid_b64, valid_b64],
+            )
+            for i in range(18)  # 18 * 3 = 54 > 50
+        ]
+        with pytest.raises(ValidationError, match="vision images"):
+            PlaceSuggestionRequest(clusters=clusters)
 
 
 class TestSuggestPlaces:

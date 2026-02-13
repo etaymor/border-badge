@@ -544,6 +544,73 @@ class TestPlacesCacheSingleFlight:
         assert results[0] == results[1] == [{"place": "data-key1"}]
         assert results[2] == results[3] == [{"place": "data-key2"}]
 
+    @pytest.mark.asyncio
+    async def test_cancelled_owner_cleans_up_in_flight(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """When the owner task is cancelled, in-flight is cleaned up and waiters don't hang."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+        fetch_started = asyncio.Event()
+
+        async def slow_fetch() -> list[dict]:
+            fetch_started.set()
+            await asyncio.sleep(10)  # Will be cancelled before completing
+            return [{"place": "data"}]
+
+        # Start the owner task
+        owner_task = asyncio.create_task(cache.get_or_fetch("cancel_key", slow_fetch))
+        await fetch_started.wait()
+
+        # Start a waiter that will await the owner's future
+        waiter_task = asyncio.create_task(
+            cache.get_or_fetch("cancel_key", slow_fetch)
+        )
+        await asyncio.sleep(0.01)  # Let waiter register
+
+        # Cancel the owner task
+        owner_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await owner_task
+
+        # Waiter should not hang - it should get CancelledError
+        with pytest.raises((asyncio.CancelledError, Exception)):
+            await asyncio.wait_for(waiter_task, timeout=1.0)
+
+        # In-flight should be cleaned up so new requests can proceed
+        assert len(cache._in_flight) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_after_previous_failure(
+        self, mock_time, monkeypatch
+    ) -> None:
+        """After a failed fetch, a new request for the same key retries and succeeds."""
+        monkeypatch.setattr(
+            "app.services.place_matcher.cache.time.time", mock_time["get"]
+        )
+
+        cache = PlacesCache(ttl_hours=24, max_size=100)
+
+        async def failing_fetch() -> list[dict]:
+            raise ValueError("transient error")
+
+        async def succeeding_fetch() -> list[dict]:
+            return [{"place": "recovered"}]
+
+        # First request fails
+        with pytest.raises(ValueError):
+            await cache.get_or_fetch("retry_key", failing_fetch)
+
+        # In-flight should be cleaned up
+        assert len(cache._in_flight) == 0
+
+        # Second request should retry and succeed
+        result = await cache.get_or_fetch("retry_key", succeeding_fetch)
+        assert result == [{"place": "recovered"}]
+
 
 # ============================================================================
 # Partial Cluster Failure Tests

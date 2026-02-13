@@ -114,6 +114,9 @@ export function usePhotoImportWorkflow({
   // Track current candidate ID to prevent race conditions during rapid switching
   const currentCandidateIdRef = useRef<string | null>(null);
 
+  // Track unmount state so async operations don't re-populate cleared refs
+  const unmountedRef = useRef(false);
+
   // ==========================================================================
   // Load persisted state on mount
   // ==========================================================================
@@ -127,6 +130,8 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
+
       // Abort any in-progress background sync to prevent closures from holding
       // references to large data structures after unmount
       abortBackgroundSync();
@@ -158,6 +163,7 @@ export function usePhotoImportWorkflow({
   // Photo Scan Hook
   // ==========================================================================
   const onScanComplete = useCallback((result: ScanResult) => {
+    if (unmountedRef.current) return;
     setClusterLookup(result.clusterLookup);
     setClusterDisplays(result.clusterDisplays);
     photoLookupRef.current = result.photoLookup;
@@ -406,6 +412,7 @@ export function usePhotoImportWorkflow({
     setSelectedCandidate,
     setSelectedTripId,
     setPhase,
+    unmountedRef,
   });
 
   // ==========================================================================

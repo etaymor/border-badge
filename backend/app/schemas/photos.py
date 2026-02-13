@@ -19,6 +19,7 @@ from app.schemas.entries import EntryType
 MAX_CLUSTERS_PER_REQUEST = 100
 MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
+MAX_VISION_IMAGES_PER_REQUEST = 50
 
 
 def _normalize_coordinate_precision(value: float) -> float:
@@ -121,11 +122,20 @@ class PlaceSuggestionRequest(BaseModel):
     @field_validator("clusters")
     @classmethod
     def validate_total_photos(cls, v: list[PhotoCluster]) -> list[PhotoCluster]:
-        """Enforce maximum photos per request."""
+        """Enforce maximum photos and vision images per request."""
         total = sum(len(c.photos) for c in v)
         if total > MAX_PHOTOS_PER_REQUEST:
             raise ValueError(
                 f"Maximum {MAX_PHOTOS_PER_REQUEST} photos per request, got {total}"
+            )
+        total_vision = sum(
+            len(c.vision_images_base64)
+            for c in v
+            if c.vision_images_base64 is not None
+        )
+        if total_vision > MAX_VISION_IMAGES_PER_REQUEST:
+            raise ValueError(
+                f"Maximum {MAX_VISION_IMAGES_PER_REQUEST} vision images per request, got {total_vision}"
             )
         return v
 
