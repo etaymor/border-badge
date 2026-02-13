@@ -96,6 +96,15 @@ export function mergeAdjacentClusters(
     }
   }
 
+  // Warn on 0-photo clusters (data integrity issue upstream)
+  if (__DEV__) {
+    for (let i = 0; i < n; i++) {
+      if (clusters[i].photos.length === 0) {
+        console.warn('[PhotoClustering] 0-photo cluster detected', clusters[i].id);
+      }
+    }
+  }
+
   // Pairwise distance check with geohash prefix pre-filter
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {

@@ -119,6 +119,38 @@ class TestRequestLevelVisionImageLimit:
             PlaceSuggestionRequest(clusters=clusters)
 
 
+class TestRequestLevelVisionPayloadSize:
+    """Total base64 payload across all clusters must stay under the size limit."""
+
+    def test_total_vision_payload_within_limit(self) -> None:
+        """Clusters whose combined vision payload is under 2MB are accepted."""
+        # Each image ~100k chars, 3 images across 3 clusters = 300k total (well under 2MB)
+        valid_b64 = base64.b64encode(b"\x00" * 75_000).decode()  # ~100k chars
+        clusters = [
+            _make_cluster(
+                id=f"c-{i}",
+                vision_images_base64=[valid_b64],
+            )
+            for i in range(3)
+        ]
+        req = PlaceSuggestionRequest(clusters=clusters)
+        assert len(req.clusters) == 3
+
+    def test_total_vision_payload_exceeds_limit(self) -> None:
+        """Clusters whose combined vision payload exceeds 2MB are rejected."""
+        # 15 clusters x 3 images x 200k chars = 9M chars, way over 2MB limit
+        big_b64 = base64.b64encode(b"\x00" * 149_000).decode()  # ~199k chars each
+        clusters = [
+            _make_cluster(
+                id=f"c-{i}",
+                vision_images_base64=[big_b64, big_b64, big_b64],
+            )
+            for i in range(15)
+        ]
+        with pytest.raises(ValidationError, match="vision payload"):
+            PlaceSuggestionRequest(clusters=clusters)
+
+
 class TestSuggestPlaces:
     """Tests for POST /photos/suggest-places endpoint."""
 

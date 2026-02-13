@@ -485,6 +485,35 @@ describe('photoClustering', () => {
       expect(merged[0].timeRange.start.getTime()).not.toBeNaN();
       expect(merged[0].timeRange.end.getTime()).not.toBeNaN();
     });
+
+    it('warns in dev mode when encountering 0-photo clusters', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const now = new Date();
+      const emptyCluster: LocationCluster = {
+        id: 'empty1',
+        geohash: 'xn76ur1',
+        centroid: { latitude: 35.6762, longitude: 139.6503 },
+        photos: [],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+      const normalCluster: LocationCluster = {
+        id: 'normal',
+        geohash: 'xn76ur2',
+        centroid: { latitude: 35.6766, longitude: 139.6503 },
+        photos: [createTestPhoto('p1', 35.6766, 139.6503)],
+        timeRange: { start: new Date(now.getTime() - 86400000), end: now },
+        countryCode: 'JP',
+      };
+
+      mergeAdjacentClusters([emptyCluster, normalCluster], 80);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('0-photo cluster'),
+        expect.any(String)
+      );
+      warnSpy.mockRestore();
+    });
   });
 
   describe('computeTimeHint', () => {
