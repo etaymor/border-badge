@@ -327,6 +327,58 @@ export function usePlaceSuggestions({
   );
 
   /**
+   * Fetch place suggestions for specific clusters (e.g., after manual split).
+   * Bypasses candidate-level caching since these are new synthetic clusters.
+   */
+  const fetchForClusters = useCallback(
+    async (clusters: LocationCluster[]) => {
+      if (clusters.length === 0) return;
+
+      try {
+        const visionImages = await prepareVisionImagesBounded(clusters);
+        const result = await suggestPlacesMutation.mutateAsync({
+          clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        });
+
+        // Cache results to SQLite
+        const toCache = clusters.map((cluster) => {
+          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+          return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
+        });
+        await cacheSuggestions(toCache);
+
+        // Add to in-memory cached suggestions for immediate display
+        const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
+          cluster_id: s.cluster_id,
+          photo_ids: s.photo_ids,
+          places: s.places,
+        }));
+        setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+      } catch (error) {
+        if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
+
+        if (error instanceof QuotaExhaustedError) {
+          Alert.alert(
+            'Service Temporarily Unavailable',
+            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+          );
+        } else if (error instanceof RateLimitError) {
+          Alert.alert(
+            'Too Many Requests',
+            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
+          );
+        } else {
+          Alert.alert(
+            'Failed to Get Suggestions',
+            'Unable to find place suggestions for the split clusters. You can add entries manually.'
+          );
+        }
+      }
+    },
+    [suggestPlacesMutation]
+  );
+
+  /**
    * Clear the session cache and cached suggestions.
    * Called when navigating away or on unmount.
    */
@@ -339,6 +391,7 @@ export function usePlaceSuggestions({
     suggestPlacesMutation,
     cachedSuggestions,
     fetchSuggestions,
+    fetchForClusters,
     clearFetchedCache,
     fetchedCandidatesRef,
     // Premium gating state

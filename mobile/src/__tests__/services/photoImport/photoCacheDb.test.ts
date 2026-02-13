@@ -418,6 +418,94 @@ describe('photoCacheDb', () => {
     });
   });
 
+  describe('getCachedSuggestions', () => {
+    it('returns cached suggestions with places', async () => {
+      const places = [
+        {
+          place_id: 'place-1',
+          name: 'Test Place',
+          address: '123 Main St',
+          location: { latitude: 41.0, longitude: 19.8 },
+          category: 'Place',
+          distance_m: 50,
+          types: ['tourist_attraction'],
+        },
+      ];
+      mockDb.getAllAsync.mockResolvedValue([
+        { cluster_id: 'cluster-1', suggestions_json: JSON.stringify(places) },
+      ]);
+
+      const result = await photoCacheDb.getCachedSuggestions(['cluster-1']);
+
+      expect(result.size).toBe(1);
+      expect(result.get('cluster-1')).toEqual(places);
+    });
+
+    it('excludes stale empty suggestions that are older than TTL', async () => {
+      // Simulate an empty-places entry cached 25 hours ago (beyond the 24h TTL)
+      const staleTimestamp = Date.now() - 25 * 60 * 60 * 1000;
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          cluster_id: 'cluster-stale',
+          suggestions_json: '[]',
+          cached_at: staleTimestamp,
+        },
+      ]);
+
+      const result = await photoCacheDb.getCachedSuggestions(['cluster-stale']);
+
+      // Stale empty entry should NOT be returned - forces a re-fetch from API
+      expect(result.size).toBe(0);
+    });
+
+    it('keeps recent empty suggestions within TTL', async () => {
+      // Empty-places entry cached 1 hour ago (within the 24h TTL)
+      const recentTimestamp = Date.now() - 1 * 60 * 60 * 1000;
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          cluster_id: 'cluster-recent-empty',
+          suggestions_json: '[]',
+          cached_at: recentTimestamp,
+        },
+      ]);
+
+      const result = await photoCacheDb.getCachedSuggestions(['cluster-recent-empty']);
+
+      // Recent empty entry should still be returned
+      expect(result.size).toBe(1);
+      expect(result.get('cluster-recent-empty')).toEqual([]);
+    });
+
+    it('keeps non-empty suggestions regardless of age', async () => {
+      // Non-empty entry cached 30 days ago - should still be valid
+      const oldTimestamp = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const places = [
+        {
+          place_id: 'place-1',
+          name: 'Test Place',
+          address: '123 Main St',
+          location: { latitude: 41.0, longitude: 19.8 },
+          category: 'Place',
+          distance_m: 50,
+          types: ['tourist_attraction'],
+        },
+      ];
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          cluster_id: 'cluster-old-with-places',
+          suggestions_json: JSON.stringify(places),
+          cached_at: oldTimestamp,
+        },
+      ]);
+
+      const result = await photoCacheDb.getCachedSuggestions(['cluster-old-with-places']);
+
+      // Non-empty suggestions should never expire
+      expect(result.size).toBe(1);
+      expect(result.get('cluster-old-with-places')).toEqual(places);
+    });
+  });
+
   describe('database initialization', () => {
     it('creates tables and indexes on first access', async () => {
       await photoCacheDb.getLastImportTime();

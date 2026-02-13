@@ -27,8 +27,12 @@ export interface PlaceSuggestionCardProps {
   previewUris: string[];
   onConfirm: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
   onReject: (suggestion: ClusterSuggestion) => void;
-  onPhotoPress: (uri: string, allUris: string[]) => void;
+  onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
+  /** Number of selected (non-excluded) photos */
+  selectedPhotoCount?: number;
+  /** Total photo count for this cluster */
+  totalPhotoCount?: number;
   /** Whether this card is currently uploading photos */
   isUploading?: boolean;
   /** Upload progress (0-100) */
@@ -48,6 +52,8 @@ export function PlaceSuggestionCard({
   onReject,
   onPhotoPress,
   onDismiss,
+  selectedPhotoCount,
+  totalPhotoCount,
   isUploading,
   uploadProgress = 0,
   uploadingPhotoIndex = 0,
@@ -119,7 +125,7 @@ export function PlaceSuggestionCard({
         <View style={styles.suggestionHeroContainer}>
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => onPhotoPress(heroUri, previewUris)}
+            onPress={() => onPhotoPress(heroUri)}
             disabled={isUploading}
             style={{ flex: 1 }}
           >
@@ -162,6 +168,13 @@ export function PlaceSuggestionCard({
               <Text style={styles.categoryText}>{currentPlace.category}</Text>
             </View>
             <Text style={styles.distanceText}>{Math.round(currentPlace.distance_m)}m away</Text>
+            {totalPhotoCount !== undefined && totalPhotoCount > 0 && (
+              <Text style={localStyles.photoCountLabel}>
+                {selectedPhotoCount !== undefined && selectedPhotoCount < totalPhotoCount
+                  ? `${selectedPhotoCount} of ${totalPhotoCount} photos`
+                  : `${totalPhotoCount} photo${totalPhotoCount !== 1 ? 's' : ''}`}
+              </Text>
+            )}
           </View>
 
           {/* Alternative places navigation */}
@@ -283,5 +296,11 @@ const localStyles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.adobeBrick,
+  },
+  photoCountLabel: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textTertiary,
+    marginLeft: 'auto',
   },
 });

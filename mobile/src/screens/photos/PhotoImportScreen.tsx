@@ -7,16 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
-  Modal,
-  Pressable,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,117 +35,24 @@ import {
   PlaceSuggestionCard,
   PhotoClusterCard,
   PhotoTripSwitcherSheet,
+  PhotoGalleryModal,
 } from './components';
+import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
 import { useScanLifecycle } from './useScanLifecycle';
 import { styles } from './photoImportStyles';
-
-/** Display item that can be a merged suggestion, single suggestion, or photo-only cluster */
-type ClusterDisplayItem =
-  | { type: 'merged-suggestion'; data: MergedSuggestion }
-  | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
-  | { type: 'photos-only'; cluster: LocationClusterDisplay };
+import type { ClusterDisplayItem } from './photoImportHelpers';
+import {
+  formatDateRange,
+  formatLastScanTime,
+  createMergedSuggestion,
+  buildSuggestionFromMerged,
+} from './photoImportHelpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
 
 type Props = PassportStackScreenProps<'PhotoImport'>;
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-/**
- * Format date range for display
- */
-const formatDateRange = (start: Date, end: Date) => {
-  const startStr = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const endStr = end.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-  return `${startStr} - ${endStr}`;
-};
-
-/**
- * Format relative time for last scan (e.g., "2 hours ago", "Yesterday")
- */
-const formatLastScanTime = (timestamp: number): string => {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return new Date(timestamp).toLocaleDateString();
-};
-
-/**
- * Create a MergedSuggestion from multiple clusters that share the same top place.
- */
-function createMergedSuggestion(
-  clusterIds: string[],
-  clusterSuggestionMap: Map<
-    string,
-    { suggestion: ClusterSuggestion; cluster: LocationClusterDisplay }
-  >,
-  clusterDisplays: Map<string, LocationClusterDisplay>
-): MergedSuggestion | null {
-  const allPhotoIds: string[] = [];
-  const allPreviewUris: string[] = [];
-  let minStart: Date | null = null;
-  let maxEnd: Date | null = null;
-
-  for (const clusterId of clusterIds) {
-    const cluster = clusterDisplays.get(clusterId);
-    if (!cluster) continue;
-
-    allPhotoIds.push(...cluster.photoIds);
-    allPreviewUris.push(...cluster.previewUris);
-
-    if (!minStart || cluster.timeRange.start < minStart) {
-      minStart = cluster.timeRange.start;
-    }
-    if (!maxEnd || cluster.timeRange.end > maxEnd) {
-      maxEnd = cluster.timeRange.end;
-    }
-  }
-
-  const primaryEntry = clusterSuggestionMap.get(clusterIds[0]);
-  if (!primaryEntry) {
-    console.error('[PhotoImport] Primary cluster not found in suggestion map:', clusterIds[0]);
-    return null;
-  }
-
-  return {
-    primaryClusterId: clusterIds[0],
-    clusterIds,
-    photoIds: allPhotoIds,
-    previewUris: allPreviewUris.slice(0, 5),
-    photoCount: allPhotoIds.length,
-    place: primaryEntry.suggestion.places[0],
-    allPlaces: primaryEntry.suggestion.places,
-    timeRange: {
-      start: minStart!,
-      end: maxEnd!,
-    },
-  };
-}
-
-/**
- * Convert a MergedSuggestion back to ClusterSuggestion format for PlaceSuggestionCard.
- */
-function buildSuggestionFromMerged(merged: MergedSuggestion): ClusterSuggestion {
-  return {
-    cluster_id: merged.primaryClusterId,
-    photo_ids: merged.photoIds,
-    places: merged.allPlaces,
-  };
-}
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -166,14 +64,22 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     skipToSuggestions,
   } = route.params ?? {};
 
-  // Gallery state: { uris: string[], initialIndex: number }
+  // Home country for privacy notice
+  const homeCountryCode = useOnboardingStore(selectHomeCountry);
+  const { data: homeCountryData } = useCountryByCode(homeCountryCode);
+
+  // Gallery state with cluster context and photo IDs for selection
   const [previewGallery, setPreviewGallery] = useState<{
-    uris: string[];
+    clusterId: string;
+    photos: { id: string; uri: string }[];
     initialIndex: number;
   } | null>(null);
 
   // Current index in the gallery (for counter)
   const [currentGalleryIndex, setCurrentGalleryIndex] = useState(0);
+
+  // Track excluded (deselected) photos per cluster
+  const [excludedPhotoIds, setExcludedPhotoIds] = useState<Map<string, Set<string>>>(new Map());
 
   // Track if at least one place was confirmed this session for review trigger
   const hasConfirmedPlaceRef = useRef(false);
@@ -204,6 +110,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     manualSearchCluster,
     suggestPlacesMutation,
     cachedSuggestions,
+    fetchingSuggestions,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -222,6 +129,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleRejectPlace,
     handleHideCluster,
     handleHideMultipleClusters,
+    handleSplitCluster,
     handleAddEntryForCluster,
     handleManualSelect,
     handleCreateTrip,
@@ -462,21 +370,71 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       }
     }
 
-    // Add photos-only clusters at the end
-    for (const cluster of photosOnlyClusters) {
-      items.push({ type: 'photos-only', cluster });
+    // Add photos-only clusters at the end — but only after loading is complete.
+    // While suggestions are being fetched (cache check, vision prep, or API call),
+    // clusters without suggestions haven't been resolved yet and showing
+    // "No place found nearby" is misleading.
+    if (!fetchingSuggestions) {
+      for (const cluster of photosOnlyClusters) {
+        items.push({ type: 'photos-only', cluster });
+      }
     }
 
     return items;
-  }, [selectedCandidate, suggestionsMap, clusterDisplays, dismissedClusterIdsInternal]);
+  }, [
+    selectedCandidate,
+    suggestionsMap,
+    clusterDisplays,
+    dismissedClusterIdsInternal,
+    fetchingSuggestions,
+  ]);
 
-  // Handler for opening the gallery
-  const handleOpenGallery = useCallback((uri: string, allUris: string[]) => {
-    const index = allUris.indexOf(uri);
-    setPreviewGallery({
-      uris: allUris,
-      initialIndex: index !== -1 ? index : 0,
+  // Toggle a photo's inclusion/exclusion for upload
+  const togglePhotoSelection = useCallback((clusterId: string, photoId: string) => {
+    setExcludedPhotoIds((prev) => {
+      const next = new Map(prev);
+      const clusterSet = new Set(next.get(clusterId) ?? []);
+      if (clusterSet.has(photoId)) {
+        clusterSet.delete(photoId);
+      } else {
+        clusterSet.add(photoId);
+      }
+      next.set(clusterId, clusterSet);
+      return next;
     });
+  }, []);
+
+  // Build photo list from cluster display data and open gallery
+  const openGalleryForCluster = useCallback(
+    (uri: string, clusterId: string, cluster: LocationClusterDisplay) => {
+      const photos = cluster.previewUris.map((u, i) => ({
+        id: cluster.photoIds[i],
+        uri: u,
+      }));
+      const index = photos.findIndex((p) => p.uri === uri);
+      setPreviewGallery({
+        clusterId,
+        photos,
+        initialIndex: Math.max(0, index),
+      });
+      setCurrentGalleryIndex(Math.max(0, index));
+    },
+    []
+  );
+
+  // Open gallery for merged suggestion (multiple clusters)
+  const openGalleryForMerged = useCallback((uri: string, merged: MergedSuggestion) => {
+    const photos = merged.previewUris.map((u, i) => ({
+      id: merged.photoIds[i],
+      uri: u,
+    }));
+    const index = photos.findIndex((p) => p.uri === uri);
+    setPreviewGallery({
+      clusterId: merged.primaryClusterId,
+      photos,
+      initialIndex: Math.max(0, index),
+    });
+    setCurrentGalleryIndex(Math.max(0, index));
   }, []);
 
   const renderClusterItem: ListRenderItem<ClusterDisplayItem> = useCallback(
@@ -492,16 +450,29 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           (id) => id !== merged.primaryClusterId
         );
 
+        const totalPhotos = merged.previewUris.length;
+        const excludedCount = excludedPhotoIds.get(merged.primaryClusterId)?.size ?? 0;
+        const selectedPhotos = totalPhotos - excludedCount;
+
         return (
           <PlaceSuggestionCard
             suggestion={buildSuggestionFromMerged(merged)}
             previewUris={merged.previewUris}
-            onConfirm={(suggestion, place) =>
-              handleConfirmPlaceWithTracking(suggestion, place, false, additionalClusterIds)
-            }
+            onConfirm={(suggestion, place) => {
+              const excluded = excludedPhotoIds.get(merged.primaryClusterId);
+              handleConfirmPlaceWithTracking(
+                suggestion,
+                place,
+                false,
+                additionalClusterIds,
+                excluded
+              );
+            }}
             onReject={handleRejectPlace}
-            onPhotoPress={handleOpenGallery}
+            onPhotoPress={(uri) => openGalleryForMerged(uri, merged)}
             onDismiss={() => handleHideMultipleClusters(merged.clusterIds)}
+            selectedPhotoCount={selectedPhotos}
+            totalPhotoCount={totalPhotos}
             isUploading={isUploadingAny}
             uploadProgress={primaryUploadState?.overallProgress ?? 0}
             uploadingPhotoIndex={primaryUploadState?.currentPhotoIndex ?? 0}
@@ -516,14 +487,23 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         const isUploadingThisCluster = uploadingClusterIds.has(clusterId);
         const clusterUploadState = getUploadState(clusterId);
 
+        const totalPhotos = item.cluster.previewUris.length;
+        const excludedCount = excludedPhotoIds.get(clusterId)?.size ?? 0;
+        const selectedPhotos = totalPhotos - excludedCount;
+
         return (
           <PlaceSuggestionCard
             suggestion={item.data}
             previewUris={item.cluster.previewUris}
-            onConfirm={handleConfirmPlaceWithTracking}
+            onConfirm={(suggestion, place) => {
+              const excluded = excludedPhotoIds.get(clusterId);
+              handleConfirmPlaceWithTracking(suggestion, place, false, [], excluded);
+            }}
             onReject={handleRejectPlace}
-            onPhotoPress={handleOpenGallery}
+            onPhotoPress={(uri) => openGalleryForCluster(uri, clusterId, item.cluster)}
             onDismiss={handleHideCluster}
+            selectedPhotoCount={selectedPhotos}
+            totalPhotoCount={totalPhotos}
             isUploading={isUploadingThisCluster}
             uploadProgress={clusterUploadState?.overallProgress ?? 0}
             uploadingPhotoIndex={clusterUploadState?.currentPhotoIndex ?? 0}
@@ -538,7 +518,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <PhotoClusterCard
           cluster={item.cluster}
           onAddEntry={(cluster) => handleAddEntryForCluster(cluster.id)}
-          onPhotoPress={handleOpenGallery}
+          onPhotoPress={(uri) => openGalleryForCluster(uri, item.cluster.id, item.cluster)}
           onDismiss={handleHideCluster}
         />
       );
@@ -552,7 +532,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       uploadingClusterIds,
       getUploadState,
       cancelUpload,
-      handleOpenGallery,
+      openGalleryForCluster,
+      openGalleryForMerged,
+      excludedPhotoIds,
     ]
   );
 
@@ -617,7 +599,24 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                 style={{ width: 120, height: 120 }}
                 contentFit="contain"
               />
-              <Text style={styles.idleTitle}>Import Travel Photos</Text>
+              {!lastImportTime && (
+                <View style={styles.privacyNotice}>
+                  <Text style={styles.privacyTitle}>Your photos stay private</Text>
+                  <Text style={styles.privacyBullet}>
+                    {'\u2022'} Only GPS data from photos outside{' '}
+                    {homeCountryData?.name ?? 'your home country'} is scanned
+                  </Text>
+                  <Text style={styles.privacyBullet}>
+                    {'\u2022'} Nothing is uploaded until you choose to save a place
+                  </Text>
+                  <Text style={styles.privacyBullet}>
+                    {'\u2022'} The scan runs entirely on your device
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.idleTitle}>
+                {lastImportTime ? 'Import Travel Photos' : 'Ready to scan'}
+              </Text>
               <Text style={styles.idleDescription}>
                 {lastImportTime
                   ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
@@ -721,24 +720,27 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Progress indicator during loading */}
-          {suggestPlacesMutation.isPending && suggestPlacesMutation.progress && (
+          {/* Progress indicator during loading (covers cache check + vision prep + API call) */}
+          {fetchingSuggestions && (
             <View style={styles.progressHeader}>
               <View style={styles.progressLabelRow}>
                 <ActivityIndicator size="small" color={colors.sunsetGold} />
                 <Text style={styles.progressLabel}>
-                  Processing {suggestPlacesMutation.progress.clustersCompleted} of{' '}
-                  {suggestPlacesMutation.progress.clustersTotal} locations
+                  {suggestPlacesMutation.progress
+                    ? `Processing ${suggestPlacesMutation.progress.clustersCompleted} of ${suggestPlacesMutation.progress.clustersTotal} locations`
+                    : 'Searching for places...'}
                 </Text>
               </View>
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${suggestPlacesMutation.progress.percentage}%` },
-                  ]}
-                />
-              </View>
+              {suggestPlacesMutation.progress && (
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${suggestPlacesMutation.progress.percentage}%` },
+                    ]}
+                  />
+                </View>
+              )}
             </View>
           )}
 
@@ -756,7 +758,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             }
             getItemType={(item) => item.type}
             ListEmptyComponent={
-              suggestPlacesMutation.isPending ? (
+              fetchingSuggestions ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={colors.sunsetGold} />
                   <Text style={styles.loadingText}>Finding nearby places...</Text>
@@ -767,60 +769,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Photo Gallery Overlay */}
+      {/* Photo Gallery Overlay with Selection */}
       {previewGallery && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible
-          onRequestClose={() => setPreviewGallery(null)}
-        >
-          <View style={styles.overlayBackground}>
-            <TouchableOpacity style={styles.closeButton} onPress={() => setPreviewGallery(null)}>
-              <Ionicons name="close" size={28} color={colors.white} />
-            </TouchableOpacity>
-
-            <View style={styles.galleryContainer}>
-              <FlatList
-                data={previewGallery.uris}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                initialScrollIndex={previewGallery.initialIndex}
-                getItemLayout={(_, index) => ({
-                  length: SCREEN_WIDTH,
-                  offset: SCREEN_WIDTH * index,
-                  index,
-                })}
-                keyExtractor={(item) => item}
-                onMomentumScrollEnd={(e) => {
-                  const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-                  setCurrentGalleryIndex(index);
-                }}
-                renderItem={({ item }) => (
-                  <Pressable
-                    onPress={() => setPreviewGallery(null)}
-                    style={{
-                      width: SCREEN_WIDTH,
-                      height: '100%',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Image source={{ uri: item }} style={styles.fullPreview} contentFit="contain" />
-                  </Pressable>
-                )}
-              />
-            </View>
-
-            {/* Photo Counter */}
-            <View style={styles.galleryCounter}>
-              <Text style={styles.galleryCounterText}>
-                {currentGalleryIndex + 1} / {previewGallery.uris.length}
-              </Text>
-            </View>
-          </View>
-        </Modal>
+        <PhotoGalleryModal
+          previewGallery={previewGallery}
+          onClose={() => setPreviewGallery(null)}
+          currentGalleryIndex={currentGalleryIndex}
+          onGalleryIndexChange={setCurrentGalleryIndex}
+          excludedPhotoIds={excludedPhotoIds}
+          onTogglePhotoSelection={togglePhotoSelection}
+          onSplitCluster={handleSplitCluster}
+        />
       )}
 
       {/* Manual Place Search Modal */}
