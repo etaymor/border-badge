@@ -16,6 +16,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 
 import type { ClusterSuggestion, PlaceSuggestion } from '@services/photoImport';
 import { colors } from '@constants/colors';
@@ -93,10 +94,15 @@ export function PlaceSuggestionCard({
       outputRange: [0.8, 1],
       extrapolate: 'clamp',
     });
+    const opacity = progress.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0, 0.8, 1],
+      extrapolate: 'clamp',
+    });
 
     return (
       <View style={localStyles.swipeActionContainer}>
-        <Animated.View style={[localStyles.swipeAction, { transform: [{ scale }] }]}>
+        <Animated.View style={[localStyles.swipeAction, { transform: [{ scale }], opacity }]}>
           <Ionicons name="close-circle" size={28} color={colors.white} />
           <Text style={localStyles.swipeActionText}>Skip</Text>
         </Animated.View>
@@ -105,6 +111,7 @@ export function PlaceSuggestionCard({
   };
 
   const handleSwipeOpen = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (onDismiss) {
       onDismiss(suggestion.cluster_id);
     }
@@ -115,9 +122,9 @@ export function PlaceSuggestionCard({
       ref={swipeableRef}
       renderRightActions={renderRightActions}
       onSwipeableOpen={handleSwipeOpen}
-      friction={2}
-      rightThreshold={80}
-      overshootRight={false}
+      friction={3}
+      rightThreshold={120}
+      overshootRight={true}
       enabled={!isUploading} // Disable swipe during upload
     >
       <View style={styles.suggestionCard}>
