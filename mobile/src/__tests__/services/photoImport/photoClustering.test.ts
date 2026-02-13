@@ -16,8 +16,8 @@ import {
   clusterByLocation,
   mergeAdjacentClusters,
   computeTimeHint,
-  segmentTripsByTimeGap,
 } from '../../../services/photoImport/photoClustering';
+import { segmentTripsByTimeGap } from '../../../services/photoImport/photoClusteringTrips';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
 
 // Helper to create test photos

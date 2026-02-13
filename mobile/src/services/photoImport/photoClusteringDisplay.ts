@@ -12,7 +12,7 @@ import type {
   TripCandidate,
   TripCandidateDisplay,
 } from './types';
-import { segmentTripsByTimeGap } from './photoClustering';
+import { segmentTripsByTimeGap } from './photoClusteringTrips';
 
 const MAX_PREVIEW_URIS = 30; // Limit preview URIs stored per candidate/cluster (selection pool for upload)
 

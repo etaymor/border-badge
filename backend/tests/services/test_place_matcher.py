@@ -566,9 +566,7 @@ class TestPlacesCacheSingleFlight:
         await fetch_started.wait()
 
         # Start a waiter that will await the owner's future
-        waiter_task = asyncio.create_task(
-            cache.get_or_fetch("cancel_key", slow_fetch)
-        )
+        waiter_task = asyncio.create_task(cache.get_or_fetch("cancel_key", slow_fetch))
         await asyncio.sleep(0.01)  # Let waiter register
 
         # Cancel the owner task

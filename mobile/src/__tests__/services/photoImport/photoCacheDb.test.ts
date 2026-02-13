@@ -10,6 +10,7 @@ describe('photoCacheDb', () => {
     withTransactionAsync: jest.Mock;
   };
   let photoCacheDb: typeof import('../../../services/photoImport/photoCacheDb');
+  let photoCacheDbSuggestions: typeof import('../../../services/photoImport/photoCacheDbSuggestions');
   let mockedSQLite: jest.Mocked<typeof import('expo-sqlite')>;
 
   beforeEach(() => {
@@ -39,6 +40,8 @@ describe('photoCacheDb', () => {
     mockedSQLite = require('expo-sqlite');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     photoCacheDb = require('../../../services/photoImport/photoCacheDb');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    photoCacheDbSuggestions = require('../../../services/photoImport/photoCacheDbSuggestions');
   });
 
   afterEach(async () => {
@@ -435,7 +438,7 @@ describe('photoCacheDb', () => {
         { cluster_id: 'cluster-1', suggestions_json: JSON.stringify(places) },
       ]);
 
-      const result = await photoCacheDb.getCachedSuggestions(['cluster-1']);
+      const result = await photoCacheDbSuggestions.getCachedSuggestions(['cluster-1']);
 
       expect(result.size).toBe(1);
       expect(result.get('cluster-1')).toEqual(places);
@@ -452,7 +455,7 @@ describe('photoCacheDb', () => {
         },
       ]);
 
-      const result = await photoCacheDb.getCachedSuggestions(['cluster-stale']);
+      const result = await photoCacheDbSuggestions.getCachedSuggestions(['cluster-stale']);
 
       // Stale empty entry should NOT be returned - forces a re-fetch from API
       expect(result.size).toBe(0);
@@ -469,7 +472,7 @@ describe('photoCacheDb', () => {
         },
       ]);
 
-      const result = await photoCacheDb.getCachedSuggestions(['cluster-recent-empty']);
+      const result = await photoCacheDbSuggestions.getCachedSuggestions(['cluster-recent-empty']);
 
       // Recent empty entry should still be returned
       expect(result.size).toBe(1);
@@ -498,7 +501,9 @@ describe('photoCacheDb', () => {
         },
       ]);
 
-      const result = await photoCacheDb.getCachedSuggestions(['cluster-old-with-places']);
+      const result = await photoCacheDbSuggestions.getCachedSuggestions([
+        'cluster-old-with-places',
+      ]);
 
       // Non-empty suggestions should never expire
       expect(result.size).toBe(1);

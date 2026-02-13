@@ -49,9 +49,10 @@ async function prepareVisionImagesBounded(
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
-    while (nextIndex < clusters.length) {
-      const index = nextIndex;
-      nextIndex += 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const index = nextIndex++;
+      if (index >= clusters.length) break;
       results[index] = await getVisionImagesForCluster(clusters[index]);
     }
   }
