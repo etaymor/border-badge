@@ -197,6 +197,8 @@ export function usePhotoScan({
 
         // Check for abort after photo extraction
         if (controller.signal.aborted) {
+          // Release maps early since we won't reach the happy-path .clear()
+          photoCountryCodes.clear();
           // Wait for any in-flight cache writes before throwing
           await Promise.all(cachePromises).catch((err) => {
             if (__DEV__) console.error('[PhotoImport] Failed to write batch during abort:', err);
@@ -209,6 +211,7 @@ export function usePhotoScan({
 
         // Re-check abort after awaiting cache writes
         if (controller.signal.aborted) {
+          photoCountryCodes.clear();
           throw createAbortError('Scan aborted');
         }
 

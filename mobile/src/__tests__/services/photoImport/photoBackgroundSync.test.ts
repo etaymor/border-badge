@@ -89,10 +89,16 @@ describe('photoBackgroundSync lock pattern', () => {
   describe('original (buggy) pattern', () => {
     it('abort + restart: old finally clobbers new lock', async () => {
       let resolveA: () => void;
-      const workA = () => new Promise<void>((r) => { resolveA = r; });
+      const workA = () =>
+        new Promise<void>((r) => {
+          resolveA = r;
+        });
 
       let resolveB: () => void;
-      const workB = () => new Promise<void>((r) => { resolveB = r; });
+      const workB = () =>
+        new Promise<void>((r) => {
+          resolveB = r;
+        });
 
       // 1. Start sync A
       const promiseA = syncOriginal(workA);
@@ -122,10 +128,16 @@ describe('photoBackgroundSync lock pattern', () => {
   describe('fixed pattern', () => {
     it('abort + restart: old finally does NOT clobber new lock', async () => {
       let resolveA: () => void;
-      const workA = () => new Promise<void>((r) => { resolveA = r; });
+      const workA = () =>
+        new Promise<void>((r) => {
+          resolveA = r;
+        });
 
       let resolveB: () => void;
-      const workB = () => new Promise<void>((r) => { resolveB = r; });
+      const workB = () =>
+        new Promise<void>((r) => {
+          resolveB = r;
+        });
 
       // 1. Start sync A
       const promiseA = syncFixed(workA);
@@ -153,7 +165,10 @@ describe('photoBackgroundSync lock pattern', () => {
 
     it('two concurrent calls: second is rejected by lock', async () => {
       let resolveA: () => void;
-      const workA = () => new Promise<void>((r) => { resolveA = r; });
+      const workA = () =>
+        new Promise<void>((r) => {
+          resolveA = r;
+        });
       const workB = () => Promise.resolve();
 
       const promiseA = syncFixed(workA);
