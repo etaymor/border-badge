@@ -123,28 +123,28 @@ def parse_entitlement(data: dict) -> tuple[str, str | None, str | None]:
 async def update_user(
     settings, user_id: str, status: str, plan: str | None, expires_at: str | None
 ) -> bool:
-    """Update user_profile via direct PATCH (bypasses RPC)."""
+    """Update user_profile via update_subscription_if_newer RPC."""
     async with httpx.AsyncClient(timeout=10.0) as client:
-        url = f"{settings.supabase_url}/rest/v1/user_profile"
+        url = f"{settings.supabase_url}/rest/v1/rpc/update_subscription_if_newer"
         headers = {
             "apikey": settings.supabase_service_role_key,
             "Authorization": f"Bearer {settings.supabase_service_role_key}",
             "Content-Type": "application/json",
-            "Prefer": "return=minimal",
         }
-        params = {"user_id": f"eq.{user_id}"}
         now = datetime.now(UTC)
         data = {
-            "subscription_status": status,
-            "subscription_plan": plan,
-            "subscription_expires_at": expires_at,
-            "revenuecat_customer_id": user_id,
-            "last_webhook_timestamp_ms": int(now.timestamp() * 1000),
-            "last_webhook_event_id": f"backfill-{user_id}-{now.isoformat()}",
+            "p_user_id": str(user_id),
+            "p_status": status,
+            "p_plan": plan,
+            "p_expires_at": expires_at,
+            "p_revenuecat_id": user_id,
+            "p_event_timestamp_ms": int(now.timestamp() * 1000),
+            "p_event_id": f"backfill-{user_id}-{now.isoformat()}",
         }
-        response = await client.patch(url, headers=headers, params=params, json=data)
+        response = await client.post(url, headers=headers, json=data)
         response.raise_for_status()
-        return True
+        result = response.json()
+        return result.get("updated", False)
 
 
 async def main() -> None:

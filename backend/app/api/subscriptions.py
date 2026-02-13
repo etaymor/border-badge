@@ -327,11 +327,11 @@ async def verify_subscription(
                     "p_event_id": event_id,
                 },
             )
-        except Exception as e:
-            # DB update failed but RevenueCat verification succeeded.
+        except HTTPException as e:
+            # Expected: Supabase/PostgREST errors (RPC failures, constraint violations)
             logger.error(
                 f"Failed to update subscription in DB: user_id={user.id}, "
-                f"event_id={event_id}, error={e}. "
+                f"event_id={event_id}, error={e.detail}. "
                 "RevenueCat verification passed but DB is out of sync."
             )
             return VerifySubscriptionResponse(
