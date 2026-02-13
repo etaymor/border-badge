@@ -162,8 +162,9 @@ export function getClusterPhotos(
  * Create a sub-cluster from a subset of a parent cluster's photos.
  *
  * Used for manual cluster splitting when photos from multiple places
- * are grouped into one cluster. Computes a new centroid and time range
- * from only the subset photos.
+ * are grouped into one cluster. Preserves the parent cluster's centroid
+ * so the backend searches the same area and returns the same place
+ * candidates — only the time range and photo set change.
  *
  * @param parentCluster - The original cluster to split from
  * @param photoIds - IDs of the photos to include in the sub-cluster
@@ -180,14 +181,12 @@ export function createSubCluster(
     throw new Error('No matching photos found for sub-cluster');
   }
 
-  const avgLat = photos.reduce((sum, p) => sum + p.location.latitude, 0) / photos.length;
-  const avgLng = photos.reduce((sum, p) => sum + p.location.longitude, 0) / photos.length;
   const sorted = [...photos].sort((a, b) => a.creationTime.getTime() - b.creationTime.getTime());
 
   return {
     id: `${parentCluster.id}__split_${suffix}`,
     geohash: parentCluster.geohash,
-    centroid: { latitude: avgLat, longitude: avgLng },
+    centroid: parentCluster.centroid,
     photos,
     timeRange: {
       start: sorted[0].creationTime,
