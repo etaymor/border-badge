@@ -22,6 +22,7 @@ import { env } from '@config/env';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
+import { usePostSignupNavigation } from '@hooks/usePostSignupNavigation';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -66,20 +67,13 @@ export function AccountCreationScreen({ navigation }: Props) {
   const session = useAuthStore((s) => s.session);
 
   // Consolidated navigation guard: prevents duplicate navigations and back-nav re-fires.
-  const hasNavigatedToHook = useRef(false);
-
-  useEffect(() => {
-    if (hasNavigatedToHook.current) return;
-    if (!needsPostSignupFlow) return;
-
-    const shouldNavigate =
-      session != null || signUp.isSuccess || appleSignIn.isSuccess || googleSignIn.isSuccess;
-
-    if (shouldNavigate) {
-      hasNavigatedToHook.current = true;
-      navigation.navigate('EmotionalHook');
-    }
-  }, [session, needsPostSignupFlow, signUp.isSuccess, appleSignIn.isSuccess, googleSignIn.isSuccess, navigation]);
+  usePostSignupNavigation(navigation.navigate, {
+    session,
+    needsPostSignupFlow,
+    signUpSuccess: signUp.isSuccess,
+    appleSuccess: appleSignIn.isSuccess,
+    googleSuccess: googleSignIn.isSuccess,
+  });
 
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;

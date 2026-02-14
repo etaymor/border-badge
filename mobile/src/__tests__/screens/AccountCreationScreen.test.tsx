@@ -7,60 +7,22 @@
  */
 
 import { renderHook } from '@testing-library/react-native';
-import { useEffect, useRef } from 'react';
 
-/**
- * Mirrors the fixed navigation logic from AccountCreationScreen.tsx (lines 68-82).
- * Uses a single consolidated effect with a useRef guard.
- */
-function useNavigationEffect(
-  navigate: (screen: string) => void,
-  {
-    session,
-    needsPostSignupFlow,
-    signUpSuccess,
-    appleSuccess,
-    googleSuccess,
-  }: {
-    session: object | null;
-    needsPostSignupFlow: boolean;
-    signUpSuccess: boolean;
-    appleSuccess: boolean;
-    googleSuccess: boolean;
-  }
-) {
-  const hasNavigatedToHook = useRef(false);
-
-  useEffect(() => {
-    if (hasNavigatedToHook.current) return;
-    if (!needsPostSignupFlow) return;
-
-    const shouldNavigate =
-      session != null || signUpSuccess || appleSuccess || googleSuccess;
-
-    if (shouldNavigate) {
-      hasNavigatedToHook.current = true;
-      navigate('EmotionalHook');
-    }
-  }, [session, needsPostSignupFlow, signUpSuccess, appleSuccess, googleSuccess, navigate]);
-}
+import { usePostSignupNavigation } from '@hooks/usePostSignupNavigation';
 
 describe('AccountCreationScreen navigation effects', () => {
   it('navigates exactly once even when re-rendered with same props (back-nav guard)', () => {
     const navigate = jest.fn();
 
-    const { rerender } = renderHook(
-      (props) => useNavigationEffect(navigate, props),
-      {
-        initialProps: {
-          session: { user: { id: '123' } },
-          needsPostSignupFlow: true,
-          signUpSuccess: false,
-          appleSuccess: false,
-          googleSuccess: false,
-        },
-      }
-    );
+    const { rerender } = renderHook((props) => usePostSignupNavigation(navigate, props), {
+      initialProps: {
+        session: { user: { id: '123' } },
+        needsPostSignupFlow: true,
+        signUpSuccess: false,
+        appleSuccess: false,
+        googleSuccess: false,
+      },
+    });
 
     expect(navigate).toHaveBeenCalledTimes(1);
 
@@ -81,7 +43,7 @@ describe('AccountCreationScreen navigation effects', () => {
     const navigate = jest.fn();
 
     renderHook(() =>
-      useNavigationEffect(navigate, {
+      usePostSignupNavigation(navigate, {
         session: { user: { id: '123' } },
         needsPostSignupFlow: true,
         signUpSuccess: true,
@@ -98,7 +60,7 @@ describe('AccountCreationScreen navigation effects', () => {
     const navigate = jest.fn();
 
     renderHook(() =>
-      useNavigationEffect(navigate, {
+      usePostSignupNavigation(navigate, {
         session: { user: { id: '123' } },
         needsPostSignupFlow: false,
         signUpSuccess: true,
@@ -114,7 +76,7 @@ describe('AccountCreationScreen navigation effects', () => {
     const navigate = jest.fn();
 
     renderHook(() =>
-      useNavigationEffect(navigate, {
+      usePostSignupNavigation(navigate, {
         session: null,
         needsPostSignupFlow: true,
         signUpSuccess: false,
@@ -131,7 +93,7 @@ describe('AccountCreationScreen navigation effects', () => {
     const navigate = jest.fn();
 
     renderHook(() =>
-      useNavigationEffect(navigate, {
+      usePostSignupNavigation(navigate, {
         session: null,
         needsPostSignupFlow: true,
         signUpSuccess: false,

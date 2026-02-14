@@ -54,7 +54,6 @@ class TestBackfillUUIDValidation:
         no UUID validation before passing user_id to query_revenuecat or
         update_user. It fails when the fix is applied (which is the goal).
         """
-        import importlib.util
         from pathlib import Path
 
         script_path = Path(__file__).parent.parent.parent / "scripts" / "backfill_subscriptions.py"
