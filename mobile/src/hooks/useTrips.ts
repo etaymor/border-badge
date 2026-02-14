@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
+import { AdEvents } from '@services/adEvents';
 import { STALE_TIMES } from '../queryClient';
 import { Analytics } from '@services/analytics';
 
@@ -113,6 +114,8 @@ export function useCreateTrip() {
       // Track trip creation
       if (data.country_code) {
         Analytics.createTrip(data.country_code);
+        // Track ad conversion for first trip (fire-and-forget)
+        AdEvents.firstTripCreated(data.country_code).catch(() => {});
       }
 
       // Invalidate the main trips list and country-specific list

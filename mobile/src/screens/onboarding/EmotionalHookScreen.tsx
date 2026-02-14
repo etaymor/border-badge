@@ -1,5 +1,15 @@
 import { useEffect } from 'react';
-import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Image,
+  Keyboard,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
+import { Settings } from 'react-native-fbsdk-next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OnboardingHookHeader } from '@components/onboarding/OnboardingHookHeader';
@@ -25,6 +35,17 @@ export function EmotionalHookScreen({ navigation }: Props) {
     Keyboard.dismiss();
     Analytics.viewOnboardingEmotionalHook();
   }, []);
+
+  // Request App Tracking Transparency permission (iOS only).
+  // Shown after account creation, before the paywall.
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !session) return;
+    const requestTracking = async () => {
+      const { status } = await requestTrackingPermissionsAsync();
+      Settings.setAdvertiserTrackingEnabled(status === 'granted');
+    };
+    requestTracking();
+  }, [session]);
 
   const handleContinue = () => {
     navigation.navigate('FunctionalHook');

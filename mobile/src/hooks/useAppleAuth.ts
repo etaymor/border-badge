@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
 
 import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
+import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
@@ -148,6 +149,9 @@ export function useAppleSignIn() {
             homeCountry: snapshot.homeCountry,
             trackingPreference: snapshot.trackingPreference,
           });
+
+          // Track ad conversion (fire-and-forget)
+          AdEvents.accountCreated('apple').catch(() => {});
 
           // Schedule welcome emails for new user
           // Use display_name from user_metadata (set by mutationFn) for consistency

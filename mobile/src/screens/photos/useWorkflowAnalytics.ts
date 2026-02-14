@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 
+import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import type { ClusterSuggestion } from '@services/photoImport';
 
@@ -138,6 +139,9 @@ export function useWorkflowAnalytics({
         successRate,
         acceptanceRate,
       });
+
+      // Track ad conversion for first photo import (fire-and-forget)
+      AdEvents.firstPhotoImportDone(totalClusters).catch(() => {});
     }
   }, [selectedCandidate, dismissedClusterIdsInternal]);
 

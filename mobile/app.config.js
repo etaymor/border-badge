@@ -32,6 +32,32 @@ export default {
           'We need access to your photos to help create trip entries from your travel photos.',
         NSLocationWhenInUseUsageDescription:
           'We need your location to identify where your photos were taken.',
+        SKAdNetworkItems: [
+          { SKAdNetworkIdentifier: 'v9wttpbfk9.skadnetwork' },
+          { SKAdNetworkIdentifier: 'n38lu8286q.skadnetwork' },
+          { SKAdNetworkIdentifier: '238da6jt44.skadnetwork' },
+          { SKAdNetworkIdentifier: '22mmun2rn5.skadnetwork' },
+        ],
+      },
+      privacyManifests: {
+        NSPrivacyTracking: true,
+        NSPrivacyTrackingDomains: ['graph.facebook.com', 'analytics.tiktok.com'],
+        NSPrivacyCollectedDataTypes: [
+          {
+            NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeDeviceID',
+            NSPrivacyCollectedDataTypeLinked: false,
+            NSPrivacyCollectedDataTypeTracking: true,
+            NSPrivacyCollectedDataTypePurposes: [
+              'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
+            ],
+          },
+        ],
+        NSPrivacyAccessedAPITypes: [
+          {
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+            NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+          },
+        ],
       },
     },
     android: {
@@ -61,6 +87,26 @@ export default {
             'Allow Atlasi to access your photos to suggest trip entries based on where they were taken.',
           savePhotosPermission: 'Allow Atlasi to save photos.',
           isAccessMediaLocationEnabled: true,
+        },
+      ],
+      [
+        'expo-tracking-transparency',
+        {
+          userTrackingPermission:
+            'This identifier will be used to deliver personalized ads to you.',
+        },
+      ],
+      [
+        'react-native-fbsdk-next',
+        {
+          appID: process.env.EXPO_PUBLIC_FB_APP_ID,
+          clientToken: process.env.EXPO_PUBLIC_FB_CLIENT_TOKEN,
+          displayName: 'Atlasi',
+          scheme: `fb${process.env.EXPO_PUBLIC_FB_APP_ID}`,
+          advertiserIDCollectionEnabled: false,
+          autoLogAppEventsEnabled: true,
+          isAutoInitEnabled: true,
+          iosUserTrackingPermission: false,
         },
       ],
     ],

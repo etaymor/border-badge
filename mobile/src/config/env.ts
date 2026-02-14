@@ -60,6 +60,10 @@ export const env = {
   // RevenueCat Configuration
   revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || '',
   revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || '',
+
+  // Facebook Ads
+  fbAppId: process.env.EXPO_PUBLIC_FB_APP_ID || '',
+  fbClientToken: process.env.EXPO_PUBLIC_FB_CLIENT_TOKEN || '',
 } as const;
 
 // Helper to check if we're in development

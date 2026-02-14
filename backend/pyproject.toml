@@ -26,6 +26,7 @@ gallery-dl = "^1.31.0"
 instaloader = "^4.13"
 curl-cffi = "^0.13.0,<0.14.0"
 posthog = ">=3.7"
+facebook-business = "^24.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

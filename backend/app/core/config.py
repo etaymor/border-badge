@@ -172,6 +172,20 @@ class Settings(BaseSettings):
         description="RevenueCat API key for subscription verification",
     )
 
+    # Facebook Conversions API
+    facebook_pixel_id: str = ""
+    facebook_capi_access_token: str = Field(default="", repr=False)
+
+    # TikTok Events API
+    tiktok_events_access_token: str = Field(
+        default="",
+        repr=False,
+        validation_alias=AliasChoices(
+            "TIKTOK_ACCESS_TOKEN", "TIKTOK_EVENTS_ACCESS_TOKEN"
+        ),
+    )
+    tiktok_pixel_code: str = ""
+
     @field_validator("tiktok_proxy_url")
     @classmethod
     def validate_tiktok_proxy_url(cls, v: str | None) -> str | None:

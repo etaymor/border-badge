@@ -14,9 +14,15 @@ import * as Haptics from 'expo-haptics';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import Purchases from 'react-native-purchases';
 
+import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan, initializeRevenueCat, waitForLogIn } from '@services/revenueCat';
+import {
+  getSubscriptionPlan,
+  initializeRevenueCat,
+  isTrialing,
+  waitForLogIn,
+} from '@services/revenueCat';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import type { GatedFeature } from '@navigation/types';
 
@@ -83,6 +89,16 @@ export function usePaywallPresentation(location: PaywallLocation) {
               await syncSubscriptionToAppGroup(customerInfo);
               const plan = getSubscriptionPlan(customerInfo);
               Analytics.purchaseCompleted({ plan, location });
+
+              // Track ad conversions (fire-and-forget)
+              if (isTrialing(customerInfo)) {
+                AdEvents.trialStarted(plan ?? 'unknown').catch(() => {});
+              } else {
+                // For non-trial purchases, send subscription event.
+                // Price/currency not available from CustomerInfo — use 0/USD as placeholder.
+                // Facebook CAPI receives the real revenue from RevenueCat webhooks.
+                AdEvents.subscriptionPurchased(plan ?? 'unknown', 0, 'USD').catch(() => {});
+              }
             }
 
             return { success: true, result, cancelled: false, error: false };

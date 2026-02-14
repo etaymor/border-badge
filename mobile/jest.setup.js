@@ -484,6 +484,26 @@ jest.mock('react-native-purchases', () => ({
   },
 }));
 
+// Mock react-native-fbsdk-next (Facebook SDK)
+jest.mock('react-native-fbsdk-next', () => ({
+  AppEventsLogger: {
+    logEvent: jest.fn(),
+    logPurchase: jest.fn(),
+    setUserID: jest.fn(),
+    clearUserID: jest.fn(),
+    clearUserData: jest.fn(),
+  },
+  Settings: {
+    setAdvertiserTrackingEnabled: jest.fn(),
+  },
+}));
+
+// Mock expo-tracking-transparency (ATT prompt)
+jest.mock('expo-tracking-transparency', () => ({
+  requestTrackingPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined' }),
+  getTrackingPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined' }),
+}));
+
 // Mock countriesDb service
 jest.mock('@services/countriesDb', () => ({
   getAllCountries: jest.fn().mockResolvedValue([]),
