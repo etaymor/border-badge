@@ -44,7 +44,9 @@ export function EmotionalHookScreen({ navigation }: Props) {
       const { status } = await requestTrackingPermissionsAsync();
       Settings.setAdvertiserTrackingEnabled(status === 'granted');
     };
-    requestTracking();
+    requestTracking().catch((error) => {
+      console.warn('[ATT] Failed to request tracking permission:', error);
+    });
   }, [session]);
 
   const handleContinue = () => {

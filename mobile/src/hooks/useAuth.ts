@@ -270,6 +270,8 @@ export function useDeleteAccount() {
       await clearOnboardingComplete();
       // Clear cached GPS data to prevent leaking location data to next user
       await clearPhotoCache().catch(() => {});
+      // Clear Facebook user data
+      AdEvents.clearUserId();
     },
     onError: (error) => {
       console.error('Account deletion failed:', getSafeLogMessage(error));

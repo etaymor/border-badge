@@ -6,9 +6,10 @@ Facebook Conversions API and TikTok Events API server-side.
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.security import CurrentUser
+from app.main import limiter
 from app.schemas.ad_events import AdEventRequest
 from app.services.ad_events import track_ad_event
 
@@ -18,7 +19,10 @@ router = APIRouter(prefix="/ad-events", tags=["ad-events"])
 
 
 @router.post("")
-async def post_ad_event(body: AdEventRequest, user: CurrentUser) -> dict:
+@limiter.limit("10/minute")
+async def post_ad_event(
+    request: Request, body: AdEventRequest, user: CurrentUser
+) -> dict:
     """Receive ad event from mobile client, fan out to FB CAPI + TikTok."""
     await track_ad_event(
         event_name=body.event_name,

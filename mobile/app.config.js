@@ -51,6 +51,14 @@ export default {
               'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
             ],
           },
+          {
+            NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeEmailAddress',
+            NSPrivacyCollectedDataTypeLinked: true,
+            NSPrivacyCollectedDataTypeTracking: true,
+            NSPrivacyCollectedDataTypePurposes: [
+              'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
+            ],
+          },
         ],
         NSPrivacyAccessedAPITypes: [
           {

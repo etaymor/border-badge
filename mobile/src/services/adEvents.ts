@@ -40,7 +40,6 @@ async function sendToServer(
       event_name: eventName,
       event_id: eventId,
       properties: properties ?? {},
-      timestamp: Math.floor(Date.now() / 1000),
     });
   } catch (error) {
     console.warn('[AdEvents] Server-side event failed:', error);
@@ -95,17 +94,28 @@ export const AdEvents = {
     }
 
     const eventId = generateEventId('subscribe');
+    const hasPrice = price > 0;
 
-    AppEventsLogger.logPurchase(price, currency, {
-      fb_content_type: 'subscription',
-      fb_content_id: plan,
-    });
-    AppEventsLogger.logEvent('Subscribe', price, {
-      fb_currency: currency,
-      fb_content_id: plan,
-    });
+    if (hasPrice) {
+      AppEventsLogger.logPurchase(price, currency, {
+        fb_content_type: 'subscription',
+        fb_content_id: plan,
+      });
+      AppEventsLogger.logEvent('Subscribe', price, {
+        fb_currency: currency,
+        fb_content_id: plan,
+      });
+    } else {
+      // Fire event without revenue to avoid distorting ROAS with $0 values
+      AppEventsLogger.logEvent('Subscribe', { fb_content_id: plan });
+    }
 
-    await sendToServer('Subscribe', eventId, { plan, price, currency });
+    const serverProps: Record<string, unknown> = { plan };
+    if (hasPrice) {
+      serverProps.price = price;
+      serverProps.currency = currency;
+    }
+    await sendToServer('Subscribe', eventId, serverProps);
   },
 
   /** Event 4: First trip created (first time only) */

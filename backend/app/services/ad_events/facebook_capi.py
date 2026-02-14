@@ -6,9 +6,10 @@ and ad optimization. Uses the facebook-business SDK.
 Events are deduplicated with the client-side Facebook SDK via shared event_id.
 """
 
-import hashlib
+import asyncio
 import logging
 import time
+from typing import Any
 
 from facebook_business.adobjects.serverside.action_source import ActionSource
 from facebook_business.adobjects.serverside.custom_data import CustomData
@@ -18,6 +19,7 @@ from facebook_business.adobjects.serverside.user_data import UserData
 from facebook_business.api import FacebookAdsApi
 
 from app.core.config import get_settings
+from app.services.ad_events.utils import hash_pii_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +50,12 @@ def _ensure_initialized() -> bool:
     return True
 
 
-def _hash_sha256(value: str) -> str:
-    """Normalize and SHA-256 hash a value for Facebook matching."""
-    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
-
-
 async def send_event(
     event_name: str,
     event_id: str,
     user_email: str | None,
     user_id: str,
-    properties: dict,
+    properties: dict[str, Any],
 ) -> None:
     """Send a single event to Facebook Conversions API.
 
@@ -78,17 +75,19 @@ async def send_event(
 
     # Build user data with hashed PII for matching
     user_data = UserData(
-        external_ids=[_hash_sha256(user_id)],
+        external_ids=[hash_pii_sha256(user_id)],
     )
     if user_email:
-        user_data.emails = [_hash_sha256(user_email)]
+        user_data.emails = [hash_pii_sha256(user_email)]
 
-    # Build custom data from properties
+    # Build custom data from properties (omit revenue when price is 0 or missing
+    # to avoid distorting ROAS calculations)
     custom_data = None
-    if event_name == "Subscribe" and "price" in properties:
+    price = float(properties.get("price", 0))
+    if event_name == "Subscribe" and price > 0:
         custom_data = CustomData(
             currency=properties.get("currency", "USD"),
-            value=float(properties.get("price", 0)),
+            value=price,
         )
 
     event = Event(
@@ -105,7 +104,7 @@ async def send_event(
             events=[event],
             pixel_id=settings.facebook_pixel_id,
         )
-        response = event_request.execute()
+        response = await asyncio.to_thread(event_request.execute)
         logger.info(
             "Facebook CAPI event sent: %s (events_received=%s)",
             fb_event_name,

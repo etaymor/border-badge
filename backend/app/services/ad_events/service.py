@@ -6,6 +6,7 @@ Events API concurrently. Failures in one platform don't affect the other.
 
 import asyncio
 import logging
+from typing import Any
 
 from app.services.ad_events import facebook_capi, tiktok_events
 
@@ -17,7 +18,7 @@ async def track_ad_event(
     event_id: str,
     user_email: str | None,
     user_id: str,
-    properties: dict,
+    properties: dict[str, Any],
 ) -> None:
     """Fan out ad event to Facebook CAPI and TikTok Events API concurrently.
 

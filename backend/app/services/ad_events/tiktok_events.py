@@ -4,13 +4,13 @@ Sends server-side events to TikTok's Events API for conversion tracking.
 Uses direct HTTP calls via httpx (no client SDK needed).
 """
 
-import hashlib
 import logging
 import time
-
-import httpx
+from typing import Any
 
 from app.core.config import get_settings
+from app.core.http_client import get_http_client
+from app.services.ad_events.utils import hash_pii_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +26,11 @@ EVENT_NAME_MAP: dict[str, str] = {
 }
 
 
-def _hash_sha256(value: str) -> str:
-    """Normalize and SHA-256 hash a value for TikTok matching."""
-    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
-
-
 async def send_event(
     event_name: str,
     user_email: str | None,
     user_id: str,
-    properties: dict,
+    properties: dict[str, Any],
 ) -> None:
     """Send a single event to TikTok Events API.
 
@@ -53,17 +48,19 @@ async def send_event(
     tt_event_name = EVENT_NAME_MAP.get(event_name, event_name)
 
     # Build user context with hashed identifiers
-    user_context: dict = {
-        "external_id": _hash_sha256(user_id),
+    user_context: dict[str, str] = {
+        "external_id": hash_pii_sha256(user_id),
     }
     if user_email:
-        user_context["email"] = _hash_sha256(user_email)
+        user_context["email"] = hash_pii_sha256(user_email)
 
-    # Build event properties
-    event_properties: dict = {}
-    if event_name == "Subscribe" and "price" in properties:
+    # Build event properties (omit revenue when price is 0 or missing
+    # to avoid distorting ROAS calculations)
+    event_properties: dict[str, str] = {}
+    price = float(properties.get("price", 0))
+    if event_name == "Subscribe" and price > 0:
         event_properties["currency"] = properties.get("currency", "USD")
-        event_properties["value"] = str(properties.get("price", 0))
+        event_properties["value"] = str(price)
     if event_name == "StartTrial":
         event_properties["content_type"] = "subscription"
 
@@ -81,21 +78,22 @@ async def send_event(
     payload = {k: v for k, v in payload.items() if v is not None}
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                TIKTOK_EVENTS_URL,
-                json={"data": [payload]},
-                headers={
-                    "Access-Token": settings.tiktok_events_access_token,
-                    "Content-Type": "application/json",
-                },
-            )
-            response.raise_for_status()
-            result = response.json()
-            logger.info(
-                "TikTok event sent: %s (code=%s)",
-                tt_event_name,
-                result.get("code", "?"),
-            )
+        client = get_http_client()
+        response = await client.post(
+            TIKTOK_EVENTS_URL,
+            json={"data": [payload]},
+            headers={
+                "Access-Token": settings.tiktok_events_access_token,
+                "Content-Type": "application/json",
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        result = response.json()
+        logger.info(
+            "TikTok event sent: %s (code=%s)",
+            tt_event_name,
+            result.get("code", "?"),
+        )
     except Exception:
         logger.exception("TikTok event failed: %s", tt_event_name)

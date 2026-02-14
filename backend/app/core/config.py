@@ -173,18 +173,12 @@ class Settings(BaseSettings):
     )
 
     # Facebook Conversions API
-    facebook_pixel_id: str = ""
+    facebook_pixel_id: str = Field(default="", repr=False)
     facebook_capi_access_token: str = Field(default="", repr=False)
 
     # TikTok Events API
-    tiktok_events_access_token: str = Field(
-        default="",
-        repr=False,
-        validation_alias=AliasChoices(
-            "TIKTOK_ACCESS_TOKEN", "TIKTOK_EVENTS_ACCESS_TOKEN"
-        ),
-    )
-    tiktok_pixel_code: str = ""
+    tiktok_events_access_token: str = Field(default="", repr=False)
+    tiktok_pixel_code: str = Field(default="", repr=False)
 
     @field_validator("tiktok_proxy_url")
     @classmethod
