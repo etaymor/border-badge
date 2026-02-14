@@ -57,8 +57,8 @@ export function NameEntryScreen({ navigation }: Props) {
     // Dismiss keyboard immediately before navigating
     Keyboard.dismiss();
 
-    // Navigate to value proposition screens before paywall
-    navigation.navigate('EmotionalHook');
+    // Navigate to account creation before value proposition screens + paywall
+    navigation.navigate('AccountCreation');
   };
 
   return (

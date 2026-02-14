@@ -23,7 +23,8 @@ type AppleSignInVariables = AppleSignInParams | void;
  * then authenticates with Supabase using signInWithIdToken.
  */
 export function useAppleSignIn() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
+    useAuthStore();
 
   return useMutation<
     Awaited<ReturnType<typeof supabase.auth.signInWithIdToken>>['data'],
@@ -127,6 +128,10 @@ export function useAppleSignIn() {
 
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
+
+          // Keep user in onboarding for hooks + paywall
+          setNeedsPostSignupFlow(true);
+
           setSession(data.session);
 
           // Track onboarding completion analytics

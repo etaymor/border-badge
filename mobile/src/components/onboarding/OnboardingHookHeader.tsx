@@ -10,7 +10,7 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 interface OnboardingHookHeaderProps {
   onBack: () => void;
-  onLogin: () => void;
+  onLogin?: () => void;
 }
 
 export function OnboardingHookHeader({ onBack, onLogin }: OnboardingHookHeaderProps) {
@@ -18,9 +18,13 @@ export function OnboardingHookHeader({ onBack, onLogin }: OnboardingHookHeaderPr
     <View style={styles.headerRow}>
       <GlassBackButton onPress={onBack} />
       <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-      <TouchableOpacity onPress={onLogin} style={styles.loginButton}>
-        <Text style={styles.loginText}>Login</Text>
-      </TouchableOpacity>
+      {onLogin ? (
+        <TouchableOpacity onPress={onLogin} style={styles.loginButton}>
+          <Text style={styles.loginText}>Login</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.loginButton} />
+      )}
     </View>
   );
 }

@@ -46,6 +46,7 @@ const Stack = createBlankStackNavigator<OnboardingStackParamList>();
  * - AntarcticaPrompt → ProgressSummary: Dramatic reveal (celebration moment)
  * - ProgressSummary → NameEntry: Collect animation (making it official)
  * - NameEntry → AccountCreation: Default slide (sealing the deal)
+ * - AccountCreation → EmotionalHook → FunctionalHook → Paywall (post-signup flow)
  */
 export function OnboardingNavigator() {
   return (
@@ -104,21 +105,22 @@ export function OnboardingNavigator() {
       {/* ProgressSummary → NameEntry: Stamps collecting into passport */}
       <Stack.Screen name="NameEntry" component={NameEntryScreen} options={CollectPreset} />
 
-      {/* NameEntry → EmotionalHook: Value proposition (memories) */}
-      <Stack.Screen name="EmotionalHook" component={EmotionalHookScreen} />
-
-      {/* EmotionalHook → FunctionalHook: Value proposition (social saving) */}
-      <Stack.Screen name="FunctionalHook" component={FunctionalHookScreen} />
-
-      {/* FunctionalHook → Paywall: Show subscription options */}
-      <Stack.Screen name="Paywall" component={PaywallScreen} />
-
-      {/* NameEntry → AccountCreation: Default slide (sealing the deal) */}
+      {/* NameEntry → AccountCreation: Create account before paywall so
+          RevenueCat purchases attach to the Supabase UUID */}
       <Stack.Screen
         name="AccountCreation"
         component={AccountCreationScreen}
         options={SlideWithScalePreset}
       />
+
+      {/* AccountCreation → EmotionalHook: Value proposition (memories) */}
+      <Stack.Screen name="EmotionalHook" component={EmotionalHookScreen} />
+
+      {/* EmotionalHook → FunctionalHook: Value proposition (social saving) */}
+      <Stack.Screen name="FunctionalHook" component={FunctionalHookScreen} />
+
+      {/* FunctionalHook → Paywall: Show subscription options (user is now authenticated) */}
+      <Stack.Screen name="Paywall" component={PaywallScreen} />
     </Stack.Navigator>
   );
 }

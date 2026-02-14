@@ -26,6 +26,7 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
@@ -58,6 +59,28 @@ export function AccountCreationScreen({ navigation }: Props) {
   const googleSignIn = useGoogleSignIn();
   const isAppleAvailable = useAppleAuthAvailable();
   const isGoogleAvailable = useGoogleAuthAvailable();
+
+  // After successful signup (new user), navigate to the post-signup flow (hooks + paywall).
+  // needsPostSignupFlow is only set for new users, so returning users skip this.
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+
+  useEffect(() => {
+    if (signUp.isSuccess && needsPostSignupFlow) {
+      navigation.navigate('EmotionalHook');
+    }
+  }, [signUp.isSuccess, needsPostSignupFlow, navigation]);
+
+  useEffect(() => {
+    if (appleSignIn.isSuccess && needsPostSignupFlow) {
+      navigation.navigate('EmotionalHook');
+    }
+  }, [appleSignIn.isSuccess, needsPostSignupFlow, navigation]);
+
+  useEffect(() => {
+    if (googleSignIn.isSuccess && needsPostSignupFlow) {
+      navigation.navigate('EmotionalHook');
+    }
+  }, [googleSignIn.isSuccess, needsPostSignupFlow, navigation]);
 
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;

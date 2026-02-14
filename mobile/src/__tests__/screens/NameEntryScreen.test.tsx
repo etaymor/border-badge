@@ -97,14 +97,14 @@ describe('NameEntryScreen', () => {
       expect(setDisplayNameSpy).toHaveBeenCalledWith('Bob Smith');
     });
 
-    it('navigates to EmotionalHook on valid submission', () => {
+    it('navigates to AccountCreation on valid submission', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
       const input = screen.getByTestId('name-entry-input');
       fireEvent.changeText(input, 'Bob Smith');
       fireEvent.press(screen.getByTestId('name-entry-continue'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('EmotionalHook');
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
 
     it('accepts valid name with exactly 2 characters', () => {
@@ -114,7 +114,7 @@ describe('NameEntryScreen', () => {
       fireEvent.changeText(input, 'Jo');
       fireEvent.press(screen.getByTestId('name-entry-continue'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('EmotionalHook');
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
 
     it('accepts valid name with exactly 50 characters', () => {
@@ -125,7 +125,7 @@ describe('NameEntryScreen', () => {
       fireEvent.changeText(input, maxName);
       fireEvent.press(screen.getByTestId('name-entry-continue'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('EmotionalHook');
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
   });
 

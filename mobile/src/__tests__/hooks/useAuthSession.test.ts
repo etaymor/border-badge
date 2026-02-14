@@ -42,6 +42,9 @@ jest.mock('@services/revenueCat', () => ({
   identifyUser: jest.fn(),
   logOutUser: jest.fn(),
   initializeRevenueCat: jest.fn(),
+  prepareLogIn: jest.fn(),
+  settleLogIn: jest.fn(),
+  waitForLogIn: jest.fn(() => Promise.resolve(false)),
   ENTITLEMENT_ID: 'Full Access',
   isPremium: jest.fn(() => false),
   isTrialing: jest.fn(() => false),
@@ -56,6 +59,7 @@ jest.mock('@services/analytics', () => ({
   Analytics: {
     subscriptionStatusChanged: jest.fn(),
     revenueCatError: jest.fn(),
+    revenueCatIdentified: jest.fn(),
   },
 }));
 
@@ -70,7 +74,11 @@ const mockRevenueCat = jest.requireMock('@services/revenueCat');
 const mockAnalytics = jest.requireMock('@services/analytics');
 
 const mockSession = {
-  user: { id: 'test-user-123' },
+  user: {
+    id: 'test-user-123',
+    email: 'test@example.com',
+    user_metadata: { display_name: 'Test User' },
+  },
   access_token: 'test-token',
   refresh_token: 'test-refresh',
 };
@@ -112,7 +120,10 @@ describe('useAuthSession', () => {
       renderHook(() => useAuthSession());
 
       await waitFor(() => {
-        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123');
+        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123', {
+          email: 'test@example.com',
+          displayName: 'Test User',
+        });
       });
 
       await waitFor(() => {
@@ -344,7 +355,10 @@ describe('useAuthSession', () => {
       authChangeCallback!('SIGNED_IN', mockSession);
 
       await waitFor(() => {
-        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123');
+        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123', {
+          email: 'test@example.com',
+          displayName: 'Test User',
+        });
       });
 
       // User signs out BEFORE RevenueCat responds → store is reset

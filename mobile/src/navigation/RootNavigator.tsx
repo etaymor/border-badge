@@ -24,14 +24,15 @@ function LoadingScreen() {
 
 export function RootNavigator() {
   const { session, hasCompletedOnboarding, isLoading } = useAuthStore();
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
 
   if (isLoading) {
     return <LoadingScreen />;
   }
 
-  // When unauthenticated, show onboarding (if incomplete) and keep auth stack available
   const isUnauthenticated = !session;
-  const shouldShowOnboarding = isUnauthenticated && !hasCompletedOnboarding;
+  const shouldShowOnboarding =
+    (isUnauthenticated && !hasCompletedOnboarding) || needsPostSignupFlow;
 
   return (
     <ErrorBoundary>
@@ -40,13 +41,15 @@ export function RootNavigator() {
           ...SlideWithScalePreset,
         }}
       >
-        {isUnauthenticated ? (
+        {shouldShowOnboarding ? (
           <>
-            {shouldShowOnboarding && (
-              <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+            <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+            {isUnauthenticated && (
+              <Stack.Screen name="Auth" component={AuthNavigator} />
             )}
-            <Stack.Screen name="Auth" component={AuthNavigator} />
           </>
+        ) : isUnauthenticated ? (
+          <Stack.Screen name="Auth" component={AuthNavigator} />
         ) : (
           <>
             <Stack.Screen name="Main" component={MainTabNavigator} />

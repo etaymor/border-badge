@@ -45,7 +45,6 @@ import {
 import { env } from '@config/env';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
-import { useSubscriptionStore } from '@stores/subscriptionStore';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -84,13 +83,9 @@ const linking = {
 function useAppInitialization() {
   useEffect(() => {
     void initAnalytics();
-    initializeRevenueCat()
-      .then(() => {
-        return useSubscriptionStore.getState().fetchCustomerInfo();
-      })
-      .catch((error) => {
-        console.error('Failed to initialize RevenueCat:', error);
-      });
+    initializeRevenueCat().catch((error) => {
+      console.error('Failed to initialize RevenueCat:', error);
+    });
     syncApiUrlToAppGroup(env.apiUrl).catch((error) => {
       console.error('Failed to sync API URL to App Group:', error);
     });

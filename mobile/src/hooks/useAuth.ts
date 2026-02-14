@@ -35,7 +35,8 @@ interface PasswordAuthInput {
  * dashboard for immediate sign-in without email verification.
  */
 export function useSignUpWithPassword() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
+    useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
@@ -84,6 +85,9 @@ export function useSignUpWithPassword() {
         // Set isMigrating BEFORE setting session to prevent empty state flash
         // This ensures useUserCountries shows onboarding data immediately
         setIsMigrating(true);
+
+        // Keep user in onboarding for EmotionalHook → FunctionalHook → Paywall
+        setNeedsPostSignupFlow(true);
 
         // Schedule welcome emails for new user
         try {

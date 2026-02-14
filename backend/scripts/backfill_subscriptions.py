@@ -65,7 +65,7 @@ async def query_revenuecat(
     for attempt in range(3):
         try:
             response = await client.get(url, headers=headers, timeout=10.0)
-            if response.status_code == 404:
+            if response.status_code in (404, 403):
                 return None
             if response.status_code == 429:
                 wait = 2 ** (attempt + 1)

@@ -9,6 +9,7 @@ import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const collageImage = require('../../../assets/onboarding-videos/photo-trip-collage.jpg');
@@ -18,6 +19,7 @@ type Props = OnboardingStackScreenProps<'EmotionalHook'>;
 
 export function EmotionalHookScreen({ navigation }: Props) {
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+  const session = useAuthStore((s) => s.session);
 
   useEffect(() => {
     Analytics.viewOnboardingEmotionalHook();
@@ -34,7 +36,10 @@ export function EmotionalHookScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <OnboardingHookHeader onBack={() => navigation.goBack()} onLogin={handleLogin} />
+      <OnboardingHookHeader
+        onBack={() => navigation.goBack()}
+        onLogin={session ? undefined : handleLogin}
+      />
 
       {/* Image behind text and button - uncropped, visible in lower portion */}
       <Animated.View style={[styles.imageContainer, getAnimatedStyle(2)]}>

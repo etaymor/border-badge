@@ -3,6 +3,9 @@
  *
  * Uses RevenueCat's dashboard-configured paywall for full customization.
  * This allows changing the paywall design without app updates.
+ *
+ * The user is already authenticated at this point (account created before
+ * the paywall), so purchases attach to the Supabase UUID.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -12,18 +15,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@constants/colors';
 import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
 import type { OnboardingStackScreenProps } from '@navigation/types';
+import { storeOnboardingComplete } from '@services/api';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 
 type Props = OnboardingStackScreenProps<'Paywall'>;
 
-export function PaywallScreen({ navigation }: Props) {
+export function PaywallScreen(_props: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const hasPresented = useRef(false);
   const { presentPaywall } = usePaywallPresentation('onboarding');
+  const { setHasCompletedOnboarding, setNeedsPostSignupFlow } = useAuthStore();
 
-  const proceedToAccountCreation = useCallback(() => {
-    navigation.navigate('AccountCreation');
-  }, [navigation]);
+  const finishOnboarding = useCallback(async () => {
+    await storeOnboardingComplete();
+    setHasCompletedOnboarding(true);
+    setNeedsPostSignupFlow(false);
+  }, [setHasCompletedOnboarding, setNeedsPostSignupFlow]);
 
   const handlePresentPaywall = useCallback(async () => {
     // Prevent double presentation
@@ -39,9 +47,9 @@ export function PaywallScreen({ navigation }: Props) {
       Analytics.paywallDismissed({ location: 'onboarding' });
     }
 
-    // Always proceed to account creation regardless of result
-    proceedToAccountCreation();
-  }, [presentPaywall, proceedToAccountCreation]);
+    // Finish onboarding — RootNavigator will switch to Main
+    await finishOnboarding();
+  }, [presentPaywall, finishOnboarding]);
 
   useEffect(() => {
     // Small delay to ensure screen is mounted before presenting modal

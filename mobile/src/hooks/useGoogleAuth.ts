@@ -26,7 +26,8 @@ WebBrowser.maybeCompleteAuthSession();
  * Works on both iOS and Android.
  */
 export function useGoogleSignIn() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
+    useAuthStore();
 
   return useMutation<
     Awaited<ReturnType<typeof supabase.auth.setSession>>['data'],
@@ -154,6 +155,10 @@ export function useGoogleSignIn() {
 
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
+
+          // Keep user in onboarding for hooks + paywall
+          setNeedsPostSignupFlow(true);
+
           setSession(data.session);
 
           // Track onboarding completion analytics
