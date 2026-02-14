@@ -56,6 +56,8 @@ async def send_event(
     user_email: str | None,
     user_id: str,
     properties: dict[str, Any],
+    *,
+    event_time: int | None = None,
 ) -> None:
     """Send a single event to Facebook Conversions API.
 
@@ -65,6 +67,7 @@ async def send_event(
         user_email: User's email for advanced matching (hashed before sending).
         user_id: Supabase user ID (hashed as external_id).
         properties: Additional event properties.
+        event_time: Client-side Unix epoch seconds. Falls back to server time if None.
     """
     if not _ensure_initialized():
         logger.debug("Facebook CAPI not configured, skipping event: %s", event_name)
@@ -92,7 +95,7 @@ async def send_event(
 
     event = Event(
         event_name=fb_event_name,
-        event_time=int(time.time()),
+        event_time=event_time if event_time is not None else int(time.time()),
         user_data=user_data,
         custom_data=custom_data,
         event_id=event_id,

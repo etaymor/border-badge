@@ -31,6 +31,8 @@ async def send_event(
     user_email: str | None,
     user_id: str,
     properties: dict[str, Any],
+    *,
+    event_time: int | None = None,
 ) -> None:
     """Send a single event to TikTok Events API.
 
@@ -39,6 +41,7 @@ async def send_event(
         user_email: User's email for matching (hashed before sending).
         user_id: Supabase user ID (hashed as external_id).
         properties: Additional event properties.
+        event_time: Client-side Unix epoch seconds. Falls back to server time if None.
     """
     settings = get_settings()
     if not settings.tiktok_events_access_token or not settings.tiktok_pixel_code:
@@ -67,7 +70,7 @@ async def send_event(
     payload = {
         "pixel_code": settings.tiktok_pixel_code,
         "event": tt_event_name,
-        "timestamp": int(time.time()),
+        "timestamp": event_time if event_time is not None else int(time.time()),
         "context": {
             "user": user_context,
         },

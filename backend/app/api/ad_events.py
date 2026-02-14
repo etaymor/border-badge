@@ -30,5 +30,6 @@ async def post_ad_event(
         user_email=user.email,
         user_id=str(user.id),
         properties=body.properties,
+        event_time=body.timestamp,
     )
     return {"status": "ok"}

@@ -162,6 +162,5 @@ export const AdEvents = {
   clearUserId(): void {
     if (!isProduction) return;
     AppEventsLogger.clearUserID();
-    AppEventsLogger.clearUserData();
   },
 };
