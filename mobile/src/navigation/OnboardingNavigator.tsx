@@ -1,5 +1,6 @@
 import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
+import { useAuthStore } from '@stores/authStore';
 import { AccountCreationScreen } from '@screens/onboarding/AccountCreationScreen';
 import { AntarcticaPromptScreen } from '@screens/onboarding/AntarcticaPromptScreen';
 import { ContinentCountryGridScreen } from '@screens/onboarding/ContinentCountryGridScreen';
@@ -49,12 +50,15 @@ const Stack = createBlankStackNavigator<OnboardingStackParamList>();
  * - AccountCreation → EmotionalHook → FunctionalHook → Paywall (post-signup flow)
  */
 export function OnboardingNavigator() {
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+
   return (
     <Stack.Navigator
       screenOptions={{
         // Default transition for screens without specific overrides
         ...OnboardingSlidePreset,
       }}
+      initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'WelcomeCarousel'}
     >
       {/* First screen - no incoming transition needed */}
       <Stack.Screen name="WelcomeCarousel" component={WelcomeCarouselScreen} />

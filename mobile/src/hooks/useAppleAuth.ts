@@ -56,6 +56,10 @@ export function useAppleSignIn() {
         throw new Error('No identity token received from Apple');
       }
 
+      // Pre-set flag before Supabase call to prevent race with onAuthStateChange.
+      // Cleared in onSuccess for returning users and in onError on failure.
+      setNeedsPostSignupFlow(true);
+
       // Sign in with Supabase using the Apple ID token
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'apple',
@@ -119,6 +123,8 @@ export function useAppleSignIn() {
         const onboarded = await hasUserOnboarded(data.session.user.id);
 
         if (onboarded) {
+          // Returning user — clear the flag set in mutationFn
+          setNeedsPostSignupFlow(false);
           setHasCompletedOnboarding(true);
           await storeOnboardingComplete();
           setSession(data.session);
@@ -129,9 +135,7 @@ export function useAppleSignIn() {
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
 
-          // Keep user in onboarding for hooks + paywall
-          setNeedsPostSignupFlow(true);
-
+          // needsPostSignupFlow already set in mutationFn
           setSession(data.session);
 
           // Track onboarding completion analytics
@@ -164,6 +168,7 @@ export function useAppleSignIn() {
       }
     },
     onError: (error) => {
+      setNeedsPostSignupFlow(false);
       // Log sanitized error for debugging
       console.error('Apple Sign-In failed:', getSafeLogMessage(error));
 

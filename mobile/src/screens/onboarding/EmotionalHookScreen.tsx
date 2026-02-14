@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OnboardingHookHeader } from '@components/onboarding/OnboardingHookHeader';
@@ -22,6 +22,7 @@ export function EmotionalHookScreen({ navigation }: Props) {
   const session = useAuthStore((s) => s.session);
 
   useEffect(() => {
+    Keyboard.dismiss();
     Analytics.viewOnboardingEmotionalHook();
   }, []);
 
@@ -36,10 +37,7 @@ export function EmotionalHookScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <OnboardingHookHeader
-        onBack={() => navigation.goBack()}
-        onLogin={session ? undefined : handleLogin}
-      />
+      <OnboardingHookHeader onLogin={session ? undefined : handleLogin} />
 
       {/* Image behind text and button - uncropped, visible in lower portion */}
       <Animated.View style={[styles.imageContainer, getAnimatedStyle(2)]}>

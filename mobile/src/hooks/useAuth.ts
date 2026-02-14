@@ -40,6 +40,13 @@ export function useSignUpWithPassword() {
 
   return useMutation({
     mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
+      // Set BEFORE signUp so the flag is in place before Supabase's
+      // onAuthStateChange fires and triggers a RootNavigator re-render.
+      // Without this, onAuthStateChange sets the session before onSuccess
+      // can set the flag, causing a brief flash to Main before returning
+      // to onboarding (which then remounts at WelcomeCarousel).
+      setNeedsPostSignupFlow(true);
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -48,10 +55,14 @@ export function useSignUpWithPassword() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        setNeedsPostSignupFlow(false);
+        throw error;
+      }
 
       // If email confirmation is required, session will be null
       if (!data.session) {
+        setNeedsPostSignupFlow(false);
         throw new Error('Email confirmation required. Check your inbox.');
       }
 
@@ -86,9 +97,6 @@ export function useSignUpWithPassword() {
         // This ensures useUserCountries shows onboarding data immediately
         setIsMigrating(true);
 
-        // Keep user in onboarding for EmotionalHook → FunctionalHook → Paywall
-        setNeedsPostSignupFlow(true);
-
         // Schedule welcome emails for new user
         try {
           await api.post('/welcome/emails', {
@@ -120,6 +128,7 @@ export function useSignUpWithPassword() {
       }
     },
     onError: (error) => {
+      setNeedsPostSignupFlow(false);
       console.error('Password sign-up failed:', getSafeLogMessage(error));
       const message = getAuthErrorMessage(error) || 'Failed to create account';
       Alert.alert('Sign Up Failed', message);

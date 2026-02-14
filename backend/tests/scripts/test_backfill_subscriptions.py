@@ -56,18 +56,26 @@ class TestBackfillUUIDValidation:
         """
         from pathlib import Path
 
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "backfill_subscriptions.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "backfill_subscriptions.py"
+        )
         source = script_path.read_text()
 
         # Check if the script validates UUID anywhere in the main loop
         # Look for patterns like: UUID(user_id), is_valid_uuid, uuid validation
         has_uuid_validation = bool(
-            re.search(r"UUID\(user_id\)|is_valid_uuid|uuid.*valid|validate.*uuid", source, re.IGNORECASE)
+            re.search(
+                r"UUID\(user_id\)|is_valid_uuid|uuid.*valid|validate.*uuid",
+                source,
+                re.IGNORECASE,
+            )
         )
 
         # BUG: The script currently does NOT validate UUID format.
         # This test documents the bug by asserting the validation is missing.
         # When the fix is applied, this assertion should be inverted.
-        assert has_uuid_validation is True, (
-            "Backfill script should validate user_id as UUID before sending to RevenueCat API"
-        )
+        assert (
+            has_uuid_validation is True
+        ), "Backfill script should validate user_id as UUID before sending to RevenueCat API"
