@@ -63,6 +63,15 @@ export function AccountCreationScreen({ navigation }: Props) {
   // After successful signup (new user), navigate to the post-signup flow (hooks + paywall).
   // needsPostSignupFlow is only set for new users, so returning users skip this.
   const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+  const session = useAuthStore((s) => s.session);
+
+  // If user already has a session (e.g. navigated back from EmotionalHook),
+  // skip straight forward so they don't see the creation form again.
+  useEffect(() => {
+    if (session && needsPostSignupFlow) {
+      navigation.navigate('EmotionalHook');
+    }
+  }, [session, needsPostSignupFlow, navigation]);
 
   useEffect(() => {
     if (signUp.isSuccess && needsPostSignupFlow) {

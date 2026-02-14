@@ -48,6 +48,7 @@ export function prepareLogIn(): void {
 export function settleLogIn(success: boolean): void {
   resolveLogIn?.(success);
   resolveLogIn = null;
+  logInPromise = null;
 }
 
 /**
