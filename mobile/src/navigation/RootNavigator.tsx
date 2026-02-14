@@ -44,9 +44,7 @@ export function RootNavigator() {
         {shouldShowOnboarding ? (
           <>
             <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
-            {isUnauthenticated && (
-              <Stack.Screen name="Auth" component={AuthNavigator} />
-            )}
+            {isUnauthenticated && <Stack.Screen name="Auth" component={AuthNavigator} />}
           </>
         ) : isUnauthenticated ? (
           <Stack.Screen name="Auth" component={AuthNavigator} />

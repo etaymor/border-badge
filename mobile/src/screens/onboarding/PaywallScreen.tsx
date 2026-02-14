@@ -28,7 +28,11 @@ export function PaywallScreen(_props: Props) {
   const { setHasCompletedOnboarding, setNeedsPostSignupFlow } = useAuthStore();
 
   const finishOnboarding = useCallback(async () => {
-    await storeOnboardingComplete();
+    try {
+      await storeOnboardingComplete();
+    } catch (e) {
+      console.warn('Failed to persist onboarding complete flag:', e);
+    }
     setHasCompletedOnboarding(true);
     setNeedsPostSignupFlow(false);
   }, [setHasCompletedOnboarding, setNeedsPostSignupFlow]);

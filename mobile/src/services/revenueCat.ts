@@ -32,6 +32,11 @@ let resolveLogIn: ((success: boolean) => void) | null = null;
  * Called by useAuthSession before firing identifyUser().
  */
 export function prepareLogIn(): void {
+  // Settle any pending promise from a previous call so it doesn't hang forever
+  if (resolveLogIn) {
+    resolveLogIn(false);
+    resolveLogIn = null;
+  }
   logInPromise = new Promise<boolean>((resolve) => {
     resolveLogIn = resolve;
   });

@@ -453,7 +453,7 @@ export const Analytics = {
   revenueCatIdentified: (props: { hasEntitlements: boolean; entitlements: string[] }) =>
     track('revenuecat_identified', {
       has_entitlements: props.hasEntitlements,
-      entitlements: props.entitlements,
+      entitlements: props.entitlements.join(',') || null,
     }),
 
   subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
