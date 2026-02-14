@@ -445,3 +445,10 @@ When using the `/ingest/social` endpoint, the response includes extraction metad
 | `detected_places[].llm_entry_type` | `"place"` \| `"food"` \| `"stay"` \| `"experience"` | LLM-predicted entry type |
 
 See [API Reference](./API.md#social-ingest) for complete endpoint documentation.
+
+---
+
+## Related Systems
+
+- **Photo Vision Classification**: The photo import feature uses a separate vision pipeline (`backend/app/services/photo_vision/`) for classifying travel photos into categories (food, landmark, stay, etc.) and extracting text from signage. This is distinct from the social ingest extraction pipeline described above but shares the same OpenRouter infrastructure and `MULTIMODAL_MODEL` config.
+- **Photo Place Matcher**: Photo clusters are matched to places using `backend/app/services/place_matcher/`, which uses Google Places Nearby Search and Text Search APIs with density-adaptive tiered radii. This differs from the Autocomplete API used by social ingest place resolution.

@@ -292,6 +292,19 @@ ls supabase/migrations/0041_add_subscription_functions.sql
 supabase db push
 ```
 
+**Important:** Migration `0056_fix_service_role_guard.sql` fixes a bug where the `update_subscription_if_newer` RPC function incorrectly checked `session_user != 'service_role'`. Since PostgREST uses the `authenticator` role (not `service_role`), this check always failed, silently preventing all webhook and `/subscriptions/verify` subscription updates. The fix removes the in-function check and relies on proper REVOKE/GRANT permissions instead.
+
+### Subscription Backfill
+
+If existing users have purchases in RevenueCat that aren't reflected in the database (due to the migration 0056 bug), use the one-time backfill script:
+
+```bash
+cd backend
+poetry run python scripts/backfill_subscriptions.py
+```
+
+This script queries the RevenueCat API for all subscribers and updates their `user_profile` records in Supabase. It validates UUIDs before querying and provides a dry-run summary.
+
 ### 4. Build Development App
 
 RevenueCat requires a development build (not Expo Go):
@@ -333,7 +346,7 @@ eas build --profile development --platform ios
 ### 2. Test Scenarios Checklist
 
 **Onboarding Flow:**
-- [ ] Paywall shows after name entry
+- [ ] Paywall shows after account creation (AccountCreation → EmotionalHook → FunctionalHook → Paywall)
 - [ ] "Start Trial" initiates purchase
 - [ ] "Maybe Later" continues as free user
 - [ ] Purchase completes and grants premium
@@ -692,7 +705,7 @@ group.com.atlasi.app
 
 | Feature | Limit |
 |---------|-------|
-| Share Extension Uses | 5 (lifetime) |
+| Share Extension Uses | 5 per month |
 | Photo Import Trips | 1 (lifetime) |
 | Entries per Trip | 10 |
 
