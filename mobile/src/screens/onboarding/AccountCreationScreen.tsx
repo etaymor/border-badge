@@ -65,31 +65,21 @@ export function AccountCreationScreen({ navigation }: Props) {
   const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
   const session = useAuthStore((s) => s.session);
 
-  // If user already has a session (e.g. navigated back from EmotionalHook),
-  // skip straight forward so they don't see the creation form again.
-  useEffect(() => {
-    if (session && needsPostSignupFlow) {
-      navigation.navigate('EmotionalHook');
-    }
-  }, [session, needsPostSignupFlow, navigation]);
+  // Consolidated navigation guard: prevents duplicate navigations and back-nav re-fires.
+  const hasNavigatedToHook = useRef(false);
 
   useEffect(() => {
-    if (signUp.isSuccess && needsPostSignupFlow) {
-      navigation.navigate('EmotionalHook');
-    }
-  }, [signUp.isSuccess, needsPostSignupFlow, navigation]);
+    if (hasNavigatedToHook.current) return;
+    if (!needsPostSignupFlow) return;
 
-  useEffect(() => {
-    if (appleSignIn.isSuccess && needsPostSignupFlow) {
-      navigation.navigate('EmotionalHook');
-    }
-  }, [appleSignIn.isSuccess, needsPostSignupFlow, navigation]);
+    const shouldNavigate =
+      session != null || signUp.isSuccess || appleSignIn.isSuccess || googleSignIn.isSuccess;
 
-  useEffect(() => {
-    if (googleSignIn.isSuccess && needsPostSignupFlow) {
+    if (shouldNavigate) {
+      hasNavigatedToHook.current = true;
       navigation.navigate('EmotionalHook');
     }
-  }, [googleSignIn.isSuccess, needsPostSignupFlow, navigation]);
+  }, [session, needsPostSignupFlow, signUp.isSuccess, appleSignIn.isSuccess, googleSignIn.isSuccess, navigation]);
 
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;

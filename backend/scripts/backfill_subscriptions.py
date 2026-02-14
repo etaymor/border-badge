@@ -19,6 +19,7 @@ import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 
@@ -36,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 # RevenueCat rate limit: 10 req/s. Stay well under.
 RC_DELAY_SECONDS = 0.18
+
+
+def is_valid_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 async def fetch_free_users(settings) -> list[dict]:
@@ -184,6 +194,12 @@ async def main() -> None:
     async with httpx.AsyncClient() as rc_client:
         for i, user in enumerate(users, 1):
             user_id = user["user_id"]
+            if not is_valid_uuid(user_id):
+                logger.warning(
+                    f"[{i}/{len(users)}] Skipping {user_id} — invalid UUID format"
+                )
+                stats["errors"] += 1
+                continue
             logger.info(f"[{i}/{len(users)}] Checking {user_id}...")
 
             await asyncio.sleep(RC_DELAY_SECONDS)
