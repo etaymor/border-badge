@@ -35,10 +35,18 @@ interface PasswordAuthInput {
  * dashboard for immediate sign-in without email verification.
  */
 export function useSignUpWithPassword() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
+    useAuthStore();
 
   return useMutation({
     mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
+      // Set BEFORE signUp so the flag is in place before Supabase's
+      // onAuthStateChange fires and triggers a RootNavigator re-render.
+      // Without this, onAuthStateChange sets the session before onSuccess
+      // can set the flag, causing a brief flash to Main before returning
+      // to onboarding (which then remounts at WelcomeCarousel).
+      setNeedsPostSignupFlow(true);
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -47,10 +55,14 @@ export function useSignUpWithPassword() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        setNeedsPostSignupFlow(false);
+        throw error;
+      }
 
       // If email confirmation is required, session will be null
       if (!data.session) {
+        setNeedsPostSignupFlow(false);
         throw new Error('Email confirmation required. Check your inbox.');
       }
 
@@ -116,6 +128,7 @@ export function useSignUpWithPassword() {
       }
     },
     onError: (error) => {
+      setNeedsPostSignupFlow(false);
       console.error('Password sign-up failed:', getSafeLogMessage(error));
       const message = getAuthErrorMessage(error) || 'Failed to create account';
       Alert.alert('Sign Up Failed', message);

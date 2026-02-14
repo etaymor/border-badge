@@ -11,6 +11,8 @@ import { identifyUser, resetUser, Analytics } from '@services/analytics';
 import {
   identifyUser as identifyRevenueCatUser,
   logOutUser as logOutRevenueCatUser,
+  prepareLogIn,
+  settleLogIn,
 } from '@services/revenueCat';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -28,13 +30,27 @@ function getErrorMessage(error: unknown): string {
  * @param signal - AbortSignal to cancel store updates if the session is
  *   invalidated (e.g. user signs out) before the async work completes.
  */
-function syncRevenueCat(userId: string, signal?: AbortSignal): void {
+function syncRevenueCat(
+  userId: string,
+  attributes?: { email?: string; displayName?: string },
+  signal?: AbortSignal
+): void {
   // Reset to 'loading' immediately so the UI doesn't flash stale persisted
   // state (e.g. 'premium') while the SDK call completes.
   useSubscriptionStore.getState().setStatus('loading');
-  identifyRevenueCatUser(userId)
+  // Prepare a promise that the paywall can await to ensure logIn()
+  // completes before any purchase is made.
+  prepareLogIn();
+  identifyRevenueCatUser(userId, attributes)
     .then(async (customerInfo) => {
+      settleLogIn(true);
       if (signal?.aborted) return;
+      // Track successful identification for debugging subscription merge issues
+      const activeEntitlements = Object.keys(customerInfo.entitlements.active);
+      Analytics.revenueCatIdentified({
+        hasEntitlements: activeEntitlements.length > 0,
+        entitlements: activeEntitlements,
+      });
       useSubscriptionStore.getState().setCustomerInfo(customerInfo);
       // Sync subscription to backend DB in case webhooks were missed.
       // Always call verify (not just for premium) so downgrades are synced too.
@@ -45,6 +61,7 @@ function syncRevenueCat(userId: string, signal?: AbortSignal): void {
       }
     })
     .catch((error) => {
+      settleLogIn(false);
       if (signal?.aborted) return;
       console.error('Failed to identify RevenueCat user:', error);
       Analytics.revenueCatError({ action: 'identify', error: getErrorMessage(error) });
@@ -116,7 +133,11 @@ export function useAuthSession(): { isAppReady: boolean } {
           identifyUser(session.user.id);
           // Identify user in RevenueCat and sync subscription to backend
           syncAbortController = new AbortController();
-          syncRevenueCat(session.user.id, syncAbortController.signal);
+          const rcAttrs = {
+            email: session.user.email,
+            displayName: session.user.user_metadata?.display_name as string | undefined,
+          };
+          syncRevenueCat(session.user.id, rcAttrs, syncAbortController.signal);
           // Restore onboarding state for returning users
           try {
             const onboardingComplete = await getOnboardingComplete();
@@ -158,7 +179,11 @@ export function useAuthSession(): { isAppReady: boolean } {
           identifyUser(session.user.id);
           // Identify user in RevenueCat and sync subscription to backend
           syncAbortController = new AbortController();
-          syncRevenueCat(session.user.id, syncAbortController.signal);
+          const rcAttrs2 = {
+            email: session.user.email,
+            displayName: session.user.user_metadata?.display_name as string | undefined,
+          };
+          syncRevenueCat(session.user.id, rcAttrs2, syncAbortController.signal);
           // Restore onboarding state for returning users (same as initAuth)
           try {
             const onboardingComplete = await getOnboardingComplete();

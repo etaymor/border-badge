@@ -450,6 +450,12 @@ export const Analytics = {
       error: props.error,
     }),
 
+  revenueCatIdentified: (props: { hasEntitlements: boolean; entitlements: string[] }) =>
+    track('revenuecat_identified', {
+      has_entitlements: props.hasEntitlements,
+      entitlements: props.entitlements.join(',') || null,
+    }),
+
   subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
     track('subscription_status_changed', {
       from_status: props.from,

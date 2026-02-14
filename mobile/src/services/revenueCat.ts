@@ -22,6 +22,43 @@ export const PRODUCT_IDS = {
 // Shared init promise to ensure configure() completes before logIn()/logOut()
 let initPromise: Promise<void> | null = null;
 
+// Shared logIn promise so the paywall can wait for user identification.
+// Resolves to true if logIn succeeded, false if it failed or was never called.
+let logInPromise: Promise<boolean> | null = null;
+let resolveLogIn: ((success: boolean) => void) | null = null;
+
+/**
+ * Create the logIn promise that paywall presentation can await.
+ * Called by useAuthSession before firing identifyUser().
+ */
+export function prepareLogIn(): void {
+  // Settle any pending promise from a previous call so it doesn't hang forever
+  if (resolveLogIn) {
+    resolveLogIn(false);
+    resolveLogIn = null;
+  }
+  logInPromise = new Promise<boolean>((resolve) => {
+    resolveLogIn = resolve;
+  });
+}
+
+/**
+ * Signal that logIn completed (success or failure).
+ */
+export function settleLogIn(success: boolean): void {
+  resolveLogIn?.(success);
+  resolveLogIn = null;
+}
+
+/**
+ * Wait for the logIn flow to finish. Returns true if the user was
+ * successfully identified, false otherwise. If no logIn was initiated
+ * (e.g. user is not authenticated), resolves immediately with false.
+ */
+export function waitForLogIn(): Promise<boolean> {
+  return logInPromise ?? Promise.resolve(false);
+}
+
 /**
  * Initialize RevenueCat SDK
  * Should be called once at app startup before any purchases.
@@ -63,11 +100,15 @@ export function initializeRevenueCat(): Promise<void> {
 }
 
 /**
- * Identify user with RevenueCat after authentication
- * Links purchases to user's account across devices.
+ * Identify user with RevenueCat after authentication.
+ * Links purchases to user's account across devices and sets subscriber
+ * attributes (email, displayName) so they appear in the RevenueCat dashboard.
  * Waits for SDK initialization to complete before calling logIn().
  */
-export async function identifyUser(userId: string): Promise<CustomerInfo> {
+export async function identifyUser(
+  userId: string,
+  attributes?: { email?: string; displayName?: string }
+): Promise<CustomerInfo> {
   // Ensure SDK is initialized before calling logIn
   // If initPromise is null, trigger initialization to avoid calling logIn() before configure()
   if (!initPromise) {
@@ -76,6 +117,16 @@ export async function identifyUser(userId: string): Promise<CustomerInfo> {
   await initPromise;
 
   const { customerInfo } = await Purchases.logIn(userId);
+
+  // Set subscriber attributes for the RevenueCat dashboard.
+  // These are the reserved attribute keys that RC displays natively.
+  if (attributes?.email) {
+    await Purchases.setEmail(attributes.email);
+  }
+  if (attributes?.displayName) {
+    await Purchases.setDisplayName(attributes.displayName);
+  }
+
   if (isDevelopment) {
     // Only log user ID in development - never in production
     console.log('[RevenueCat] User identified:', userId);

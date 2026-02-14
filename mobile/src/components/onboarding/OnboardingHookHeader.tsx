@@ -9,18 +9,22 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 interface OnboardingHookHeaderProps {
-  onBack: () => void;
-  onLogin: () => void;
+  onBack?: () => void;
+  onLogin?: () => void;
 }
 
 export function OnboardingHookHeader({ onBack, onLogin }: OnboardingHookHeaderProps) {
   return (
     <View style={styles.headerRow}>
-      <GlassBackButton onPress={onBack} />
+      {onBack ? <GlassBackButton onPress={onBack} /> : <View style={styles.loginButton} />}
       <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-      <TouchableOpacity onPress={onLogin} style={styles.loginButton}>
-        <Text style={styles.loginText}>Login</Text>
-      </TouchableOpacity>
+      {onLogin ? (
+        <TouchableOpacity onPress={onLogin} style={styles.loginButton}>
+          <Text style={styles.loginText}>Login</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.loginButton} />
+      )}
     </View>
   );
 }

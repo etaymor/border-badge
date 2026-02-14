@@ -26,7 +26,8 @@ WebBrowser.maybeCompleteAuthSession();
  * Works on both iOS and Android.
  */
 export function useGoogleSignIn() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
+    useAuthStore();
 
   return useMutation<
     Awaited<ReturnType<typeof supabase.auth.setSession>>['data'],
@@ -95,6 +96,10 @@ export function useGoogleSignIn() {
         throw new Error('No refresh token received - session cannot be refreshed');
       }
 
+      // Pre-set flag before Supabase call to prevent race with onAuthStateChange.
+      // Cleared in onSuccess for returning users and in onError on failure.
+      setNeedsPostSignupFlow(true);
+
       // Set the session in Supabase using the tokens
       const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
         access_token: accessToken,
@@ -145,6 +150,8 @@ export function useGoogleSignIn() {
         const onboarded = await hasUserOnboarded(data.session.user.id);
 
         if (onboarded) {
+          // Returning user — clear the flag set in mutationFn
+          setNeedsPostSignupFlow(false);
           setHasCompletedOnboarding(true);
           await storeOnboardingComplete();
           setSession(data.session);
@@ -154,6 +161,8 @@ export function useGoogleSignIn() {
 
           // New user - set isMigrating before session to prevent empty state
           setIsMigrating(true);
+
+          // needsPostSignupFlow already set in mutationFn
           setSession(data.session);
 
           // Track onboarding completion analytics
@@ -185,6 +194,7 @@ export function useGoogleSignIn() {
       }
     },
     onError: (error) => {
+      setNeedsPostSignupFlow(false);
       // Log sanitized error for debugging
       console.error('Google Sign-In failed:', getSafeLogMessage(error));
 

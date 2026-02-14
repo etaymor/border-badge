@@ -22,10 +22,12 @@ import { env } from '@config/env';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
+import { usePostSignupNavigation } from '@hooks/usePostSignupNavigation';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
@@ -58,6 +60,20 @@ export function AccountCreationScreen({ navigation }: Props) {
   const googleSignIn = useGoogleSignIn();
   const isAppleAvailable = useAppleAuthAvailable();
   const isGoogleAvailable = useGoogleAuthAvailable();
+
+  // After successful signup (new user), navigate to the post-signup flow (hooks + paywall).
+  // needsPostSignupFlow is only set for new users, so returning users skip this.
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+  const session = useAuthStore((s) => s.session);
+
+  // Consolidated navigation guard: prevents duplicate navigations and back-nav re-fires.
+  usePostSignupNavigation(navigation.navigate, {
+    session,
+    needsPostSignupFlow,
+    signUpSuccess: signUp.isSuccess,
+    appleSuccess: appleSignIn.isSuccess,
+    googleSuccess: googleSignIn.isSuccess,
+  });
 
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;

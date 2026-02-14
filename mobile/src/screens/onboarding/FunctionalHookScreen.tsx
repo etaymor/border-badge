@@ -9,6 +9,7 @@ import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const socialImage = require('../../../assets/onboarding-videos/social-exported-list.jpg');
@@ -18,6 +19,7 @@ type Props = OnboardingStackScreenProps<'FunctionalHook'>;
 
 export function FunctionalHookScreen({ navigation }: Props) {
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+  const session = useAuthStore((s) => s.session);
 
   useEffect(() => {
     Analytics.viewOnboardingFunctionalHook();
@@ -34,7 +36,10 @@ export function FunctionalHookScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <OnboardingHookHeader onBack={() => navigation.goBack()} onLogin={handleLogin} />
+      <OnboardingHookHeader
+        onBack={() => navigation.goBack()}
+        onLogin={session ? undefined : handleLogin}
+      />
 
       <View style={styles.content}>
         {/* Title */}

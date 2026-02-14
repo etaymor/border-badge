@@ -16,7 +16,7 @@ import Purchases from 'react-native-purchases';
 
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan, initializeRevenueCat } from '@services/revenueCat';
+import { getSubscriptionPlan, initializeRevenueCat, waitForLogIn } from '@services/revenueCat';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import type { GatedFeature } from '@navigation/types';
 
@@ -53,8 +53,11 @@ export function usePaywallPresentation(location: PaywallLocation) {
       Analytics.viewPaywall({ location, feature: options?.feature });
 
       try {
-        // Ensure RevenueCat SDK is fully initialized
+        // Ensure RevenueCat SDK is fully initialized and user is identified.
+        // waitForLogIn() ensures purchases are linked to the Supabase user ID,
+        // not the anonymous $RCAnonymousID.
         await initializeRevenueCat();
+        await waitForLogIn();
 
         // Fetch offerings - this should populate from RevenueCat dashboard
         const offerings = await Purchases.getOfferings();
