@@ -106,11 +106,20 @@ export function usePaywallPresentation(location: PaywallLocation) {
               if (isTrialing(customerInfo)) {
                 AdEvents.trialStarted(plan ?? 'unknown').catch(() => {});
               } else {
-                // Look up product price from offerings fetched before paywall presentation
+                // Re-fetch offerings after purchase to ensure price lookup is current
+                const freshOfferings = await Purchases.getOfferings();
                 const entitlement = customerInfo.entitlements.active[ENTITLEMENT_ID];
                 const priceInfo = entitlement
-                  ? getProductPrice(offerings, entitlement.productIdentifier)
+                  ? getProductPrice(freshOfferings, entitlement.productIdentifier)
                   : null;
+
+                if (!priceInfo) {
+                  console.warn(
+                    '[usePaywallPresentation] Could not find price for',
+                    entitlement?.productIdentifier
+                  );
+                }
+
                 AdEvents.subscriptionPurchased(
                   plan ?? 'unknown',
                   priceInfo?.price ?? 0,
