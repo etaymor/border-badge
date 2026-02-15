@@ -7,6 +7,7 @@
 
 import { Platform } from 'react-native';
 import Purchases, { LOG_LEVEL, CustomerInfo } from 'react-native-purchases';
+import { AppEventsLogger } from 'react-native-fbsdk-next';
 import { env, isDevelopment } from '@config/env';
 
 // Entitlement ID configured in RevenueCat dashboard
@@ -60,6 +61,21 @@ export function waitForLogIn(): Promise<boolean> {
 }
 
 /**
+ * Send Facebook Anonymous ID to RevenueCat so the Meta Ads integration
+ * can match subscription events back to the originating ad click.
+ */
+async function setFBAnonymousIDIfAvailable(): Promise<void> {
+  try {
+    const fbAnonId = await AppEventsLogger.getAnonymousID();
+    if (fbAnonId) {
+      await Purchases.setFBAnonymousID(fbAnonId);
+    }
+  } catch {
+    // Facebook SDK may not be ready yet — non-fatal
+  }
+}
+
+/**
  * Initialize RevenueCat SDK
  * Should be called once at app startup before any purchases.
  * Returns a shared promise that can be awaited by other functions.
@@ -92,6 +108,17 @@ export function initializeRevenueCat(): Promise<void> {
       apiKey,
       appUserID: null, // Anonymous until user authenticates
     });
+
+    // Collect device identifiers (IDFA if ATT granted, IDFV) for attribution matching
+    Purchases.collectDeviceIdentifiers();
+
+    // Enable automatic Apple Search Ads attribution token collection (iOS only)
+    if (Platform.OS === 'ios') {
+      Purchases.enableAdServicesAttributionTokenCollection();
+    }
+
+    // Send Facebook Anonymous ID to RevenueCat for Meta Ads attribution matching
+    setFBAnonymousIDIfAvailable();
 
     console.log('[RevenueCat] SDK initialized');
   })();
