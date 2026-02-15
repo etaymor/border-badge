@@ -103,29 +103,6 @@ class TestTrackAdEvent:
             assert mock_tt.call_args.kwargs.get("event_time") == client_ts
 
     @pytest.mark.asyncio
-    async def test_defaults_timestamp_when_none(self):
-        with (
-            patch(
-                "app.services.ad_events.service.facebook_capi.send_event",
-                new_callable=AsyncMock,
-            ) as mock_fb,
-            patch(
-                "app.services.ad_events.service.tiktok_events.send_event",
-                new_callable=AsyncMock,
-            ) as mock_tt,
-        ):
-            await track_ad_event(
-                event_name="CompleteRegistration",
-                event_id="evt-123",
-                user_email="test@example.com",
-                user_id="user-abc",
-                properties={},
-            )
-
-            mock_fb.assert_called_once()
-            mock_tt.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_facebook_failure_does_not_block_tiktok(self):
         """Error isolation: one platform failing shouldn't affect the other."""
         with (
@@ -146,6 +123,7 @@ class TestTrackAdEvent:
                 user_email="user@test.com",
                 user_id="user-xyz",
                 properties={"plan": "annual", "price": 49.99, "currency": "USD"},
+                event_time=1700000000,
             )
 
             mock_tt.assert_called_once()
@@ -169,6 +147,7 @@ class TestTrackAdEvent:
                 user_email="user@test.com",
                 user_id="user-xyz",
                 properties={},
+                event_time=1700000000,
             )
 
             mock_fb.assert_called_once()
@@ -232,6 +211,7 @@ class TestFacebookCapi:
                 user_email="test@example.com",
                 user_id="user-1",
                 properties={},
+                event_time=1700000000,
             )
 
     def test_maps_event_names_correctly(self):
@@ -271,6 +251,7 @@ class TestFacebookCapi:
                 user_email="a@b.com",
                 user_id="uid-1",
                 properties={"plan": "annual", "price": 49.99, "currency": "USD"},
+                event_time=1700000000,
             )
 
             event_kwargs = MockEvent.call_args.kwargs
@@ -304,6 +285,7 @@ class TestFacebookCapi:
                 user_email="a@b.com",
                 user_id="uid-1",
                 properties={"plan": "annual", "price": 0},
+                event_time=1700000000,
             )
 
             event_kwargs = MockEvent.call_args.kwargs
@@ -338,6 +320,7 @@ class TestFacebookCapi:
                 user_email="Test@Example.COM",
                 user_id="user-123",
                 properties={},
+                event_time=1700000000,
             )
 
             user_data_kwargs = MockUserData.call_args.kwargs
@@ -369,6 +352,7 @@ class TestTiktokEvents:
                 user_email="test@example.com",
                 user_id="user-1",
                 properties={},
+                event_time=1700000000,
             )
 
     def test_maps_event_names_correctly(self):
@@ -445,6 +429,7 @@ class TestTiktokEvents:
                 user_email="a@b.com",
                 user_id="uid-1",
                 properties={"price": 49.99, "currency": "USD"},
+                event_time=1700000000,
             )
 
             payload = mock_client.post.call_args.kwargs["json"]["data"][0]
@@ -477,6 +462,7 @@ class TestTiktokEvents:
                 user_email="a@b.com",
                 user_id="uid-1",
                 properties={"price": 0},
+                event_time=1700000000,
             )
 
             payload = mock_client.post.call_args.kwargs["json"]["data"][0]
@@ -514,6 +500,7 @@ class TestTiktokEvents:
                     user_email="a@b.com",
                     user_id="uid-1",
                     properties={},
+                    event_time=1700000000,
                 )
 
     @pytest.mark.asyncio
@@ -544,4 +531,5 @@ class TestTiktokEvents:
                 user_email="a@b.com",
                 user_id="uid-1",
                 properties={},
+                event_time=1700000000,
             )

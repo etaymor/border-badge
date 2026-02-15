@@ -19,7 +19,7 @@ async def track_ad_event(
     user_email: str | None,
     user_id: str,
     properties: dict[str, Any],
-    event_time: int | None = None,
+    event_time: int,
 ) -> None:
     """Fan out ad event to Facebook CAPI and TikTok Events API concurrently.
 
@@ -29,7 +29,7 @@ async def track_ad_event(
         user_email: User's email for matching (hashed by each client).
         user_id: Supabase user ID.
         properties: Additional event properties from the mobile client.
-        event_time: Client-side Unix epoch seconds. Falls back to server time if None.
+        event_time: Client-side Unix epoch seconds.
     """
     results = await asyncio.gather(
         facebook_capi.send_event(

@@ -8,7 +8,6 @@ Events are deduplicated with the client-side Facebook SDK via shared event_id.
 
 import asyncio
 import logging
-import time
 from typing import Any
 
 from facebook_business.adobjects.serverside.action_source import ActionSource
@@ -61,7 +60,7 @@ async def send_event(
     user_id: str,
     properties: dict[str, Any],
     *,
-    event_time: int | None = None,
+    event_time: int,
 ) -> None:
     """Send a single event to Facebook Conversions API.
 
@@ -71,7 +70,7 @@ async def send_event(
         user_email: User's email for advanced matching (hashed before sending).
         user_id: Supabase user ID (hashed as external_id).
         properties: Additional event properties.
-        event_time: Client-side Unix epoch seconds. Falls back to server time if None.
+        event_time: Client-side Unix epoch seconds.
     """
     if not _ensure_initialized():
         logger.debug("Facebook CAPI not configured, skipping event: %s", event_name)
@@ -99,7 +98,7 @@ async def send_event(
 
     event = Event(
         event_name=fb_event_name,
-        event_time=event_time if event_time is not None else int(time.time()),
+        event_time=event_time,
         user_data=user_data,
         custom_data=custom_data,
         event_id=event_id,

@@ -17,7 +17,6 @@ class AdEventRequest(BaseModel):
     ]
     event_id: str
     properties: dict[str, Any] = Field(default_factory=dict)
-    timestamp: int | None = Field(
-        default=None,
+    timestamp: int = Field(
         description="Client-side Unix epoch seconds when the event occurred.",
     )

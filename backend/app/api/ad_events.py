@@ -19,7 +19,7 @@ router = APIRouter(prefix="/ad-events", tags=["ad-events"])
 
 
 @router.post("")
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def post_ad_event(
     request: Request, body: AdEventRequest, user: CurrentUser
 ) -> dict:

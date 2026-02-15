@@ -68,10 +68,7 @@ export const env = {
 
 // Warn if Facebook credentials are missing in production builds.
 // The SDK will silently fail to initialize without these.
-if (
-  env.appEnv === 'production' &&
-  (!env.fbAppId || !env.fbClientToken)
-) {
+if (env.appEnv === 'production' && (!env.fbAppId || !env.fbClientToken)) {
   console.warn(
     '[Config] Missing Facebook SDK credentials (EXPO_PUBLIC_FB_APP_ID / EXPO_PUBLIC_FB_CLIENT_TOKEN). ' +
       'Ad conversion tracking will be disabled.'
