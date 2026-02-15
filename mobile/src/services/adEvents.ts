@@ -4,30 +4,45 @@
  * Fires events to Facebook SDK (client-side) and sends them to the backend
  * for server-side fan-out to Facebook CAPI and TikTok Events API.
  *
- * - "First-only" events use AsyncStorage flags to fire once per user lifetime.
+ * - "First-only" events use AsyncStorage flags with in-memory locks to fire once per user lifetime.
  * - All events are gated behind isProduction — no firing in development.
  * - Errors are caught and logged, never blocking user flow.
  */
 
 import { AppEventsLogger } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
 
 import { api } from './api';
 import { isProduction } from '@config/env';
 
 const FIRST_EVENT_PREFIX = '@adEvents:tracked:';
 
-async function hasTrackedOnce(key: string): Promise<boolean> {
-  const val = await AsyncStorage.getItem(`${FIRST_EVENT_PREFIX}${key}`);
-  return val === 'true';
-}
+// In-memory locks to prevent concurrent first-time event races.
+// If two calls to accountCreated() overlap, only the first proceeds.
+const _pendingLocks = new Set<string>();
 
-async function markTrackedOnce(key: string): Promise<void> {
-  await AsyncStorage.setItem(`${FIRST_EVENT_PREFIX}${key}`, 'true');
+async function checkAndMarkOnce(key: string): Promise<boolean> {
+  const fullKey = `${FIRST_EVENT_PREFIX}${key}`;
+
+  // Fast path: if another call is already in flight, bail out
+  if (_pendingLocks.has(key)) return false;
+
+  _pendingLocks.add(key);
+  try {
+    const val = await AsyncStorage.getItem(fullKey);
+    if (val === 'true') return false;
+
+    await AsyncStorage.setItem(fullKey, 'true');
+    return true;
+  } finally {
+    _pendingLocks.delete(key);
+  }
 }
 
 function generateEventId(event: string): string {
-  return `${event}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const uuid = Crypto.randomUUID();
+  return `${event}_${uuid}`;
 }
 
 async function sendToServer(
@@ -49,10 +64,10 @@ async function sendToServer(
 export const AdEvents = {
   /** Event 2: Account created (first time only) */
   async accountCreated(method: 'email' | 'apple' | 'google'): Promise<void> {
-    if (await hasTrackedOnce('account_created')) return;
+    const shouldFire = await checkAndMarkOnce('account_created');
+    if (!shouldFire) return;
     if (!isProduction) {
       console.log('[AdEvents] accountCreated', { method });
-      await markTrackedOnce('account_created');
       return;
     }
 
@@ -63,15 +78,14 @@ export const AdEvents = {
     });
 
     await sendToServer('CompleteRegistration', eventId, { method });
-    await markTrackedOnce('account_created');
   },
 
   /** Event 3a: Trial started (first time only) */
   async trialStarted(plan: string): Promise<void> {
-    if (await hasTrackedOnce('trial_started')) return;
+    const shouldFire = await checkAndMarkOnce('trial_started');
+    if (!shouldFire) return;
     if (!isProduction) {
       console.log('[AdEvents] trialStarted', { plan });
-      await markTrackedOnce('trial_started');
       return;
     }
 
@@ -83,7 +97,6 @@ export const AdEvents = {
     });
 
     await sendToServer('StartTrial', eventId, { plan, is_trial: true });
-    await markTrackedOnce('trial_started');
   },
 
   /** Event 3b: Subscription purchased (fires every time) */
@@ -120,10 +133,10 @@ export const AdEvents = {
 
   /** Event 4: First trip created (first time only) */
   async firstTripCreated(countryCode: string): Promise<void> {
-    if (await hasTrackedOnce('first_trip')) return;
+    const shouldFire = await checkAndMarkOnce('first_trip');
+    if (!shouldFire) return;
     if (!isProduction) {
       console.log('[AdEvents] firstTripCreated', { countryCode });
-      await markTrackedOnce('first_trip');
       return;
     }
 
@@ -132,15 +145,14 @@ export const AdEvents = {
     AppEventsLogger.logEvent('FirstTripCreated', { country_code: countryCode });
 
     await sendToServer('FirstTripCreated', eventId, { country_code: countryCode });
-    await markTrackedOnce('first_trip');
   },
 
   /** Event 5: First photo import completed (first time only) */
   async firstPhotoImportDone(clusterCount: number): Promise<void> {
-    if (await hasTrackedOnce('first_photo_import')) return;
+    const shouldFire = await checkAndMarkOnce('first_photo_import');
+    if (!shouldFire) return;
     if (!isProduction) {
       console.log('[AdEvents] firstPhotoImportDone', { clusterCount });
-      await markTrackedOnce('first_photo_import');
       return;
     }
 
@@ -149,7 +161,6 @@ export const AdEvents = {
     AppEventsLogger.logEvent('FirstPhotoImport', { cluster_count: clusterCount });
 
     await sendToServer('FirstPhotoImport', eventId, { cluster_count: clusterCount });
-    await markTrackedOnce('first_photo_import');
   },
 
   /** Set Facebook user ID for better event matching */

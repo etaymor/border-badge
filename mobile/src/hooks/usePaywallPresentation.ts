@@ -12,12 +12,13 @@
 import { useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
-import Purchases from 'react-native-purchases';
+import Purchases, { PurchasesOfferings } from 'react-native-purchases';
 
 import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
 import {
+  ENTITLEMENT_ID,
   getSubscriptionPlan,
   initializeRevenueCat,
   isTrialing,
@@ -42,6 +43,17 @@ export interface PaywallPresentationResult {
 export interface PaywallPresentationOptions {
   /** The gated feature that triggered the paywall (for analytics) */
   feature?: GatedFeature;
+}
+
+/** Look up price/currency for a product from cached offerings. */
+function getProductPrice(
+  offerings: PurchasesOfferings,
+  productIdentifier: string
+): { price: number; currency: string } | null {
+  const packages = offerings.current?.availablePackages ?? [];
+  const pkg = packages.find((p) => p.product.identifier === productIdentifier);
+  if (!pkg) return null;
+  return { price: pkg.product.price, currency: pkg.product.currencyCode };
 }
 
 /**
@@ -94,10 +106,16 @@ export function usePaywallPresentation(location: PaywallLocation) {
               if (isTrialing(customerInfo)) {
                 AdEvents.trialStarted(plan ?? 'unknown').catch(() => {});
               } else {
-                // For non-trial purchases, send subscription event.
-                // Price/currency not available from CustomerInfo — use 0/USD as placeholder.
-                // Facebook CAPI receives the real revenue from RevenueCat webhooks.
-                AdEvents.subscriptionPurchased(plan ?? 'unknown', 0, 'USD').catch(() => {});
+                // Look up product price from offerings fetched before paywall presentation
+                const entitlement = customerInfo.entitlements.active[ENTITLEMENT_ID];
+                const priceInfo = entitlement
+                  ? getProductPrice(offerings, entitlement.productIdentifier)
+                  : null;
+                AdEvents.subscriptionPurchased(
+                  plan ?? 'unknown',
+                  priceInfo?.price ?? 0,
+                  priceInfo?.currency ?? 'USD'
+                ).catch(() => {});
               }
             }
 
