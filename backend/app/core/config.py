@@ -172,6 +172,14 @@ class Settings(BaseSettings):
         description="RevenueCat API key for subscription verification",
     )
 
+    # Facebook Conversions API
+    facebook_pixel_id: str = Field(default="", repr=False)
+    facebook_capi_access_token: str = Field(default="", repr=False)
+
+    # TikTok Events API
+    tiktok_events_access_token: str = Field(default="", repr=False)
+    tiktok_pixel_code: str = Field(default="", repr=False)
+
     @field_validator("tiktok_proxy_url")
     @classmethod
     def validate_tiktok_proxy_url(cls, v: str | None) -> str | None:
@@ -272,6 +280,34 @@ class Settings(BaseSettings):
         if not self.revenuecat_api_key:
             missing.append("REVENUECAT_API_KEY")
         return missing
+
+    @property
+    def ad_tracking_configured(self) -> bool:
+        """Check if at least one ad tracking platform is configured."""
+        fb = bool(self.facebook_pixel_id and self.facebook_capi_access_token)
+        tt = bool(self.tiktok_events_access_token and self.tiktok_pixel_code)
+        return fb or tt
+
+    @property
+    def ad_tracking_missing_fields(self) -> dict[str, list[str]]:
+        """Return missing ad tracking credential field names per platform."""
+        result: dict[str, list[str]] = {}
+        fb_missing: list[str] = []
+        if not self.facebook_pixel_id:
+            fb_missing.append("FACEBOOK_PIXEL_ID")
+        if not self.facebook_capi_access_token:
+            fb_missing.append("FACEBOOK_CAPI_ACCESS_TOKEN")
+        if fb_missing:
+            result["Facebook CAPI"] = fb_missing
+
+        tt_missing: list[str] = []
+        if not self.tiktok_events_access_token:
+            tt_missing.append("TIKTOK_EVENTS_ACCESS_TOKEN")
+        if not self.tiktok_pixel_code:
+            tt_missing.append("TIKTOK_PIXEL_CODE")
+        if tt_missing:
+            result["TikTok Events"] = tt_missing
+        return result
 
 
 @lru_cache

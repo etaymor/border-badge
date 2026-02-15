@@ -138,6 +138,8 @@ EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=<google-places-key>
 EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000  # Base URL for public web pages (Terms, Privacy)
 EXPO_PUBLIC_POSTHOG_API_KEY=<posthog-api-key>  # Optional: for production analytics
 EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
+EXPO_PUBLIC_FB_APP_ID=<facebook-app-id>  # Required: Facebook App ID for ads SDK
+EXPO_PUBLIC_FB_CLIENT_TOKEN=<facebook-client-token>  # Required: Facebook Client Token for ads SDK
 ```
 
 ### Backend (`backend/.env`)

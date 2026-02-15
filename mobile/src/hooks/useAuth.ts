@@ -8,6 +8,7 @@ import {
   storeOnboardingComplete,
   storeTokens,
 } from '@services/api';
+import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { clearPhotoCache } from '@services/photoImport/photoCacheDb';
@@ -121,6 +122,9 @@ export function useSignUpWithPassword() {
           trackingPreference: snapshot.trackingPreference,
         });
 
+        // Track ad conversion (fire-and-forget)
+        AdEvents.accountCreated('email').catch(() => {});
+
         // Migrate in background - isMigrating will be cleared when done
         migrateGuestData(data.session, snapshot)
           .catch(() => console.warn('Migration failed for new password user'))
@@ -228,6 +232,8 @@ export function useSignOut() {
       await clearOnboardingComplete();
       // Clear cached GPS data to prevent leaking location data to next user
       await clearPhotoCache().catch(() => {});
+      // Clear Facebook user data
+      AdEvents.clearUserId();
     },
     onError: (error) => {
       console.error('Sign out failed:', getSafeLogMessage(error));
@@ -264,6 +270,8 @@ export function useDeleteAccount() {
       await clearOnboardingComplete();
       // Clear cached GPS data to prevent leaking location data to next user
       await clearPhotoCache().catch(() => {});
+      // Clear Facebook user data
+      AdEvents.clearUserId();
     },
     onError: (error) => {
       console.error('Account deletion failed:', getSafeLogMessage(error));

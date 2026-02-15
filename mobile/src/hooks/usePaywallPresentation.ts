@@ -12,11 +12,18 @@
 import { useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
-import Purchases from 'react-native-purchases';
+import Purchases, { PurchasesOfferings } from 'react-native-purchases';
 
+import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
-import { getSubscriptionPlan, initializeRevenueCat, waitForLogIn } from '@services/revenueCat';
+import {
+  ENTITLEMENT_ID,
+  getSubscriptionPlan,
+  initializeRevenueCat,
+  isTrialing,
+  waitForLogIn,
+} from '@services/revenueCat';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import type { GatedFeature } from '@navigation/types';
 
@@ -36,6 +43,17 @@ export interface PaywallPresentationResult {
 export interface PaywallPresentationOptions {
   /** The gated feature that triggered the paywall (for analytics) */
   feature?: GatedFeature;
+}
+
+/** Look up price/currency for a product from cached offerings. */
+function getProductPrice(
+  offerings: PurchasesOfferings,
+  productIdentifier: string
+): { price: number; currency: string } | null {
+  const packages = offerings.current?.availablePackages ?? [];
+  const pkg = packages.find((p) => p.product.identifier === productIdentifier);
+  if (!pkg) return null;
+  return { price: pkg.product.price, currency: pkg.product.currencyCode };
 }
 
 /**
@@ -83,6 +101,31 @@ export function usePaywallPresentation(location: PaywallLocation) {
               await syncSubscriptionToAppGroup(customerInfo);
               const plan = getSubscriptionPlan(customerInfo);
               Analytics.purchaseCompleted({ plan, location });
+
+              // Track ad conversions (fire-and-forget)
+              if (isTrialing(customerInfo)) {
+                AdEvents.trialStarted(plan ?? 'unknown').catch(() => {});
+              } else {
+                // Re-fetch offerings after purchase to ensure price lookup is current
+                const freshOfferings = await Purchases.getOfferings();
+                const entitlement = customerInfo.entitlements.active[ENTITLEMENT_ID];
+                const priceInfo = entitlement
+                  ? getProductPrice(freshOfferings, entitlement.productIdentifier)
+                  : null;
+
+                if (!priceInfo) {
+                  console.warn(
+                    '[usePaywallPresentation] Could not find price for',
+                    entitlement?.productIdentifier
+                  );
+                }
+
+                AdEvents.subscriptionPurchased(
+                  plan ?? 'unknown',
+                  priceInfo?.price ?? 0,
+                  priceInfo?.currency ?? 'USD'
+                ).catch(() => {});
+              }
             }
 
             return { success: true, result, cancelled: false, error: false };

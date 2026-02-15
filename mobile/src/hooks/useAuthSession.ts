@@ -7,6 +7,7 @@ import {
   setSignOutCallback,
   storeTokens,
 } from '@services/api';
+import { AdEvents } from '@services/adEvents';
 import { identifyUser, resetUser, Analytics } from '@services/analytics';
 import {
   identifyUser as identifyRevenueCatUser,
@@ -129,8 +130,9 @@ export function useAuthSession(): { isAppReady: boolean } {
         if (session) {
           setSession(session);
           await storeTokens(session.access_token, session.refresh_token ?? '');
-          // Identify user in analytics
+          // Identify user in analytics and ad tracking
           identifyUser(session.user.id);
+          AdEvents.setUserId(session.user.id);
           // Identify user in RevenueCat and sync subscription to backend
           syncAbortController = new AbortController();
           const rcAttrs = {
@@ -175,8 +177,9 @@ export function useAuthSession(): { isAppReady: boolean } {
         setSession(session);
         if (session) {
           await storeTokens(session.access_token, session.refresh_token ?? '');
-          // Identify user in analytics
+          // Identify user in analytics and ad tracking
           identifyUser(session.user.id);
+          AdEvents.setUserId(session.user.id);
           // Identify user in RevenueCat and sync subscription to backend
           syncAbortController = new AbortController();
           const rcAttrs2 = {
@@ -200,8 +203,9 @@ export function useAuthSession(): { isAppReady: boolean } {
           // User signed out - clear tokens first, then reset onboarding state
           await clearTokens();
           setHasCompletedOnboarding(false);
-          // Reset analytics user
+          // Reset analytics user and ad tracking
           resetUser();
+          AdEvents.clearUserId();
           // Reset subscription store to clear cached premium status and usage limits
           useSubscriptionStore.getState().reset();
           // Log out RevenueCat user (resets to anonymous)

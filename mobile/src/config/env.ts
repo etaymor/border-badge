@@ -60,7 +60,20 @@ export const env = {
   // RevenueCat Configuration
   revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || '',
   revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || '',
+
+  // Facebook Ads
+  fbAppId: process.env.EXPO_PUBLIC_FB_APP_ID || '',
+  fbClientToken: process.env.EXPO_PUBLIC_FB_CLIENT_TOKEN || '',
 } as const;
+
+// Warn if Facebook credentials are missing in production builds.
+// The SDK will silently fail to initialize without these.
+if (env.appEnv === 'production' && (!env.fbAppId || !env.fbClientToken)) {
+  console.warn(
+    '[Config] Missing Facebook SDK credentials (EXPO_PUBLIC_FB_APP_ID / EXPO_PUBLIC_FB_CLIENT_TOKEN). ' +
+      'Ad conversion tracking will be disabled.'
+  );
+}
 
 // Helper to check if we're in development
 export const isDevelopment = env.appEnv === 'development';
