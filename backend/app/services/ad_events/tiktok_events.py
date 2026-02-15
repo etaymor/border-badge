@@ -110,7 +110,7 @@ async def send_event(
 
         api_code = result.get("code")
         api_message = result.get("message", "")
-        if str(api_code) != "0":
+        if api_code != 0 and api_code != "0":
             logger.error(
                 "TikTok API error for %s: code=%s, result=%s",
                 tt_event_name,

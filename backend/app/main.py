@@ -123,6 +123,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Subscription verification and webhooks will fail until set.",
             missing_fields,
         )
+
+    # Startup validation - warn if ad tracking credentials are missing in production
+    if settings.is_production and not settings.ad_tracking_configured:
+        for platform, fields in settings.ad_tracking_missing_fields.items():
+            logger.error(
+                "AD_TRACKING_MISCONFIGURATION: %s missing %s. "
+                "Server-side ad events will silently fail until set.",
+                platform,
+                ", ".join(fields),
+            )
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()

@@ -33,6 +33,9 @@ async function checkAndMarkOnce(key: string): Promise<boolean> {
     const val = await AsyncStorage.getItem(fullKey);
     if (val === 'true') return false;
 
+    // Mark BEFORE firing to prevent duplicates on crash.
+    // If the app crashes after this line but before the event fires,
+    // we lose one event — but duplicates are worse for ad attribution.
     await AsyncStorage.setItem(fullKey, 'true');
     return true;
   } finally {
