@@ -55,6 +55,7 @@ async function sendToServer(
       event_name: eventName,
       event_id: eventId,
       properties: properties ?? {},
+      timestamp: Math.floor(Date.now() / 1000),
     });
   } catch (error) {
     console.warn('[AdEvents] Server-side event failed:', error);

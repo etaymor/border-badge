@@ -200,6 +200,7 @@ describe('adEvents', () => {
         event_name: 'CompleteRegistration',
         event_id: expect.stringContaining('complete_registration_'),
         properties: { method: 'apple' },
+        timestamp: expect.any(Number),
       });
     });
 

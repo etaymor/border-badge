@@ -45,7 +45,11 @@ def _ensure_initialized() -> bool:
     if not settings.facebook_pixel_id or not settings.facebook_capi_access_token:
         return False
 
-    FacebookAdsApi.init(access_token=settings.facebook_capi_access_token)
+    try:
+        FacebookAdsApi.init(access_token=settings.facebook_capi_access_token)
+    except Exception:
+        logger.exception("Facebook Ads API init failed (check credentials)")
+        return False
     _initialized = True
     return True
 
