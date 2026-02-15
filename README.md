@@ -13,6 +13,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Offline Support** - Local SQLite caching for country data
 - **Premium Animations** - Shared element transitions, micro-interactions, and staggered entrances with accessibility support
 - **Premium Subscription** - RevenueCat-powered freemium model with feature gating (entry limits, share extension usage, photo import trips)
+- **Ad Attribution** - Facebook & TikTok conversion tracking with client-side SDK (Meta) and server-side APIs (Meta CAPI + TikTok Events API)
 
 ## Architecture
 
@@ -115,6 +116,7 @@ border-badge/
 | [MVP Blueprint](./docs/travel-mvp-blueprint.md) | Phase-by-phase implementation |
 | [API Reference](./docs/API.md) | Backend API documentation |
 | [Subscription System](./docs/SUBSCRIPTION.md) | RevenueCat subscription setup and testing |
+| [Ad Tracking Setup](./docs/AD_TRACKING_SETUP.md) | Facebook & TikTok ad attribution setup guide |
 | [Mobile README](./mobile/README.md) | Mobile app development guide |
 | [Backend README](./backend/README.md) | Backend development guide |
 | [Contributing](./CONTRIBUTING.md) | Contribution guidelines |
@@ -159,6 +161,8 @@ poetry run ruff format --check .
 | `EXPO_PUBLIC_WEB_BASE_URL` | Base URL for public web pages (Terms, Privacy) |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat iOS API key (for subscriptions) |
 | `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` | RevenueCat Android API key (optional) |
+| `EXPO_PUBLIC_FB_APP_ID` | Facebook App ID for client-side SDK |
+| `EXPO_PUBLIC_FB_CLIENT_TOKEN` | Facebook Client Token for client-side SDK |
 
 ### Backend (`backend/.env`)
 
@@ -172,6 +176,10 @@ poetry run ruff format --check .
 | `WELCOME_EMAIL_FROM` | From address for welcome emails (default: hello@atlasi.app) |
 | `REVENUECAT_WEBHOOK_AUTH_HEADER` | Auth header for RevenueCat webhook verification |
 | `REVENUECAT_API_KEY` | RevenueCat secret API key for server-side verification |
+| `FACEBOOK_PIXEL_ID` | Meta Pixel/Dataset ID for Conversions API |
+| `FACEBOOK_CAPI_ACCESS_TOKEN` | Meta system user access token for Conversions API |
+| `TIKTOK_PIXEL_CODE` | TikTok Pixel code for Events API |
+| `TIKTOK_ACCESS_TOKEN` | TikTok access token for Events API |
 
 ## CI/CD
 
