@@ -796,6 +796,77 @@ The welcome sequence consists of 4 emails sent at the following intervals after 
 
 ---
 
+### Ad Events
+
+#### `POST /ad-events`
+
+Track an ad conversion event from the mobile client. The backend fans out the event to Facebook Conversions API and TikTok Events API concurrently. Failures on one platform do not affect the other.
+
+The mobile app fires events via the client-side Facebook SDK for real-time attribution and SKAdNetwork support, then sends the same event to this endpoint for server-side tracking on both Facebook CAPI and TikTok.
+
+**Auth:** Required
+
+**Rate Limit:** 20/minute
+
+**Request:**
+```json
+{
+  "event_name": "CompleteRegistration",
+  "event_id": "complete_registration_550e8400-e29b-41d4-a716-446655440000",
+  "properties": {
+    "method": "apple"
+  },
+  "timestamp": 1707955200
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event_name` | string | Yes | One of: `CompleteRegistration`, `StartTrial`, `Subscribe`, `FirstTripCreated`, `FirstPhotoImport` |
+| `event_id` | string | Yes | Unique event ID shared with client-side Facebook SDK for deduplication |
+| `properties` | object | No | Additional event properties (default: `{}`) |
+| `timestamp` | integer | Yes | Client-side Unix epoch seconds when the event occurred |
+
+**Event Names:**
+
+| Event | Trigger | First-Only | Facebook CAPI Event | TikTok Event |
+|-------|---------|------------|--------------------|--------------|
+| `CompleteRegistration` | Account created | Yes | `CompleteRegistration` | `CompleteRegistration` |
+| `StartTrial` | Free trial started | Yes | `StartTrial` | `Subscribe` |
+| `Subscribe` | Subscription purchased | No | `Purchase` | `CompletePayment` |
+| `FirstTripCreated` | First trip created | Yes | `Lead` | `AddToCart` |
+| `FirstPhotoImport` | First photo import completed | Yes | `ViewContent` | `ViewContent` |
+
+**Properties by Event:**
+
+| Event | Property | Type | Description |
+|-------|----------|------|-------------|
+| `CompleteRegistration` | `method` | string | Auth method: `email`, `apple`, or `google` |
+| `StartTrial` | `plan` | string | Subscription plan identifier |
+| `StartTrial` | `is_trial` | boolean | Always `true` |
+| `Subscribe` | `plan` | string | Subscription plan identifier |
+| `Subscribe` | `price` | number | Purchase price (must be numeric; omitted if zero) |
+| `Subscribe` | `currency` | string | ISO 4217 currency code (e.g., `USD`) |
+| `FirstTripCreated` | `country_code` | string | ISO 3166-1 alpha-2 country code |
+| `FirstPhotoImport` | `cluster_count` | number | Number of photo clusters imported |
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 401 | `Unauthorized` | Missing or invalid token |
+| 422 | `UnprocessableEntity` | Invalid event name or properties |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (20/minute) |
+
+---
+
 ### Social Ingest
 
 #### `POST /ingest/social`
@@ -1362,6 +1433,7 @@ Rate limits are applied per endpoint:
 | `DELETE /profile` | 5/hour |
 | `POST /welcome/emails` | 3/hour |
 | `GET /profile` | 30/minute |
+| `POST /ad-events` | 20/minute |
 | `POST /places/autocomplete` | 30/minute |
 | `POST /media/files/upload-url` | 60/minute |
 | Other endpoints | 120/minute |
