@@ -73,7 +73,10 @@ async def send_event(
     # Build event properties (omit revenue when price is 0 or missing
     # to avoid distorting ROAS calculations)
     event_properties: dict[str, str] = {}
-    price = float(properties.get("price", 0))
+    try:
+        price = float(properties.get("price", 0))
+    except (ValueError, TypeError):
+        price = 0
     if event_name == "Subscribe" and price > 0:
         event_properties["currency"] = properties.get("currency", "USD")
         event_properties["value"] = str(price)

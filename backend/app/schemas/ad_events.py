@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AdEventRequest(BaseModel):
@@ -20,3 +20,13 @@ class AdEventRequest(BaseModel):
     timestamp: int = Field(
         description="Client-side Unix epoch seconds when the event occurred.",
     )
+
+    @field_validator("properties")
+    @classmethod
+    def validate_properties(cls, v: dict[str, Any]) -> dict[str, Any]:
+        if "price" in v:
+            try:
+                float(v["price"])
+            except (ValueError, TypeError):
+                raise ValueError("price must be numeric") from None
+        return v

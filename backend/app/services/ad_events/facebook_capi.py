@@ -89,7 +89,10 @@ async def send_event(
     # Build custom data from properties (omit revenue when price is 0 or missing
     # to avoid distorting ROAS calculations)
     custom_data = None
-    price = float(properties.get("price", 0))
+    try:
+        price = float(properties.get("price", 0))
+    except (ValueError, TypeError):
+        price = 0
     if event_name == "Subscribe" and price > 0:
         custom_data = CustomData(
             currency=properties.get("currency", "USD"),

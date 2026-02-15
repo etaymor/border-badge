@@ -5,6 +5,7 @@ Covers:
 - Facebook CAPI (event name mapping, PII hashing, revenue handling, dedup ID)
 - TikTok Events API (event name mapping, payload structure, revenue handling)
 - PII hashing utility
+- Schema validation (properties.price must be numeric)
 """
 
 import time
@@ -533,3 +534,132 @@ class TestTiktokEvents:
                 properties={},
                 event_time=1700000000,
             )
+
+
+# ---------------------------------------------------------------------------
+# Invalid price handling (defense-in-depth)
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidPriceHandling:
+    """Price conversion should not crash on non-numeric values."""
+
+    @pytest.mark.asyncio
+    async def test_facebook_handles_non_numeric_price(self):
+        import app.services.ad_events.facebook_capi as fb
+
+        fb._initialized = True
+
+        with (
+            patch("app.services.ad_events.facebook_capi.get_settings") as mock_settings,
+            patch(
+                "app.services.ad_events.facebook_capi.EventRequest"
+            ) as MockEventRequest,
+            patch("app.services.ad_events.facebook_capi.Event") as MockEvent,
+        ):
+            mock_settings.return_value = MagicMock(
+                facebook_pixel_id="123",
+                facebook_capi_access_token="tok",
+            )
+            mock_req_instance = MagicMock()
+            mock_req_instance.execute.return_value = {"events_received": 1}
+            MockEventRequest.return_value = mock_req_instance
+
+            # "N/A" would crash float() without the try/except guard
+            await fb.send_event(
+                event_name="Subscribe",
+                event_id="evt-bad-price",
+                user_email="a@b.com",
+                user_id="uid-1",
+                properties={"price": "N/A", "currency": "USD"},
+                event_time=1700000000,
+            )
+
+            # price fell back to 0, so custom_data should be None
+            event_kwargs = MockEvent.call_args.kwargs
+            assert event_kwargs["custom_data"] is None
+
+    @pytest.mark.asyncio
+    async def test_tiktok_handles_non_numeric_price(self):
+        import app.services.ad_events.tiktok_events as tt
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": 0}
+        mock_client.post.return_value = mock_response
+
+        with (
+            patch("app.services.ad_events.tiktok_events.get_settings") as mock_settings,
+            patch(
+                "app.services.ad_events.tiktok_events.get_http_client",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                tiktok_events_access_token="tok",
+                tiktok_pixel_code="px123",
+            )
+
+            await tt.send_event(
+                event_name="Subscribe",
+                user_email="a@b.com",
+                user_id="uid-1",
+                properties={"price": "N/A", "currency": "USD"},
+                event_time=1700000000,
+            )
+
+            payload = mock_client.post.call_args.kwargs["json"]["data"][0]
+            assert "value" not in payload.get("properties", {})
+
+
+# ---------------------------------------------------------------------------
+# Schema validation
+# ---------------------------------------------------------------------------
+
+
+class TestAdEventRequestSchema:
+    def test_accepts_numeric_price(self):
+        from app.schemas.ad_events import AdEventRequest
+
+        req = AdEventRequest(
+            event_name="Subscribe",
+            event_id="evt-1",
+            properties={"price": 49.99},
+            timestamp=1700000000,
+        )
+        assert req.properties["price"] == 49.99
+
+    def test_accepts_numeric_string_price(self):
+        from app.schemas.ad_events import AdEventRequest
+
+        req = AdEventRequest(
+            event_name="Subscribe",
+            event_id="evt-1",
+            properties={"price": "49.99"},
+            timestamp=1700000000,
+        )
+        assert req.properties["price"] == "49.99"
+
+    def test_rejects_non_numeric_price(self):
+        from pydantic import ValidationError
+
+        from app.schemas.ad_events import AdEventRequest
+
+        with pytest.raises(ValidationError, match="price must be numeric"):
+            AdEventRequest(
+                event_name="Subscribe",
+                event_id="evt-1",
+                properties={"price": "N/A"},
+                timestamp=1700000000,
+            )
+
+    def test_accepts_missing_price(self):
+        from app.schemas.ad_events import AdEventRequest
+
+        req = AdEventRequest(
+            event_name="Subscribe",
+            event_id="evt-1",
+            properties={},
+            timestamp=1700000000,
+        )
+        assert "price" not in req.properties
