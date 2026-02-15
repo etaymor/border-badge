@@ -130,7 +130,10 @@ describe('adEvents', () => {
       let resolveFirst!: (v: string | null) => void;
 
       mockAsyncStorage.getItem.mockImplementation(
-        () => new Promise((r) => { resolveFirst = r; })
+        () =>
+          new Promise((r) => {
+            resolveFirst = r;
+          })
       );
 
       const p1 = AdEvents.accountCreated('email');

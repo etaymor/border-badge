@@ -28,10 +28,14 @@ class TestHashPii:
         assert result.isalnum()
 
     def test_lowercases_before_hashing(self):
-        assert hash_pii_sha256("Test@Example.COM") == hash_pii_sha256("test@example.com")
+        assert hash_pii_sha256("Test@Example.COM") == hash_pii_sha256(
+            "test@example.com"
+        )
 
     def test_strips_whitespace_before_hashing(self):
-        assert hash_pii_sha256("  test@example.com  ") == hash_pii_sha256("test@example.com")
+        assert hash_pii_sha256("  test@example.com  ") == hash_pii_sha256(
+            "test@example.com"
+        )
 
     def test_deterministic(self):
         assert hash_pii_sha256("hello") == hash_pii_sha256("hello")
@@ -214,7 +218,9 @@ class TestFacebookCapi:
 
         fb._initialized = False
 
-        with patch("app.services.ad_events.facebook_capi.get_settings") as mock_settings:
+        with patch(
+            "app.services.ad_events.facebook_capi.get_settings"
+        ) as mock_settings:
             mock_settings.return_value = MagicMock(
                 facebook_pixel_id="",
                 facebook_capi_access_token="",
@@ -246,7 +252,9 @@ class TestFacebookCapi:
 
         with (
             patch("app.services.ad_events.facebook_capi.get_settings") as mock_settings,
-            patch("app.services.ad_events.facebook_capi.EventRequest") as MockEventRequest,
+            patch(
+                "app.services.ad_events.facebook_capi.EventRequest"
+            ) as MockEventRequest,
             patch("app.services.ad_events.facebook_capi.Event") as MockEvent,
         ):
             mock_settings.return_value = MagicMock(
@@ -277,7 +285,9 @@ class TestFacebookCapi:
 
         with (
             patch("app.services.ad_events.facebook_capi.get_settings") as mock_settings,
-            patch("app.services.ad_events.facebook_capi.EventRequest") as MockEventRequest,
+            patch(
+                "app.services.ad_events.facebook_capi.EventRequest"
+            ) as MockEventRequest,
             patch("app.services.ad_events.facebook_capi.Event") as MockEvent,
         ):
             mock_settings.return_value = MagicMock(
@@ -308,7 +318,9 @@ class TestFacebookCapi:
 
         with (
             patch("app.services.ad_events.facebook_capi.get_settings") as mock_settings,
-            patch("app.services.ad_events.facebook_capi.EventRequest") as MockEventRequest,
+            patch(
+                "app.services.ad_events.facebook_capi.EventRequest"
+            ) as MockEventRequest,
             patch("app.services.ad_events.facebook_capi.Event"),
             patch("app.services.ad_events.facebook_capi.UserData") as MockUserData,
         ):
@@ -345,7 +357,9 @@ class TestTiktokEvents:
         """Should silently skip when access_token or pixel_code is missing."""
         import app.services.ad_events.tiktok_events as tt
 
-        with patch("app.services.ad_events.tiktok_events.get_settings") as mock_settings:
+        with patch(
+            "app.services.ad_events.tiktok_events.get_settings"
+        ) as mock_settings:
             mock_settings.return_value = MagicMock(
                 tiktok_events_access_token="",
                 tiktok_pixel_code="",
@@ -467,3 +481,67 @@ class TestTiktokEvents:
 
             payload = mock_client.post.call_args.kwargs["json"]["data"][0]
             assert "value" not in payload.get("properties", {})
+
+    @pytest.mark.asyncio
+    async def test_raises_on_nonzero_api_code(self):
+        """Should raise TikTokAPIError when TikTok returns a non-zero code."""
+        import app.services.ad_events.tiktok_events as tt
+        from app.services.ad_events.tiktok_events import TikTokAPIError
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 40002,
+            "message": "Invalid pixel code",
+        }
+        mock_client.post.return_value = mock_response
+
+        with (
+            patch("app.services.ad_events.tiktok_events.get_settings") as mock_settings,
+            patch(
+                "app.services.ad_events.tiktok_events.get_http_client",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                tiktok_events_access_token="tok",
+                tiktok_pixel_code="px123",
+            )
+
+            with pytest.raises(TikTokAPIError, match="Invalid pixel code"):
+                await tt.send_event(
+                    event_name="CompleteRegistration",
+                    user_email="a@b.com",
+                    user_id="uid-1",
+                    properties={},
+                )
+
+    @pytest.mark.asyncio
+    async def test_success_on_zero_api_code(self):
+        """Should succeed without raising when TikTok returns code 0."""
+        import app.services.ad_events.tiktok_events as tt
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"code": 0, "message": "OK"}
+        mock_client.post.return_value = mock_response
+
+        with (
+            patch("app.services.ad_events.tiktok_events.get_settings") as mock_settings,
+            patch(
+                "app.services.ad_events.tiktok_events.get_http_client",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                tiktok_events_access_token="tok",
+                tiktok_pixel_code="px123",
+            )
+
+            # Should not raise
+            await tt.send_event(
+                event_name="CompleteRegistration",
+                user_email="a@b.com",
+                user_id="uid-1",
+                properties={},
+            )

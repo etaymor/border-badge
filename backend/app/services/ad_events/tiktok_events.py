@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 
 TIKTOK_EVENTS_URL = "https://business-api.tiktok.com/open_api/v1.3/event/track/"
 
+
+class TikTokAPIError(Exception):
+    """Raised when TikTok Events API returns a non-zero application-level code."""
+
+    def __init__(self, event_name: str, code: int | str, message: str, result: dict):
+        self.event_name = event_name
+        self.code = code
+        self.api_message = message
+        self.result = result
+        super().__init__(
+            f"TikTok API error for {event_name}: code={code}, message={message}"
+        )
+
+
 # Map internal event names to TikTok event names
 EVENT_NAME_MAP: dict[str, str] = {
     "CompleteRegistration": "CompleteRegistration",
@@ -93,10 +107,25 @@ async def send_event(
         )
         response.raise_for_status()
         result = response.json()
+
+        api_code = result.get("code")
+        api_message = result.get("message", "")
+        if str(api_code) != "0":
+            logger.error(
+                "TikTok API error for %s: code=%s, result=%s",
+                tt_event_name,
+                api_code,
+                result,
+            )
+            raise TikTokAPIError(tt_event_name, api_code, api_message, result)
+
         logger.info(
-            "TikTok event sent: %s (code=%s)",
+            "TikTok event sent: %s (code=%s, message=%s)",
             tt_event_name,
-            result.get("code", "?"),
+            api_code,
+            api_message,
         )
+    except TikTokAPIError:
+        raise
     except Exception:
         logger.exception("TikTok event failed: %s", tt_event_name)
