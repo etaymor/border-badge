@@ -95,7 +95,6 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
 
     const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
     const localMediaRef = useRef<LocalMediaItem[]>([]);
-    // Keep ref in sync so uploadPhotoUris always reads current slot count
     localMediaRef.current = localMedia;
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const hasInitializedPhotos = useRef(false);
@@ -107,17 +106,10 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
     const uploadPhotoUris = useCallback(
       async (uris: string[]) => {
         const existingMediaCount = mediaFiles?.length ?? 0;
-        // Read from ref to avoid stale closure when multiple taps fire before uploads complete
-        const localMediaCount = localMediaRef.current.filter((m) => !m.error).length;
-        const currentOccupied = existingMediaCount + localMediaCount;
-        const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
 
-        if (slotsAvailable === 0) return;
-
-        const urisToProcess = uris.slice(0, slotsAvailable);
-        const filesToUpload: LocalFile[] = [];
-
-        for (const uri of urisToProcess) {
+        // Build files list from incoming URIs
+        const allFiles: LocalFile[] = [];
+        for (const uri of uris) {
           try {
             const expoFile = new ExpoFile(uri);
             if (!expoFile.exists) {
@@ -134,7 +126,7 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
               heic: 'image/heic',
               heif: 'image/heif',
             };
-            filesToUpload.push({
+            allFiles.push({
               uri,
               name: filename,
               type: mimeTypes[extension] || 'image/jpeg',
@@ -145,15 +137,31 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
           }
         }
 
-        if (filesToUpload.length === 0) return;
+        if (allFiles.length === 0) return;
 
-        const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
-          localUri: file.uri,
-          file,
-          uploading: true,
-          progress: 0,
-        }));
-        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+        // Use functional updater to compute slots from the latest queued state,
+        // preventing races when addPhotos is called twice before a re-render.
+        let filesToUpload: LocalFile[] = [];
+        setLocalMedia((prev) => {
+          const localMediaCount = prev.filter((m) => !m.error).length;
+          const currentOccupied = existingMediaCount + localMediaCount;
+          const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
+
+          if (slotsAvailable === 0) return prev;
+
+          filesToUpload = allFiles.slice(0, slotsAvailable);
+          const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
+            localUri: file.uri,
+            file,
+            uploading: true,
+            progress: 0,
+          }));
+          const next = [...prev, ...newLocalMedia];
+          localMediaRef.current = next;
+          return next;
+        });
+
+        if (filesToUpload.length === 0) return;
 
         for (const file of filesToUpload) {
           try {
