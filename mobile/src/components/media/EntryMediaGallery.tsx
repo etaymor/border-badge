@@ -94,6 +94,9 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
     const retryUpload = useRetryUpload();
 
     const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
+    const localMediaRef = useRef<LocalMediaItem[]>([]);
+    // Keep ref in sync so uploadPhotoUris always reads current slot count
+    localMediaRef.current = localMedia;
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const hasInitializedPhotos = useRef(false);
 
@@ -104,7 +107,8 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
     const uploadPhotoUris = useCallback(
       async (uris: string[]) => {
         const existingMediaCount = mediaFiles?.length ?? 0;
-        const localMediaCount = localMedia.filter((m) => !m.error).length;
+        // Read from ref to avoid stale closure when multiple taps fire before uploads complete
+        const localMediaCount = localMediaRef.current.filter((m) => !m.error).length;
         const currentOccupied = existingMediaCount + localMediaCount;
         const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
 
@@ -197,7 +201,7 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
           }
         }
       },
-      [entryId, tripId, isPendingMode, mediaFiles, localMedia, uploadMedia]
+      [entryId, tripId, isPendingMode, mediaFiles, uploadMedia]
     );
 
     // Expose addPhotos to parent via ref
@@ -230,130 +234,8 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
       }
       hasInitializedPhotos.current = true;
 
-      const uploadInitialPhotos = async () => {
-        // Calculate current occupied slots and remaining capacity
-        const existingMediaCount = mediaFiles?.length ?? 0;
-        const localMediaCount = localMedia.filter((m) => !m.error).length;
-        const currentOccupied = existingMediaCount + localMediaCount;
-        const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
-
-        if (slotsAvailable === 0) {
-          logger.info(
-            `Skipping initial photo upload: entry already at max capacity (${MAX_PHOTOS_PER_ENTRY} photos)`
-          );
-          return;
-        }
-
-        // Only process up to the remaining available slots
-        const urisToProcess = initialPhotoUris.slice(0, slotsAvailable);
-        if (urisToProcess.length < initialPhotoUris.length) {
-          logger.info(
-            `Limiting initial photo upload: processing ${urisToProcess.length} of ${initialPhotoUris.length} photos (${slotsAvailable} slots available)`
-          );
-        }
-
-        const filesToUpload: LocalFile[] = [];
-
-        for (const uri of urisToProcess) {
-          try {
-            const expoFile = new ExpoFile(uri);
-            if (!expoFile.exists) {
-              logger.warn('Initial photo file does not exist:', uri);
-              continue;
-            }
-
-            // Extract filename from URI
-            const uriParts = uri.split('/');
-            const filename = uriParts[uriParts.length - 1] || `photo_${Date.now()}.jpg`;
-
-            // Determine MIME type from extension
-            const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
-            const mimeTypes: Record<string, string> = {
-              jpg: 'image/jpeg',
-              jpeg: 'image/jpeg',
-              png: 'image/png',
-              heic: 'image/heic',
-              heif: 'image/heif',
-            };
-            const mimeType = mimeTypes[extension] || 'image/jpeg';
-
-            filesToUpload.push({
-              uri,
-              name: filename,
-              type: mimeType,
-              size: expoFile.size ?? 0,
-            });
-          } catch (error) {
-            logger.error('Failed to process initial photo:', error);
-          }
-        }
-
-        if (filesToUpload.length === 0) {
-          return;
-        }
-
-        // Add files to local state as uploading
-        const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
-          localUri: file.uri,
-          file,
-          uploading: true,
-          progress: 0,
-        }));
-
-        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
-
-        // Upload each file
-        for (const file of filesToUpload) {
-          try {
-            const result = await uploadMedia.mutateAsync({
-              tripId,
-              file,
-              onProgress: (progress) => {
-                const now = Date.now();
-                const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
-                const shouldUpdate =
-                  now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100;
-
-                if (shouldUpdate) {
-                  lastProgressUpdateRef.current.set(file.uri, now);
-                  setLocalMedia((prev) =>
-                    prev.map((item) =>
-                      item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
-                    )
-                  );
-                }
-              },
-            });
-
-            // Clean up progress tracking for this file
-            lastProgressUpdateRef.current.delete(file.uri);
-
-            // Update local state with media ID
-            setLocalMedia((prev) =>
-              prev.map((item) =>
-                item.localUri === file.uri
-                  ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
-                  : item
-              )
-            );
-          } catch {
-            // Clean up progress tracking for this file
-            lastProgressUpdateRef.current.delete(file.uri);
-
-            // Mark as failed
-            setLocalMedia((prev) =>
-              prev.map((item) =>
-                item.localUri === file.uri
-                  ? { ...item, uploading: false, error: 'Upload failed' }
-                  : item
-              )
-            );
-          }
-        }
-      };
-
-      uploadInitialPhotos();
-    }, [initialPhotoUris, isPendingMode, tripId, uploadMedia, isLoading, mediaFiles, localMedia]);
+      uploadPhotoUris(initialPhotoUris);
+    }, [initialPhotoUris, isPendingMode, isLoading, uploadPhotoUris]);
 
     // Track pending media IDs for parent component
     useEffect(() => {

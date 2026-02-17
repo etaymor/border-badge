@@ -102,6 +102,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
   } = useNearbyPhotos(selectedPlace);
   const [addedNearbyPhotoIds, setAddedNearbyPhotoIds] = useState<Set<string>>(new Set());
 
+  // Reset added photo tracking whenever the selected place changes
+  useEffect(() => {
+    setAddedNearbyPhotoIds(new Set());
+  }, [selectedPlace]);
+
   const handleAddNearbyPhoto = useCallback((photo: CachedPhoto) => {
     mediaGalleryRef.current?.addPhotos([photo.uri]);
     setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));
@@ -501,7 +506,6 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     value={selectedPlace}
                     onSelect={(place) => {
                       setSelectedPlace(place);
-                      setAddedNearbyPhotoIds(new Set());
                       if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
                       // Auto-fill the link field with the place's website URL if available
                       if (place?.website_url && !link.trim()) {

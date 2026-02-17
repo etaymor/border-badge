@@ -6,15 +6,7 @@
  */
 
 import { memo, useCallback } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
@@ -40,13 +32,14 @@ export const NearbyPhotoSuggestions = memo(function NearbyPhotoSuggestions({
   remainingSlots,
   addedPhotoIds,
 }: NearbyPhotoSuggestionsProps) {
-  const renderItem = useCallback(
-    ({ item }: { item: CachedPhoto }) => {
+  const renderPhoto = useCallback(
+    (item: CachedPhoto) => {
       const isAdded = addedPhotoIds.has(item.id);
       const isDisabled = isAdded || remainingSlots <= 0;
 
       return (
         <Pressable
+          key={item.id}
           style={[styles.thumbnail, isDisabled && styles.thumbnailDisabled]}
           onPress={() => !isDisabled && onPhotoSelect(item)}
           disabled={isDisabled}
@@ -65,18 +58,9 @@ export const NearbyPhotoSuggestions = memo(function NearbyPhotoSuggestions({
     [addedPhotoIds, remainingSlots, onPhotoSelect]
   );
 
-  const keyExtractor = useCallback((item: CachedPhoto) => item.id, []);
-
-  // Loading state
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.label}>PHOTOS FROM YOUR LIBRARY</Text>
-        <View style={styles.loadingRow}>
-          <ActivityIndicator size="small" color={colors.sunsetGold} />
-        </View>
-      </View>
-    );
+  // Loading or no nearby photos — render nothing to avoid flashing the label
+  if (isLoading || (cacheExists && photos.length === 0)) {
+    return null;
   }
 
   // No cache — user hasn't scanned yet
@@ -89,22 +73,16 @@ export const NearbyPhotoSuggestions = memo(function NearbyPhotoSuggestions({
     );
   }
 
-  // No nearby photos found
-  if (photos.length === 0) {
-    return null;
-  }
-
   return (
     <View style={styles.container}>
       <Text style={styles.label}>PHOTOS FROM YOUR LIBRARY</Text>
-      <FlatList
-        data={photos}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
+      <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.list}
-      />
+      >
+        {photos.map(renderPhoto)}
+      </ScrollView>
     </View>
   );
 });
@@ -127,11 +105,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     lineHeight: 18,
-  },
-  loadingRow: {
-    height: THUMBNAIL_SIZE,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   list: {
     gap: 8,

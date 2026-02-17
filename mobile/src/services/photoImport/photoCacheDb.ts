@@ -15,6 +15,32 @@ import * as geohash from 'ngeohash';
 import { haversine } from './photoClustering';
 import type { CachedPhoto } from './types';
 
+/** Shape of a row from the cached_photos table (snake_case columns). */
+interface CachedPhotoRow {
+  id: string;
+  uri: string;
+  filename: string;
+  creation_time: number;
+  latitude: number;
+  longitude: number;
+  geohash: string;
+  country_code: string | null;
+}
+
+/** Convert a snake_case SQLite row to a camelCase CachedPhoto. */
+function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
+  return {
+    id: row.id,
+    uri: row.uri,
+    filename: row.filename,
+    creationTime: row.creation_time,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    geohash: row.geohash,
+    countryCode: row.country_code,
+  };
+}
+
 const DB_NAME = 'photos.db';
 const SCHEMA_VERSION = 1;
 
@@ -235,29 +261,11 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
  */
 export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<{
-    id: string;
-    uri: string;
-    filename: string;
-    creation_time: number;
-    latitude: number;
-    longitude: number;
-    geohash: string;
-    country_code: string | null;
-  }>(
+  const rows = await database.getAllAsync<CachedPhotoRow>(
     'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos ORDER BY creation_time DESC'
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    uri: row.uri,
-    filename: row.filename,
-    creationTime: row.creation_time,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    geohash: row.geohash,
-    countryCode: row.country_code,
-  }));
+  return rows.map(toCachedPhoto);
 }
 
 /**
@@ -265,30 +273,12 @@ export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
  */
 export async function getCachedPhotosByCountry(countryCode: string): Promise<CachedPhoto[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<{
-    id: string;
-    uri: string;
-    filename: string;
-    creation_time: number;
-    latitude: number;
-    longitude: number;
-    geohash: string;
-    country_code: string | null;
-  }>(
+  const rows = await database.getAllAsync<CachedPhotoRow>(
     'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE country_code = ? ORDER BY creation_time DESC',
     [countryCode]
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    uri: row.uri,
-    filename: row.filename,
-    creationTime: row.creation_time,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    geohash: row.geohash,
-    countryCode: row.country_code,
-  }));
+  return rows.map(toCachedPhoto);
 }
 
 /**
@@ -379,32 +369,14 @@ export async function getPhotosNearLocation(
 
   // Query all photos whose geohash (precision 7) starts with any of these precision-6 prefixes
   const conditions = allHashes.map(() => "geohash LIKE ? || '%'").join(' OR ');
-  const rows = await database.getAllAsync<{
-    id: string;
-    uri: string;
-    filename: string;
-    creation_time: number;
-    latitude: number;
-    longitude: number;
-    geohash: string;
-    country_code: string | null;
-  }>(
+  const rows = await database.getAllAsync<CachedPhotoRow>(
     `SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE ${conditions} ORDER BY creation_time DESC`,
     allHashes
   );
 
   // Compute haversine distances once
   const withDistance = rows.map((row) => ({
-    photo: {
-      id: row.id,
-      uri: row.uri,
-      filename: row.filename,
-      creationTime: row.creation_time,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      geohash: row.geohash,
-      countryCode: row.country_code,
-    } as CachedPhoto,
+    photo: toCachedPhoto(row),
     distance: haversine(latitude, longitude, row.latitude, row.longitude),
   }));
 

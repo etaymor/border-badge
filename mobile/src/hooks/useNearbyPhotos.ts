@@ -27,7 +27,9 @@ export function useNearbyPhotos(place: SelectedPlace | null): UseNearbyPhotosRes
 
   // Check cache existence once on mount
   useEffect(() => {
-    hasCachedPhotos().then(setCacheExists);
+    hasCachedPhotos()
+      .then(setCacheExists)
+      .catch(() => setCacheExists(false));
   }, []);
 
   const search = useCallback(async (lat: number, lon: number, reqId: number) => {
