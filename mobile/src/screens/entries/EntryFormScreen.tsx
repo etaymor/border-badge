@@ -30,16 +30,20 @@ import {
 } from '@hooks/useEntries';
 import { useTrip } from '@hooks/useTrips';
 import { CategorySelector } from '@components/entries';
+import { NearbyPhotoSuggestions } from '@components/entries/NearbyPhotoSuggestions';
 import { SmartLinkDisplay } from '@components/entries/SmartLinkDisplay';
 import { EntryMediaGallery } from '@components/media';
+import type { EntryMediaGalleryRef } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { useNearbyPhotos } from '@hooks/useNearbyPhotos';
 import { usePremiumGate } from '@hooks/usePremiumGate';
 import { useEntries } from '@hooks/useEntries';
+import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { fetchOpenGraphTitle } from '@utils/openGraph';
+import type { CachedPhoto } from '@services/photoImport/types';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -56,6 +60,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
+  const mediaGalleryRef = useRef<EntryMediaGalleryRef>(null);
 
   // Animations - start at final state if editing to avoid flash
   const formFadeAnim = useRef(new Animated.Value(isEditing ? 1 : 0)).current;
@@ -88,6 +93,19 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Nearby photo suggestions
+  const {
+    photos: nearbyPhotos,
+    isLoading: nearbyPhotosLoading,
+    cacheExists,
+  } = useNearbyPhotos(selectedPlace);
+  const [addedNearbyPhotoIds, setAddedNearbyPhotoIds] = useState<Set<string>>(new Set());
+
+  const handleAddNearbyPhoto = useCallback((photo: CachedPhoto) => {
+    mediaGalleryRef.current?.addPhotos([photo.uri]);
+    setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));
+  }, []);
 
   // Animate form appearance when type is selected
   useEffect(() => {
@@ -483,6 +501,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     value={selectedPlace}
                     onSelect={(place) => {
                       setSelectedPlace(place);
+                      setAddedNearbyPhotoIds(new Set());
                       if (errors.place) setErrors((prev) => ({ ...prev, place: '' }));
                       // Auto-fill the link field with the place's website URL if available
                       if (place?.website_url && !link.trim()) {
@@ -546,6 +565,18 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 )}
               </View>
 
+              {/* Nearby Photo Suggestions */}
+              {showPlaceInput && selectedPlace?.latitude != null && (
+                <NearbyPhotoSuggestions
+                  photos={nearbyPhotos}
+                  isLoading={nearbyPhotosLoading}
+                  cacheExists={cacheExists}
+                  onPhotoSelect={handleAddNearbyPhoto}
+                  remainingSlots={MAX_PHOTOS_PER_ENTRY - photoCount}
+                  addedPhotoIds={addedNearbyPhotoIds}
+                />
+              )}
+
               {/* Photos Section */}
               <View style={styles.section}>
                 <View style={styles.photosLabelRow}>
@@ -556,6 +587,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 </View>
                 <View style={styles.photoGalleryContainer}>
                   <EntryMediaGallery
+                    ref={mediaGalleryRef}
                     entryId={isEditing ? entryId : undefined}
                     tripId={!isEditing ? tripId : undefined}
                     editable={true}

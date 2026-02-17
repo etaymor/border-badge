@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -40,6 +40,11 @@ const getProgressInterval = (fileSize?: number) =>
     ? PROGRESS_UPDATE_INTERVAL_FAST
     : PROGRESS_UPDATE_INTERVAL_DEFAULT;
 
+export interface EntryMediaGalleryRef {
+  /** Add photo URIs programmatically (e.g., from nearby photo suggestions). */
+  addPhotos: (uris: string[]) => void;
+}
+
 interface EntryMediaGalleryProps {
   entryId?: string; // Optional - not available during creation
   tripId?: string; // Required if entryId not provided (for pending uploads)
@@ -59,267 +64,271 @@ interface LocalMediaItem {
   mediaId?: string; // Set after successful upload
 }
 
-export function EntryMediaGallery({
-  entryId,
-  tripId,
-  editable = true,
-  onImagePress,
-  onPendingMediaChange,
-  onMediaCountChange,
-  initialPhotoUris,
-}: EntryMediaGalleryProps) {
-  // Use entry media when editing, pending trip media when creating
-  const isPendingMode = !entryId && !!tripId;
+export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGalleryProps>(
+  function EntryMediaGallery(
+    {
+      entryId,
+      tripId,
+      editable = true,
+      onImagePress,
+      onPendingMediaChange,
+      onMediaCountChange,
+      initialPhotoUris,
+    },
+    ref
+  ) {
+    // Use entry media when editing, pending trip media when creating
+    const isPendingMode = !entryId && !!tripId;
 
-  const { data: entryMediaFiles, isLoading: isLoadingEntry } = useEntryMedia(entryId || '');
-  const { data: pendingMediaFiles, isLoading: isLoadingPending } = usePendingTripMedia(
-    tripId || '',
-    isPendingMode
-  );
-
-  const mediaFiles = isPendingMode ? pendingMediaFiles : entryMediaFiles;
-  const isLoading = isPendingMode ? isLoadingPending : isLoadingEntry;
-
-  const uploadMedia = useUploadMedia();
-  const deleteMedia = useDeleteMedia();
-  const retryUpload = useRetryUpload();
-
-  const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const hasInitializedPhotos = useRef(false);
-
-  // Track last progress update time per file to throttle re-renders
-  const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
-
-  // Clean up progress tracking on unmount to prevent memory leaks
-  useEffect(() => {
-    const progressMap = lastProgressUpdateRef.current;
-    return () => {
-      progressMap.clear();
-    };
-  }, []);
-
-  // Auto-upload initial photos from photo import flow
-  useEffect(() => {
-    if (!initialPhotoUris?.length || hasInitializedPhotos.current || !isPendingMode) {
-      return;
-    }
-    // Wait for media data to be loaded before calculating available slots
-    if (isLoading) {
-      return;
-    }
-    hasInitializedPhotos.current = true;
-
-    const uploadInitialPhotos = async () => {
-      // Calculate current occupied slots and remaining capacity
-      const existingMediaCount = mediaFiles?.length ?? 0;
-      const localMediaCount = localMedia.filter((m) => !m.error).length;
-      const currentOccupied = existingMediaCount + localMediaCount;
-      const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
-
-      if (slotsAvailable === 0) {
-        logger.info(
-          `Skipping initial photo upload: entry already at max capacity (${MAX_PHOTOS_PER_ENTRY} photos)`
-        );
-        return;
-      }
-
-      // Only process up to the remaining available slots
-      const urisToProcess = initialPhotoUris.slice(0, slotsAvailable);
-      if (urisToProcess.length < initialPhotoUris.length) {
-        logger.info(
-          `Limiting initial photo upload: processing ${urisToProcess.length} of ${initialPhotoUris.length} photos (${slotsAvailable} slots available)`
-        );
-      }
-
-      const filesToUpload: LocalFile[] = [];
-
-      for (const uri of urisToProcess) {
-        try {
-          const expoFile = new ExpoFile(uri);
-          if (!expoFile.exists) {
-            logger.warn('Initial photo file does not exist:', uri);
-            continue;
-          }
-
-          // Extract filename from URI
-          const uriParts = uri.split('/');
-          const filename = uriParts[uriParts.length - 1] || `photo_${Date.now()}.jpg`;
-
-          // Determine MIME type from extension
-          const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
-          const mimeTypes: Record<string, string> = {
-            jpg: 'image/jpeg',
-            jpeg: 'image/jpeg',
-            png: 'image/png',
-            heic: 'image/heic',
-            heif: 'image/heif',
-          };
-          const mimeType = mimeTypes[extension] || 'image/jpeg';
-
-          filesToUpload.push({
-            uri,
-            name: filename,
-            type: mimeType,
-            size: expoFile.size ?? 0,
-          });
-        } catch (error) {
-          logger.error('Failed to process initial photo:', error);
-        }
-      }
-
-      if (filesToUpload.length === 0) {
-        return;
-      }
-
-      // Add files to local state as uploading
-      const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
-        localUri: file.uri,
-        file,
-        uploading: true,
-        progress: 0,
-      }));
-
-      setLocalMedia((prev) => [...prev, ...newLocalMedia]);
-
-      // Upload each file
-      for (const file of filesToUpload) {
-        try {
-          const result = await uploadMedia.mutateAsync({
-            tripId,
-            file,
-            onProgress: (progress) => {
-              const now = Date.now();
-              const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
-              const shouldUpdate =
-                now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100;
-
-              if (shouldUpdate) {
-                lastProgressUpdateRef.current.set(file.uri, now);
-                setLocalMedia((prev) =>
-                  prev.map((item) =>
-                    item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
-                  )
-                );
-              }
-            },
-          });
-
-          // Clean up progress tracking for this file
-          lastProgressUpdateRef.current.delete(file.uri);
-
-          // Update local state with media ID
-          setLocalMedia((prev) =>
-            prev.map((item) =>
-              item.localUri === file.uri
-                ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
-                : item
-            )
-          );
-        } catch {
-          // Clean up progress tracking for this file
-          lastProgressUpdateRef.current.delete(file.uri);
-
-          // Mark as failed
-          setLocalMedia((prev) =>
-            prev.map((item) =>
-              item.localUri === file.uri
-                ? { ...item, uploading: false, error: 'Upload failed' }
-                : item
-            )
-          );
-        }
-      }
-    };
-
-    uploadInitialPhotos();
-  }, [initialPhotoUris, isPendingMode, tripId, uploadMedia, isLoading, mediaFiles, localMedia]);
-
-  // Track pending media IDs for parent component
-  useEffect(() => {
-    if (isPendingMode && onPendingMediaChange) {
-      const serverMediaIds = (mediaFiles || []).map((m) => m.id);
-      const localMediaIds = localMedia.filter((m) => m.mediaId).map((m) => m.mediaId!);
-      onPendingMediaChange([...serverMediaIds, ...localMediaIds]);
-    }
-  }, [isPendingMode, mediaFiles, localMedia, onPendingMediaChange]);
-
-  // Once pending media is persisted and fetched from server, drop local copies to avoid duplicates
-  useEffect(() => {
-    if (!isPendingMode || !mediaFiles) return;
-    setLocalMedia((prev) =>
-      prev.filter((item) => !(item.mediaId && mediaFiles.some((m) => m.id === item.mediaId)))
+    const { data: entryMediaFiles, isLoading: isLoadingEntry } = useEntryMedia(entryId || '');
+    const { data: pendingMediaFiles, isLoading: isLoadingPending } = usePendingTripMedia(
+      tripId || '',
+      isPendingMode
     );
-  }, [isPendingMode, mediaFiles]);
 
-  const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
-  const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
+    const mediaFiles = isPendingMode ? pendingMediaFiles : entryMediaFiles;
+    const isLoading = isPendingMode ? isLoadingPending : isLoadingEntry;
 
-  // Notify parent of media count changes
-  useEffect(() => {
-    onMediaCountChange?.(currentCount);
-  }, [currentCount, onMediaCountChange]);
+    const uploadMedia = useUploadMedia();
+    const deleteMedia = useDeleteMedia();
+    const retryUpload = useRetryUpload();
 
-  // Handle picking images from library
-  const handlePickImages = useCallback(async () => {
-    if (remainingSlots <= 0) {
-      Alert.alert('Limit Reached', `Maximum ${MAX_PHOTOS_PER_ENTRY} photos per entry.`);
-      return;
-    }
+    const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
+    const hasInitializedPhotos = useRef(false);
 
-    setIsPickerOpen(true);
-    try {
-      const files = await pickImages({ maxCount: remainingSlots });
+    // Track last progress update time per file to throttle re-renders
+    const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
 
-      if (files.length === 0) return;
+    // Upload a list of photo URIs (used by both initialPhotoUris and addPhotos)
+    const uploadPhotoUris = useCallback(
+      async (uris: string[]) => {
+        const existingMediaCount = mediaFiles?.length ?? 0;
+        const localMediaCount = localMedia.filter((m) => !m.error).length;
+        const currentOccupied = existingMediaCount + localMediaCount;
+        const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
 
-      // Add to local state
-      const newLocalMedia: LocalMediaItem[] = files.map((file) => ({
-        localUri: file.uri,
-        file,
-        uploading: true,
-        progress: 0,
-      }));
+        if (slotsAvailable === 0) return;
 
-      setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+        const urisToProcess = uris.slice(0, slotsAvailable);
+        const filesToUpload: LocalFile[] = [];
 
-      // Upload each file
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        try {
-          const result = await uploadMedia.mutateAsync({
-            entryId: isPendingMode ? undefined : entryId,
-            tripId: isPendingMode ? tripId : undefined,
-            file,
-            onProgress: (progress) => {
-              // Throttle progress updates to reduce re-renders
-              const now = Date.now();
-              const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
-              const shouldUpdate =
-                now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100; // Always update on completion
+        for (const uri of urisToProcess) {
+          try {
+            const expoFile = new ExpoFile(uri);
+            if (!expoFile.exists) {
+              logger.warn('Photo file does not exist:', uri);
+              continue;
+            }
+            const uriParts = uri.split('/');
+            const filename = uriParts[uriParts.length - 1] || `photo_${Date.now()}.jpg`;
+            const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
+            const mimeTypes: Record<string, string> = {
+              jpg: 'image/jpeg',
+              jpeg: 'image/jpeg',
+              png: 'image/png',
+              heic: 'image/heic',
+              heif: 'image/heif',
+            };
+            filesToUpload.push({
+              uri,
+              name: filename,
+              type: mimeTypes[extension] || 'image/jpeg',
+              size: expoFile.size ?? 0,
+            });
+          } catch (error) {
+            logger.error('Failed to process photo:', error);
+          }
+        }
 
-              if (shouldUpdate) {
-                // Prune stale entries to prevent unbounded Map growth
-                for (const [uri, timestamp] of lastProgressUpdateRef.current) {
-                  if (now - timestamp > STALE_THRESHOLD) {
-                    lastProgressUpdateRef.current.delete(uri);
-                  }
+        if (filesToUpload.length === 0) return;
+
+        const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
+          localUri: file.uri,
+          file,
+          uploading: true,
+          progress: 0,
+        }));
+        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+
+        for (const file of filesToUpload) {
+          try {
+            const result = await uploadMedia.mutateAsync({
+              entryId: isPendingMode ? undefined : entryId,
+              tripId: isPendingMode ? tripId : undefined,
+              file,
+              onProgress: (progress) => {
+                const now = Date.now();
+                const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
+                const shouldUpdate =
+                  now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100;
+                if (shouldUpdate) {
+                  lastProgressUpdateRef.current.set(file.uri, now);
+                  setLocalMedia((prev) =>
+                    prev.map((item) =>
+                      item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
+                    )
+                  );
                 }
-                lastProgressUpdateRef.current.set(file.uri, now);
-                setLocalMedia((prev) =>
-                  prev.map((item) =>
-                    item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
-                  )
-                );
-              }
-            },
-          });
+              },
+            });
+            lastProgressUpdateRef.current.delete(file.uri);
 
-          // Clean up progress tracking for this file
-          lastProgressUpdateRef.current.delete(file.uri);
+            if (isPendingMode) {
+              setLocalMedia((prev) =>
+                prev.map((item) =>
+                  item.localUri === file.uri
+                    ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                    : item
+                )
+              );
+            } else {
+              setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
+            }
+          } catch {
+            lastProgressUpdateRef.current.delete(file.uri);
+            setLocalMedia((prev) =>
+              prev.map((item) =>
+                item.localUri === file.uri
+                  ? { ...item, uploading: false, error: 'Upload failed' }
+                  : item
+              )
+            );
+          }
+        }
+      },
+      [entryId, tripId, isPendingMode, mediaFiles, localMedia, uploadMedia]
+    );
 
-          // In pending mode, keep the local placeholder with the new media ID until server fetch
-          if (isPendingMode) {
+    // Expose addPhotos to parent via ref
+    useImperativeHandle(
+      ref,
+      () => ({
+        addPhotos: (uris: string[]) => {
+          uploadPhotoUris(uris);
+        },
+      }),
+      [uploadPhotoUris]
+    );
+
+    // Clean up progress tracking on unmount to prevent memory leaks
+    useEffect(() => {
+      const progressMap = lastProgressUpdateRef.current;
+      return () => {
+        progressMap.clear();
+      };
+    }, []);
+
+    // Auto-upload initial photos from photo import flow
+    useEffect(() => {
+      if (!initialPhotoUris?.length || hasInitializedPhotos.current || !isPendingMode) {
+        return;
+      }
+      // Wait for media data to be loaded before calculating available slots
+      if (isLoading) {
+        return;
+      }
+      hasInitializedPhotos.current = true;
+
+      const uploadInitialPhotos = async () => {
+        // Calculate current occupied slots and remaining capacity
+        const existingMediaCount = mediaFiles?.length ?? 0;
+        const localMediaCount = localMedia.filter((m) => !m.error).length;
+        const currentOccupied = existingMediaCount + localMediaCount;
+        const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
+
+        if (slotsAvailable === 0) {
+          logger.info(
+            `Skipping initial photo upload: entry already at max capacity (${MAX_PHOTOS_PER_ENTRY} photos)`
+          );
+          return;
+        }
+
+        // Only process up to the remaining available slots
+        const urisToProcess = initialPhotoUris.slice(0, slotsAvailable);
+        if (urisToProcess.length < initialPhotoUris.length) {
+          logger.info(
+            `Limiting initial photo upload: processing ${urisToProcess.length} of ${initialPhotoUris.length} photos (${slotsAvailable} slots available)`
+          );
+        }
+
+        const filesToUpload: LocalFile[] = [];
+
+        for (const uri of urisToProcess) {
+          try {
+            const expoFile = new ExpoFile(uri);
+            if (!expoFile.exists) {
+              logger.warn('Initial photo file does not exist:', uri);
+              continue;
+            }
+
+            // Extract filename from URI
+            const uriParts = uri.split('/');
+            const filename = uriParts[uriParts.length - 1] || `photo_${Date.now()}.jpg`;
+
+            // Determine MIME type from extension
+            const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
+            const mimeTypes: Record<string, string> = {
+              jpg: 'image/jpeg',
+              jpeg: 'image/jpeg',
+              png: 'image/png',
+              heic: 'image/heic',
+              heif: 'image/heif',
+            };
+            const mimeType = mimeTypes[extension] || 'image/jpeg';
+
+            filesToUpload.push({
+              uri,
+              name: filename,
+              type: mimeType,
+              size: expoFile.size ?? 0,
+            });
+          } catch (error) {
+            logger.error('Failed to process initial photo:', error);
+          }
+        }
+
+        if (filesToUpload.length === 0) {
+          return;
+        }
+
+        // Add files to local state as uploading
+        const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
+          localUri: file.uri,
+          file,
+          uploading: true,
+          progress: 0,
+        }));
+
+        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+
+        // Upload each file
+        for (const file of filesToUpload) {
+          try {
+            const result = await uploadMedia.mutateAsync({
+              tripId,
+              file,
+              onProgress: (progress) => {
+                const now = Date.now();
+                const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
+                const shouldUpdate =
+                  now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100;
+
+                if (shouldUpdate) {
+                  lastProgressUpdateRef.current.set(file.uri, now);
+                  setLocalMedia((prev) =>
+                    prev.map((item) =>
+                      item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
+                    )
+                  );
+                }
+              },
+            });
+
+            // Clean up progress tracking for this file
+            lastProgressUpdateRef.current.delete(file.uri);
+
+            // Update local state with media ID
             setLocalMedia((prev) =>
               prev.map((item) =>
                 item.localUri === file.uri
@@ -327,274 +336,386 @@ export function EntryMediaGallery({
                   : item
               )
             );
+          } catch {
+            // Clean up progress tracking for this file
+            lastProgressUpdateRef.current.delete(file.uri);
+
+            // Mark as failed
+            setLocalMedia((prev) =>
+              prev.map((item) =>
+                item.localUri === file.uri
+                  ? { ...item, uploading: false, error: 'Upload failed' }
+                  : item
+              )
+            );
+          }
+        }
+      };
+
+      uploadInitialPhotos();
+    }, [initialPhotoUris, isPendingMode, tripId, uploadMedia, isLoading, mediaFiles, localMedia]);
+
+    // Track pending media IDs for parent component
+    useEffect(() => {
+      if (isPendingMode && onPendingMediaChange) {
+        const serverMediaIds = (mediaFiles || []).map((m) => m.id);
+        const localMediaIds = localMedia.filter((m) => m.mediaId).map((m) => m.mediaId!);
+        onPendingMediaChange([...serverMediaIds, ...localMediaIds]);
+      }
+    }, [isPendingMode, mediaFiles, localMedia, onPendingMediaChange]);
+
+    // Once pending media is persisted and fetched from server, drop local copies to avoid duplicates
+    useEffect(() => {
+      if (!isPendingMode || !mediaFiles) return;
+      setLocalMedia((prev) =>
+        prev.filter((item) => !(item.mediaId && mediaFiles.some((m) => m.id === item.mediaId)))
+      );
+    }, [isPendingMode, mediaFiles]);
+
+    const currentCount = (mediaFiles?.length ?? 0) + localMedia.filter((m) => !m.error).length;
+    const remainingSlots = MAX_PHOTOS_PER_ENTRY - currentCount;
+
+    // Notify parent of media count changes
+    useEffect(() => {
+      onMediaCountChange?.(currentCount);
+    }, [currentCount, onMediaCountChange]);
+
+    // Handle picking images from library
+    const handlePickImages = useCallback(async () => {
+      if (remainingSlots <= 0) {
+        Alert.alert('Limit Reached', `Maximum ${MAX_PHOTOS_PER_ENTRY} photos per entry.`);
+        return;
+      }
+
+      setIsPickerOpen(true);
+      try {
+        const files = await pickImages({ maxCount: remainingSlots });
+
+        if (files.length === 0) return;
+
+        // Add to local state
+        const newLocalMedia: LocalMediaItem[] = files.map((file) => ({
+          localUri: file.uri,
+          file,
+          uploading: true,
+          progress: 0,
+        }));
+
+        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
+
+        // Upload each file
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          try {
+            const result = await uploadMedia.mutateAsync({
+              entryId: isPendingMode ? undefined : entryId,
+              tripId: isPendingMode ? tripId : undefined,
+              file,
+              onProgress: (progress) => {
+                // Throttle progress updates to reduce re-renders
+                const now = Date.now();
+                const lastUpdate = lastProgressUpdateRef.current.get(file.uri) ?? 0;
+                const shouldUpdate =
+                  now - lastUpdate >= getProgressInterval(file.size) || progress.percentage === 100; // Always update on completion
+
+                if (shouldUpdate) {
+                  // Prune stale entries to prevent unbounded Map growth
+                  for (const [uri, timestamp] of lastProgressUpdateRef.current) {
+                    if (now - timestamp > STALE_THRESHOLD) {
+                      lastProgressUpdateRef.current.delete(uri);
+                    }
+                  }
+                  lastProgressUpdateRef.current.set(file.uri, now);
+                  setLocalMedia((prev) =>
+                    prev.map((item) =>
+                      item.localUri === file.uri ? { ...item, progress: progress.percentage } : item
+                    )
+                  );
+                }
+              },
+            });
+
+            // Clean up progress tracking for this file
+            lastProgressUpdateRef.current.delete(file.uri);
+
+            // In pending mode, keep the local placeholder with the new media ID until server fetch
+            if (isPendingMode) {
+              setLocalMedia((prev) =>
+                prev.map((item) =>
+                  item.localUri === file.uri
+                    ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                    : item
+                )
+              );
+            } else {
+              // Remove from local state on success (server has it now)
+              setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
+            }
+          } catch {
+            // Clean up progress tracking for this file
+            lastProgressUpdateRef.current.delete(file.uri);
+
+            // Mark as failed
+            setLocalMedia((prev) =>
+              prev.map((item) =>
+                item.localUri === file.uri
+                  ? { ...item, uploading: false, error: 'Upload failed' }
+                  : item
+              )
+            );
+          }
+        }
+      } catch (error) {
+        logger.error('Failed to pick images:', error);
+        if ((error as Error).message.includes('denied')) {
+          Alert.alert('Permission Required', 'Please allow photo library access in Settings.');
+        }
+      } finally {
+        setIsPickerOpen(false);
+      }
+    }, [entryId, tripId, isPendingMode, remainingSlots, uploadMedia]);
+
+    // Handle delete
+    const handleDelete = useCallback(
+      (mediaId: string) => {
+        Alert.alert('Delete Photo', 'Are you sure you want to delete this photo?', [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              deleteMedia.mutate(mediaId);
+            },
+          },
+        ]);
+      },
+      [deleteMedia]
+    );
+
+    // Handle retry failed upload
+    const handleRetry = useCallback(
+      async (localItem: LocalMediaItem) => {
+        setLocalMedia((prev) =>
+          prev.map((item) =>
+            item.localUri === localItem.localUri
+              ? { ...item, uploading: true, error: undefined, progress: 0 }
+              : item
+          )
+        );
+
+        try {
+          const result = await uploadMedia.mutateAsync({
+            entryId: isPendingMode ? undefined : entryId,
+            tripId: isPendingMode ? tripId : undefined,
+            file: localItem.file,
+            onProgress: (progress) => {
+              // Throttle progress updates to reduce re-renders (consistent with handlePickImages)
+              const now = Date.now();
+              const lastUpdate = lastProgressUpdateRef.current.get(localItem.localUri) ?? 0;
+              const shouldUpdate =
+                now - lastUpdate >= getProgressInterval(localItem.file.size) ||
+                progress.percentage === 100;
+
+              if (shouldUpdate) {
+                lastProgressUpdateRef.current.set(localItem.localUri, now);
+                setLocalMedia((prev) =>
+                  prev.map((item) =>
+                    item.localUri === localItem.localUri
+                      ? { ...item, progress: progress.percentage }
+                      : item
+                  )
+                );
+              }
+            },
+          });
+
+          // Clean up progress tracking for this file
+          lastProgressUpdateRef.current.delete(localItem.localUri);
+
+          if (isPendingMode) {
+            setLocalMedia((prev) =>
+              prev.map((item) =>
+                item.localUri === localItem.localUri
+                  ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
+                  : item
+              )
+            );
           } else {
-            // Remove from local state on success (server has it now)
-            setLocalMedia((prev) => prev.filter((item) => item.localUri !== file.uri));
+            setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
           }
         } catch {
           // Clean up progress tracking for this file
-          lastProgressUpdateRef.current.delete(file.uri);
+          lastProgressUpdateRef.current.delete(localItem.localUri);
 
-          // Mark as failed
           setLocalMedia((prev) =>
             prev.map((item) =>
-              item.localUri === file.uri
+              item.localUri === localItem.localUri
                 ? { ...item, uploading: false, error: 'Upload failed' }
                 : item
             )
           );
         }
-      }
-    } catch (error) {
-      logger.error('Failed to pick images:', error);
-      if ((error as Error).message.includes('denied')) {
-        Alert.alert('Permission Required', 'Please allow photo library access in Settings.');
-      }
-    } finally {
-      setIsPickerOpen(false);
-    }
-  }, [entryId, tripId, isPendingMode, remainingSlots, uploadMedia]);
+      },
+      [entryId, tripId, isPendingMode, uploadMedia]
+    );
 
-  // Handle delete
-  const handleDelete = useCallback(
-    (mediaId: string) => {
-      Alert.alert('Delete Photo', 'Are you sure you want to delete this photo?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            deleteMedia.mutate(mediaId);
-          },
-        },
-      ]);
-    },
-    [deleteMedia]
-  );
+    // Handle remove failed upload
+    const handleRemoveFailed = useCallback((localUri: string) => {
+      setLocalMedia((prev) => prev.filter((item) => item.localUri !== localUri));
+    }, []);
 
-  // Handle retry failed upload
-  const handleRetry = useCallback(
-    async (localItem: LocalMediaItem) => {
-      setLocalMedia((prev) =>
-        prev.map((item) =>
-          item.localUri === localItem.localUri
-            ? { ...item, uploading: true, error: undefined, progress: 0 }
-            : item
-        )
-      );
+    // Render uploaded media item
+    const renderMediaItem = useCallback(
+      (media: MediaFile, index: number) => (
+        <Pressable
+          key={media.id}
+          style={styles.mediaItem}
+          onPress={() => onImagePress?.(media, index)}
+        >
+          <Image
+            source={{ uri: media.thumbnail_url ?? media.url }}
+            style={styles.thumbnail}
+            resizeMode="cover"
+          />
 
-      try {
-        const result = await uploadMedia.mutateAsync({
-          entryId: isPendingMode ? undefined : entryId,
-          tripId: isPendingMode ? tripId : undefined,
-          file: localItem.file,
-          onProgress: (progress) => {
-            // Throttle progress updates to reduce re-renders (consistent with handlePickImages)
-            const now = Date.now();
-            const lastUpdate = lastProgressUpdateRef.current.get(localItem.localUri) ?? 0;
-            const shouldUpdate =
-              now - lastUpdate >= getProgressInterval(localItem.file.size) ||
-              progress.percentage === 100;
+          {media.status === 'processing' && (
+            <View style={styles.overlay}>
+              <ActivityIndicator size="small" color="#fff" />
+            </View>
+          )}
 
-            if (shouldUpdate) {
-              lastProgressUpdateRef.current.set(localItem.localUri, now);
-              setLocalMedia((prev) =>
-                prev.map((item) =>
-                  item.localUri === localItem.localUri
-                    ? { ...item, progress: progress.percentage }
-                    : item
-                )
-              );
-            }
-          },
-        });
-
-        // Clean up progress tracking for this file
-        lastProgressUpdateRef.current.delete(localItem.localUri);
-
-        if (isPendingMode) {
-          setLocalMedia((prev) =>
-            prev.map((item) =>
-              item.localUri === localItem.localUri
-                ? { ...item, mediaId: result.id, uploading: false, progress: 100 }
-                : item
-            )
-          );
-        } else {
-          setLocalMedia((prev) => prev.filter((item) => item.localUri !== localItem.localUri));
-        }
-      } catch {
-        // Clean up progress tracking for this file
-        lastProgressUpdateRef.current.delete(localItem.localUri);
-
-        setLocalMedia((prev) =>
-          prev.map((item) =>
-            item.localUri === localItem.localUri
-              ? { ...item, uploading: false, error: 'Upload failed' }
-              : item
-          )
-        );
-      }
-    },
-    [entryId, tripId, isPendingMode, uploadMedia]
-  );
-
-  // Handle remove failed upload
-  const handleRemoveFailed = useCallback((localUri: string) => {
-    setLocalMedia((prev) => prev.filter((item) => item.localUri !== localUri));
-  }, []);
-
-  // Render uploaded media item
-  const renderMediaItem = useCallback(
-    (media: MediaFile, index: number) => (
-      <Pressable
-        key={media.id}
-        style={styles.mediaItem}
-        onPress={() => onImagePress?.(media, index)}
-      >
-        <Image
-          source={{ uri: media.thumbnail_url ?? media.url }}
-          style={styles.thumbnail}
-          resizeMode="cover"
-        />
-
-        {media.status === 'processing' && (
-          <View style={styles.overlay}>
-            <ActivityIndicator size="small" color="#fff" />
-          </View>
-        )}
-
-        {media.status === 'failed' && (
-          <View style={styles.overlay} pointerEvents="box-none">
-            <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
-            <Pressable
-              style={styles.retryButton}
-              onPress={() => retryUpload.mutate(media.id)}
-              hitSlop={8}
-            >
-              <Text style={styles.retryText}>Retry</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {editable && media.status === 'uploaded' && (
-          <Pressable
-            style={styles.deleteButton}
-            onPress={() => handleDelete(media.id)}
-            accessibilityRole="button"
-            accessibilityLabel="Delete photo"
-            accessibilityHint="Tap to remove this photo"
-          >
-            <Ionicons name="close-circle" size={22} color="#fff" />
-          </Pressable>
-        )}
-      </Pressable>
-    ),
-    [editable, handleDelete, onImagePress, retryUpload]
-  );
-
-  // Render local uploading item
-  const renderLocalItem = useCallback(
-    (item: LocalMediaItem) => (
-      <View key={item.localUri} style={styles.mediaItem}>
-        <Image source={{ uri: item.localUri }} style={styles.thumbnail} resizeMode="cover" />
-
-        {item.uploading && !item.error && (
-          <View style={styles.overlay}>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.progressText}>{Math.round(item.progress)}%</Text>
-          </View>
-        )}
-
-        {item.error && (
-          <View style={styles.overlay} pointerEvents="box-none">
-            <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
-            <View style={styles.failedActions}>
-              <Pressable style={styles.retryButton} onPress={() => handleRetry(item)} hitSlop={8}>
-                <Text style={styles.retryText}>Retry</Text>
-              </Pressable>
+          {media.status === 'failed' && (
+            <View style={styles.overlay} pointerEvents="box-none">
+              <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
               <Pressable
-                style={styles.removeButton}
-                onPress={() => handleRemoveFailed(item.localUri)}
+                style={styles.retryButton}
+                onPress={() => retryUpload.mutate(media.id)}
                 hitSlop={8}
               >
-                <Text style={styles.removeText}>Remove</Text>
+                <Text style={styles.retryText}>Retry</Text>
               </Pressable>
             </View>
-          </View>
-        )}
-      </View>
-    ),
-    [handleRetry, handleRemoveFailed]
-  );
+          )}
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color={colors.sunsetGold} />
-      </View>
+          {editable && media.status === 'uploaded' && (
+            <Pressable
+              style={styles.deleteButton}
+              onPress={() => handleDelete(media.id)}
+              accessibilityRole="button"
+              accessibilityLabel="Delete photo"
+              accessibilityHint="Tap to remove this photo"
+            >
+              <Ionicons name="close-circle" size={22} color="#fff" />
+            </Pressable>
+          )}
+        </Pressable>
+      ),
+      [editable, handleDelete, onImagePress, retryUpload]
     );
-  }
 
-  const hasMedia = (mediaFiles?.length ?? 0) > 0 || localMedia.length > 0;
+    // Render local uploading item
+    const renderLocalItem = useCallback(
+      (item: LocalMediaItem) => (
+        <View key={item.localUri} style={styles.mediaItem}>
+          <Image source={{ uri: item.localUri }} style={styles.thumbnail} resizeMode="cover" />
 
-  return (
-    <View style={styles.container}>
-      {hasMedia ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollView}>
-          <View style={styles.grid}>
-            {/* Uploaded media */}
-            {mediaFiles?.map((media, index) => renderMediaItem(media, index))}
+          {item.uploading && !item.error && (
+            <View style={styles.overlay}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.progressText}>{Math.round(item.progress)}%</Text>
+            </View>
+          )}
 
-            {/* Local uploading/failed media */}
-            {localMedia.map(renderLocalItem)}
+          {item.error && (
+            <View style={styles.overlay} pointerEvents="box-none">
+              <Ionicons name="alert-circle" size={24} color={colors.adobeBrick} />
+              <View style={styles.failedActions}>
+                <Pressable style={styles.retryButton} onPress={() => handleRetry(item)} hitSlop={8}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.removeButton}
+                  onPress={() => handleRemoveFailed(item.localUri)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.removeText}>Remove</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+      ),
+      [handleRetry, handleRemoveFailed]
+    );
 
-            {/* Add button */}
-            {editable && remainingSlots > 0 && (
+    if (isLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={colors.sunsetGold} />
+        </View>
+      );
+    }
+
+    const hasMedia = (mediaFiles?.length ?? 0) > 0 || localMedia.length > 0;
+
+    return (
+      <View style={styles.container}>
+        {hasMedia ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollView}>
+            <View style={styles.grid}>
+              {/* Uploaded media */}
+              {mediaFiles?.map((media, index) => renderMediaItem(media, index))}
+
+              {/* Local uploading/failed media */}
+              {localMedia.map(renderLocalItem)}
+
+              {/* Add button */}
+              {editable && remainingSlots > 0 && (
+                <Pressable
+                  style={styles.addButton}
+                  onPress={handlePickImages}
+                  disabled={isPickerOpen}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add more photos"
+                  accessibilityHint={`Tap to add up to ${remainingSlots} more photos`}
+                >
+                  <Ionicons name="add" size={32} color={colors.midnightNavy} />
+                </Pressable>
+              )}
+            </View>
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyState}>
+            {editable ? (
               <Pressable
-                style={styles.addButton}
+                style={styles.emptyButton}
                 onPress={handlePickImages}
                 disabled={isPickerOpen}
                 accessibilityRole="button"
-                accessibilityLabel="Add more photos"
-                accessibilityHint={`Tap to add up to ${remainingSlots} more photos`}
+                accessibilityLabel="Choose photos"
+                accessibilityHint="Tap to select photos from your gallery"
               >
-                <Ionicons name="add" size={32} color={colors.midnightNavy} />
+                <BlurView intensity={20} tint="light" style={styles.emptyBlurView}>
+                  <View style={styles.emptyContent}>
+                    <View style={styles.iconCircle}>
+                      <Ionicons name="image-outline" size={22} color={colors.midnightNavy} />
+                    </View>
+                    <View style={styles.emptyTextContainer}>
+                      <Text style={styles.emptyButtonText}>Choose Photos</Text>
+                      <Text style={styles.emptyHint}>Tap to add memories</Text>
+                    </View>
+                  </View>
+                </BlurView>
               </Pressable>
+            ) : (
+              <Text style={styles.emptyText}>No photos</Text>
             )}
           </View>
-        </ScrollView>
-      ) : (
-        <View style={styles.emptyState}>
-          {editable ? (
-            <Pressable
-              style={styles.emptyButton}
-              onPress={handlePickImages}
-              disabled={isPickerOpen}
-              accessibilityRole="button"
-              accessibilityLabel="Choose photos"
-              accessibilityHint="Tap to select photos from your gallery"
-            >
-              <BlurView intensity={20} tint="light" style={styles.emptyBlurView}>
-                <View style={styles.emptyContent}>
-                  <View style={styles.iconCircle}>
-                    <Ionicons name="image-outline" size={22} color={colors.midnightNavy} />
-                  </View>
-                  <View style={styles.emptyTextContainer}>
-                    <Text style={styles.emptyButtonText}>Choose Photos</Text>
-                    <Text style={styles.emptyHint}>Tap to add memories</Text>
-                  </View>
-                </View>
-              </BlurView>
-            </Pressable>
-          ) : (
-            <Text style={styles.emptyText}>No photos</Text>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
+        )}
+      </View>
+    );
+  }
+);
 
 const styles = StyleSheet.create({
   container: {
