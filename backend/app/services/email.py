@@ -65,11 +65,53 @@ def _load_template_content(template_name: str) -> str | None:
         return None
 
 
+@lru_cache(maxsize=10)
+def _load_html_template_content(template_name: str) -> str | None:
+    """Load raw HTML template content from disk with caching.
+
+    Args:
+        template_name: Name of the template file (without .html extension)
+
+    Returns:
+        HTML template content or None if not found
+    """
+    template_path = TEMPLATES_DIR / f"{template_name}.html"
+    try:
+        return template_path.read_text()
+    except FileNotFoundError:
+        return None
+
+
+def _wrap_html_email(content: str) -> str:
+    """Wrap HTML email content in a minimal structure for consistent rendering.
+
+    Adds DOCTYPE, viewport meta, and a centered 600px container with a clean
+    font stack. No branding — just enough for readable text across email clients.
+    """
+    return (
+        "<!DOCTYPE html>"
+        '<html lang="en">'
+        "<head>"
+        '<meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        "</head>"
+        '<body style="margin:0; padding:0; background-color:#ffffff;">'
+        '<div style="max-width:600px; margin:0 auto; padding:24px 16px; '
+        "font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+        "Helvetica, Arial, sans-serif; font-size:16px; line-height:1.5; "
+        'color:#1a1a1a;">'
+        f"{content}"
+        "</div>"
+        "</body>"
+        "</html>"
+    )
+
+
 def load_email_template(
     template_name: str,
     display_name: str,
     unsubscribe_url: str | None = None,
-) -> str:
+) -> tuple[str, str | None]:
     """Load and format an email template from file.
 
     Args:
@@ -78,8 +120,9 @@ def load_email_template(
         unsubscribe_url: Optional URL for unsubscribe link
 
     Returns:
-        Formatted email body with display_name substituted and unsubscribe footer
+        Tuple of (text_body, html_body). html_body is None if no HTML template exists.
     """
+    settings = get_settings()
     fallback = f"Hi {display_name},\n\nWelcome to Atlasi!\n\nEmerson"
     content = _load_template_content(template_name)
     if content is None:
@@ -99,7 +142,36 @@ def load_email_template(
     if unsubscribe_url:
         body += f"\n\n---\nDon't want these emails? Unsubscribe: {unsubscribe_url}"
 
-    return body
+    # Load HTML version if it exists
+    html_body = None
+    html_content = _load_html_template_content(template_name)
+    if html_content is not None:
+        try:
+            html_body = html_content.replace("{display_name}", display_name)
+            html_body = html_body.replace("{base_url}", settings.base_url.rstrip("/"))
+
+            if unsubscribe_url:
+                unsubscribe_html = (
+                    '<p style="margin-top:30px; padding-top:15px; '
+                    'border-top:1px solid #e0e0e0; font-size:13px; color:#999;">'
+                    "Don't want these emails? "
+                    f'<a href="{unsubscribe_url}" style="color:#999;">Unsubscribe</a>'
+                    "</p>"
+                )
+                html_body = html_body.replace("{unsubscribe_footer}", unsubscribe_html)
+            else:
+                html_body = html_body.replace("{unsubscribe_footer}", "")
+
+            # Wrap in minimal email structure for consistent rendering
+            html_body = _wrap_html_email(html_body)
+        except (KeyError, IndexError, ValueError) as e:
+            logger.error(
+                "HTML template formatting failed",
+                extra={"template_name": template_name, "error": str(e)},
+            )
+            html_body = None
+
+    return body, html_body
 
 
 def _redact_email(email: str) -> str:
@@ -189,7 +261,7 @@ async def schedule_welcome_emails(
             try:
                 scheduled_at_dt = now + timedelta(hours=config["delay_hours"])
                 scheduled_at = scheduled_at_dt.isoformat()
-                body = load_email_template(
+                text_body, html_body = load_email_template(
                     config["template"], display_name, unsubscribe_url
                 )
 
@@ -197,8 +269,10 @@ async def schedule_welcome_emails(
                     "from": settings.welcome_email_from,
                     "to": [email],
                     "subject": config["subject"],
-                    "text": body,
+                    "text": text_body,
                 }
+                if html_body:
+                    payload["html"] = html_body
 
                 # Only include scheduled_at for future emails.
                 # Resend silently drops emails with scheduled_at ≈ now.

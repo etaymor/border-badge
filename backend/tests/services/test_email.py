@@ -20,39 +20,59 @@ class TestLoadEmailTemplate:
 
     def test_loads_existing_template(self) -> None:
         """Test that existing template is loaded and formatted."""
-        result = load_email_template("welcome", "Alice")
+        text, html = load_email_template("welcome", "Alice")
 
         # Template starts with "Hey," not "Hi {display_name},"
-        assert "Hey," in result
-        assert "Atlasi" in result
+        assert "Hey," in text
+        assert "Atlasi" in text
+        # HTML version mirrors text
+        assert html is not None
+        assert "<p>Hey,</p>" in html
 
     def test_substitutes_display_name(self) -> None:
         """Test that display_name placeholder is replaced when present."""
         # Note: Current templates don't use {display_name}, but fallback does
-        result = load_email_template("nonexistent", "Bob Smith")
+        text, _html = load_email_template("nonexistent", "Bob Smith")
 
-        assert "Hi Bob Smith," in result  # Fallback format
+        assert "Hi Bob Smith," in text  # Fallback format
 
     def test_handles_special_chars_in_display_name(self) -> None:
         """Test that special characters in display_name are handled."""
         # Test with fallback since current templates don't use placeholder
-        result = load_email_template("nonexistent", "John {O'Brien}")
+        text, _html = load_email_template("nonexistent", "John {O'Brien}")
 
-        assert "Hi John {O'Brien}," in result
+        assert "Hi John {O'Brien}," in text
         # Should not break the template
 
     def test_returns_fallback_for_missing_template(self) -> None:
         """Test that fallback message is used for missing template."""
-        result = load_email_template("nonexistent_template", "Charlie")
+        text, _html = load_email_template("nonexistent_template", "Charlie")
 
-        assert "Hi Charlie," in result
-        assert "Welcome to Atlasi" in result
+        assert "Hi Charlie," in text
+        assert "Welcome to Atlasi" in text
 
     def test_fallback_includes_display_name(self) -> None:
         """Test that fallback message includes the display_name."""
-        result = load_email_template("does_not_exist", "Diana")
+        text, _html = load_email_template("does_not_exist", "Diana")
 
-        assert "Hi Diana," in result
+        assert "Hi Diana," in text
+
+    def test_html_template_loaded_when_exists(self) -> None:
+        """Test that HTML template is loaded alongside text for day4/day7."""
+        text, html = load_email_template("day4", "Test User")
+
+        assert "Two features" not in text  # subject, not in body
+        assert text is not None
+        assert html is not None
+        assert "<img" in html
+        assert "welcome-tt-share.gif" in html
+
+    def test_html_template_none_when_missing(self) -> None:
+        """Test that HTML is None when no .html template exists."""
+        text, html = load_email_template("nonexistent", "Test User")
+
+        assert "Hi Test User," in text  # fallback text
+        assert html is None
 
     def test_all_welcome_templates_exist(self) -> None:
         """Verify all configured welcome email templates exist."""
@@ -166,6 +186,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -187,6 +208,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             # Create responses with different IDs
             responses = []
@@ -222,6 +244,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "noreply@atlasi.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -247,6 +270,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -271,6 +295,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -307,6 +332,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             # First email: 429, then success. Remaining emails: success.
             mock_client = AsyncMock()
@@ -345,6 +371,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             # Create responses with one failure
             responses = []
@@ -384,6 +411,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.side_effect = Exception("Network error")
@@ -404,6 +432,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             # Create an HTTP error response
             mock_response = MagicMock()
@@ -438,6 +467,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_test_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -467,6 +497,7 @@ class TestScheduleWelcomeEmails:
         ):
             mock_settings.return_value.resend_api_key = "re_secret_key"
             mock_settings.return_value.welcome_email_from = "hello@test.com"
+            mock_settings.return_value.base_url = "https://test.atlasi.app"
 
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
