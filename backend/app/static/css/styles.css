@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-02-20T02:50:44.028Z
+   Generated: 2026-02-20T02:55:31.381Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -275,6 +275,7 @@ img {
   margin: -1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
