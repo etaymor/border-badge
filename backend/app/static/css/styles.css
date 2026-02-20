@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-02-07T17:25:48.975Z
+   Generated: 2026-02-20T02:50:44.028Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -254,6 +254,7 @@ img {
 .logo {
   display: flex;
   align-items: center;
+  position: relative;
 }
 
 .logo-image {
@@ -264,6 +265,18 @@ img {
 
 .logo:hover .logo-image {
   transform: scale(1.05);
+}
+
+.logo-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Logo shadow on dark hero pages */
