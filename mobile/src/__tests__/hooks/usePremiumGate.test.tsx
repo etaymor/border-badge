@@ -178,8 +178,12 @@ describe('usePremiumGate', () => {
 
       it('returns allowed=true when period has reset (previous month)', () => {
         // Set usage at limit but with an old period start (previous month)
-        const lastMonth = new Date();
-        lastMonth.setMonth(lastMonth.getMonth() - 1);
+        // Use the 1st of the previous month to avoid day-of-month overflow
+        // (e.g., March 31 - 1 month = "Feb 31" which rolls to March 3)
+        const now = new Date();
+        const lastMonth = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 12, 0, 0)
+        );
         useSubscriptionStore.setState({
           shareExtensionUsage: 5,
           shareExtensionPeriodStart: lastMonth.toISOString(),
