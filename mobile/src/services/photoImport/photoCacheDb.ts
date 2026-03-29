@@ -10,8 +10,36 @@
  */
 
 import * as SQLite from 'expo-sqlite';
+import * as geohash from 'ngeohash';
 
+import { haversine } from './photoClustering';
 import type { CachedPhoto } from './types';
+
+/** Shape of a row from the cached_photos table (snake_case columns). */
+interface CachedPhotoRow {
+  id: string;
+  uri: string;
+  filename: string;
+  creation_time: number;
+  latitude: number;
+  longitude: number;
+  geohash: string;
+  country_code: string | null;
+}
+
+/** Convert a snake_case SQLite row to a camelCase CachedPhoto. */
+function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
+  return {
+    id: row.id,
+    uri: row.uri,
+    filename: row.filename,
+    creationTime: row.creation_time,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    geohash: row.geohash,
+    countryCode: row.country_code,
+  };
+}
 
 const DB_NAME = 'photos.db';
 const SCHEMA_VERSION = 1;
@@ -233,29 +261,11 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
  */
 export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<{
-    id: string;
-    uri: string;
-    filename: string;
-    creation_time: number;
-    latitude: number;
-    longitude: number;
-    geohash: string;
-    country_code: string | null;
-  }>(
+  const rows = await database.getAllAsync<CachedPhotoRow>(
     'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos ORDER BY creation_time DESC'
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    uri: row.uri,
-    filename: row.filename,
-    creationTime: row.creation_time,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    geohash: row.geohash,
-    countryCode: row.country_code,
-  }));
+  return rows.map(toCachedPhoto);
 }
 
 /**
@@ -263,30 +273,12 @@ export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
  */
 export async function getCachedPhotosByCountry(countryCode: string): Promise<CachedPhoto[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<{
-    id: string;
-    uri: string;
-    filename: string;
-    creation_time: number;
-    latitude: number;
-    longitude: number;
-    geohash: string;
-    country_code: string | null;
-  }>(
+  const rows = await database.getAllAsync<CachedPhotoRow>(
     'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE country_code = ? ORDER BY creation_time DESC',
     [countryCode]
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    uri: row.uri,
-    filename: row.filename,
-    creationTime: row.creation_time,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    geohash: row.geohash,
-    countryCode: row.country_code,
-  }));
+  return rows.map(toCachedPhoto);
 }
 
 /**
@@ -348,6 +340,62 @@ export async function getTripCandidateCountByCountry(countryCode: string): Promi
 export async function hasCachedPhotos(): Promise<boolean> {
   const count = await getCachedPhotoCount();
   return count > 0;
+}
+
+// ── Nearby photo search ────────────────────────────────────────────────
+
+// Adaptive radius thresholds — narrow the search when too many results in dense areas
+const RADIUS_TIERS_M = [500, 200, 100];
+const MAX_BEFORE_NARROWING = 10;
+
+/**
+ * Find cached photos near the given coordinates using adaptive radius.
+ * Starts at 500m, narrows to 200m then 100m if more than 10 photos found.
+ * Uses geohash prefix matching for fast indexed lookup, then haversine post-filter.
+ *
+ * Returns photos sorted by distance (nearest first).
+ */
+export async function getPhotosNearLocation(
+  latitude: number,
+  longitude: number,
+  maxResults: number = 20
+): Promise<CachedPhoto[]> {
+  const database = await getDb();
+
+  // Use precision 6 (~1.2km cells) so that the LIKE prefix covers the 500m max radius
+  const centerHash = geohash.encode(latitude, longitude, 6);
+  const neighborHashes = geohash.neighbors(centerHash);
+  const allHashes = [centerHash, ...Object.values(neighborHashes)];
+
+  // Query all photos whose geohash (precision 7) starts with any of these precision-6 prefixes
+  const conditions = allHashes.map(() => "geohash LIKE ? || '%'").join(' OR ');
+  const rows = await database.getAllAsync<CachedPhotoRow>(
+    `SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE ${conditions} ORDER BY creation_time DESC`,
+    allHashes
+  );
+
+  // Compute haversine distances once
+  const withDistance = rows.map((row) => ({
+    photo: toCachedPhoto(row),
+    distance: haversine(latitude, longitude, row.latitude, row.longitude),
+  }));
+
+  // Adaptive radius: start wide, narrow if too many results
+  for (const radius of RADIUS_TIERS_M) {
+    const filtered = withDistance.filter((p) => p.distance <= radius);
+    if (
+      filtered.length <= MAX_BEFORE_NARROWING ||
+      radius === RADIUS_TIERS_M[RADIUS_TIERS_M.length - 1]
+    ) {
+      return filtered
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, maxResults)
+        .map((p) => p.photo);
+    }
+  }
+
+  // Fallback (shouldn't reach here due to the loop above)
+  return [];
 }
 
 /**

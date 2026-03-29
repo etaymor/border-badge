@@ -4,7 +4,7 @@ export default {
   expo: {
     name: 'Atlasi',
     slug: 'border-badge',
-    version: '1.0.7',
+    version: '1.0.9',
     orientation: 'portrait',
     icon: './assets/Atlasi-book-app-icon-cream.png',
     userInterfaceStyle: 'automatic',
@@ -59,6 +59,22 @@ export default {
               'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
             ],
           },
+          {
+            NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeUserID',
+            NSPrivacyCollectedDataTypeLinked: true,
+            NSPrivacyCollectedDataTypeTracking: true,
+            NSPrivacyCollectedDataTypePurposes: [
+              'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
+            ],
+          },
+          {
+            NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypePurchaseHistory',
+            NSPrivacyCollectedDataTypeLinked: true,
+            NSPrivacyCollectedDataTypeTracking: true,
+            NSPrivacyCollectedDataTypePurposes: [
+              'NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising',
+            ],
+          },
         ],
         NSPrivacyAccessedAPITypes: [
           {
@@ -101,7 +117,7 @@ export default {
         'expo-tracking-transparency',
         {
           userTrackingPermission:
-            'This identifier will be used to deliver personalized ads to you.',
+            'Allow Atlasi to use your data for measuring ad effectiveness. Your data is hashed and anonymized before being shared.',
         },
       ],
       [

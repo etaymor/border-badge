@@ -576,4 +576,138 @@ describe('photoCacheDb', () => {
       expect(mockedSQLite.openDatabaseAsync).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('getPhotosNearLocation', () => {
+    // Mock geohash values — the real encode/neighbors functions are mocked below.
+    // We only need to verify the SQL query uses the hashes and haversine post-filter works.
+    const _CENTER_HASH = 'xn76ur';
+    const _NEIGHBOR_HASHES = {
+      n: 'xn76v8',
+      ne: 'xn76vb',
+      e: 'xn76v2',
+      se: 'xn76tz',
+      s: 'xn76up',
+      sw: 'xn76un',
+      w: 'xn76uq',
+      nw: 'xn76v0',
+    };
+
+    const makeRow = (id: string, lat: number, lon: number, hash: string = 'xn76urx') => ({
+      id,
+      uri: `file:///photos/${id}.jpg`,
+      filename: `${id}.jpg`,
+      creation_time: Date.now(),
+      latitude: lat,
+      longitude: lon,
+      geohash: hash,
+      country_code: 'JP',
+    });
+
+    beforeEach(() => {
+      // ngeohash is mocked via jest.doMock in the outer beforeEach,
+      // but we need to set it up. Since we use jest.resetModules() each time,
+      // we set it up in the outer beforeEach by adding the mock there.
+    });
+
+    it('returns empty array when no photos are within any radius tier', async () => {
+      // Return rows that are all far away (>500m from center)
+      // Center: 35.6762, 139.6503. A point ~1km away:
+      mockDb.getAllAsync.mockResolvedValue([makeRow('far-photo', 35.685, 139.66)]);
+
+      const result = await photoCacheDb.getPhotosNearLocation(35.6762, 139.6503);
+
+      // haversine(35.6762, 139.6503, 35.685, 139.660) ≈ 1270m > 500m
+      expect(result).toEqual([]);
+    });
+
+    it('returns photos within the 500m radius when 10 or fewer results', async () => {
+      // Center: 35.6762, 139.6503. A point ~100m away:
+      const nearbyLat = 35.677;
+      const nearbyLon = 139.6503;
+      mockDb.getAllAsync.mockResolvedValue([makeRow('nearby-photo', nearbyLat, nearbyLon)]);
+
+      const result = await photoCacheDb.getPhotosNearLocation(35.6762, 139.6503);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('nearby-photo');
+    });
+
+    it('narrows from 500m to 200m when more than 10 results at 500m', async () => {
+      // Create 15 photos: 5 within 200m, 10 more between 200-500m
+      const centerLat = 35.6762;
+      const centerLon = 139.6503;
+
+      // 5 photos very close (~50m) — well within 200m
+      const closePhotos = Array.from({ length: 5 }, (_, i) =>
+        makeRow(`close-${i}`, centerLat + 0.0002 * (i + 1), centerLon)
+      );
+
+      // 10 photos ~350m away — within 500m but outside 200m
+      const midPhotos = Array.from({ length: 10 }, (_, i) =>
+        makeRow(`mid-${i}`, centerLat + 0.003, centerLon + 0.0001 * i)
+      );
+
+      mockDb.getAllAsync.mockResolvedValue([...closePhotos, ...midPhotos]);
+
+      const result = await photoCacheDb.getPhotosNearLocation(centerLat, centerLon);
+
+      // 15 total within 500m > MAX_BEFORE_NARROWING (10), so narrows to 200m
+      // Only the 5 close photos should remain (within 200m)
+      expect(result.length).toBeLessThanOrEqual(10);
+      // All returned photos should have IDs starting with 'close-'
+      for (const photo of result) {
+        expect(photo.id).toMatch(/^close-/);
+      }
+    });
+
+    it('caps results at maxResults', async () => {
+      const centerLat = 35.6762;
+      const centerLon = 139.6503;
+
+      // Create 8 photos all within 100m — under the narrowing threshold
+      const photos = Array.from({ length: 8 }, (_, i) =>
+        makeRow(`photo-${i}`, centerLat + 0.00005 * (i + 1), centerLon)
+      );
+      mockDb.getAllAsync.mockResolvedValue(photos);
+
+      const result = await photoCacheDb.getPhotosNearLocation(
+        centerLat,
+        centerLon,
+        3 // maxResults = 3
+      );
+
+      expect(result).toHaveLength(3);
+    });
+
+    it('sorts results by distance (nearest first)', async () => {
+      const centerLat = 35.6762;
+      const centerLon = 139.6503;
+
+      // Three photos at varying distances
+      mockDb.getAllAsync.mockResolvedValue([
+        makeRow('far', centerLat + 0.003, centerLon), // ~333m
+        makeRow('near', centerLat + 0.0005, centerLon), // ~56m
+        makeRow('mid', centerLat + 0.0015, centerLon), // ~167m
+      ]);
+
+      const result = await photoCacheDb.getPhotosNearLocation(centerLat, centerLon);
+
+      expect(result.map((p) => p.id)).toEqual(['near', 'mid', 'far']);
+    });
+
+    it('builds geohash prefix query with center and all 8 neighbors', async () => {
+      mockDb.getAllAsync.mockResolvedValue([]);
+
+      await photoCacheDb.getPhotosNearLocation(35.6762, 139.6503);
+
+      // Should query with 9 LIKE conditions (center + 8 neighbors)
+      const query = mockDb.getAllAsync.mock.calls[0][0] as string;
+      const likeCount = (query.match(/geohash LIKE/g) || []).length;
+      expect(likeCount).toBe(9);
+
+      // Should pass 9 hash prefix parameters
+      const params = mockDb.getAllAsync.mock.calls[0][1] as string[];
+      expect(params).toHaveLength(9);
+    });
+  });
 });
