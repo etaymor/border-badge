@@ -139,29 +139,25 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
 
         if (allFiles.length === 0) return;
 
-        // Use functional updater to compute slots from the latest queued state,
-        // preventing races when addPhotos is called twice before a re-render.
-        let filesToUpload: LocalFile[] = [];
-        setLocalMedia((prev) => {
-          const localMediaCount = prev.filter((m) => !m.error).length;
-          const currentOccupied = existingMediaCount + localMediaCount;
-          const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
+        // Read slots from ref and update it *synchronously* before awaiting,
+        // so a second rapid call sees the reserved items immediately.
+        const localMediaCount = localMediaRef.current.filter((m) => !m.error).length;
+        const currentOccupied = existingMediaCount + localMediaCount;
+        const slotsAvailable = Math.max(0, MAX_PHOTOS_PER_ENTRY - currentOccupied);
 
-          if (slotsAvailable === 0) return prev;
-
-          filesToUpload = allFiles.slice(0, slotsAvailable);
-          const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
-            localUri: file.uri,
-            file,
-            uploading: true,
-            progress: 0,
-          }));
-          const next = [...prev, ...newLocalMedia];
-          localMediaRef.current = next;
-          return next;
-        });
-
+        const filesToUpload = allFiles.slice(0, slotsAvailable);
         if (filesToUpload.length === 0) return;
+
+        const newLocalMedia: LocalMediaItem[] = filesToUpload.map((file) => ({
+          localUri: file.uri,
+          file,
+          uploading: true,
+          progress: 0,
+        }));
+
+        // Update ref first so concurrent calls see reserved slots
+        localMediaRef.current = [...localMediaRef.current, ...newLocalMedia];
+        setLocalMedia((prev) => [...prev, ...newLocalMedia]);
 
         for (const file of filesToUpload) {
           try {
