@@ -21,7 +21,7 @@ MAX_PHOTOS_PER_CLUSTER = 100
 MAX_PHOTOS_PER_REQUEST = 500
 MAX_VISION_IMAGES_PER_REQUEST = 50
 MAX_VISION_PAYLOAD_CHARS = (
-    2_000_000  # ~1.5MB decoded; keeps request body under typical limits
+    10_000_000  # ~7.5MB decoded; accommodates 15 clusters x 3 images comfortably
 )
 
 
@@ -135,9 +135,17 @@ class PlaceSuggestionRequest(BaseModel):
             len(c.vision_images_base64) for c in v if c.vision_images_base64 is not None
         )
         if total_vision > MAX_VISION_IMAGES_PER_REQUEST:
-            raise ValueError(
-                f"Maximum {MAX_VISION_IMAGES_PER_REQUEST} vision images per request, got {total_vision}"
-            )
+            # Vision is optional — truncate excess rather than rejecting.
+            count = 0
+            for cluster in v:
+                if cluster.vision_images_base64 is None:
+                    continue
+                kept = []
+                for img in cluster.vision_images_base64:
+                    if count < MAX_VISION_IMAGES_PER_REQUEST:
+                        kept.append(img)
+                        count += 1
+                cluster.vision_images_base64 = kept if kept else None
         total_chars = sum(
             len(img)
             for c in v
@@ -145,9 +153,18 @@ class PlaceSuggestionRequest(BaseModel):
             for img in c.vision_images_base64
         )
         if total_chars > MAX_VISION_PAYLOAD_CHARS:
-            raise ValueError(
-                f"Total vision payload must be <= {MAX_VISION_PAYLOAD_CHARS} chars, got {total_chars}"
-            )
+            # Vision is optional — truncate excess rather than rejecting.
+            # Keep images for earlier clusters; drop from later ones.
+            running_chars = 0
+            for cluster in v:
+                if cluster.vision_images_base64 is None:
+                    continue
+                kept = []
+                for img in cluster.vision_images_base64:
+                    if running_chars + len(img) <= MAX_VISION_PAYLOAD_CHARS:
+                        kept.append(img)
+                        running_chars += len(img)
+                cluster.vision_images_base64 = kept if kept else None
         return v
 
 

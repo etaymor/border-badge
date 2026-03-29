@@ -105,8 +105,8 @@ class TestRequestLevelVisionImageLimit:
         req = PlaceSuggestionRequest(clusters=clusters)
         assert len(req.clusters) == 25
 
-    def test_total_vision_images_exceeds_limit(self) -> None:
-        """More than 50 total vision images across clusters is rejected."""
+    def test_total_vision_images_exceeds_limit_truncates(self) -> None:
+        """More than 50 total vision images are truncated, not rejected."""
         valid_b64 = base64.b64encode(b"img").decode()
         clusters = [
             _make_cluster(
@@ -115,16 +115,22 @@ class TestRequestLevelVisionImageLimit:
             )
             for i in range(18)  # 18 * 3 = 54 > 50
         ]
-        with pytest.raises(ValidationError, match="vision images"):
-            PlaceSuggestionRequest(clusters=clusters)
+        req = PlaceSuggestionRequest(clusters=clusters)
+        assert len(req.clusters) == 18
+        # Total vision images should be capped at 50
+        total_vision = sum(
+            len(c.vision_images_base64)
+            for c in req.clusters
+            if c.vision_images_base64 is not None
+        )
+        assert total_vision <= 50
 
 
 class TestRequestLevelVisionPayloadSize:
-    """Total base64 payload across all clusters must stay under the size limit."""
+    """Total base64 payload across all clusters is truncated if over the limit."""
 
     def test_total_vision_payload_within_limit(self) -> None:
-        """Clusters whose combined vision payload is under 2MB are accepted."""
-        # Each image ~100k chars, 3 images across 3 clusters = 300k total (well under 2MB)
+        """Clusters whose combined vision payload is under the limit are accepted."""
         valid_b64 = base64.b64encode(b"\x00" * 75_000).decode()  # ~100k chars
         clusters = [
             _make_cluster(
@@ -135,20 +141,52 @@ class TestRequestLevelVisionPayloadSize:
         ]
         req = PlaceSuggestionRequest(clusters=clusters)
         assert len(req.clusters) == 3
+        # All vision images preserved
+        assert all(c.vision_images_base64 is not None for c in req.clusters)
 
-    def test_total_vision_payload_exceeds_limit(self) -> None:
-        """Clusters whose combined vision payload exceeds 2MB are rejected."""
-        # 15 clusters x 3 images x 200k chars = 9M chars, way over 2MB limit
+    def test_typical_chunk_15_clusters_with_vision(self) -> None:
+        """Regression: 15 clusters x 3 vision images (~4.5M chars) must not 422.
+
+        The mobile app chunks clusters in groups of 15 and sends up to 3 vision
+        images per cluster (~100K chars each). This previously exceeded the 2M
+        limit and returned 422 Unprocessable Entity in production.
+        """
+        # Simulate realistic payload: ~100k chars per image
+        img_b64 = base64.b64encode(b"\x00" * 75_000).decode()  # ~100k chars
+        clusters = [
+            _make_cluster(
+                id=f"c-{i}",
+                vision_images_base64=[img_b64, img_b64, img_b64],
+            )
+            for i in range(15)
+        ]
+        req = PlaceSuggestionRequest(clusters=clusters)
+        assert len(req.clusters) == 15
+
+    def test_total_vision_payload_exceeds_limit_truncates(self) -> None:
+        """Payload over the limit is truncated, not rejected.
+
+        Vision is optional — clusters still match by GPS without it.
+        Earlier clusters keep their vision data; later ones get trimmed.
+        """
         big_b64 = base64.b64encode(b"\x00" * 149_000).decode()  # ~199k chars each
         clusters = [
             _make_cluster(
                 id=f"c-{i}",
                 vision_images_base64=[big_b64, big_b64, big_b64],
             )
-            for i in range(15)
+            for i in range(50)  # 50 clusters x 3 images x 199k = ~30M chars
         ]
-        with pytest.raises(ValidationError, match="vision payload"):
-            PlaceSuggestionRequest(clusters=clusters)
+        # Must NOT raise — truncates instead
+        req = PlaceSuggestionRequest(clusters=clusters)
+        assert len(req.clusters) == 50
+
+        # Early clusters should keep their vision images
+        assert req.clusters[0].vision_images_base64 is not None
+
+        # Later clusters should have vision images truncated
+        has_vision = sum(1 for c in req.clusters if c.vision_images_base64 is not None)
+        assert has_vision < 50  # Some clusters lost their vision data
 
 
 class TestSuggestPlaces:
