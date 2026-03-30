@@ -56,6 +56,7 @@ export function useNearbyPhotos(place: SelectedPlace | null): UseNearbyPhotosRes
     const lon = place?.longitude;
 
     if (lat == null || lon == null) {
+      ++requestIdRef.current;
       setPhotos([]);
       setIsLoading(false);
       return;

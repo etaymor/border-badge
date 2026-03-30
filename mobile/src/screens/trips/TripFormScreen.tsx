@@ -221,7 +221,9 @@ export function TripFormScreen({ navigation, route }: Props) {
     );
   }, [tripId, deleteTrip, navigation]);
 
+  const isDeleting = deleteTrip.isPending;
   const isLoading = createTrip.isPending || updateTrip.isPending;
+  const isMutating = isLoading || isDeleting;
   const isFetching = loadingTrip && isEditing;
 
   if (isFetching) {
@@ -384,7 +386,7 @@ export function TripFormScreen({ navigation, route }: Props) {
             title={isEditing ? 'Save Changes' : 'Create Trip'}
             onPress={handleSave}
             loading={isLoading}
-            disabled={isLoading}
+            disabled={isMutating}
             testID="trip-save-button"
           />
           {isEditing && (
@@ -392,6 +394,8 @@ export function TripFormScreen({ navigation, route }: Props) {
               title="Delete Trip"
               onPress={handleDelete}
               variant="destructive"
+              loading={isDeleting}
+              disabled={isMutating}
               style={styles.deleteButton}
               testID="trip-delete-button"
             />

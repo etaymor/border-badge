@@ -246,14 +246,22 @@ export function usePlaceSuggestions({
         }
 
         // Cache the fresh API results to SQLite
-        // Include clusters that returned no suggestions (empty array) to prevent re-querying
-        const suggestionsToCache = uncachedClusters.map((cluster) => {
-          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-          return {
-            cluster_id: cluster.id,
-            places: suggestion?.places ?? [],
-          };
-        });
+        // Only cache clusters that have a corresponding suggestion in the response.
+        // When failed_cluster_count > 0, missing clusters failed transiently —
+        // caching [] for them would prevent re-querying on the next attempt.
+        const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        const suggestionsToCache = uncachedClusters
+          .filter(
+            (cluster) =>
+              respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0
+          )
+          .map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              places: suggestion?.places ?? [],
+            };
+          });
 
         await cacheSuggestions(suggestionsToCache);
 
@@ -356,11 +364,14 @@ export function usePlaceSuggestions({
       });
       const result = response.data as PlaceSuggestionResponse;
 
-      // Cache results to SQLite
-      const toCache = clusters.map((cluster) => {
-        const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-        return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
-      });
+      // Cache results to SQLite — skip clusters missing due to transient failures
+      const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
+      const toCache = clusters
+        .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
+        .map((cluster) => {
+          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+          return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
+        });
       await cacheSuggestions(toCache);
 
       // Add to in-memory cached suggestions for immediate display
