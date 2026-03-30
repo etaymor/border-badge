@@ -252,8 +252,7 @@ export function usePlaceSuggestions({
         const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
         const suggestionsToCache = uncachedClusters
           .filter(
-            (cluster) =>
-              respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0
+            (cluster) => respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0
           )
           .map((cluster) => {
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
