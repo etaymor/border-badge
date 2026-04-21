@@ -7,7 +7,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Passport Grid** - Visual country tracking with visited/wishlist status and travel tier badges
 - **Trip Management** - Create trips with cover photos, dates, and tagged companions
 - **Entry Logging** - Log places, restaurants, stays, and experiences with photos and notes
-- **Photo Import** - Scan device photos to automatically suggest trip entries based on GPS location clustering
+- **Photo Import** - Scan device photos to automatically suggest trip entries based on GPS location clustering, and surface nearby library photos as tappable suggestions when logging a place
 - **Social Layer** - Connect with friends, compare travel maps, consent-based trip tagging
 - **Shareable Lists** - Curate and share city-specific recommendations via public links
 - **Offline Support** - Local SQLite caching for country data
