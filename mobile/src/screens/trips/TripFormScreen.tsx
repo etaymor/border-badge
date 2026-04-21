@@ -211,7 +211,7 @@ export function TripFormScreen({ navigation, route }: Props) {
           onPress: async () => {
             try {
               await deleteTrip.mutateAsync(tripId);
-              navigation.goBack();
+              navigation.pop(2);
             } catch {
               // Error is handled by the mutation's onError
             }

@@ -34,11 +34,14 @@ export async function markClusterProcessed(
 /**
  * Get all processed cluster IDs.
  * Returns a Set for efficient lookup when filtering suggestions.
+ * Excludes 'split' status — splits are ephemeral (sub-clusters aren't persisted),
+ * so treating a persisted split as dismissed would make the parent disappear
+ * on return with nothing to show.
  */
 export async function getProcessedClusterIds(): Promise<Set<string>> {
   const database = await getDb();
   const rows = await database.getAllAsync<{ cluster_id: string }>(
-    'SELECT cluster_id FROM processed_clusters'
+    "SELECT cluster_id FROM processed_clusters WHERE status != 'split'"
   );
   return new Set(rows.map((r) => r.cluster_id));
 }

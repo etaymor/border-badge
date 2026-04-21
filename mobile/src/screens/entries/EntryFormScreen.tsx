@@ -44,6 +44,8 @@ import { useEntries } from '@hooks/useEntries';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { fetchOpenGraphTitle } from '@utils/openGraph';
 import type { CachedPhoto } from '@services/photoImport/types';
+import * as MediaLibrary from 'expo-media-library';
+import { logger } from '@utils/logger';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -92,6 +94,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Nearby photo suggestions
@@ -107,8 +110,26 @@ export function EntryFormScreen({ route, navigation }: Props) {
     setAddedNearbyPhotoIds(new Set());
   }, [selectedPlace]);
 
-  const handleAddNearbyPhoto = useCallback((photo: CachedPhoto) => {
-    mediaGalleryRef.current?.addPhotos([photo.uri]);
+  const handleAddNearbyPhoto = useCallback(async (photo: CachedPhoto) => {
+    let uri = photo.uri;
+    // ph:// and assets-library:// URIs can't be read by ExpoFile. Resolve to
+    // a file:// URI via MediaLibrary, downloading from iCloud if needed.
+    if (
+      uri.startsWith('ph://') ||
+      uri.startsWith('ph-upload://') ||
+      uri.startsWith('assets-library://')
+    ) {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(photo.id, {
+          shouldDownloadFromNetwork: true,
+        });
+        uri = info.localUri ?? info.uri ?? uri;
+      } catch (err) {
+        logger.error('Failed to resolve nearby photo URI:', err);
+        return;
+      }
+    }
+    mediaGalleryRef.current?.addPhotos([uri]);
     setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));
   }, []);
 
@@ -514,7 +535,12 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     }}
                     placeholder="Search for a place..."
                     countryCode={trip?.country_code}
-                    onDropdownOpen={(isOpen) => setScrollEnabled(!isOpen)}
+                    onDropdownOpen={(isOpen) => {
+                      setScrollEnabled(!isOpen);
+                      setIsDropdownOpen(isOpen);
+                    }}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onBlur={() => setIsDropdownOpen(false)}
                   />
                   {errors.place && (
                     <Text style={styles.errorText} testID="error-location-required">
@@ -619,7 +645,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
         </ScrollView>
 
         {/* Sticky footer - always visible at bottom */}
-        {hasSelectedType && (
+        {hasSelectedType && !isDropdownOpen && (
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <Button
               title={isEditing ? 'Save Changes' : 'Save Entry'}
