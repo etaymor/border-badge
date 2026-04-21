@@ -10,12 +10,14 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import { AxiosError } from 'axios';
 
 import {
   useSuggestPlacesChunked,
   RateLimitError,
   QuotaExhaustedError,
 } from '@hooks/usePhotoImport';
+import { api } from '@services/api';
 import {
   getFullCluster,
   getCachedSuggestions,
@@ -24,6 +26,7 @@ import {
   type LocationCluster,
   type ClusterSuggestion,
   type PlaceSuggestion,
+  type PlaceSuggestionResponse,
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
@@ -243,14 +246,21 @@ export function usePlaceSuggestions({
         }
 
         // Cache the fresh API results to SQLite
-        // Include clusters that returned no suggestions (empty array) to prevent re-querying
-        const suggestionsToCache = uncachedClusters.map((cluster) => {
-          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-          return {
-            cluster_id: cluster.id,
-            places: suggestion?.places ?? [],
-          };
-        });
+        // Only cache clusters that have a corresponding suggestion in the response.
+        // When failed_cluster_count > 0, missing clusters failed transiently —
+        // caching [] for them would prevent re-querying on the next attempt.
+        const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        const suggestionsToCache = uncachedClusters
+          .filter(
+            (cluster) => respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0
+          )
+          .map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              places: suggestion?.places ?? [],
+            };
+          });
 
         await cacheSuggestions(suggestionsToCache);
 
@@ -339,54 +349,60 @@ export function usePlaceSuggestions({
   /**
    * Fetch place suggestions for specific clusters (e.g., after manual split).
    * Bypasses candidate-level caching since these are new synthetic clusters.
+   *
+   * Uses a direct API call instead of the shared mutation to avoid replacing
+   * existing suggestion data for other clusters.
    */
-  const fetchForClusters = useCallback(
-    async (clusters: LocationCluster[]) => {
-      if (clusters.length === 0) return;
+  const fetchForClusters = useCallback(async (clusters: LocationCluster[]) => {
+    if (clusters.length === 0) return;
 
-      try {
-        const visionImages = await prepareVisionImagesBounded(clusters);
-        const result = await suggestPlacesMutation.mutateAsync({
-          clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
-        });
+    try {
+      const visionImages = await prepareVisionImagesBounded(clusters);
+      const response = await api.post('/photos/suggest-places', {
+        clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+      });
+      const result = response.data as PlaceSuggestionResponse;
 
-        // Cache results to SQLite
-        const toCache = clusters.map((cluster) => {
+      // Cache results to SQLite — skip clusters missing due to transient failures
+      const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
+      const toCache = clusters
+        .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
+        .map((cluster) => {
           const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
           return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
         });
-        await cacheSuggestions(toCache);
+      await cacheSuggestions(toCache);
 
-        // Add to in-memory cached suggestions for immediate display
-        const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
-          cluster_id: s.cluster_id,
-          photo_ids: s.photo_ids,
-          places: s.places,
-        }));
-        setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
-      } catch (error) {
-        if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
+      // Add to in-memory cached suggestions for immediate display
+      const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
+        cluster_id: s.cluster_id,
+        photo_ids: s.photo_ids,
+        places: s.places,
+      }));
+      setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+    } catch (error) {
+      if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
 
-        if (error instanceof QuotaExhaustedError) {
-          Alert.alert(
-            'Service Temporarily Unavailable',
-            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
-          );
-        } else if (error instanceof RateLimitError) {
-          Alert.alert(
-            'Too Many Requests',
-            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
-          );
-        } else {
-          Alert.alert(
-            'Failed to Get Suggestions',
-            'Unable to find place suggestions for the split clusters. You can add entries manually.'
-          );
-        }
+      if (error instanceof AxiosError && error.response?.status === 503) {
+        Alert.alert(
+          'Service Temporarily Unavailable',
+          'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+        );
+      } else if (error instanceof AxiosError && error.response?.status === 429) {
+        const retryAfter = error.response.headers['retry-after'];
+        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+        Alert.alert(
+          'Too Many Requests',
+          `Please wait ${isNaN(retrySeconds) ? 60 : retrySeconds} seconds before trying again.`
+        );
+      } else {
+        Alert.alert(
+          'Failed to Get Suggestions',
+          'Unable to find place suggestions for the split clusters. You can add entries manually.'
+        );
       }
-    },
-    [suggestPlacesMutation]
-  );
+    }
+  }, []);
 
   /**
    * Clear the session cache and cached suggestions.

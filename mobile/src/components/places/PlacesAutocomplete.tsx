@@ -37,6 +37,8 @@ interface PlacesAutocompleteProps {
   countryCode?: string;
   testID?: string;
   onDropdownOpen?: (isOpen: boolean) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export function PlacesAutocomplete({
@@ -46,6 +48,8 @@ export function PlacesAutocomplete({
   countryCode,
   testID = 'places-search',
   onDropdownOpen,
+  onFocus,
+  onBlur,
 }: PlacesAutocompleteProps) {
   const [query, setQuery] = useState(value?.name ?? '');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -236,7 +240,8 @@ export function PlacesAutocomplete({
     if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
       setShowDropdown(true);
     }
-  }, [query, predictions.length, value]);
+    onFocus?.();
+  }, [query, predictions.length, value, onFocus]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -301,6 +306,7 @@ export function PlacesAutocomplete({
             onChangeText={handleTextChange}
             onClear={handleClear}
             onFocus={handleInputFocus}
+            onBlur={onBlur}
             isLoading={isLoading}
             placeholder={placeholder}
             testID={testID}

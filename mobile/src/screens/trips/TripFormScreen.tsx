@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -20,7 +21,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
-import { useCreateTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
+import { useCreateTrip, useDeleteTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
 import type {
   DreamsStackScreenProps,
   PassportStackScreenProps,
@@ -69,6 +70,7 @@ export function TripFormScreen({ navigation, route }: Props) {
   // Mutations
   const createTrip = useCreateTrip();
   const updateTrip = useUpdateTrip();
+  const deleteTrip = useDeleteTrip();
 
   // Photo permissions for photo assist card
   const { status: photoPermissionStatus } = usePhotoPermissionStatus();
@@ -195,7 +197,33 @@ export function TripFormScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleDelete = useCallback(() => {
+    if (!tripId) return;
+
+    Alert.alert(
+      'Delete Trip',
+      'Are you sure you want to delete this trip? This will also delete all entries and media.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteTrip.mutateAsync(tripId);
+              navigation.pop(2);
+            } catch {
+              // Error is handled by the mutation's onError
+            }
+          },
+        },
+      ]
+    );
+  }, [tripId, deleteTrip, navigation]);
+
+  const isDeleting = deleteTrip.isPending;
   const isLoading = createTrip.isPending || updateTrip.isPending;
+  const isMutating = isLoading || isDeleting;
   const isFetching = loadingTrip && isEditing;
 
   if (isFetching) {
@@ -358,9 +386,20 @@ export function TripFormScreen({ navigation, route }: Props) {
             title={isEditing ? 'Save Changes' : 'Create Trip'}
             onPress={handleSave}
             loading={isLoading}
-            disabled={isLoading}
+            disabled={isMutating}
             testID="trip-save-button"
           />
+          {isEditing && (
+            <Button
+              title="Delete Trip"
+              onPress={handleDelete}
+              variant="destructive"
+              loading={isDeleting}
+              disabled={isMutating}
+              style={styles.deleteButton}
+              testID="trip-delete-button"
+            />
+          )}
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -555,6 +594,9 @@ const styles = StyleSheet.create({
   footer: {
     padding: 24,
     paddingTop: 16,
+  },
+  deleteButton: {
+    marginTop: 12,
   },
   photoAssistCard: {
     flexDirection: 'row',

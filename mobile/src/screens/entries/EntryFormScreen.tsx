@@ -30,16 +30,22 @@ import {
 } from '@hooks/useEntries';
 import { useTrip } from '@hooks/useTrips';
 import { CategorySelector } from '@components/entries';
+import { NearbyPhotoSuggestions } from '@components/entries/NearbyPhotoSuggestions';
 import { SmartLinkDisplay } from '@components/entries/SmartLinkDisplay';
 import { EntryMediaGallery } from '@components/media';
+import type { EntryMediaGalleryRef } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { useNearbyPhotos } from '@hooks/useNearbyPhotos';
 import { usePremiumGate } from '@hooks/usePremiumGate';
 import { useEntries } from '@hooks/useEntries';
+import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { fetchOpenGraphTitle } from '@utils/openGraph';
+import type { CachedPhoto } from '@services/photoImport/types';
+import * as MediaLibrary from 'expo-media-library';
+import { logger } from '@utils/logger';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
@@ -56,6 +62,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
+  const mediaGalleryRef = useRef<EntryMediaGalleryRef>(null);
 
   // Animations - start at final state if editing to avoid flash
   const formFadeAnim = useRef(new Animated.Value(isEditing ? 1 : 0)).current;
@@ -87,7 +94,44 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Nearby photo suggestions
+  const {
+    photos: nearbyPhotos,
+    isLoading: nearbyPhotosLoading,
+    cacheExists,
+  } = useNearbyPhotos(selectedPlace);
+  const [addedNearbyPhotoIds, setAddedNearbyPhotoIds] = useState<Set<string>>(new Set());
+
+  // Reset added photo tracking whenever the selected place changes
+  useEffect(() => {
+    setAddedNearbyPhotoIds(new Set());
+  }, [selectedPlace]);
+
+  const handleAddNearbyPhoto = useCallback(async (photo: CachedPhoto) => {
+    let uri = photo.uri;
+    // ph:// and assets-library:// URIs can't be read by ExpoFile. Resolve to
+    // a file:// URI via MediaLibrary, downloading from iCloud if needed.
+    if (
+      uri.startsWith('ph://') ||
+      uri.startsWith('ph-upload://') ||
+      uri.startsWith('assets-library://')
+    ) {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(photo.id, {
+          shouldDownloadFromNetwork: true,
+        });
+        uri = info.localUri ?? info.uri ?? uri;
+      } catch (err) {
+        logger.error('Failed to resolve nearby photo URI:', err);
+        return;
+      }
+    }
+    mediaGalleryRef.current?.addPhotos([uri]);
+    setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));
+  }, []);
 
   // Animate form appearance when type is selected
   useEffect(() => {
@@ -491,7 +535,12 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     }}
                     placeholder="Search for a place..."
                     countryCode={trip?.country_code}
-                    onDropdownOpen={(isOpen) => setScrollEnabled(!isOpen)}
+                    onDropdownOpen={(isOpen) => {
+                      setScrollEnabled(!isOpen);
+                      setIsDropdownOpen(isOpen);
+                    }}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onBlur={() => setIsDropdownOpen(false)}
                   />
                   {errors.place && (
                     <Text style={styles.errorText} testID="error-location-required">
@@ -546,6 +595,18 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 )}
               </View>
 
+              {/* Nearby Photo Suggestions */}
+              {showPlaceInput && selectedPlace?.latitude != null && (
+                <NearbyPhotoSuggestions
+                  photos={nearbyPhotos}
+                  isLoading={nearbyPhotosLoading}
+                  cacheExists={cacheExists}
+                  onPhotoSelect={handleAddNearbyPhoto}
+                  remainingSlots={MAX_PHOTOS_PER_ENTRY - photoCount}
+                  addedPhotoIds={addedNearbyPhotoIds}
+                />
+              )}
+
               {/* Photos Section */}
               <View style={styles.section}>
                 <View style={styles.photosLabelRow}>
@@ -556,6 +617,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 </View>
                 <View style={styles.photoGalleryContainer}>
                   <EntryMediaGallery
+                    ref={mediaGalleryRef}
                     entryId={isEditing ? entryId : undefined}
                     tripId={!isEditing ? tripId : undefined}
                     editable={true}
@@ -583,7 +645,7 @@ export function EntryFormScreen({ route, navigation }: Props) {
         </ScrollView>
 
         {/* Sticky footer - always visible at bottom */}
-        {hasSelectedType && (
+        {hasSelectedType && !isDropdownOpen && (
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <Button
               title={isEditing ? 'Save Changes' : 'Save Entry'}

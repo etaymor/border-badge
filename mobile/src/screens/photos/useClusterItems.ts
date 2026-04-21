@@ -76,6 +76,12 @@ export function useClusterItems({
     >();
     const photosOnlyClusters: LocationClusterDisplay[] = [];
 
+    // Sub-clusters from a manual split always render as their own card, even if
+    // they share a top place_id with another cluster. Grouping them would undo
+    // the user's split. Use a per-cluster group key for split sub-clusters.
+    const groupKeyFor = (clusterId: string, placeId: string) =>
+      clusterId.includes('__split_') ? `split:${clusterId}` : placeId;
+
     for (const clusterId of selectedCandidate.locationClusterIds) {
       if (dismissedClusterIdsInternal.has(clusterId)) continue;
 
@@ -84,13 +90,12 @@ export function useClusterItems({
 
       const suggestion = suggestionsMap.get(clusterId);
       if (suggestion && suggestion.places.length > 0) {
-        const topPlaceId = suggestion.places[0].place_id;
+        const groupKey = groupKeyFor(clusterId, suggestion.places[0].place_id);
 
-        // Track this cluster for the place_id
-        if (!placeIdToClusterIds.has(topPlaceId)) {
-          placeIdToClusterIds.set(topPlaceId, []);
+        if (!placeIdToClusterIds.has(groupKey)) {
+          placeIdToClusterIds.set(groupKey, []);
         }
-        placeIdToClusterIds.get(topPlaceId)!.push(clusterId);
+        placeIdToClusterIds.get(groupKey)!.push(clusterId);
         clusterSuggestionMap.set(clusterId, { suggestion, cluster });
       } else {
         photosOnlyClusters.push(cluster);
@@ -99,7 +104,7 @@ export function useClusterItems({
 
     // Phase 2: Build display items, merging clusters with same top place
     const items: ClusterDisplayItem[] = [];
-    const processedPlaceIds = new Set<string>();
+    const processedGroupKeys = new Set<string>();
 
     // Process in order of original cluster sequence for consistent ordering
     for (const clusterId of selectedCandidate.locationClusterIds) {
@@ -108,11 +113,11 @@ export function useClusterItems({
       const entry = clusterSuggestionMap.get(clusterId);
       if (!entry) continue; // Will be handled in photos-only pass
 
-      const topPlaceId = entry.suggestion.places[0].place_id;
-      if (processedPlaceIds.has(topPlaceId)) continue;
-      processedPlaceIds.add(topPlaceId);
+      const groupKey = groupKeyFor(clusterId, entry.suggestion.places[0].place_id);
+      if (processedGroupKeys.has(groupKey)) continue;
+      processedGroupKeys.add(groupKey);
 
-      const clusterIdsForPlace = placeIdToClusterIds.get(topPlaceId)!;
+      const clusterIdsForPlace = placeIdToClusterIds.get(groupKey)!;
 
       if (clusterIdsForPlace.length === 1) {
         // Single cluster - use original format

@@ -176,6 +176,17 @@ export function useAutoStartWorkflow({
             return;
           }
 
+          // When skipping to suggestions with a tripId, wait for subscription status
+          // BEFORE setting any React state. Otherwise state gets set, then overwritten
+          // when the effect re-fires after subscription resolves — losing split state.
+          if (tripId && subscriptionStatus === 'loading') {
+            if (__DEV__) {
+              console.log('[PhotoImport] Delaying auto-start - waiting for subscription status');
+            }
+            autoStartAttemptedRef.current = false;
+            return;
+          }
+
           // Bail out if component unmounted during async work
           if (unmountedRef.current) return;
 
@@ -191,15 +202,6 @@ export function useAutoStartWorkflow({
 
           // If tripId is provided with skipToSuggestions, go directly to suggestions phase
           if (tripId && candidates.length > 0) {
-            // Skip auto-start if subscription status is still loading
-            // This prevents premium gate checks from happening before RevenueCat initializes
-            if (subscriptionStatus === 'loading') {
-              if (__DEV__) {
-                console.log('[PhotoImport] Delaying auto-start - waiting for subscription status');
-              }
-              autoStartAttemptedRef.current = false;
-              return;
-            }
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] candidates ready', {
                 candidateCount: candidates.length,

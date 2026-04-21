@@ -13,7 +13,6 @@ import {
   createSubCluster,
   getLastImportTime,
   getProcessedClusterIds,
-  markClusterProcessed,
   toLocationClusterDisplay,
   type ScanProgress,
   type TripCandidateDisplay,
@@ -316,9 +315,21 @@ export function usePhotoImportWorkflow({
         return;
       }
 
-      // Create two sub-clusters
-      const subA = createSubCluster(parent, new Set(groupAPhotoIds), 'a');
-      const subB = createSubCluster(parent, new Set(groupBPhotoIds), 'b');
+      // Don't split if either group is empty — leaves the parent intact.
+      if (groupAPhotoIds.length === 0 || groupBPhotoIds.length === 0) {
+        if (__DEV__) console.warn('[PhotoImport] Cannot split: empty group');
+        return;
+      }
+
+      let subA: LocationCluster;
+      let subB: LocationCluster;
+      try {
+        subA = createSubCluster(parent, new Set(groupAPhotoIds), 'a');
+        subB = createSubCluster(parent, new Set(groupBPhotoIds), 'b');
+      } catch (err) {
+        if (__DEV__) console.warn('[PhotoImport] Split failed:', err);
+        return;
+      }
       const displayA = toLocationClusterDisplay(subA);
       const displayB = toLocationClusterDisplay(subB);
 
@@ -350,9 +361,10 @@ export function usePhotoImportWorkflow({
         return { ...prev, locationClusterIds: newIds };
       });
 
-      // Dismiss parent cluster
+      // Dismiss parent cluster in-memory only — don't persist, because the sub-clusters
+      // aren't persisted either. Persisting would hide the parent on return with no
+      // sub-clusters to show, making the whole collection disappear.
       setDismissedClusterIdsInternal((prev) => new Set(prev).add(clusterId));
-      await markClusterProcessed(clusterId, 'split');
 
       // Fetch suggestions for the two new sub-clusters
       await fetchForClusters([subA, subB]);
