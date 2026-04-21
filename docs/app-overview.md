@@ -412,8 +412,9 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 - Concurrent multi-cluster uploads with per-cluster progress
 - Country filtering for large photo libraries
 - Tiered radius search for place matching (50m → 100m → 200m → 500m)
+- **Nearby photo suggestions on the entry form:** when a user picks a place from Google Places autocomplete, the same SQLite photo cache is queried by geohash to surface tappable thumbnails of photos taken near that location. Uses an adaptive radius (500m → 200m → 100m) that narrows automatically in dense areas, and respects the entry's remaining photo slots. If the library has not been scanned yet, a hint prompts the user to run photo import first.
 
-**User value:** Retroactively document years of past travel from your existing photos
+**User value:** Retroactively document years of past travel from your existing photos, and skip hunting through the camera roll when adding photos to a fresh entry
 
 ### 18. Saved Places (Quick Save)
 

@@ -568,7 +568,7 @@ The photo import feature allows users to scan their device photo library and aut
 - `photoClusteringCache.ts` - Bridges SQLite cache with clustering pipeline
 - `photoClusteringDisplay.ts` - Memory-optimized display types (IDs instead of full objects)
 - `photoClusteringTrips.ts` - Trip segmentation from clusters
-- `photoCacheDb.ts` - SQLite caching for incremental imports (photos, metadata)
+- `photoCacheDb.ts` - SQLite caching for incremental imports (photos, metadata); also exposes `getPhotosNearLocation(lat, lon)` for geohash-indexed nearby photo lookups used by the entry form
 - `photoCacheDbSuggestions.ts` - Processed clusters, cached suggestions with TTL
 - `photoBackgroundSync.ts` - Silent background cache refresh on app foreground (1hr interval)
 - `visionPhoto.ts` - Select representative photos, resize to 768px, base64 encode for vision API
@@ -605,6 +605,12 @@ The photo import feature allows users to scan their device photo library and aut
 
 - `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
 - `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters
+- `useNearbyPhotos.ts` - Find cached photos near a selected place's coordinates for the entry form; uses requestId-based stale-result guarding and reports `cacheExists` so the UI can prompt users who haven't scanned yet
+
+**Entry Form Integration:**
+
+- `mobile/src/components/entries/NearbyPhotoSuggestions.tsx` - Horizontal thumbnail strip rendered under the location field on `EntryFormScreen`; tapping a thumbnail adds the photo to the entry gallery and shows a check overlay. Respects the entry's remaining photo slots and disables thumbnails once the limit is reached.
+- `mobile/src/components/media/EntryMediaGallery.tsx` - Uses `forwardRef` to expose an imperative `EntryMediaGalleryRef.addPhotos(uris[])` method so the entry form can inject suggested photo URIs through the same upload pipeline as manual picks.
 
 **Backend Place Matcher (`backend/app/services/place_matcher/` — mixin architecture):**
 
