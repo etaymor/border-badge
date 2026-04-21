@@ -568,7 +568,7 @@ The photo import feature allows users to scan their device photo library and aut
 - `photoClusteringCache.ts` - Bridges SQLite cache with clustering pipeline
 - `photoClusteringDisplay.ts` - Memory-optimized display types (IDs instead of full objects)
 - `photoClusteringTrips.ts` - Trip segmentation from clusters
-- `photoCacheDb.ts` - SQLite caching for incremental imports (photos, metadata)
+- `photoCacheDb.ts` - SQLite caching for incremental imports (photos, metadata); also exposes `getPhotosNearLocation(lat, lon)` for nearby-photo suggestions (geohash precision 6 prefix match + haversine post-filter, adaptive radius 500m → 200m → 100m)
 - `photoCacheDbSuggestions.ts` - Processed clusters, cached suggestions with TTL
 - `photoBackgroundSync.ts` - Silent background cache refresh on app foreground (1hr interval)
 - `visionPhoto.ts` - Select representative photos, resize to 768px, base64 encode for vision API
@@ -605,6 +605,7 @@ The photo import feature allows users to scan their device photo library and aut
 
 - `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
 - `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters
+- `useNearbyPhotos.ts` - Given a `SelectedPlace`, query the on-device photo cache for photos taken near its coordinates; returns `{ photos, isLoading, cacheExists }` and guards stale results via a request-id ref. Powers the nearby-photo suggestion strip on `EntryFormScreen`.
 
 **Backend Place Matcher (`backend/app/services/place_matcher/` — mixin architecture):**
 

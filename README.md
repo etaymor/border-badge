@@ -8,6 +8,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Trip Management** - Create trips with cover photos, dates, and tagged companions
 - **Entry Logging** - Log places, restaurants, stays, and experiences with photos and notes
 - **Photo Import** - Scan device photos to automatically suggest trip entries based on GPS location clustering
+- **Nearby Photo Suggestions** - When picking a place on the entry form, surface cached photos taken nearby so users can add them with one tap
 - **Social Layer** - Connect with friends, compare travel maps, consent-based trip tagging
 - **Shareable Lists** - Curate and share city-specific recommendations via public links
 - **Offline Support** - Local SQLite caching for country data

@@ -142,7 +142,7 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 - Create trips with name, country, dates, cover image
 - View trips organized by country
 - Edit trip details
-- Soft-delete with 30-day restore window
+- Delete trips from the trip edit screen with a confirmation dialog (soft-deleted, cascades to entries and media, 30-day restore window)
 - Share trips via public URLs (`/t/{slug}`)
 
 **User value:** Organized travel history beyond just "visited" status
@@ -414,6 +414,25 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 - Tiered radius search for place matching (50m → 100m → 200m → 500m)
 
 **User value:** Retroactively document years of past travel from your existing photos
+
+### 17a. Nearby Photo Suggestions (Entry Form)
+
+**What it does:** While creating or editing an entry, surfaces photos from the user's device library that were taken near the place they just selected so they can add them with a single tap.
+
+**How it works:**
+1. User selects a place from Google Places autocomplete on the entry form
+2. The app queries the local SQLite photo cache (`cached_photos`) for photos whose GPS coordinates are near the selected place
+3. Results are found via geohash prefix matching (precision 6, ~1.2km cells plus neighbours) and post-filtered with a haversine distance check
+4. An adaptive radius (500m → 200m → 100m) narrows results in dense urban areas to avoid noise and keeps results in sparse areas
+5. Matches are rendered as a horizontal thumbnail strip between the Location and Photos sections; tapping a thumbnail adds that photo into the entry's media gallery (respecting `MAX_PHOTOS_PER_ENTRY`)
+
+**Key capabilities:**
+- Works entirely from the on-device photo cache — no new network requests are made to surface suggestions
+- Only appears when the photo cache has content; silently hidden for users who have not run a photo import
+- Reactive to place changes: switching the selected place re-queries and discards stale results via a request-id guard
+- Respects the entry photo limit, with graceful handling when the gallery is full
+
+**User value:** Turns a freshly added entry into a rich, illustrated memory without forcing the user to dig through their camera roll.
 
 ### 18. Saved Places (Quick Save)
 
