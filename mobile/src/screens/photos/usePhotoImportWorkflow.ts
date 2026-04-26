@@ -7,9 +7,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
+import { usePhotoScanStore } from '@stores/photoScanStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import {
-  abortBackgroundSync,
   createSubCluster,
   getLastImportTime,
   getProcessedClusterIds,
@@ -52,8 +52,14 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Core State
   // ==========================================================================
-  // Initialize to 'loading' when we'll skip directly to suggestions (avoids flash of idle state)
-  const [phase, setPhase] = useState<ImportPhase>(skipToSuggestions && tripId ? 'loading' : 'idle');
+  // Initialize to 'loading' when we'll skip directly to suggestions (avoids
+  // flash of idle state). When the singleton scan service is mid-run from a
+  // prior screen mount or auto-resume, initialize to 'scanning' so we don't
+  // briefly render IdlePhase before the subscription kicks in (R3).
+  const [phase, setPhase] = useState<ImportPhase>(() => {
+    if (skipToSuggestions && tripId) return 'loading';
+    return usePhotoScanStore.getState().phase === 'scanning' ? 'scanning' : 'idle';
+  });
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
@@ -127,16 +133,14 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Cleanup on unmount
   // ==========================================================================
+  // The scan service runs independently of this screen now (see U1/U3); we no
+  // longer abort it on unmount. Only release Map memory held by this hook.
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
 
-      // Abort any in-progress background sync to prevent closures from holding
-      // references to large data structures after unmount
-      abortBackgroundSync();
-
       // Clear Maps directly via refs (setState is a no-op after unmount)
-      // This releases 5-10MB for large photo libraries
+      // This releases 5-10MB for large photo libraries.
       photoLookupRef.current.clear();
       clusterLookupRef.current.clear();
       clusterDisplaysRef.current.clear();
@@ -194,8 +198,8 @@ export function usePhotoImportWorkflow({
       const outcome = await startScanInternal(forceRefresh);
       if (!outcome.success) {
         setPhase('idle');
-        // If there's a specific failure reason (no-photos or no-trips), surface it
-        // so the screen can show the alert and navigate back on dismiss
+        // If there's a specific failure reason, surface it so the screen can
+        // show the alert and navigate back on dismiss.
         if (outcome.reason) {
           setScanFailure({
             reason: outcome.reason,
@@ -207,6 +211,28 @@ export function usePhotoImportWorkflow({
     },
     [startScanInternal]
   );
+
+  // Mirror service-side scan failures into the screen's local scanFailure state.
+  // The service publishes failures via the store; the screen's existing alert
+  // pipeline reads from `scanFailure`. This keeps the UI surface unchanged.
+  useEffect(() => {
+    return usePhotoScanStore.subscribe((state, prev) => {
+      if (state.phase === prev.phase) return;
+      if (state.phase === 'failed' && state.scanFailure) {
+        setScanFailure({
+          reason: state.scanFailure.reason,
+          title: state.scanFailure.title,
+          message: state.scanFailure.message,
+        });
+        setPhase('idle');
+      } else if (state.phase === 'scanning' && prev.phase !== 'scanning') {
+        // Service spun up a scan from outside this screen (auto-resume,
+        // banner-driven retry). Reflect in the screen's phase.
+        setScanFailure(null);
+        setPhase('scanning');
+      }
+    });
+  }, []);
 
   const cancelScan = useCallback(() => {
     cancelScanInternal();

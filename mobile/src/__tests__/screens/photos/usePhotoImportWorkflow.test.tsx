@@ -31,40 +31,97 @@ jest.mock('../../../services/photoImport/visionPhoto', () => ({
   getVisionImageForCluster: jest.fn().mockResolvedValue(null),
 }));
 
-jest.mock('../../../services/photoImport', () => ({
-  extractPhotosWithLocation: jest.fn(),
-  segmentTripsFromCache: jest.fn(),
-  photoToCachedPhoto: jest.fn((photo) => ({
-    ...photo,
-    creationTime: photo.creationTime.getTime(),
-    latitude: photo.location.latitude,
-    longitude: photo.location.longitude,
-    geohash: 'testgeohash',
-    countryCode: 'JP',
-  })),
-  getFullCluster: jest.fn(),
-  HomeCountryNotSetError: class HomeCountryNotSetError extends Error {
-    constructor() {
-      super('Home country not set');
-      this.name = 'HomeCountryNotSetError';
-    }
-  },
-  getLastImportTime: jest.fn(),
-  setLastImportTime: jest.fn(),
-  getAllCachedPhotos: jest.fn(),
-  cachePhotos: jest.fn(),
-  clearPhotoCache: jest.fn(),
-  saveTripSegments: jest.fn().mockResolvedValue(undefined),
-  abortBackgroundSync: jest.fn(),
-  markClusterProcessed: jest.fn(),
-  getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
-  getCachedSuggestions: jest.fn().mockResolvedValue(new Map()),
-  cacheSuggestions: jest.fn().mockResolvedValue(undefined),
-  getLastSelectedCandidateId: jest.fn().mockResolvedValue(null),
-  setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
-  computeTimeHint: jest.fn().mockReturnValue(null),
-  getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
-}));
+// Drives the photoScanService mock — tests push results/failures here, then the
+// mocked startScan call updates the photoScanStore to simulate the service.
+const mockScanResultRef: { current: import('../../../screens/photos/usePhotoScan').ScanResult | null } = {
+  current: null,
+};
+const mockServiceFailureRef: {
+  current: import('../../../stores/photoScanStore').PhotoScanFailure | null;
+} = { current: null };
+
+jest.mock('../../../services/photoImport', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+  return {
+    extractPhotosWithLocation: jest.fn(),
+    segmentTripsFromCache: jest.fn(),
+    photoToCachedPhoto: jest.fn((photo: { creationTime: Date; location: { latitude: number; longitude: number } }) => ({
+      ...photo,
+      creationTime: photo.creationTime.getTime(),
+      latitude: photo.location.latitude,
+      longitude: photo.location.longitude,
+      geohash: 'testgeohash',
+      countryCode: 'JP',
+    })),
+    getFullCluster: jest.fn(),
+    HomeCountryNotSetError: class HomeCountryNotSetError extends Error {
+      constructor() {
+        super('Home country not set');
+        this.name = 'HomeCountryNotSetError';
+      }
+    },
+    getLastImportTime: jest.fn(),
+    setLastImportTime: jest.fn(),
+    getAllCachedPhotos: jest.fn(),
+    cachePhotos: jest.fn(),
+    clearPhotoCache: jest.fn(),
+    saveTripSegments: jest.fn().mockResolvedValue(undefined),
+    abortBackgroundSync: jest.fn(),
+    markClusterProcessed: jest.fn(),
+    getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
+    getCachedSuggestions: jest.fn().mockResolvedValue(new Map()),
+    cacheSuggestions: jest.fn().mockResolvedValue(undefined),
+    getLastSelectedCandidateId: jest.fn().mockResolvedValue(null),
+    setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
+    computeTimeHint: jest.fn().mockReturnValue(null),
+    getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
+
+    // photoScanService surface mocked here so the workflow's adapter can drive
+    // the real photoScanStore from test setups via mockScanResultRef.
+    startScan: jest.fn(async (opts: { homeCountry: string | null }) => {
+      if (!opts.homeCountry) {
+        return { status: 'rejected', reason: 'no-home-country' };
+      }
+      // Push the prepared result/failure into the real store so the adapter's
+      // subscription forwards it to the workflow callbacks.
+      if (mockServiceFailureRef.current) {
+        usePhotoScanStore.setState({
+          phase: 'failed',
+          progress: null,
+          scanFailure: mockServiceFailureRef.current,
+          hasResult: false,
+        });
+      } else if (mockScanResultRef.current) {
+        usePhotoScanStore.setState({
+          phase: 'completed',
+          progress: null,
+          hasResult: true,
+        });
+      } else {
+        usePhotoScanStore.setState({ phase: 'scanning' });
+      }
+      return { status: 'started' };
+    }),
+    cancelScan: jest.fn(() => {
+      mockScanResultRef.current = null;
+      mockServiceFailureRef.current = null;
+      usePhotoScanStore.setState({ phase: 'idle', progress: null, hasResult: false });
+    }),
+    consumeResult: jest.fn(() => {
+      const result = mockScanResultRef.current;
+      mockScanResultRef.current = null;
+      usePhotoScanStore.setState({ hasResult: false });
+      return result;
+    }),
+    hasResult: jest.fn(() => mockScanResultRef.current !== null),
+    isScanRunning: jest.fn(() => false),
+    getLastProgressAt: jest.fn(() => 0),
+    markFailed: jest.fn(),
+    readScanInProgressMetadata: jest.fn().mockResolvedValue({ inProgress: false, startedAt: null }),
+    clearScanInProgressMetadata: jest.fn().mockResolvedValue(undefined),
+  };
+});
 
 // Import actual error classes to use in tests - these are the same classes used by the real code
 const actualPhotoImportHooks = jest.requireActual('../../../hooks/usePhotoImport');
@@ -166,20 +223,6 @@ function createMockPhoto(id: string, countryCode = 'JP') {
   };
 }
 
-// Helper to create mock cached photos
-function createMockCachedPhoto(id: string, countryCode = 'JP') {
-  return {
-    id,
-    uri: `file://photo-${id}.jpg`,
-    filename: `photo-${id}.jpg`,
-    creationTime: Date.now(),
-    latitude: 35.6762,
-    longitude: 139.6503,
-    geohash: 'xn76urx',
-    countryCode,
-  };
-}
-
 // Helper to create mock trip candidates
 function createMockTripCandidate(id: string, countryCode = 'JP') {
   return {
@@ -226,6 +269,12 @@ describe('usePhotoImportWorkflow', () => {
     mockCreateEntryMutateAsync.mockResolvedValue({ id: 'entry-1' });
     mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
     mockGetUploadState.mockReturnValue(null);
+    mockScanResultRef.current = null;
+    mockServiceFailureRef.current = null;
+    // Reset the real photoScanStore so tests start from a known state.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { resetPhotoScanStore } = require('../../../stores/photoScanStore');
+    resetPhotoScanStore();
 
     // Default mocks
     mockedOnboardingStore.useOnboardingStore.mockReturnValue('US');
@@ -276,7 +325,7 @@ describe('usePhotoImportWorkflow', () => {
   });
 
   describe('startScan', () => {
-    it('shows alert when home country is not set', async () => {
+    it('surfaces home-country failure when home country is not set', async () => {
       mockedOnboardingStore.useOnboardingStore.mockReturnValue(null);
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -288,22 +337,23 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       expect(result.current.phase).toBe('idle');
-      expect(global.__mockAlert.alert).toHaveBeenCalledWith(
-        'Set Home Country',
-        expect.stringContaining('Please set your home country'),
-        expect.any(Array)
+      expect(result.current.scanFailure).toEqual(
+        expect.objectContaining({
+          reason: 'home-country',
+          title: 'Set Home Country',
+        })
       );
     });
 
-    it('transitions to scanning phase', async () => {
-      const mockPhotos = [createMockPhoto('photo-1')];
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue(mockPhotos);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
+    it('delegates to photoScanService.startScan with the right options', async () => {
+      mockScanResultRef.current = {
         candidates: [createMockTripCandidate('trip-1')],
         photoLookup: new Map(),
         clusterLookup: new Map(),
         clusterDisplays: new Map(),
-      });
+        importTime: Date.now(),
+        isIncremental: false,
+      };
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -313,62 +363,42 @@ describe('usePhotoImportWorkflow', () => {
         await result.current.startScan();
       });
 
-      expect(Analytics.photoImportScanStarted).toHaveBeenCalled();
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledWith({
+        homeCountry: 'US',
+        filterCountryCode: undefined,
+        forceRefresh: false,
+      });
     });
 
-    it('performs incremental scan when cache exists', async () => {
-      const lastImportTime = Date.now() - 3600000;
-      mockedPhotoImport.getLastImportTime.mockResolvedValue(lastImportTime);
-      mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([createMockCachedPhoto('cached-1')]);
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('new-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
+    it('passes forceRefresh through to the service', async () => {
+      mockScanResultRef.current = {
         candidates: [createMockTripCandidate('trip-1')],
         photoLookup: new Map(),
         clusterLookup: new Map(),
         clusterDisplays: new Map(),
-      });
+        importTime: Date.now(),
+        isIncremental: false,
+      };
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
       });
 
       await act(async () => {
-        await result.current.startScan();
+        await result.current.startScan(true);
       });
 
-      expect(mockedPhotoImport.getAllCachedPhotos).toHaveBeenCalled();
-      expect(mockedPhotoImport.extractPhotosWithLocation).toHaveBeenCalledWith(
-        expect.any(Function),
-        expect.any(AbortSignal),
-        expect.any(Date), // createdAfter date
-        expect.any(Function) // onBatch callback
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledWith(
+        expect.objectContaining({ forceRefresh: true })
       );
     });
 
-    it('clears cache on force refresh', async () => {
-      mockedPhotoImport.getLastImportTime.mockResolvedValue(Date.now() - 3600000);
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
-        candidates: [createMockTripCandidate('trip-1')],
-        photoLookup: new Map(),
-        clusterLookup: new Map(),
-        clusterDisplays: new Map(),
-      });
-
-      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        await result.current.startScan(true); // forceRefresh = true
-      });
-
-      expect(mockedPhotoImport.clearPhotoCache).toHaveBeenCalled();
-    });
-
-    it('sets scanFailure when no photos with location found', async () => {
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([]);
-      mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([]);
+    it('reflects service-side no-photos failure into scanFailure', async () => {
+      mockServiceFailureRef.current = {
+        reason: 'no-photos',
+        title: 'No Photos Found',
+        message: 'No photos with location data were found in your library.',
+      };
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -379,22 +409,17 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       expect(result.current.scanFailure).toEqual(
-        expect.objectContaining({
-          title: 'No Photos Found',
-          message: expect.stringContaining('No photos with location data'),
-        })
+        expect.objectContaining({ reason: 'no-photos', title: 'No Photos Found' })
       );
       expect(result.current.phase).toBe('idle');
     });
 
-    it('sets scanFailure when no trips found (all photos from home country)', async () => {
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
-        candidates: [], // Empty - all filtered out as home country
-        photoLookup: new Map(),
-        clusterLookup: new Map(),
-        clusterDisplays: new Map(),
-      });
+    it('reflects service-side no-trips failure into scanFailure', async () => {
+      mockServiceFailureRef.current = {
+        reason: 'no-trips',
+        title: 'No Trips Found',
+        message: 'No travel photos found.',
+      };
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -405,23 +430,21 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       expect(result.current.scanFailure).toEqual(
-        expect.objectContaining({
-          title: 'No Trips Found',
-          message: expect.stringContaining('No travel photos found'),
-        })
+        expect.objectContaining({ reason: 'no-trips' })
       );
       expect(result.current.phase).toBe('idle');
     });
 
-    it('transitions to candidates phase on successful scan', async () => {
+    it('transitions to candidates phase when service publishes a result', async () => {
       const mockCandidates = [createMockTripCandidate('trip-1')];
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
+      mockScanResultRef.current = {
         candidates: mockCandidates,
         photoLookup: new Map(),
         clusterLookup: new Map(),
         clusterDisplays: new Map(),
-      });
+        importTime: Date.now(),
+        isIncremental: false,
+      };
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -433,85 +456,61 @@ describe('usePhotoImportWorkflow', () => {
 
       expect(result.current.phase).toBe('candidates');
       expect(result.current.tripCandidates).toEqual(mockCandidates);
-      expect(Analytics.photoImportScanCompleted).toHaveBeenCalledWith(
-        expect.objectContaining({
-          photoCount: 2,
-          tripCandidateCount: 1,
-        })
-      );
-    });
-
-    it('filters candidates by country code when filterCountryCode is set', async () => {
-      const mockCandidates = [
-        createMockTripCandidate('trip-jp', 'JP'),
-        createMockTripCandidate('trip-fr', 'FR'),
-      ];
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
-        candidates: mockCandidates,
-        photoLookup: new Map(),
-        clusterLookup: new Map(),
-        clusterDisplays: new Map(),
-      });
-
-      const { result } = renderHook(
-        () =>
-          usePhotoImportWorkflow({
-            filterCountryCode: 'JP',
-          }),
-        { wrapper: createWrapper(queryClient) }
-      );
-
-      await act(async () => {
-        await result.current.startScan();
-      });
-
-      expect(result.current.tripCandidates).toHaveLength(1);
-      expect(result.current.tripCandidates[0].countryCode).toBe('JP');
-    });
-
-    it('caches new photos after scan', async () => {
-      const mockPhotos = [createMockPhoto('photo-1')];
-      // Mock extractPhotosWithLocation to call onBatch with the photos (simulating incremental caching)
-      mockedPhotoImport.extractPhotosWithLocation.mockImplementation(
-        async (_onProgress, _signal, _since, onBatch) => {
-          if (onBatch) onBatch(mockPhotos);
-          return mockPhotos;
-        }
-      );
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
-        candidates: [createMockTripCandidate('trip-1')],
-        photoLookup: new Map(),
-        clusterLookup: new Map(),
-        clusterDisplays: new Map(),
-      });
-
-      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      await act(async () => {
-        await result.current.startScan();
-      });
-
-      expect(mockedPhotoImport.cachePhotos).toHaveBeenCalled();
-      expect(mockedPhotoImport.setLastImportTime).toHaveBeenCalled();
     });
   });
 
   describe('cancelScan', () => {
-    it('aborts the scan and returns to idle', async () => {
+    it('cancels the service and returns the screen to idle', async () => {
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
       });
 
-      // Call cancelScan directly - it should work even in idle state
       act(() => {
         result.current.cancelScan();
       });
 
       expect(result.current.phase).toBe('idle');
-      expect(Analytics.photoImportScanCancelled).toHaveBeenCalled();
+      expect(mockedPhotoImport.cancelScan).toHaveBeenCalled();
+    });
+  });
+
+  describe('lazy initial state from photoScanStore', () => {
+    it('initializes phase=scanning on mount when the service is mid-scan', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+      usePhotoScanStore.setState({ phase: 'scanning' });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      // First render should render scanning, never IdlePhase, satisfying R3.
+      expect(result.current.phase).toBe('scanning');
+    });
+
+    it('consumes a pre-existing completed result on mount', async () => {
+      const mockCandidates = [createMockTripCandidate('trip-1')];
+      mockScanResultRef.current = {
+        candidates: mockCandidates,
+        photoLookup: new Map(),
+        clusterLookup: new Map(),
+        clusterDisplays: new Map(),
+        importTime: Date.now(),
+        isIncremental: false,
+      };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => {
+        expect(result.current.phase).toBe('candidates');
+      });
+      expect(result.current.tripCandidates).toEqual(mockCandidates);
+      expect(mockedPhotoImport.consumeResult).toHaveBeenCalled();
     });
   });
 
@@ -947,13 +946,14 @@ describe('usePhotoImportWorkflow', () => {
       const phases: ImportPhase[] = [];
       const mockCandidate = createMockTripCandidate('trip-1');
 
-      mockedPhotoImport.extractPhotosWithLocation.mockResolvedValue([createMockPhoto('photo-1')]);
-      mockedPhotoImport.segmentTripsFromCache.mockReturnValue({
+      mockScanResultRef.current = {
         candidates: [mockCandidate],
         photoLookup: new Map(),
         clusterLookup: new Map(),
         clusterDisplays: new Map(),
-      });
+        importTime: Date.now(),
+        isIncremental: false,
+      };
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
       mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
 
@@ -979,6 +979,41 @@ describe('usePhotoImportWorkflow', () => {
       phases.push(result.current.phase);
 
       expect(phases).toEqual(['idle', 'candidates', 'trip-selection', 'suggestions']);
+    });
+
+    it('survives unmount/remount cycle without re-running extraction', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+
+      // First scan completes with a result
+      mockScanResultRef.current = {
+        candidates: [mockCandidate],
+        photoLookup: new Map(),
+        clusterLookup: new Map(),
+        clusterDisplays: new Map(),
+        importTime: Date.now(),
+        isIncremental: false,
+      };
+
+      const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+      });
+      expect(result.current.phase).toBe('candidates');
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
+
+      unmount();
+
+      // Re-mount: should not call startScan a second time. Phase resets to
+      // idle because the prior result was already consumed.
+      const { result: result2 } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
+      expect(result2.current.phase).toBe('idle');
     });
   });
 });
