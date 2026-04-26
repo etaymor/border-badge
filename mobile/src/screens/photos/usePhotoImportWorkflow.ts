@@ -4,10 +4,10 @@
  * Composes smaller hooks for scanning, suggestions, entry creation, navigation, and analytics.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
-import { usePhotoScanStore } from '@stores/photoScanStore';
+import { isAlertScanFailure, usePhotoScanStore } from '@stores/photoScanStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import {
   createSubCluster,
@@ -40,15 +40,6 @@ export type {
   UsePhotoImportWorkflowOptions,
 } from './photoImportTypes';
 
-function isAlertScanFailure(reason: ScanFailureReason): boolean {
-  return (
-    reason === 'no-photos' ||
-    reason === 'no-trips' ||
-    reason === 'home-country' ||
-    reason === 'scan-error'
-  );
-}
-
 export function usePhotoImportWorkflow({
   filterCountryCode,
   tripId,
@@ -73,6 +64,12 @@ export function usePhotoImportWorkflow({
     const serviceState = usePhotoScanStore.getState();
     const servicePhase = serviceState.phase;
     if (servicePhase === 'scanning') return 'scanning';
+    // If the service already has a completed result waiting (because this
+    // screen mounted via banner-tap after the scan finished while elsewhere),
+    // initialize to 'loading'. usePhotoScan's mount-time recovery effect will
+    // consume the result and onScanComplete will then set phase to 'candidates';
+    // 'loading' renders the spinner so we don't briefly flash IdlePhase.
+    if (servicePhase === 'completed' && serviceState.hasResult) return 'loading';
     if (
       servicePhase === 'failed' &&
       serviceState.scanFailure &&
@@ -84,11 +81,14 @@ export function usePhotoImportWorkflow({
   });
 
   // Seed local scanFailure state from the service when the screen mounts
-  // mid-failure (e.g. via banner "tap to retry" deep-link).
-  const initialServiceFailure = useState(() => {
+  // mid-failure (e.g. via banner "tap to retry" deep-link). Computed once on
+  // mount; `useMemo` with an empty dep array communicates intent better than
+  // `useState(...)[0]`.
+  const initialServiceFailure = useMemo(() => {
     const state = usePhotoScanStore.getState();
     return state.phase === 'failed' ? state.scanFailure : null;
-  })[0];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);

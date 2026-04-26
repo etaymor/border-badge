@@ -20,6 +20,10 @@ const mockResultRef: { current: import('../../../screens/photos/usePhotoScan').S
     current: null,
   };
 
+jest.mock('@react-navigation/native', () => ({
+  useIsFocused: () => true,
+}));
+
 jest.mock('@services/photoImport', () => ({
   startScan: jest.fn(async (opts: { homeCountry: string | null }) => {
     if (!opts.homeCountry) return { status: 'rejected', reason: 'no-home-country' };

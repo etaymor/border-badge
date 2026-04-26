@@ -75,3 +75,23 @@ export const selectPhotoScanDiscoveredCountries = (s: PhotoScanState) => s.disco
 export const selectPhotoScanIsIncremental = (s: PhotoScanState) => s.isIncremental;
 export const selectPhotoScanFailure = (s: PhotoScanState) => s.scanFailure;
 export const selectPhotoScanHasResult = (s: PhotoScanState) => s.hasResult;
+
+/**
+ * True for failure reasons that should drop the screen to idle and surface an alert.
+ * False for service-level reasons that keep the screen in 'scanning' and render
+ * the inline Retry button. Exhaustive switch ensures new reasons get an explicit decision.
+ */
+export function isAlertScanFailure(reason: PhotoScanFailureReason): boolean {
+  switch (reason) {
+    case 'no-photos':
+    case 'no-trips':
+    case 'home-country':
+    case 'scan-error':
+      return true;
+    case 'stuck':
+    case 'stale':
+    case 'no-permission':
+    case 'subscription-expired':
+      return false;
+  }
+}

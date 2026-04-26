@@ -16,10 +16,15 @@ jest.mock('@react-navigation/native', () => ({
   useIsFocused: () => mockIsFocused,
 }));
 
+// The hook prop now has the full PassportStackScreenProps['navigation'] type.
+// Tests use a stripped-down stub; cast as `unknown as` to satisfy the prop type
+// without ballooning the mock surface.
+type MockNavigation = UseScanLifecycleOptions['navigation'];
+
 describe('useScanLifecycle', () => {
   const createMockNavigation = () => {
     const listeners: Record<string, (e: unknown) => void> = {};
-    return {
+    const stub = {
       goBack: jest.fn(),
       dispatch: jest.fn(),
       addListener: jest.fn((event: string, callback: (e: unknown) => void) => {
@@ -28,6 +33,7 @@ describe('useScanLifecycle', () => {
       }),
       _listeners: listeners,
     };
+    return stub as unknown as MockNavigation & typeof stub;
   };
 
   beforeEach(() => {

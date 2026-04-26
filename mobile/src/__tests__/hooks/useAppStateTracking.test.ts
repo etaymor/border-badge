@@ -42,7 +42,7 @@ jest.mock('@services/shareExtensionAnalytics', () => ({
 }));
 
 jest.mock('@services/photoImport', () => ({
-  cancelScan: jest.fn(),
+  resetForUserChange: jest.fn().mockResolvedValue(undefined),
   detectStuckScan: jest.fn(),
   performBackgroundPhotoSync: jest.fn().mockResolvedValue(null),
   tryResumeScan: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'no-flag' }),
@@ -90,8 +90,8 @@ describe('useAppStateTracking foreground resume', () => {
   });
 });
 
-describe('useAppStateTracking auth-state cancel', () => {
-  it('cancels an in-flight scan when user signs out (session goes from non-null to null)', () => {
+describe('useAppStateTracking auth-state reset', () => {
+  it('resets scan state when user signs out (session goes from non-null to null)', () => {
     usePhotoScanStore.setState({ phase: 'scanning' });
     const { rerender } = renderHook(
       ({ session }: { session: ReturnType<typeof makeSession> | null }) =>
@@ -100,10 +100,12 @@ describe('useAppStateTracking auth-state cancel', () => {
     );
 
     rerender({ session: null });
-    expect(photoImportMock.cancelScan).toHaveBeenCalled();
+    // resetForUserChange runs unconditionally on user change so that user A's
+    // result Map cannot leak to user B even if no scan was in flight.
+    expect(photoImportMock.resetForUserChange).toHaveBeenCalled();
   });
 
-  it('does not cancel when there is no in-flight scan', () => {
+  it('still resets when there is no in-flight scan (defensive)', () => {
     usePhotoScanStore.setState({ phase: 'idle' });
     const { rerender } = renderHook(
       ({ session }: { session: ReturnType<typeof makeSession> | null }) =>
@@ -112,6 +114,6 @@ describe('useAppStateTracking auth-state cancel', () => {
     );
 
     rerender({ session: null });
-    expect(photoImportMock.cancelScan).not.toHaveBeenCalled();
+    expect(photoImportMock.resetForUserChange).toHaveBeenCalled();
   });
 });

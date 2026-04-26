@@ -195,6 +195,7 @@ jest.mock('@react-navigation/native', () => ({
     navigate: jest.fn(),
     goBack: jest.fn(),
   })),
+  useIsFocused: () => true,
 }));
 
 const mockedOnboardingStore = onboardingStore as jest.Mocked<typeof onboardingStore>;

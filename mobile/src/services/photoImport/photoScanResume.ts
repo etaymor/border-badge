@@ -14,12 +14,13 @@ import { useOnboardingStore } from '@stores/onboardingStore';
 import { FREE_LIMITS, useSubscriptionStore } from '@stores/subscriptionStore';
 import {
   clearScanInProgressMetadata,
+  getCancelInFlight,
   getLastProgressAt,
-  isScanRunning,
   markFailed,
   readScanInProgressMetadata,
   startScan,
 } from './photoScanService';
+import { isScanRunning } from './photoScanState';
 import { usePhotoScanStore } from '@stores/photoScanStore';
 
 /** Auto-resume considers the scan-in-progress flag stale after this long. */
@@ -43,6 +44,14 @@ export type ResumeOutcome =
  * avoid double-fire on rapid bounces.
  */
 export async function tryResumeScan(): Promise<ResumeOutcome> {
+  // If a recent cancelScan() kicked off async metadata clearing, await it
+  // before reading the durable flag — otherwise a fast cancel + foreground
+  // bounce reads the stale 'true' flag and resurrects the scan.
+  const pendingCancel = getCancelInFlight();
+  if (pendingCancel) {
+    await pendingCancel;
+  }
+
   // Gate 7 fast-path: already running, nothing to do.
   if (isScanRunning()) {
     return { status: 'skipped', reason: 'already-running' };
@@ -80,8 +89,10 @@ export async function tryResumeScan(): Promise<ResumeOutcome> {
   // Gate 5: home country gating — defer if onboarding hasn't hydrated yet.
   const onboardingState = useOnboardingStore.getState();
   // useOnboardingStore.persist.hasHydrated() returns true when AsyncStorage rehydration
-  // has completed. Using optional chain for tests that may not have persist middleware.
-  const hydrated = useOnboardingStore.persist?.hasHydrated() ?? true;
+  // has completed. Treat missing persist as "not hydrated" so the gate defers —
+  // surfaces real bugs (e.g. accidentally dropping persist middleware) rather
+  // than silently passing the gate.
+  const hydrated = useOnboardingStore.persist?.hasHydrated() ?? false;
   if (!onboardingState.homeCountry) {
     if (!hydrated) {
       // Defer: let the next foreground or a hydration-driven retry handle it.
@@ -97,6 +108,12 @@ export async function tryResumeScan(): Promise<ResumeOutcome> {
   }
 
   // Gate 6: subscription state must still allow photo import.
+  // Defer if the subscription store hasn't rehydrated yet — otherwise a stale
+  // 'free' default could falsely trip the gate before RevenueCat sync lands.
+  const subHydrated = useSubscriptionStore.persist?.hasHydrated() ?? false;
+  if (!subHydrated) {
+    return { status: 'skipped', reason: 'deferred' };
+  }
   // Premium = subscribed or trialing; otherwise check the free-tier counter.
   // Mirrors useCanImportPhotos in subscriptionStore.
   const subscriptionState = useSubscriptionStore.getState();

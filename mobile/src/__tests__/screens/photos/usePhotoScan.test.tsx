@@ -11,6 +11,10 @@ import { renderHook, act } from '@testing-library/react-native';
 
 import { usePhotoScan } from '../../../screens/photos/usePhotoScan';
 
+jest.mock('@react-navigation/native', () => ({
+  useIsFocused: () => true,
+}));
+
 jest.mock('@services/photoImport', () => ({
   startScan: jest.fn(),
   cancelScan: jest.fn(),

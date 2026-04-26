@@ -10,12 +10,11 @@ import {
 } from '@services/shareExtensionBridge';
 import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
 import {
-  cancelScan as cancelPhotoScan,
   detectStuckScan,
   performBackgroundPhotoSync,
+  resetForUserChange,
   tryResumeScan,
 } from '@services/photoImport';
-import { usePhotoScanStore } from '@stores/photoScanStore';
 
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -46,11 +45,11 @@ export function useAppStateTracking(
         hasTrackedInitialOpenRef.current = false;
         sessionIdRef.current = generateSessionId();
 
-        // Sign-out (or account switch): cancel any in-flight headless photo
-        // scan so we don't keep work running for a logged-out user.
-        if (usePhotoScanStore.getState().phase === 'scanning') {
-          cancelPhotoScan();
-        }
+        // Sign-out or account switch: clear ALL scan state — abort any in-flight
+        // scan, drop the heavyweight result ref, clear durable metadata, and
+        // reset the store. Stronger than cancelScan() so user A's photo data
+        // cannot leak into user B's session via consumeResult().
+        void resetForUserChange();
       }
       prevUserIdRef.current = userId;
     }

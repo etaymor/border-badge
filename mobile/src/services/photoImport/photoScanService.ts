@@ -32,6 +32,7 @@ import {
 } from './photoCacheDb';
 import { photoToCachedPhoto, segmentTripsFromCache } from './photoClusteringCache';
 import { extractPhotosWithLocation } from './photoImportService';
+import { _setScanRunning, isScanRunning } from './photoScanState';
 import type {
   CachedPhoto,
   DiscoveredCountry,
@@ -85,22 +86,41 @@ export type PhotoScanStartResult =
 // ---------------------------------------------------------------------------
 
 let scanController: AbortController | null = null;
-let scanInProgress = false;
 let scanId = 0;
 let lastResult: PhotoScanResult | null = null;
 let lastProgressAt = 0;
 let foregroundEventInFlight: Promise<void> | null = null;
+// Tracks the options of the most recently started scan and the wall-clock start.
+// Retained across success so the banner Retry can replay the same options
+// (filterCountryCode, etc.) instead of reconstructing them. Cleared on cancel
+// and on user-change reset.
+let lastStartOptions: PhotoScanStartOptions | null = null;
+let scanStartedAt: number | null = null;
+// In-flight cancel cleanup: cancelScan kicks off async metadata clearing
+// without awaiting it; resume must await this so a fast cancel + foreground
+// bounce can't resurrect the scan.
+let cancelInFlight: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export function isScanRunning(): boolean {
-  return scanInProgress;
-}
+export { isScanRunning };
 
 export function hasResult(): boolean {
   return lastResult !== null;
+}
+
+export function getScanStartedAt(): number | null {
+  return scanStartedAt;
+}
+
+export function getLastStartOptions(): PhotoScanStartOptions | null {
+  return lastStartOptions;
+}
+
+export function getCancelInFlight(): Promise<void> | null {
+  return cancelInFlight;
 }
 
 export function getLastProgressAt(): number {
@@ -128,10 +148,21 @@ export function cancelScan(): void {
   if (scanController) {
     scanController.abort();
     scanController = null;
+    // Only emit the cancelled analytic when there was actually a scan to cancel.
+    Analytics.photoImportScanCancelled();
   }
-  scanInProgress = false;
-  Analytics.photoImportScanCancelled();
-  void clearScanMetadata();
+  _setScanRunning(false);
+  // Drop the heavyweight result so a sign-out-style cancel cannot leak data
+  // through a later consumeResult().
+  lastResult = null;
+  // Reset start-context so a subsequent retry doesn't replay stale options.
+  lastStartOptions = null;
+  scanStartedAt = null;
+  // Track the metadata-clear so resume can await it (prevents foreground
+  // bounce from racing the durable flag clear).
+  cancelInFlight = clearScanMetadata().finally(() => {
+    cancelInFlight = null;
+  });
   resetPhotoScanStore();
 }
 
@@ -146,7 +177,9 @@ export function markFailed(failure: PhotoScanFailure): void {
     scanController.abort();
     scanController = null;
   }
-  scanInProgress = false;
+  _setScanRunning(false);
+  // Drop any prior result so a delayed consumeResult() can't surface stale data.
+  lastResult = null;
   void clearScanMetadata();
   usePhotoScanStore.setState({
     phase: 'failed',
@@ -167,7 +200,7 @@ export async function startScan(opts: PhotoScanStartOptions): Promise<PhotoScanS
       await foregroundEventInFlight;
       // After awaiting an in-flight resume, treat as "already-running" if the
       // service is still active. Otherwise fall through to start fresh.
-      if (scanInProgress) {
+      if (isScanRunning()) {
         return { status: 'already-running' };
       }
     }
@@ -193,21 +226,40 @@ async function runStart(opts: PhotoScanStartOptions): Promise<PhotoScanStartResu
 
   // Atomic check-and-acquire: synchronous block before first await is race-safe
   // in JS's single-threaded event loop.
-  if (scanInProgress) {
+  if (isScanRunning()) {
     return { status: 'already-running' };
   }
-  scanInProgress = true;
+  _setScanRunning(true);
   scanController = new AbortController();
   const mySyncId = ++scanId;
   const localController = scanController;
+  const scanStartTime = Date.now();
+  scanStartedAt = scanStartTime;
+  lastStartOptions = opts;
 
-  // Stop any background sync to avoid interleaved cache writes.
-  abortBackgroundSync();
+  try {
+    // Stop any background sync to avoid interleaved cache writes.
+    abortBackgroundSync();
 
-  // Initial store + metadata writes happen inside `runScan` so any rejection
-  // here doesn't leave stale state.
+    // Persist the durable scan-in-progress flag BEFORE returning 'started'.
+    // This closes a crash window where the in-memory lock was set but the
+    // SQLite flag was missing — a crash there would leave no breadcrumb for
+    // foreground auto-resume to pick up. Costs a small SQLite round-trip on
+    // start latency; acceptable trade-off for resume reliability.
+    await setMetadata(SCAN_IN_PROGRESS_KEY, 'true');
+    await setMetadata(SCAN_STARTED_AT_KEY, scanStartTime.toString());
+  } catch (error) {
+    // Failure to persist the durable flag should not leak the in-memory lock.
+    _setScanRunning(false);
+    scanController = null;
+    scanStartedAt = null;
+    lastStartOptions = null;
+    throw error;
+  }
+
+  // Initial store writes happen inside `runScan`; only metadata is written here.
   // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  runScan(opts, mySyncId, localController).catch((error) => {
+  runScan(opts, mySyncId, localController, scanStartTime).catch((error) => {
     if (__DEV__) console.warn('[PhotoScanService] Unhandled scan error:', error);
   });
 
@@ -221,14 +273,16 @@ async function runStart(opts: PhotoScanStartOptions): Promise<PhotoScanStartResu
 async function runScan(
   opts: PhotoScanStartOptions,
   mySyncId: number,
-  localController: AbortController
+  localController: AbortController,
+  scanStartTime: number
 ): Promise<void> {
-  const scanStartTime = Date.now();
-  Analytics.photoImportScanStarted();
-
   try {
-    await setMetadata(SCAN_IN_PROGRESS_KEY, 'true');
-    await setMetadata(SCAN_STARTED_AT_KEY, scanStartTime.toString());
+    // Analytics + start time are recorded inside try so a synchronous throw
+    // before the first await can't leak the lock by skipping the finally.
+    Analytics.photoImportScanStarted();
+
+    // Durable scan-in-progress metadata is persisted by runStart before this
+    // function runs. (See F1 closes-crash-window note in runStart.)
 
     // Reset store to scanning state. discoveredCountries and progress get
     // populated as the scan runs.
@@ -370,6 +424,11 @@ async function runScan(
     // late tap still finishes the scan.
     if (localController.signal.aborted) return;
 
+    // Heartbeat right before segmentation so the stuck-scan detector
+    // (5min no-progress) gets a fresh checkpoint. Mitigates false-positives
+    // for huge libraries where segmentation alone exceeds the threshold; a
+    // proper fix requires periodic heartbeats inside segmentTripsFromCache.
+    lastProgressAt = Date.now();
     const optimizedData = segmentTripsFromCache(allCachedPhotos, opts.homeCountry!);
 
     if (localController.signal.aborted) return;
@@ -459,8 +518,9 @@ async function runScan(
     // Only release the lock if we still own it. If `cancelScan()` was called and a
     // new scan started, `scanId` will have advanced past `mySyncId`.
     if (scanId === mySyncId) {
-      scanInProgress = false;
+      _setScanRunning(false);
       scanController = null;
+      scanStartedAt = null;
       // Clear scan-in-progress metadata atomically with the terminal store write.
       // Failure paths above already wrote `phase: 'failed'`; the cleanup here
       // catches the success path and any stray cancellation that didn't go through
@@ -514,15 +574,37 @@ export async function clearScanInProgressMetadata(): Promise<void> {
 }
 
 /**
+ * Reset all scan state for a user identity change. Aborts any in-flight scan,
+ * nulls the heavyweight result, awaits durable flag clear, and resets the store.
+ * Stronger than cancelScan() — clears lastResult so user A's photo data cannot
+ * leak to user B after sign-out / account switch.
+ */
+export async function resetForUserChange(): Promise<void> {
+  if (scanController) {
+    scanController.abort();
+    scanController = null;
+  }
+  _setScanRunning(false);
+  lastResult = null;
+  lastStartOptions = null;
+  scanStartedAt = null;
+  await clearScanMetadata().catch(() => undefined);
+  resetPhotoScanStore();
+}
+
+/**
  * Test-only helper: reset all module-level state. NOT exported from the package
  * index; tests reach in via the file path.
  */
 export function __resetForTesting(): void {
   scanController = null;
-  scanInProgress = false;
+  _setScanRunning(false);
   scanId = 0;
   lastResult = null;
   lastProgressAt = 0;
   foregroundEventInFlight = null;
+  lastStartOptions = null;
+  scanStartedAt = null;
+  cancelInFlight = null;
   resetPhotoScanStore();
 }

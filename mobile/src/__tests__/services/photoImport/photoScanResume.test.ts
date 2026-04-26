@@ -38,6 +38,7 @@ jest.mock('@stores/subscriptionStore', () => {
   };
   const useSubscriptionStore = Object.assign(() => state, {
     getState: () => state,
+    persist: { hasHydrated: () => true },
     __setState: (next: Partial<typeof state>) => Object.assign(state, next),
   });
   return {
@@ -47,15 +48,21 @@ jest.mock('@stores/subscriptionStore', () => {
 });
 
 jest.mock('../../../services/photoImport/photoScanService', () => ({
-  isScanRunning: jest.fn(() => false),
   readScanInProgressMetadata: jest.fn(),
   clearScanInProgressMetadata: jest.fn().mockResolvedValue(undefined),
   markFailed: jest.fn(),
   startScan: jest.fn(),
   getLastProgressAt: jest.fn(() => 0),
+  getCancelInFlight: jest.fn(() => null),
+}));
+
+jest.mock('../../../services/photoImport/photoScanState', () => ({
+  isScanRunning: jest.fn(() => false),
+  _setScanRunning: jest.fn(),
 }));
 
 const photoScanServiceMock = jest.requireMock('../../../services/photoImport/photoScanService');
+const photoScanStateMock = jest.requireMock('../../../services/photoImport/photoScanState');
 const MediaLibrary = jest.requireMock('expo-media-library');
 
 beforeEach(() => {
@@ -68,7 +75,7 @@ beforeEach(() => {
   useOnboardingStore.__setState({ homeCountry: 'US' });
   useOnboardingStore.persist.hasHydrated = () => true;
   useSubscriptionStore.__setState({ status: 'premium', photoImportUsage: 0 });
-  photoScanServiceMock.isScanRunning.mockReturnValue(false);
+  photoScanStateMock.isScanRunning.mockReturnValue(false);
   photoScanServiceMock.startScan.mockResolvedValue({ status: 'started' });
   MediaLibrary.getPermissionsAsync.mockResolvedValue({ status: 'granted' });
 });
@@ -183,7 +190,7 @@ describe('tryResumeScan gates', () => {
   });
 
   it('gate 7 (already running): skips with already-running reason', async () => {
-    photoScanServiceMock.isScanRunning.mockReturnValue(true);
+    photoScanStateMock.isScanRunning.mockReturnValue(true);
 
     const result = await tryResumeScan();
     expect(result).toEqual({ status: 'skipped', reason: 'already-running' });

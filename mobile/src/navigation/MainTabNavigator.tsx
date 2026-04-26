@@ -5,25 +5,15 @@ import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
 import { PersistentScanBanner } from '@components/photos/PersistentScanBanner';
 
 import { DreamsNavigator } from './DreamsNavigator';
+import { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
 import { PassportNavigator } from './PassportNavigator';
 import { TripsNavigator } from './TripsNavigator';
 import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-// Screens where tab bar should be hidden (creation/editing modes).
-// Exported so PersistentScanBanner can apply the same visibility rule via
-// `getFocusedLeafRouteName` — when the focused leaf is in this list, both the
-// tab bar and the banner hide.
-export const HIDDEN_TAB_BAR_SCREENS = [
-  'TripForm',
-  'ListCreate',
-  'ListEdit',
-  'EntryForm',
-  'PhotoTrips',
-  'PhotoImport',
-  'ShareCapture',
-];
+// Re-export for backward compatibility; canonical home is `./hiddenTabBarScreens`.
+export { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
 
 /**
  * Walk the navigation state to find the focused leaf route name. Mirrors the
@@ -66,7 +56,7 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
   if (!routeName) return undefined;
 
   // Check if the immediate child is hidden
-  if (HIDDEN_TAB_BAR_SCREENS.includes(routeName)) {
+  if ((HIDDEN_TAB_BAR_SCREENS as readonly string[]).includes(routeName)) {
     return { display: 'none' as const };
   }
 
@@ -86,7 +76,7 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
 
     if (!nextRouteName) break; // Reached a leaf screen
 
-    if (HIDDEN_TAB_BAR_SCREENS.includes(nextRouteName)) {
+    if ((HIDDEN_TAB_BAR_SCREENS as readonly string[]).includes(nextRouteName)) {
       return { display: 'none' as const };
     }
 

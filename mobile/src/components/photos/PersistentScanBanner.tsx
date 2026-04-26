@@ -11,20 +11,26 @@
  *
  * Visibility is also gated by the focused leaf route — when the user is on a
  * screen in `HIDDEN_TAB_BAR_SCREENS` (PhotoImport, ShareCapture, EntryForm,
- * TripForm, …), the banner hides too. One rule covers both cases.
+ * TripForm, …), the banner hides too. One rule covers both cases. The list
+ * lives in `@navigation/hiddenTabBarScreens` so MainTabNavigator and this
+ * banner share a single source of truth.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { HIDDEN_TAB_BAR_SCREENS } from '@navigation/hiddenTabBarScreens';
 import { confirmCancelScan } from '@screens/photos/cancelScanConfirmation';
 import {
   cancelScan as cancelServiceScan,
   consumeResult,
+  getLastStartOptions,
+  getScanStartedAt,
   startScan as startServiceScan,
 } from '@services/photoImport';
 import {
@@ -36,26 +42,11 @@ import {
 } from '@stores/photoScanStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 
-// Mirror MainTabNavigator's HIDDEN_TAB_BAR_SCREENS list. Re-declared here to
-// avoid an import cycle (MainTabNavigator imports this component); the lists
-// must be kept in sync — the navigator is the source of truth for tab-bar
-// visibility, and this banner follows.
-const HIDDEN_TAB_BAR_SCREENS = [
-  'TripForm',
-  'ListCreate',
-  'ListEdit',
-  'EntryForm',
-  'PhotoTrips',
-  'PhotoImport',
-  'ShareCapture',
-];
-
 const COMPLETED_AUTO_DISMISS_MS = 30_000;
 
 interface PersistentScanBannerProps {
   focusedLeaf?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  navigation: { navigate: (...args: any[]) => void };
+  navigation: BottomTabBarProps['navigation'];
 }
 
 export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScanBannerProps) {
@@ -81,7 +72,8 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
   }, [phase]);
 
   const isHiddenRoute = useMemo(
-    () => (focusedLeaf ? HIDDEN_TAB_BAR_SCREENS.includes(focusedLeaf) : false),
+    () =>
+      focusedLeaf ? (HIDDEN_TAB_BAR_SCREENS as readonly string[]).includes(focusedLeaf) : false,
     [focusedLeaf]
   );
 
@@ -90,7 +82,9 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
   }, [navigation]);
 
   const handleCancel = useCallback(() => {
-    confirmCancelScan(null, () => {
+    // Pass the actual scan start time so the >30s confirmation alert fires
+    // (banner used to pass null which always skipped the confirmation).
+    confirmCancelScan(getScanStartedAt(), () => {
       setIsCancelling(true);
       cancelServiceScan();
       // Snap back so the next scan doesn't see stale UI state.
@@ -99,7 +93,14 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
   }, []);
 
   const handleRetry = useCallback(() => {
-    void startServiceScan({ homeCountry });
+    if (!homeCountry) {
+      Alert.alert('Set Home Country', 'Please set your home country in settings to start a scan.');
+      return;
+    }
+    // Replay the last scan's options so retry preserves filterCountryCode etc.
+    // Falls back to a minimal options object on first-ever retry (no history).
+    const opts = getLastStartOptions() ?? { homeCountry };
+    void startServiceScan(opts);
   }, [homeCountry]);
 
   // ---- Visibility ----

@@ -16,28 +16,31 @@ import { Alert } from 'react-native';
 
 import { useIsFocused } from '@react-navigation/native';
 
+import type { PassportStackScreenProps } from '@navigation/types';
+import { isAlertScanFailure, type PhotoScanFailureReason } from '@stores/photoScanStore';
+
+import type { ImportPhase } from './photoImportTypes';
 import { confirmCancelScan } from './cancelScanConfirmation';
 
 export interface UseScanLifecycleOptions {
-  /** Current workflow phase (e.g. 'idle', 'scanning', 'candidates', 'suggestions') */
-  phase: string;
+  /** Current workflow phase. Mirrors `usePhotoImportWorkflow`'s phase. */
+  phase: ImportPhase;
   /** Cancels the running scan */
   cancelScan: () => void;
   /**
    * Non-null when the scan ended with a user-facing failure. The optional
    * `reason` field gates the alert: only legacy "alert-and-back" reasons
-   * (no-photos / no-trips / home-country) trigger the alert; service-level
-   * reasons (stuck, stale, no-permission, subscription-expired) render the
-   * failed-state branch in ScanningPhase with a Retry button instead.
+   * (no-photos / no-trips / home-country / scan-error) trigger the alert;
+   * service-level reasons (stuck, stale, no-permission, subscription-expired)
+   * render the failed-state branch in ScanningPhase with a Retry button instead.
    */
-  scanFailure: { title: string; message: string; reason?: string } | null;
+  scanFailure: { title: string; message: string; reason?: PhotoScanFailureReason } | null;
   /** Clears the current scanFailure value */
   clearScanFailure: () => void;
   /** When true the screen was opened with auto-start; affects post-failure navigation */
   autoStart: boolean | undefined;
   /** The screen's navigation object (used for goBack and beforeRemove listener) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  navigation: any;
+  navigation: PassportStackScreenProps<'PhotoImport'>['navigation'];
 }
 
 interface UseScanLifecycleResult {
@@ -65,12 +68,7 @@ export function useScanLifecycle({
   // failures), navigate back on dismiss when autoStart was true. Service-level
   // failures (stuck, stale, no-permission, subscription-expired) render
   // in-screen via ScanningPhase's failed-state branch instead.
-  const isAlertReason =
-    !scanFailure?.reason ||
-    scanFailure.reason === 'no-photos' ||
-    scanFailure.reason === 'no-trips' ||
-    scanFailure.reason === 'home-country' ||
-    scanFailure.reason === 'scan-error';
+  const isAlertReason = !scanFailure?.reason || isAlertScanFailure(scanFailure.reason);
   useEffect(() => {
     if (!scanFailure) return;
     if (!isAlertReason) return;
@@ -137,7 +135,8 @@ export function useScanLifecycle({
             { text: 'Keep Scanning', style: 'cancel' },
             {
               text: 'Continue in Background',
-              onPress: () => navigation.dispatch(e.data.action),
+              onPress: () =>
+                navigation.dispatch(e.data.action as Parameters<typeof navigation.dispatch>[0]),
             },
             {
               text: 'Cancel Scan',
@@ -147,7 +146,7 @@ export function useScanLifecycle({
                   if (scanningRef.current) {
                     cancelScan();
                   }
-                  navigation.dispatch(e.data.action);
+                  navigation.dispatch(e.data.action as Parameters<typeof navigation.dispatch>[0]);
                 });
               },
             },

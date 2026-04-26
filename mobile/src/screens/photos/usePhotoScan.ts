@@ -9,6 +9,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 
+import { useIsFocused } from '@react-navigation/native';
+
 import {
   cancelScan as cancelServiceScan,
   consumeResult,
@@ -21,6 +23,7 @@ import {
   type TripCandidateDisplay,
 } from '@services/photoImport';
 import {
+  isAlertScanFailure,
   selectPhotoScanFailure,
   selectPhotoScanHasResult,
   selectPhotoScanPhase,
@@ -73,6 +76,13 @@ export function usePhotoScan({
   // observes phase==='completed' doesn't double-consume the same result.
   const consumedImportTimeRef = useRef<number | null>(null);
 
+  // Mount-time and phase-transition consume both gate on focus so two
+  // simultaneously-mounted PhotoImport screens (cross-tab) don't both try to
+  // consume the singleton result — only the focused one wins.
+  const isFocused = useIsFocused();
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
+
   const completeWithResult = useCallback(
     (result: ScanResult) => {
       const candidates = filterCountryCode
@@ -85,8 +95,16 @@ export function usePhotoScan({
 
   // ----- Mount-time recovery -----
   // If the service already has a completed result waiting (because the screen
-  // unmounted before consuming it), pull it on first mount.
+  // unmounted before consuming it), pull it on first mount. Gate on focus so
+  // a non-focused tab that also mounts PhotoImport doesn't race the focused
+  // tab to call consumeResult — `useIsFocused` lets the non-focused mount
+  // re-run this effect once it gains focus.
+  // NOTE: filterCountryCode is intentionally not in the dep array — the result
+  // map is owned by the service and its candidate filter is applied in
+  // completeWithResult(). Re-running on filter change would not change which
+  // result is consumed.
   useEffect(() => {
+    if (!isFocused) return;
     if (
       usePhotoScanStore.getState().phase === 'completed' &&
       usePhotoScanStore.getState().hasResult &&
@@ -98,9 +116,7 @@ export function usePhotoScan({
         completeWithResult(result);
       }
     }
-    // Runs on mount and if the requested country filter changes before the
-    // completed result is consumed.
-  }, [completeWithResult]);
+  }, [isFocused, completeWithResult]);
 
   // ----- Subscriptions -----
 
@@ -115,7 +131,8 @@ export function usePhotoScan({
     []
   );
 
-  // Phase transitions: completed → consume result; failed → onScanError.
+  // Phase transitions: completed → consume result (focused tab only);
+  // failed → onScanError (only for alert-style reasons).
   useEffect(
     () =>
       usePhotoScanStore.subscribe((state, prev) => {
@@ -124,13 +141,22 @@ export function usePhotoScan({
         if (phase === prevPhase) return;
 
         if (phase === 'completed' && selectPhotoScanHasResult(state) && serviceHasResult()) {
+          // Cross-tab guard: only the focused tab consumes the singleton result.
+          if (!isFocusedRef.current) return;
           const result = consumeResult();
           if (result && consumedImportTimeRef.current !== result.importTime) {
             consumedImportTimeRef.current = result.importTime;
             completeWithResult(result);
           }
-        } else if (phase === 'failed' && selectPhotoScanFailure(state)) {
-          onScanErrorRef.current();
+        } else if (phase === 'failed') {
+          // Only fire onScanError for alert-style reasons (no-photos, no-trips,
+          // home-country, scan-error). Service-level reasons (stuck, stale,
+          // no-permission, subscription-expired) keep the screen in 'scanning'
+          // so the workflow's mirror effect renders the inline retry button.
+          const failure = selectPhotoScanFailure(state);
+          if (failure && isAlertScanFailure(failure.reason)) {
+            onScanErrorRef.current();
+          }
         } else if (phase === 'idle') {
           // Idle resets after cancel — clear the consumed-import-time marker so a
           // fresh scan starting from the same instant cannot be incorrectly skipped.

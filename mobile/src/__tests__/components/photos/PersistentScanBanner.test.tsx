@@ -5,6 +5,8 @@
 import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
 
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+
 import { PersistentScanBanner } from '../../../components/photos/PersistentScanBanner';
 import { resetPhotoScanStore, usePhotoScanStore } from '../../../stores/photoScanStore';
 
@@ -19,6 +21,8 @@ jest.mock('@services/photoImport', () => ({
   cancelScan: jest.fn(),
   consumeResult: jest.fn(),
   startScan: jest.fn().mockResolvedValue({ status: 'started' }),
+  getLastStartOptions: jest.fn(() => null),
+  getScanStartedAt: jest.fn(() => null),
 }));
 
 jest.mock('@stores/onboardingStore', () => ({
@@ -27,10 +31,12 @@ jest.mock('@stores/onboardingStore', () => ({
 }));
 
 const photoImportMock = jest.requireMock('@services/photoImport');
+// Banner only calls navigation.navigate; cast a stripped-down stub through
+// `unknown as` to satisfy the typed prop without re-implementing the full
+// BottomTabBarProps['navigation'] surface.
+const stubNavigation = { navigate: mockNavigate } as unknown as BottomTabBarProps['navigation'];
 const renderBanner = () =>
-  render(
-    <PersistentScanBanner focusedLeaf={mockFocusedLeaf} navigation={{ navigate: mockNavigate }} />
-  );
+  render(<PersistentScanBanner focusedLeaf={mockFocusedLeaf} navigation={stubNavigation} />);
 
 beforeEach(() => {
   jest.clearAllMocks();
