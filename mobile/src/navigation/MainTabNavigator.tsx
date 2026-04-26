@@ -2,24 +2,46 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-navigation/native';
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
+import { PersistentScanBanner } from '@components/photos/PersistentScanBanner';
 
 import { DreamsNavigator } from './DreamsNavigator';
+import { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
 import { PassportNavigator } from './PassportNavigator';
 import { TripsNavigator } from './TripsNavigator';
 import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-// Screens where tab bar should be hidden (creation/editing modes)
-const HIDDEN_TAB_BAR_SCREENS = [
-  'TripForm',
-  'ListCreate',
-  'ListEdit',
-  'EntryForm',
-  'PhotoTrips',
-  'PhotoImport',
-  'ShareCapture',
-];
+// Re-export for backward compatibility; canonical home is `./hiddenTabBarScreens`.
+export { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
+
+/**
+ * Walk the navigation state to find the focused leaf route name. Mirrors the
+ * recursion inside `getTabBarStyle` so callers (e.g. `PersistentScanBanner`)
+ * can decide visibility against `HIDDEN_TAB_BAR_SCREENS` without copy-paste.
+ */
+export function getFocusedLeafRouteName(
+  route: RouteProp<MainTabParamList, keyof MainTabParamList> | { name: string; state?: unknown }
+): string | undefined {
+  let routeName = getFocusedRouteNameFromRoute(route as RouteProp<MainTabParamList>);
+  if (!routeName) return route.name;
+
+  const routeWithState = route as typeof route & {
+    state?: { routes: Array<{ name: string; state?: unknown }> };
+  };
+  let currentRoute = routeWithState.state?.routes.find((r) => r.name === routeName);
+
+  while (currentRoute) {
+    const nextRouteName = getFocusedRouteNameFromRoute(currentRoute as RouteProp<MainTabParamList>);
+    if (!nextRouteName) break;
+    routeName = nextRouteName;
+    const nestedState = currentRoute.state as
+      | { routes?: Array<{ name: string; state?: unknown }> }
+      | undefined;
+    currentRoute = nestedState?.routes?.find((r) => r.name === nextRouteName);
+  }
+  return routeName;
+}
 
 /**
  * Determines tab bar visibility based on the currently focused screen.
@@ -34,7 +56,7 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
   if (!routeName) return undefined;
 
   // Check if the immediate child is hidden
-  if (HIDDEN_TAB_BAR_SCREENS.includes(routeName)) {
+  if ((HIDDEN_TAB_BAR_SCREENS as readonly string[]).includes(routeName)) {
     return { display: 'none' as const };
   }
 
@@ -54,7 +76,7 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
 
     if (!nextRouteName) break; // Reached a leaf screen
 
-    if (HIDDEN_TAB_BAR_SCREENS.includes(nextRouteName)) {
+    if ((HIDDEN_TAB_BAR_SCREENS as readonly string[]).includes(nextRouteName)) {
       return { display: 'none' as const };
     }
 
@@ -72,9 +94,21 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
 }
 
 export function MainTabNavigator() {
+  return <MainTabNavigatorImpl />;
+}
+
+function MainTabNavigatorImpl() {
   return (
     <Tab.Navigator
-      tabBar={(props) => <LiquidGlassTabBar {...props} />}
+      tabBar={(props) => (
+        <>
+          <PersistentScanBanner
+            focusedLeaf={getFocusedLeafRouteName(props.state.routes[props.state.index])}
+            navigation={props.navigation}
+          />
+          <LiquidGlassTabBar {...props} />
+        </>
+      )}
       screenOptions={{
         headerShown: false, // Stacks have their own headers
       }}
@@ -183,3 +217,6 @@ export function MainTabNavigator() {
     </Tab.Navigator>
   );
 }
+
+// MainTabNavigator is wrapped above; export the impl for tests if needed.
+export { MainTabNavigatorImpl };

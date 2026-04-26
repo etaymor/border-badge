@@ -153,6 +153,35 @@ export const screenStyles = StyleSheet.create({
     fontSize: 16,
     color: colors.adobeBrick,
   },
+  scanFailedTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  scanFailedMessage: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+    paddingHorizontal: 20,
+  },
+  retryButton: {
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  retryText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.white,
+    textAlign: 'center',
+  },
 
   // Lists
   listContainer: {

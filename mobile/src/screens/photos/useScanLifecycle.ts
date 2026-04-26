@@ -2,33 +2,50 @@
  * useScanLifecycle - Encapsulates scan-related side effects for PhotoImportScreen.
  *
  * Manages:
- * - Keep-awake during scanning
+ * - Keep-awake activation while the screen is focused AND scanning
  * - Scan failure alerts
- * - Back-navigation guard while scanning
- * - Cancel-scan confirmation (elapsed > 30 s)
+ * - Cancel-scan confirmation (elapsed > 30 s) shared with the banner
+ *
+ * Notably does NOT abort the scan on unmount — the singleton service owns
+ * the scan and survives navigation now (see U1/U3 of the background-scan plan).
+ * Back-navigation while scanning is allowed silently; the persistent banner
+ * surfaces progress on other screens.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 
+import { useIsFocused } from '@react-navigation/native';
+
+import type { PassportStackScreenProps } from '@navigation/types';
+import { isAlertScanFailure, type PhotoScanFailureReason } from '@stores/photoScanStore';
+
+import type { ImportPhase } from './photoImportTypes';
+import { confirmCancelScan } from './cancelScanConfirmation';
+
 export interface UseScanLifecycleOptions {
-  /** Current workflow phase (e.g. 'idle', 'scanning', 'candidates', 'suggestions') */
-  phase: string;
+  /** Current workflow phase. Mirrors `usePhotoImportWorkflow`'s phase. */
+  phase: ImportPhase;
   /** Cancels the running scan */
   cancelScan: () => void;
-  /** Non-null when the scan ended with a user-facing failure */
-  scanFailure: { title: string; message: string } | null;
+  /**
+   * Non-null when the scan ended with a user-facing failure. The optional
+   * `reason` field gates the alert: only legacy "alert-and-back" reasons
+   * (no-photos / no-trips / home-country / scan-error) trigger the alert;
+   * service-level reasons (stuck, stale, no-permission, subscription-expired)
+   * render the failed-state branch in ScanningPhase with a Retry button instead.
+   */
+  scanFailure: { title: string; message: string; reason?: PhotoScanFailureReason } | null;
   /** Clears the current scanFailure value */
   clearScanFailure: () => void;
   /** When true the screen was opened with auto-start; affects post-failure navigation */
   autoStart: boolean | undefined;
   /** The screen's navigation object (used for goBack and beforeRemove listener) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  navigation: any;
+  navigation: PassportStackScreenProps<'PhotoImport'>['navigation'];
 }
 
 interface UseScanLifecycleResult {
-  /** Call this from the Cancel button – shows a confirmation alert when the scan has been running >30 s */
+  /** Call from the Cancel button — confirms when the scan has been running >30 s */
   handleCancelScan: () => void;
 }
 
@@ -40,15 +57,16 @@ export function useScanLifecycle({
   autoStart,
   navigation,
 }: UseScanLifecycleOptions): UseScanLifecycleResult {
-  // Ref that tracks scanning state synchronously to avoid stale closures in beforeRemove
-  const scanningRef = useRef(false);
-  useEffect(() => {
-    scanningRef.current = phase === 'scanning';
-  }, [phase]);
+  const isFocused = useIsFocused();
 
-  // Show alert when scan finds no photos or no trips, navigate back on dismiss.
+  // Show alert when scan finds no photos or no trips (legacy "alert-and-back"
+  // failures), navigate back on dismiss when autoStart was true. Service-level
+  // failures (stuck, stale, no-permission, subscription-expired) render
+  // in-screen via ScanningPhase's failed-state branch instead.
+  const isAlertReason = !scanFailure?.reason || isAlertScanFailure(scanFailure.reason);
   useEffect(() => {
     if (!scanFailure) return;
+    if (!isAlertReason) return;
     Alert.alert(scanFailure.title, scanFailure.message, [
       {
         text: 'OK',
@@ -60,15 +78,19 @@ export function useScanLifecycle({
         },
       },
     ]);
-  }, [scanFailure, clearScanFailure, autoStart, navigation]);
+  }, [scanFailure, isAlertReason, clearScanFailure, autoStart, navigation]);
 
-  // Keep screen awake during scanning
+  // Keep screen awake while the user is actively watching the scan.
+  // The scan now survives navigation, so keep-awake is no longer load-bearing
+  // for correctness — but holding it while the screen is focused avoids the
+  // iOS idle-timeout → screen-lock → suspend cycle that would otherwise force
+  // a resume.
   // Lazy require to avoid loading native module at app startup (PassportNavigator
   // statically imports PhotoImportScreen, which would eagerly evaluate this module).
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const KeepAwake = require('expo-keep-awake');
-    if (phase === 'scanning') {
+    if (phase === 'scanning' && isFocused) {
       KeepAwake.activateKeepAwakeAsync('photo-scan').catch((err: unknown) => {
         if (__DEV__) console.warn('[PhotoImport] Failed to activate keep-awake:', err);
       });
@@ -78,68 +100,23 @@ export function useScanLifecycle({
     return () => {
       KeepAwake.deactivateKeepAwake('photo-scan');
     };
-  }, [phase]);
-
-  // Abort scan on unmount (e.g., app backgrounding) when navigation guards don't fire
-  const cancelScanRef = useRef(cancelScan);
-  cancelScanRef.current = cancelScan;
-  useEffect(() => {
-    return () => {
-      if (scanningRef.current) {
-        cancelScanRef.current();
-      }
-    };
-  }, []);
+  }, [phase, isFocused]);
 
   // Track scan start time for cancel confirmation
   const scanStartTimeRef = useRef<number | null>(null);
   useEffect(() => {
     if (phase === 'scanning') {
-      scanStartTimeRef.current = Date.now();
+      if (scanStartTimeRef.current === null) {
+        scanStartTimeRef.current = Date.now();
+      }
     } else {
       scanStartTimeRef.current = null;
     }
   }, [phase]);
 
-  // Block back navigation during scanning with confirmation.
-  // Uses scanningRef to avoid stale closure when phase updates on the same tick.
-  useEffect(() => {
-    const unsubscribe = navigation.addListener(
-      'beforeRemove',
-      (e: { preventDefault: () => void; data: { action: unknown } }) => {
-        if (!scanningRef.current) return;
-
-        e.preventDefault();
-        Alert.alert('Scan in Progress', "If you leave now, you'll need to restart the scan.", [
-          { text: 'Keep Scanning', style: 'cancel' },
-          {
-            text: 'Stop Scan',
-            style: 'destructive',
-            onPress: () => {
-              // Guard: scan may have completed while the alert was visible
-              if (scanningRef.current) {
-                cancelScan();
-              }
-              navigation.dispatch(e.data.action);
-            },
-          },
-        ]);
-      }
-    );
-    return unsubscribe;
-  }, [navigation, cancelScan]);
-
-  // Cancel with confirmation when scan has been running >30 seconds
+  // Cancel with confirmation when scan has been running >30 seconds.
   const handleCancelScan = useCallback(() => {
-    const elapsed = scanStartTimeRef.current ? Date.now() - scanStartTimeRef.current : 0;
-    if (elapsed > 30000) {
-      Alert.alert('Cancel Scan?', 'Your scan is in progress. Are you sure you want to cancel?', [
-        { text: 'Keep Scanning', style: 'cancel' },
-        { text: 'Cancel Scan', style: 'destructive', onPress: cancelScan },
-      ]);
-    } else {
-      cancelScan();
-    }
+    confirmCancelScan(scanStartTimeRef.current, cancelScan);
   }, [cancelScan]);
 
   return { handleCancelScan };

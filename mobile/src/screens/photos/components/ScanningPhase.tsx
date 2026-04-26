@@ -1,7 +1,9 @@
 /**
  * Scanning phase UI for the photo import screen.
  *
- * Shows progress bar, country discovery feed, and cancel button.
+ * Shows progress bar, country discovery feed, and cancel button. When the
+ * service has surfaced a failure, renders the failed-state branch with a
+ * Retry button that delegates back to startScan.
  */
 
 import React from 'react';
@@ -16,9 +18,33 @@ export interface ScanningPhaseProps {
   scanProgress: ScanProgress | null;
   isIncremental: boolean;
   onCancelScan: () => void;
+  /** Set when the service surfaces a recoverable failure mid-scan. */
+  scanFailure?: { title: string; message: string } | null;
+  /** Called when the user taps Retry from the failed-state branch. */
+  onRetryScan?: () => void;
 }
 
-export function ScanningPhase({ scanProgress, isIncremental, onCancelScan }: ScanningPhaseProps) {
+export function ScanningPhase({
+  scanProgress,
+  isIncremental,
+  onCancelScan,
+  scanFailure,
+  onRetryScan,
+}: ScanningPhaseProps) {
+  if (scanFailure) {
+    return (
+      <View style={styles.scanningContainer}>
+        <Text style={styles.scanFailedTitle}>{scanFailure.title}</Text>
+        <Text style={styles.scanFailedMessage}>{scanFailure.message}</Text>
+        {onRetryScan && (
+          <TouchableOpacity onPress={onRetryScan} style={styles.retryButton}>
+            <Text style={styles.retryText}>Retry Scan</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.scanningContainer}>
       <ActivityIndicator size="large" color={colors.sunsetGold} />
@@ -39,7 +65,8 @@ export function ScanningPhase({ scanProgress, isIncremental, onCancelScan }: Sca
         <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
       </View>
       <Text style={styles.scanningHint}>
-        Please keep the app open while we scan your photos. This usually takes 1-3 minutes.
+        Feel free to use the rest of the app while we scan. Progress shows in the bar at the bottom
+        and resumes the next time you open the app.
       </Text>
       {scanProgress?.discoveredCountries && scanProgress.discoveredCountries.length > 0 && (
         <View style={styles.discoveryFeed}>

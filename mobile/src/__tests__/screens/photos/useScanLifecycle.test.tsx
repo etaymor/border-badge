@@ -11,10 +11,20 @@ jest.mock('expo-keep-awake', () => ({
   deactivateKeepAwake: jest.fn(),
 }));
 
+let mockIsFocused = true;
+jest.mock('@react-navigation/native', () => ({
+  useIsFocused: () => mockIsFocused,
+}));
+
+// The hook prop now has the full PassportStackScreenProps['navigation'] type.
+// Tests use a stripped-down stub; cast as `unknown as` to satisfy the prop type
+// without ballooning the mock surface.
+type MockNavigation = UseScanLifecycleOptions['navigation'];
+
 describe('useScanLifecycle', () => {
   const createMockNavigation = () => {
     const listeners: Record<string, (e: unknown) => void> = {};
-    return {
+    const stub = {
       goBack: jest.fn(),
       dispatch: jest.fn(),
       addListener: jest.fn((event: string, callback: (e: unknown) => void) => {
@@ -23,16 +33,17 @@ describe('useScanLifecycle', () => {
       }),
       _listeners: listeners,
     };
+    return stub as unknown as MockNavigation & typeof stub;
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Reset Alert mock between tests
     global.__mockAlert.alert.mockReset();
+    mockIsFocused = true;
   });
 
-  describe('scan failure alert - TOCTOU race condition', () => {
-    it('navigates back when phase is idle at dismiss time', () => {
+  describe('scan failure alert', () => {
+    it('navigates back when phase is idle at dismiss time and autoStart is true', () => {
       const navigation = createMockNavigation();
       const clearScanFailure = jest.fn();
 
@@ -47,49 +58,6 @@ describe('useScanLifecycle', () => {
         },
       });
 
-      // Scan fails, scanFailure is set while phase is idle
-      rerender({
-        phase: 'idle',
-        cancelScan: jest.fn(),
-        scanFailure: { title: 'No Photos Found', message: 'No photos with location data' },
-        clearScanFailure,
-        autoStart: true,
-        navigation,
-      });
-
-      // Alert should have been shown
-      expect(global.__mockAlert.alert).toHaveBeenCalledTimes(1);
-
-      // Simulate pressing OK on the alert
-      const okButton = global.__mockAlert.alert.mock.calls[0][2][0];
-      okButton.onPress();
-
-      expect(clearScanFailure).toHaveBeenCalled();
-      expect(navigation.goBack).toHaveBeenCalled();
-    });
-
-    it('navigates back even when phase changes between alert show and dismiss', () => {
-      // Regression test for TOCTOU race condition:
-      // 1. Scan fails → phase=idle, scanFailure set, alert shown
-      // 2. User starts another scan → phase=scanning
-      // 3. User presses OK on stale alert
-      // Phase was 'idle' when the alert was shown, so navigation should proceed.
-
-      const navigation = createMockNavigation();
-      const clearScanFailure = jest.fn();
-
-      const { rerender } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
-        initialProps: {
-          phase: 'idle',
-          cancelScan: jest.fn(),
-          scanFailure: null as { title: string; message: string } | null,
-          clearScanFailure,
-          autoStart: true as boolean | undefined,
-          navigation,
-        },
-      });
-
-      // Step 1: Scan fails with no-photos, phase = idle, scanFailure set
       rerender({
         phase: 'idle',
         cancelScan: jest.fn(),
@@ -101,74 +69,13 @@ describe('useScanLifecycle', () => {
 
       expect(global.__mockAlert.alert).toHaveBeenCalledTimes(1);
 
-      // Step 2: User manually triggers another scan, phase changes to scanning
-      // (alert is still visible but user hasn't pressed OK yet)
-      rerender({
-        phase: 'scanning',
-        cancelScan: jest.fn(),
-        scanFailure: { title: 'No Photos Found', message: 'No photos with location data' },
-        clearScanFailure,
-        autoStart: true,
-        navigation,
-      });
-
-      // Step 3: User presses OK on the stale alert
       const okButton = global.__mockAlert.alert.mock.calls[0][2][0];
       okButton.onPress();
 
-      // Phase was 'idle' when the alert was shown, so goBack should be called
-      // even though phaseRef.current is now 'scanning'
       expect(clearScanFailure).toHaveBeenCalled();
       expect(navigation.goBack).toHaveBeenCalled();
     });
-  });
 
-  describe('unmount cleanup', () => {
-    it('aborts scan when component unmounts during scanning', () => {
-      const navigation = createMockNavigation();
-      const cancelScan = jest.fn();
-
-      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
-        initialProps: {
-          phase: 'scanning',
-          cancelScan,
-          scanFailure: null as { title: string; message: string } | null,
-          clearScanFailure: jest.fn(),
-          autoStart: false as boolean | undefined,
-          navigation,
-        },
-      });
-
-      expect(cancelScan).not.toHaveBeenCalled();
-
-      // Unmount while scanning (e.g., app backgrounding forces unmount)
-      unmount();
-
-      expect(cancelScan).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not abort scan when component unmounts while not scanning', () => {
-      const navigation = createMockNavigation();
-      const cancelScan = jest.fn();
-
-      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
-        initialProps: {
-          phase: 'candidates',
-          cancelScan,
-          scanFailure: null as { title: string; message: string } | null,
-          clearScanFailure: jest.fn(),
-          autoStart: false as boolean | undefined,
-          navigation,
-        },
-      });
-
-      unmount();
-
-      expect(cancelScan).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('scan failure alert - non-autoStart', () => {
     it('does not navigate back when autoStart is false', () => {
       const navigation = createMockNavigation();
       const clearScanFailure = jest.fn();
@@ -198,6 +105,111 @@ describe('useScanLifecycle', () => {
 
       expect(clearScanFailure).toHaveBeenCalled();
       expect(navigation.goBack).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unmount behavior', () => {
+    it('does NOT cancel the scan when component unmounts during scanning (regression)', () => {
+      // Old behavior was to call cancelScan on unmount. The scan now lives in
+      // a singleton service and survives navigation; cancellation is only
+      // triggered by explicit user action.
+      const navigation = createMockNavigation();
+      const cancelScan = jest.fn();
+
+      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'scanning',
+          cancelScan,
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
+
+      unmount();
+
+      expect(cancelScan).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel scan when component unmounts while not scanning', () => {
+      const navigation = createMockNavigation();
+      const cancelScan = jest.fn();
+
+      const { unmount } = renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'candidates',
+          cancelScan,
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
+
+      unmount();
+
+      expect(cancelScan).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('keep-awake gating on focus', () => {
+    it('activates keep-awake when scanning and focused', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const KeepAwake = require('expo-keep-awake');
+      mockIsFocused = true;
+
+      renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'scanning',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation: createMockNavigation(),
+        },
+      });
+
+      expect(KeepAwake.activateKeepAwakeAsync).toHaveBeenCalledWith('photo-scan');
+    });
+
+    it('does not activate keep-awake when scanning but not focused (background nav)', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const KeepAwake = require('expo-keep-awake');
+      mockIsFocused = false;
+
+      renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'scanning',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation: createMockNavigation(),
+        },
+      });
+
+      expect(KeepAwake.activateKeepAwakeAsync).not.toHaveBeenCalled();
+      expect(KeepAwake.deactivateKeepAwake).toHaveBeenCalledWith('photo-scan');
+    });
+  });
+
+  describe('back navigation while scanning', () => {
+    it('does not register a beforeRemove listener and does not block back', () => {
+      const navigation = createMockNavigation();
+      renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
+        initialProps: {
+          phase: 'scanning',
+          cancelScan: jest.fn(),
+          scanFailure: null as { title: string; message: string } | null,
+          clearScanFailure: jest.fn(),
+          autoStart: false as boolean | undefined,
+          navigation,
+        },
+      });
+
+      expect(navigation.addListener).not.toHaveBeenCalledWith('beforeRemove', expect.any(Function));
+      expect(global.__mockAlert.alert).not.toHaveBeenCalled();
     });
   });
 });

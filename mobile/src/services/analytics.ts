@@ -321,17 +321,38 @@ export const Analytics = {
     category: string;
     suggestionRank: number;
     wasFromCache: boolean;
+    /** Google Place ID of the system's top-ranked suggestion. Null on pure manual entries. */
+    originalSuggestionPlaceId?: string | null;
+    alternativesCount?: number;
+    alternativesViewed?: number;
+    /** True when the saved place differs from the system's top-ranked suggestion. */
+    wasOverride?: boolean;
   }) =>
     track('photo_import_place_confirmed', {
       category: props.category,
       suggestion_rank: props.suggestionRank,
       was_from_cache: props.wasFromCache,
+      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      alternatives_count: props.alternativesCount ?? null,
+      alternatives_viewed: props.alternativesViewed ?? null,
+      was_override: props.wasOverride ?? null,
     }),
 
-  photoImportPlaceRejected: (props: { suggestionCount: number; wasFromCache: boolean }) =>
+  photoImportPlaceRejected: (props: {
+    suggestionCount: number;
+    wasFromCache: boolean;
+    /** Google Place ID currently shown when the user tapped the edit/override button. */
+    originalSuggestionPlaceId?: string | null;
+    /** 1-based rank of the suggestion shown at reject time. */
+    suggestedRank?: number;
+    alternativesViewed?: number;
+  }) =>
     track('photo_import_place_rejected', {
       suggestion_count: props.suggestionCount,
       was_from_cache: props.wasFromCache,
+      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      suggested_rank: props.suggestedRank ?? null,
+      alternatives_viewed: props.alternativesViewed ?? null,
     }),
 
   photoImportClusterHidden: () => track('photo_import_cluster_hidden'),

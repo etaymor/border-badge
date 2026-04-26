@@ -15,6 +15,7 @@ import {
   getMetadata,
   setMetadata,
 } from './photoCacheDb';
+import { isScanRunning } from './photoScanState';
 
 // Lazy imports to avoid circular dependency
 // These are only used by performBackgroundPhotoSync
@@ -100,6 +101,15 @@ export async function performBackgroundPhotoSync(
 ): Promise<{ newPhotos: number } | null> {
   // Skip if no home country set
   if (!homeCountry) {
+    return null;
+  }
+
+  // Skip if the singleton scan service is already doing real work — bg sync
+  // and the service share the same SQLite cache and would otherwise interleave.
+  // Read scan state from the leaf module `photoScanState`; the prior require()
+  // workaround for the service ↔ background-sync circular dep is no longer
+  // needed because both modules now read from the same leaf.
+  if (isScanRunning()) {
     return null;
   }
 

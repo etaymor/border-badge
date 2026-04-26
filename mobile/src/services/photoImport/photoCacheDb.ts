@@ -42,7 +42,7 @@ function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
 }
 
 const DB_NAME = 'photos.db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * SQLite has a default limit of 999 bound parameters per query.
@@ -170,9 +170,24 @@ async function initSchema(): Promise<void> {
       cached_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS cluster_splits (
+      sub_cluster_id TEXT PRIMARY KEY NOT NULL,
+      parent_cluster_id TEXT NOT NULL,
+      photo_ids TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS saved_cluster_photos (
+      photo_id TEXT PRIMARY KEY NOT NULL,
+      cluster_id TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_country_code ON cached_photos(country_code);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_geohash ON cached_photos(geohash);
+    CREATE INDEX IF NOT EXISTS idx_cluster_splits_parent ON cluster_splits(parent_cluster_id);
+    CREATE INDEX IF NOT EXISTS idx_saved_cluster_photos_cluster ON saved_cluster_photos(cluster_id);
   `);
 
   // Store schema version for future migrations
@@ -442,6 +457,8 @@ export async function clearPhotoCache(): Promise<void> {
     await database.runAsync('DELETE FROM processed_clusters');
     await database.runAsync('DELETE FROM cached_place_suggestions');
     await database.runAsync('DELETE FROM cached_trip_segments');
+    await database.runAsync('DELETE FROM cluster_splits');
+    await database.runAsync('DELETE FROM saved_cluster_photos');
     await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
     await database.runAsync(
       "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"

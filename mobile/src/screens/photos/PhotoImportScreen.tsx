@@ -149,6 +149,23 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     [handleConfirmPlace]
   );
 
+  // Wrap handleManualSelect so the override (pencil) path honors the photos
+  // the user deselected in the gallery before opening manual search.
+  const handleManualSelectWithExclusions = useCallback(
+    async (
+      place: Parameters<typeof handleManualSelect>[0],
+      category: Parameters<typeof handleManualSelect>[1],
+      tripIdToUse: Parameters<typeof handleManualSelect>[2],
+      notes?: Parameters<typeof handleManualSelect>[3]
+    ) => {
+      const excluded = manualSearchCluster
+        ? excludedPhotoIds.get(manualSearchCluster.id)
+        : undefined;
+      return handleManualSelect(place, category, tripIdToUse, notes, excluded);
+    },
+    [handleManualSelect, manualSearchCluster, excludedPhotoIds]
+  );
+
   // Handle back navigation with potential review trigger
   const handleBackNavigation = useCallback(
     (action: 'candidates' | 'goBack') => {
@@ -396,12 +413,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         />
       )}
 
-      {/* Scanning State */}
+      {/* Scanning State (also renders the failed-state branch with Retry) */}
       {phase === 'scanning' && (
         <ScanningPhase
           scanProgress={scanProgress}
           isIncremental={isIncremental}
           onCancelScan={handleCancelScan}
+          scanFailure={scanFailure}
+          onRetryScan={() => startScan(false)}
         />
       )}
 
@@ -452,7 +471,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           cluster={manualSearchCluster}
           countryCode={selectedCandidate?.countryCode}
           preSelectedTripId={selectedTripId ?? tripId}
-          onSelect={handleManualSelect}
+          onSelect={handleManualSelectWithExclusions}
           onCreateTrip={handleCreateTrip}
           onCancel={closeManualSearch}
           isSaving={isSaving}
@@ -461,6 +480,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           uploadingPhotoIndex={getUploadState(manualSearchCluster.id)?.currentPhotoIndex ?? 0}
           totalPhotosToUpload={getUploadState(manualSearchCluster.id)?.totalPhotos ?? 0}
           onCancelUpload={() => cancelUpload(manualSearchCluster.id)}
+          excludedPhotoIds={excludedPhotoIds.get(manualSearchCluster.id)}
         />
       )}
 

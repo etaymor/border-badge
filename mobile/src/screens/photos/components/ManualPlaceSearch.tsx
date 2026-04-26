@@ -56,6 +56,8 @@ export interface ManualPlaceSearchProps {
   totalPhotosToUpload?: number;
   /** Cancel upload callback */
   onCancelUpload?: () => void;
+  /** Photo IDs the user deselected in the cluster carousel; filtered out of the preview. */
+  excludedPhotoIds?: ReadonlySet<string>;
 }
 
 export function ManualPlaceSearch({
@@ -71,6 +73,7 @@ export function ManualPlaceSearch({
   uploadingPhotoIndex = 0,
   totalPhotosToUpload = 0,
   onCancelUpload,
+  excludedPhotoIds,
 }: ManualPlaceSearchProps) {
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -106,7 +109,11 @@ export function ManualPlaceSearch({
     }
   };
 
-  const photoCount = cluster.photos.length;
+  const visiblePhotos =
+    excludedPhotoIds && excludedPhotoIds.size > 0
+      ? cluster.photos.filter((p) => !excludedPhotoIds.has(p.id))
+      : cluster.photos;
+  const photoCount = visiblePhotos.length;
   const formattedDate = cluster.timeRange.start.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -142,7 +149,7 @@ export function ManualPlaceSearch({
             <View style={localStyles.photoCard}>
               {/* Large main photo */}
               <Image
-                source={{ uri: cluster.photos[0]?.uri }}
+                source={visiblePhotos[0]?.uri ? { uri: visiblePhotos[0].uri } : undefined}
                 style={localStyles.mainPhoto}
                 contentFit="cover"
               />
@@ -150,7 +157,7 @@ export function ManualPlaceSearch({
               {/* Additional photos strip */}
               {photoCount > 1 && (
                 <View style={localStyles.photoStrip}>
-                  {cluster.photos.slice(1, 5).map((photo) => (
+                  {visiblePhotos.slice(1, 5).map((photo) => (
                     <Image
                       key={photo.id}
                       source={{ uri: photo.uri }}
