@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -59,6 +60,20 @@ export function EntryFormScreen({ route, navigation }: Props) {
   } = route.params;
   const isEditing = !!entryId;
   const insets = useSafeAreaInsets();
+
+  // EntryForm is only registered in TripsNavigator, so when reached via
+  // Passport → Trips → TripDetail → EntryForm the recursive tab-bar hider in
+  // MainTabNavigator does not catch it (TripForm works because it is also
+  // registered one level shallower in PassportNavigator). Hide imperatively.
+  useFocusEffect(
+    useCallback(() => {
+      const tabNav = navigation.getParent()?.getParent();
+      tabNav?.setOptions({ tabBarStyle: { display: 'none' } });
+      return () => {
+        tabNav?.setOptions({ tabBarStyle: undefined });
+      };
+    }, [navigation])
+  );
 
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
