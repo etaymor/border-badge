@@ -11,4 +11,5 @@ export * from './photoClusteringCache';
 export * from './photoCacheDb';
 export * from './photoCacheDbSuggestions';
 export * from './photoBackgroundSync';
+export * from './photoScanService';
 export * from './errors';
