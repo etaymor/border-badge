@@ -73,6 +73,46 @@ jest.mock('../../../services/photoImport', () => {
     saveTripSegments: jest.fn().mockResolvedValue(undefined),
     abortBackgroundSync: jest.fn(),
     markClusterProcessed: jest.fn(),
+    markPhotosSaved: jest.fn().mockResolvedValue(undefined),
+    saveClusterSplit: jest.fn().mockResolvedValue(undefined),
+    getClusterSplitsForParents: jest.fn().mockResolvedValue(new Map()),
+    getAllSavedPhotoIds: jest.fn().mockResolvedValue(new Set<string>()),
+    applyPersistedSplits: jest.fn((data) => data),
+    applySavedPhotoFilter: jest.fn((data) => ({ data, autoDismissed: new Set<string>() })),
+    createSubCluster: jest.fn(
+      (
+        parent: { id: string; geohash: string; centroid: unknown; countryCode: string },
+        photoIds: Set<string>,
+        suffix: string
+      ) => ({
+        id: `${parent.id}__split_${suffix}`,
+        geohash: parent.geohash,
+        centroid: parent.centroid,
+        photos: [...photoIds].map((id) => ({
+          id,
+          uri: `file://${id}.jpg`,
+          filename: `${id}.jpg`,
+          creationTime: new Date('2024-06-01T10:00:00Z'),
+          location: { latitude: 35.6762, longitude: 139.6503 },
+          countryCode: 'JP',
+        })),
+        timeRange: {
+          start: new Date('2024-06-01T10:00:00Z'),
+          end: new Date('2024-06-01T11:00:00Z'),
+        },
+        countryCode: parent.countryCode,
+      })
+    ),
+    toLocationClusterDisplay: jest.fn((cluster: { id: string; photos: { id: string }[] }) => ({
+      id: cluster.id,
+      geohash: cluster.id,
+      centroid: { latitude: 0, longitude: 0 },
+      photoIds: cluster.photos.map((p) => p.id),
+      photoCount: cluster.photos.length,
+      previewUris: [],
+      timeRange: { start: new Date(), end: new Date() },
+      countryCode: 'JP',
+    })),
     getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
     getCachedSuggestions: jest.fn().mockResolvedValue(new Map()),
     cacheSuggestions: jest.fn().mockResolvedValue(undefined),
@@ -721,7 +761,11 @@ describe('usePhotoImportWorkflow', () => {
 
       // Now confirm a place - should create entry directly
       await act(async () => {
-        await result.current.handleConfirmPlace(mockSuggestion, mockPlace);
+        await result.current.handleConfirmPlace(mockSuggestion, mockPlace, {
+          suggested_rank: 1,
+          alternatives_count: 1,
+          alternatives_viewed: 1,
+        });
       });
 
       expect(Analytics.photoImportPlaceConfirmed).toHaveBeenCalledWith(
@@ -782,7 +826,13 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       await act(async () => {
-        await result.current.handleConfirmPlace(mockSuggestion, mockPlace, false, ['cluster-2']);
+        await result.current.handleConfirmPlace(
+          mockSuggestion,
+          mockPlace,
+          { suggested_rank: 1, alternatives_count: 1, alternatives_viewed: 1 },
+          false,
+          ['cluster-2']
+        );
       });
 
       expect(mockUploadPhotos).toHaveBeenCalledWith(
@@ -834,10 +884,294 @@ describe('usePhotoImportWorkflow', () => {
 
       // Try to confirm without selecting a trip
       await act(async () => {
-        await result.current.handleConfirmPlace(mockSuggestion, mockPlace);
+        await result.current.handleConfirmPlace(mockSuggestion, mockPlace, {
+          suggested_rank: 1,
+          alternatives_count: 1,
+          alternatives_viewed: 1,
+        });
       });
 
       expect(global.__mockAlert.alert).toHaveBeenCalledWith('Error', 'Please select a trip first.');
+    });
+
+    it('forwards photo_import provenance and flags overrides for evals', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = createMockCluster('cluster-1');
+
+      const topPlace = {
+        place_id: 'ChIJ_top',
+        name: 'Top Suggestion',
+        address: 'Top Address',
+        location: { latitude: 35.6762, longitude: 139.6503 },
+        category: 'place' as const,
+        distance_m: 30,
+        types: ['tourist_attraction'],
+      };
+      const altPlace = {
+        place_id: 'ChIJ_alt',
+        name: 'User Pick',
+        address: 'Alt Address',
+        location: { latitude: 35.6763, longitude: 139.6504 },
+        category: 'food' as const,
+        distance_m: 80,
+        types: ['restaurant'],
+      };
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['photo-1'],
+        places: [topPlace, altPlace],
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: ['media-1'], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      // User cycled to the second alternative before confirming.
+      await act(async () => {
+        await result.current.handleConfirmPlace(mockSuggestion, altPlace, {
+          suggested_rank: 2,
+          alternatives_count: 2,
+          alternatives_viewed: 2,
+        });
+      });
+
+      expect(mockCreateEntryMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          photo_import: {
+            cluster_id: 'cluster-1',
+            suggested_place_id: 'ChIJ_top',
+            suggested_rank: 2,
+            alternatives_count: 2,
+            alternatives_viewed: 2,
+            was_override: true,
+            was_from_cache: false,
+          },
+        })
+      );
+      expect(Analytics.photoImportPlaceConfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          suggestionRank: 2,
+          originalSuggestionPlaceId: 'ChIJ_top',
+          wasOverride: true,
+          alternativesViewed: 2,
+        })
+      );
+    });
+
+    it('marks confirmation of the top suggestion as not an override', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = createMockCluster('cluster-1');
+
+      const topPlace = {
+        place_id: 'ChIJ_top',
+        name: 'Top Suggestion',
+        address: 'Top Address',
+        location: { latitude: 35.6762, longitude: 139.6503 },
+        category: 'place' as const,
+        distance_m: 30,
+        types: ['tourist_attraction'],
+      };
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['photo-1'],
+        places: [topPlace],
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmPlace(mockSuggestion, topPlace, {
+          suggested_rank: 1,
+          alternatives_count: 1,
+          alternatives_viewed: 1,
+        });
+      });
+
+      expect(mockCreateEntryMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          photo_import: expect.objectContaining({
+            suggested_rank: 1,
+            was_override: false,
+            suggested_place_id: 'ChIJ_top',
+          }),
+        })
+      );
+    });
+  });
+
+  describe('persistence — markPhotosSaved', () => {
+    it('persists post-excludedPhotos IDs after a confirmed entry', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = {
+        ...createMockCluster('cluster-1'),
+        photos: [createMockPhoto('p1'), createMockPhoto('p2'), createMockPhoto('p3')],
+      };
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['p1', 'p2', 'p3'],
+        places: [],
+      };
+      const mockPlace = {
+        place_id: 'ChIJ_x',
+        name: 'X',
+        address: 'a',
+        location: { latitude: 35.6762, longitude: 139.6503 },
+        category: 'place' as const,
+        distance_m: 10,
+        types: ['tourist_attraction'],
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmPlace(
+          mockSuggestion,
+          mockPlace,
+          { suggested_rank: 1, alternatives_count: 1, alternatives_viewed: 1 },
+          false,
+          [],
+          new Set(['p2'])
+        );
+      });
+
+      expect(mockedPhotoImport.markPhotosSaved).toHaveBeenCalledWith('cluster-1', ['p1', 'p3']);
+    });
+
+    it('persists post-excludedPhotos IDs from the manual override path', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = {
+        ...createMockCluster('cluster-1'),
+        photos: [createMockPhoto('p1'), createMockPhoto('p2'), createMockPhoto('p3')],
+      };
+      const manualPlace = {
+        google_place_id: 'ChIJ_y',
+        name: 'Y',
+        address: 'a',
+        latitude: 35.7,
+        longitude: 139.7,
+        google_photo_url: null,
+        website_url: null,
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+      act(() => {
+        result.current.handleAddEntryForCluster('cluster-1');
+      });
+
+      await act(async () => {
+        await result.current.handleManualSelect(
+          manualPlace,
+          'place',
+          'trip-123',
+          undefined,
+          new Set(['p2'])
+        );
+      });
+
+      expect(mockedPhotoImport.markPhotosSaved).toHaveBeenCalledWith('cluster-1', ['p1', 'p3']);
+    });
+  });
+
+  describe('handleSplitCluster', () => {
+    it('persists the split via saveClusterSplit so it survives across sessions', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = {
+        ...createMockCluster('cluster-1'),
+        photos: [
+          createMockPhoto('p1'),
+          createMockPhoto('p2'),
+          createMockPhoto('p3'),
+          createMockPhoto('p4'),
+        ],
+      };
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      // Seed clusterLookup so handleSplitCluster can find the parent.
+      // The mock workflow's selectCandidate populates state from the scan
+      // result, but for this test we directly drive the split via the
+      // existing test harness (which uses the mocked photoImport surface).
+      await act(async () => {
+        // Push the cluster into the workflow's lookup so the split can find it.
+        mockScanResultRef.current = {
+          candidates: [mockCandidate],
+          photoLookup: new Map(),
+          clusterLookup: new Map([['cluster-1', mockCluster]]),
+          clusterDisplays: new Map(),
+          importTime: Date.now(),
+          isIncremental: false,
+          autoDismissedClusterIds: new Set<string>(),
+        };
+        await result.current.startScan(false);
+      });
+
+      await act(async () => {
+        await result.current.handleSplitCluster('cluster-1', ['p1', 'p2'], ['p3', 'p4']);
+      });
+
+      expect(mockedPhotoImport.saveClusterSplit).toHaveBeenCalledWith(
+        'cluster-1',
+        { id: 'cluster-1__split_a', photoIds: ['p1', 'p2'] },
+        { id: 'cluster-1__split_b', photoIds: ['p3', 'p4'] }
+      );
     });
   });
 
@@ -857,12 +1191,182 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       act(() => {
-        result.current.handleRejectPlace(mockSuggestion);
+        result.current.handleRejectPlace(mockSuggestion, {
+          suggested_rank: 1,
+          alternatives_count: 1,
+          alternatives_viewed: 1,
+        });
       });
 
       expect(Analytics.photoImportPlaceRejected).toHaveBeenCalled();
       expect(Analytics.photoImportManualSearchOpened).toHaveBeenCalled();
       expect(result.current.manualSearchCluster).toEqual(mockCluster);
+    });
+  });
+
+  describe('handleManualSelect (override path)', () => {
+    it('attaches photo_import provenance when reaching manual search via reject', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = createMockCluster('cluster-1');
+      const topPlace = {
+        place_id: 'ChIJ_top',
+        name: 'Top Suggestion',
+        address: 'Top Address',
+        location: { latitude: 35.6762, longitude: 139.6503 },
+        category: 'place' as const,
+        distance_m: 30,
+        types: ['tourist_attraction'],
+      };
+      const mockSuggestion = {
+        cluster_id: 'cluster-1',
+        photo_ids: ['photo-1'],
+        places: [topPlace],
+      };
+      const manualPlace = {
+        google_place_id: 'ChIJ_manual',
+        name: 'Manually Picked',
+        address: 'Manual Address',
+        latitude: 35.7,
+        longitude: 139.7,
+        google_photo_url: null,
+        website_url: null,
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      // User taps the pencil after looking at the lone suggestion.
+      act(() => {
+        result.current.handleRejectPlace(mockSuggestion, {
+          suggested_rank: 1,
+          alternatives_count: 1,
+          alternatives_viewed: 1,
+        });
+      });
+
+      await act(async () => {
+        await result.current.handleManualSelect(manualPlace, 'food', 'trip-123');
+      });
+
+      expect(mockCreateEntryMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          photo_import: {
+            cluster_id: 'cluster-1',
+            suggested_place_id: 'ChIJ_top',
+            suggested_rank: 0,
+            alternatives_count: 1,
+            alternatives_viewed: 1,
+            was_override: true,
+            was_from_cache: false,
+          },
+        })
+      );
+    });
+
+    it('excludes deselected photos when uploading via the override path', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = {
+        ...createMockCluster('cluster-1'),
+        photos: [
+          createMockPhoto('photo-1'),
+          createMockPhoto('photo-2'),
+          createMockPhoto('photo-3'),
+        ],
+      };
+      const manualPlace = {
+        google_place_id: 'ChIJ_manual',
+        name: 'Manually Picked',
+        address: 'Manual Address',
+        latitude: 35.7,
+        longitude: 139.7,
+        google_photo_url: null,
+        website_url: null,
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      act(() => {
+        result.current.handleAddEntryForCluster('cluster-1');
+      });
+
+      await act(async () => {
+        await result.current.handleManualSelect(
+          manualPlace,
+          'place',
+          'trip-123',
+          undefined,
+          new Set(['photo-2'])
+        );
+      });
+
+      const uploadedPhotos = mockUploadPhotos.mock.calls[0][1] as Array<{ id: string }>;
+      expect(uploadedPhotos.map((p) => p.id)).toEqual(['photo-1', 'photo-3']);
+    });
+
+    it('omits photo_import when manual search is opened directly (no suggestion shown)', async () => {
+      const mockCandidate = createMockTripCandidate('trip-1');
+      const mockCluster = createMockCluster('cluster-1');
+      const manualPlace = {
+        google_place_id: 'ChIJ_manual',
+        name: 'Manually Picked',
+        address: 'Manual Address',
+        latitude: 35.7,
+        longitude: 139.7,
+        google_photo_url: null,
+        website_url: null,
+      };
+
+      mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
+      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.selectCandidate(mockCandidate);
+      });
+      await act(async () => {
+        await result.current.selectTrip('trip-123');
+      });
+
+      act(() => {
+        result.current.handleAddEntryForCluster('cluster-1');
+      });
+
+      await act(async () => {
+        await result.current.handleManualSelect(manualPlace, 'place', 'trip-123');
+      });
+
+      const lastCall =
+        mockCreateEntryMutateAsync.mock.calls[mockCreateEntryMutateAsync.mock.calls.length - 1];
+      expect(lastCall[0].photo_import).toBeUndefined();
     });
   });
 

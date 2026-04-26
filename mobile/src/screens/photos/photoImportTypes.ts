@@ -15,6 +15,7 @@ import type {
 } from '@services/photoImport';
 import type { EntryType } from '@navigation/types';
 import type { ScanFailureReason } from './usePhotoScan';
+import type { SuggestionDecisionMeta } from './components/PlaceSuggestionCard';
 
 /**
  * Represents multiple clusters that resolved to the same place (by place_id).
@@ -96,10 +97,12 @@ export interface PhotoImportWorkflowResult {
   handleConfirmPlace: (
     suggestion: ClusterSuggestion,
     place: PlaceSuggestion,
+    meta: SuggestionDecisionMeta,
     wasFromCache?: boolean,
-    additionalClusterIds?: string[]
+    additionalClusterIds?: string[],
+    excludedPhotos?: Set<string>
   ) => Promise<void>;
-  handleRejectPlace: (suggestion: ClusterSuggestion) => void;
+  handleRejectPlace: (suggestion: ClusterSuggestion, meta: SuggestionDecisionMeta) => void;
   handleHideCluster: (clusterId: string) => Promise<void>;
   handleHideMultipleClusters: (clusterIds: string[]) => Promise<void>;
   handleSplitCluster: (
@@ -112,7 +115,8 @@ export interface PhotoImportWorkflowResult {
     place: SelectedPlace,
     category: EntryType,
     tripId: string,
-    notes?: string
+    notes?: string,
+    excludedPhotos?: Set<string>
   ) => Promise<string | undefined>;
   handleCreateTrip: (name: string, countryCode: string) => Promise<string>;
   backToCandidates: () => void;

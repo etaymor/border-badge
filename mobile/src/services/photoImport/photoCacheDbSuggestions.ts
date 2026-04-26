@@ -194,3 +194,134 @@ export async function getCachedSuggestionCount(): Promise<number> {
   );
   return result?.count ?? 0;
 }
+
+// =============================================================================
+// Cluster Splits (persisted manual splits — survive across sessions)
+// =============================================================================
+
+export interface ClusterSplitRow {
+  subClusterId: string;
+  parentClusterId: string;
+  photoIds: string[];
+}
+
+export interface ClusterSplitInput {
+  id: string;
+  photoIds: string[];
+}
+
+/**
+ * Persist a manual split as two sub-cluster rows for one parent cluster.
+ * Re-segmentation rebuilds the parent cluster ID by geohash on every load,
+ * so without this rows the user's split would silently disappear on return.
+ */
+export async function saveClusterSplit(
+  parentClusterId: string,
+  subA: ClusterSplitInput,
+  subB: ClusterSplitInput
+): Promise<void> {
+  const database = await getDb();
+  const now = Date.now();
+  await database.withTransactionAsync(async () => {
+    await database.runAsync(
+      'INSERT OR REPLACE INTO cluster_splits (sub_cluster_id, parent_cluster_id, photo_ids, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
+      [
+        subA.id,
+        parentClusterId,
+        JSON.stringify(subA.photoIds),
+        now,
+        subB.id,
+        parentClusterId,
+        JSON.stringify(subB.photoIds),
+        now,
+      ]
+    );
+  });
+}
+
+/**
+ * Look up persisted splits keyed by parent cluster ID. Used at load time to
+ * replace each parent in the candidate's cluster list with its sub-clusters.
+ */
+export async function getClusterSplitsForParents(
+  parentClusterIds: string[]
+): Promise<Map<string, ClusterSplitRow[]>> {
+  if (parentClusterIds.length === 0) return new Map();
+
+  const database = await getDb();
+  const result = new Map<string, ClusterSplitRow[]>();
+
+  const BATCH_SIZE = Math.min(100, SQLITE_PARAM_LIMIT);
+  for (let i = 0; i < parentClusterIds.length; i += BATCH_SIZE) {
+    const batch = parentClusterIds.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      sub_cluster_id: string;
+      parent_cluster_id: string;
+      photo_ids: string;
+    }>(
+      `SELECT sub_cluster_id, parent_cluster_id, photo_ids FROM cluster_splits WHERE parent_cluster_id IN (${placeholders})`,
+      batch
+    );
+    for (const row of rows) {
+      let photoIds: string[];
+      try {
+        photoIds = JSON.parse(row.photo_ids);
+        if (!Array.isArray(photoIds)) continue;
+      } catch {
+        continue;
+      }
+      const list = result.get(row.parent_cluster_id) ?? [];
+      list.push({
+        subClusterId: row.sub_cluster_id,
+        parentClusterId: row.parent_cluster_id,
+        photoIds,
+      });
+      result.set(row.parent_cluster_id, list);
+    }
+  }
+
+  return result;
+}
+
+// =============================================================================
+// Saved Cluster Photos (photo IDs that have been uploaded to an entry)
+// =============================================================================
+
+/**
+ * Record photo IDs that were uploaded to an entry. On next load, any cluster
+ * whose photos are entirely in this set gets auto-dismissed — handles the
+ * cluster-ID-mismatch edge case where a user splits, saves a half, returns,
+ * and re-segmentation rebuilds the parent ID instead of the split sub-ID.
+ */
+export async function markPhotosSaved(clusterId: string, photoIds: string[]): Promise<void> {
+  if (photoIds.length === 0) return;
+
+  const database = await getDb();
+  const now = Date.now();
+  // 3 params per row; chunk to stay well under SQLITE_PARAM_LIMIT.
+  const BATCH_SIZE = 200;
+
+  await database.withTransactionAsync(async () => {
+    for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
+      const batch = photoIds.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+      const values = batch.flatMap((id) => [id, clusterId, now]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO saved_cluster_photos (photo_id, cluster_id, saved_at) VALUES ${placeholders}`,
+        values
+      );
+    }
+  });
+}
+
+/**
+ * Returns all photo IDs that have been uploaded to an entry across any cluster.
+ */
+export async function getAllSavedPhotoIds(): Promise<Set<string>> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ photo_id: string }>(
+    'SELECT photo_id FROM saved_cluster_photos'
+  );
+  return new Set(rows.map((r) => r.photo_id));
+}

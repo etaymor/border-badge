@@ -209,3 +209,149 @@ export function getFullCluster(
 ): LocationCluster | undefined {
   return clusterLookup.get(clusterId);
 }
+
+/**
+ * Build a sub-cluster from a parent and an explicit sub-cluster ID. Used at
+ * load time to reconstruct a persisted split: the ID was decided when the
+ * user originally split, and we faithfully restore it. Returns null when
+ * none of the recorded photo IDs are present in the parent (e.g. those
+ * photos were removed from the device library since the split).
+ */
+function buildSubClusterFromPersisted(
+  parent: LocationCluster,
+  subId: string,
+  photoIds: string[]
+): LocationCluster | null {
+  const ids = new Set(photoIds);
+  const photos = parent.photos.filter((p) => ids.has(p.id));
+  if (photos.length === 0) return null;
+  const sorted = [...photos].sort((a, b) => a.creationTime.getTime() - b.creationTime.getTime());
+  return {
+    id: subId,
+    geohash: parent.geohash,
+    centroid: parent.centroid,
+    photos,
+    timeRange: {
+      start: sorted[0].creationTime,
+      end: sorted[sorted.length - 1].creationTime,
+    },
+    countryCode: parent.countryCode,
+  };
+}
+
+/**
+ * Persisted split row shape used at load time. Mirrors
+ * `ClusterSplitRow` from photoCacheDbSuggestions but redeclared here to keep
+ * this module independent of the DB layer.
+ */
+export interface PersistedClusterSplit {
+  subClusterId: string;
+  parentClusterId: string;
+  photoIds: string[];
+}
+
+/**
+ * Apply persisted splits to freshly segmented trip data. For each parent ID
+ * that has split rows, replace the parent in every candidate's
+ * `locationClusterIds` with its sub-cluster IDs and add the sub-clusters to
+ * the lookup maps. The parent stays in the cluster lookup (older
+ * `processed_clusters` rows may still reference it) but is removed from any
+ * candidate so it never renders.
+ *
+ * Pure: returns new maps and candidate objects without mutating inputs.
+ */
+export function applyPersistedSplits(
+  data: OptimizedTripData,
+  splitsByParent: Map<string, PersistedClusterSplit[]>
+): OptimizedTripData {
+  if (splitsByParent.size === 0) return data;
+
+  const clusterLookup = new Map(data.clusterLookup);
+  const clusterDisplays = new Map(data.clusterDisplays);
+
+  // Materialize each split's sub-clusters once; reused below to rewrite candidate IDs.
+  const subIdsByParent = new Map<string, string[]>();
+  for (const [parentId, splits] of splitsByParent) {
+    const parent = clusterLookup.get(parentId);
+    if (!parent) continue;
+    const subIds: string[] = [];
+    for (const split of splits) {
+      const sub = buildSubClusterFromPersisted(parent, split.subClusterId, split.photoIds);
+      if (!sub) continue;
+      clusterLookup.set(sub.id, sub);
+      clusterDisplays.set(sub.id, toLocationClusterDisplay(sub));
+      subIds.push(sub.id);
+    }
+    if (subIds.length > 0) {
+      subIdsByParent.set(parentId, subIds);
+    }
+  }
+
+  if (subIdsByParent.size === 0) {
+    return { ...data, clusterLookup, clusterDisplays };
+  }
+
+  const candidates = data.candidates.map((candidate) => {
+    let touched = false;
+    const newIds: string[] = [];
+    for (const id of candidate.locationClusterIds) {
+      const subs = subIdsByParent.get(id);
+      if (subs) {
+        newIds.push(...subs);
+        touched = true;
+      } else {
+        newIds.push(id);
+      }
+    }
+    return touched ? { ...candidate, locationClusterIds: newIds } : candidate;
+  });
+
+  return { ...data, candidates, clusterLookup, clusterDisplays };
+}
+
+/**
+ * Filter every cluster's photos against the saved-photo set. Clusters whose
+ * photos are entirely saved end up empty; they're returned via
+ * `autoDismissed` so the workflow can hide them in addition to the
+ * persisted dismissal set. Non-empty clusters get fresh display objects with
+ * the saved photos removed so the UI doesn't offer the user re-uploads.
+ */
+export function applySavedPhotoFilter(
+  data: OptimizedTripData,
+  savedPhotoIds: Set<string>
+): { data: OptimizedTripData; autoDismissed: Set<string> } {
+  const autoDismissed = new Set<string>();
+  if (savedPhotoIds.size === 0) {
+    return { data, autoDismissed };
+  }
+
+  const clusterLookup = new Map(data.clusterLookup);
+  const clusterDisplays = new Map(data.clusterDisplays);
+
+  for (const [id, cluster] of data.clusterLookup) {
+    const remaining = cluster.photos.filter((p) => !savedPhotoIds.has(p.id));
+    if (remaining.length === cluster.photos.length) continue;
+    if (remaining.length === 0) {
+      autoDismissed.add(id);
+      continue;
+    }
+    const sorted = [...remaining].sort(
+      (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
+    );
+    const filtered: LocationCluster = {
+      ...cluster,
+      photos: remaining,
+      timeRange: {
+        start: sorted[0].creationTime,
+        end: sorted[sorted.length - 1].creationTime,
+      },
+    };
+    clusterLookup.set(id, filtered);
+    clusterDisplays.set(id, toLocationClusterDisplay(filtered));
+  }
+
+  return {
+    data: { ...data, clusterLookup, clusterDisplays },
+    autoDismissed,
+  };
+}

@@ -9,7 +9,11 @@ import { useEffect, useRef } from 'react';
 
 import { Analytics } from '@services/analytics';
 import {
+  applyPersistedSplits,
+  applySavedPhotoFilter,
   getAllCachedPhotos,
+  getAllSavedPhotoIds,
+  getClusterSplitsForParents,
   getLastImportTime,
   getLastSelectedCandidateId,
   segmentTripsFromCache,
@@ -75,6 +79,8 @@ export interface UseAutoStartWorkflowOptions {
   setPhase: (phase: ImportPhase) => void;
   /** Ref tracking whether the parent component has unmounted */
   unmountedRef: React.MutableRefObject<boolean>;
+  /** Merge auto-dismissed cluster IDs into the workflow's dismissed set */
+  mergeAutoDismissedClusterIds: (ids: Set<string>) => void;
 }
 
 export function useAutoStartWorkflow({
@@ -102,6 +108,7 @@ export function useAutoStartWorkflow({
   setSelectedTripId,
   setPhase,
   unmountedRef,
+  mergeAutoDismissedClusterIds,
 }: UseAutoStartWorkflowOptions): void {
   // Track whether auto-start has been attempted
   const autoStartAttemptedRef = useRef(false);
@@ -161,7 +168,25 @@ export function useAutoStartWorkflow({
           }
 
           // Build candidates from cache (fast - no device scanning)
-          const optimizedData = segmentTripsFromCache(allCachedPhotos, homeCountry);
+          const segmented = segmentTripsFromCache(allCachedPhotos, homeCountry);
+
+          // Re-apply persisted manual splits and filter out photos already
+          // saved to entries; otherwise the user sees the original parent
+          // cluster (and any half they already saved) reappear on every entry.
+          const allClusterIds = Array.from(segmented.clusterLookup.keys());
+          const [splitsByParent, savedPhotoIds] = await Promise.all([
+            getClusterSplitsForParents(allClusterIds).catch(() => new Map()),
+            getAllSavedPhotoIds().catch(() => new Set<string>()),
+          ]);
+          const splitApplied = applyPersistedSplits(segmented, splitsByParent);
+          const { data: optimizedData, autoDismissed } = applySavedPhotoFilter(
+            splitApplied,
+            savedPhotoIds
+          );
+          if (autoDismissed.size > 0) {
+            mergeAutoDismissedClusterIds(autoDismissed);
+          }
+
           let candidates = optimizedData.candidates;
 
           // Filter to the requested country

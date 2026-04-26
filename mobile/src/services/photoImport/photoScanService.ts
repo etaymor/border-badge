@@ -31,6 +31,8 @@ import {
   setMetadata,
 } from './photoCacheDb';
 import { photoToCachedPhoto, segmentTripsFromCache } from './photoClusteringCache';
+import { applyPersistedSplits, applySavedPhotoFilter } from './photoClusteringDisplay';
+import { getAllSavedPhotoIds, getClusterSplitsForParents } from './photoCacheDbSuggestions';
 import { extractPhotosWithLocation } from './photoImportService';
 import { _setScanRunning, isScanRunning } from './photoScanState';
 import type {
@@ -63,6 +65,16 @@ export interface PhotoScanResult {
   clusterDisplays: Map<string, LocationClusterDisplay>;
   importTime: number;
   isIncremental: boolean;
+  /**
+   * Cluster IDs auto-dismissed during this scan because every one of their
+   * photos has been uploaded to a saved entry. Merged into the workflow's
+   * dismissed set on receipt; never persisted (cheap to recompute).
+   *
+   * Optional for backward compatibility with older results that may sit in
+   * the service singleton (`lastResult`) across an app upgrade. Treat absence
+   * as "no auto-dismissals" — equivalent to an empty set.
+   */
+  autoDismissedClusterIds?: Set<string>;
 }
 
 export interface PhotoScanStartOptions {
@@ -429,9 +441,25 @@ async function runScan(
     // for huge libraries where segmentation alone exceeds the threshold; a
     // proper fix requires periodic heartbeats inside segmentTripsFromCache.
     lastProgressAt = Date.now();
-    const optimizedData = segmentTripsFromCache(allCachedPhotos, opts.homeCountry!);
+    const segmented = segmentTripsFromCache(allCachedPhotos, opts.homeCountry!);
 
     if (localController.signal.aborted) return;
+
+    // Re-apply persisted manual splits: re-segmentation from cached photos
+    // rebuilds the parent geohash IDs, so without this the user's split
+    // disappears every time they return to suggestions.
+    const allClusterIds = Array.from(segmented.clusterLookup.keys());
+    const [splitsByParent, savedPhotoIds] = await Promise.all([
+      getClusterSplitsForParents(allClusterIds).catch(() => new Map()),
+      getAllSavedPhotoIds().catch(() => new Set<string>()),
+    ]);
+    if (localController.signal.aborted) return;
+
+    const splitApplied = applyPersistedSplits(segmented, splitsByParent);
+    const { data: optimizedData, autoDismissed } = applySavedPhotoFilter(
+      splitApplied,
+      savedPhotoIds
+    );
 
     saveTripSegments(
       optimizedData.candidates.map((c) => ({
@@ -484,6 +512,7 @@ async function runScan(
       clusterDisplays: optimizedData.clusterDisplays,
       importTime,
       isIncremental: doIncremental,
+      autoDismissedClusterIds: autoDismissed,
     };
 
     usePhotoScanStore.setState({

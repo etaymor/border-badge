@@ -1,5 +1,8 @@
 /**
  * Tests for PersistentScanBanner state matrix and visibility gating.
+ *
+ * The banner renders a thin progress bar (no text labels). Tests inspect the
+ * accessibility label and exercise tap handling on the touch target.
  */
 
 import React from 'react';
@@ -18,16 +21,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('@services/photoImport', () => ({
-  cancelScan: jest.fn(),
   consumeResult: jest.fn(),
-  startScan: jest.fn().mockResolvedValue({ status: 'started' }),
-  getLastStartOptions: jest.fn(() => null),
-  getScanStartedAt: jest.fn(() => null),
-}));
-
-jest.mock('@stores/onboardingStore', () => ({
-  useOnboardingStore: jest.fn(() => 'US'),
-  selectHomeCountry: jest.fn(),
 }));
 
 const photoImportMock = jest.requireMock('@services/photoImport');
@@ -66,63 +60,59 @@ describe('PersistentScanBanner visibility', () => {
 });
 
 describe('PersistentScanBanner state matrix', () => {
-  it('shows "Starting scan…" with no number at 0% progress', () => {
+  it('uses "starting" accessibility label at 0% progress', () => {
     usePhotoScanStore.setState({
       phase: 'scanning',
       progress: { phase: 'counting', current: 0, total: 0, percentage: 0 },
     });
-    const { getByText } = renderBanner();
-    expect(getByText('Starting scan…')).toBeTruthy();
+    const { getByLabelText } = renderBanner();
+    expect(getByLabelText('Photo scan starting, tap for details')).toBeTruthy();
   });
 
-  it('shows percentage when progress > 0', () => {
+  it('shows percentage in accessibility label when progress > 0', () => {
     usePhotoScanStore.setState({
       phase: 'scanning',
       progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
     });
-    const { getByText } = renderBanner();
-    expect(getByText('Scanning photos · 50%')).toBeTruthy();
+    const { getByLabelText } = renderBanner();
+    expect(getByLabelText('Photo scan in progress, 50%, tap for details')).toBeTruthy();
   });
 
-  it('shows completed message and navigates to PhotoImport on tap', () => {
-    usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
-    const { getByText } = renderBanner();
-    const node = getByText('Scan complete — tap to continue');
-    fireEvent.press(node);
+  it('navigates to PhotoImport when tapped during scanning', () => {
+    usePhotoScanStore.setState({
+      phase: 'scanning',
+      progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
+    });
+    const { getByLabelText } = renderBanner();
+    fireEvent.press(getByLabelText('Photo scan in progress, 50%, tap for details'));
     expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
   });
 
-  it('shows retry banner on recoverable failure and calls startScan on tap', () => {
+  it('shows completed bar and navigates to PhotoImport on tap', () => {
+    usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+    const { getByLabelText } = renderBanner();
+    fireEvent.press(getByLabelText('Photo scan complete, tap to continue'));
+    expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
+  });
+
+  it('shows retry-style bar on recoverable failure and navigates to PhotoImport on tap', () => {
     usePhotoScanStore.setState({
       phase: 'failed',
       scanFailure: { reason: 'stuck', title: 't', message: 'm' },
     });
-    const { getByText } = renderBanner();
-    const node = getByText('Scan stopped — tap to retry');
-    fireEvent.press(node);
-    expect(photoImportMock.startScan).toHaveBeenCalled();
+    const { getByLabelText } = renderBanner();
+    fireEvent.press(getByLabelText('Photo scan stopped, tap to retry'));
+    expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
   });
 
-  it('shows no-trips banner that routes to PhotoImport for the existing alert', () => {
+  it('shows no-trips bar that routes to PhotoImport for the existing alert', () => {
     usePhotoScanStore.setState({
       phase: 'failed',
       scanFailure: { reason: 'no-trips', title: 't', message: 'm' },
     });
-    const { getByText } = renderBanner();
-    const node = getByText('No travel photos found — tap for details');
-    fireEvent.press(node);
+    const { getByLabelText } = renderBanner();
+    fireEvent.press(getByLabelText('No travel photos found, tap for details'));
     expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
-  });
-
-  it('cancel from banner calls service cancel via confirmCancelScan helper', () => {
-    usePhotoScanStore.setState({
-      phase: 'scanning',
-      progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
-    });
-    const { getByText } = renderBanner();
-    const cancelBtn = getByText('Cancel');
-    fireEvent.press(cancelBtn);
-    expect(photoImportMock.cancelScan).toHaveBeenCalled();
   });
 });
 

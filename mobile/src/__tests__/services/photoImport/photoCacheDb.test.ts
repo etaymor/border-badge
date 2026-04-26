@@ -538,7 +538,7 @@ describe('photoCacheDb', () => {
       // Schema version should be stored
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
-        ['schema_version', '1']
+        ['schema_version', '2']
       );
     });
 
@@ -708,6 +708,123 @@ describe('photoCacheDb', () => {
       // Should pass 9 hash prefix parameters
       const params = mockDb.getAllAsync.mock.calls[0][1] as string[];
       expect(params).toHaveLength(9);
+    });
+  });
+
+  describe('saveClusterSplit / getClusterSplitsForParents', () => {
+    it('persists both sub-clusters in a single transaction with the parent ID', async () => {
+      await photoCacheDbSuggestions.saveClusterSplit(
+        'parent-1',
+        { id: 'parent-1__split_a', photoIds: ['p1', 'p2'] },
+        { id: 'parent-1__split_b', photoIds: ['p3', 'p4'] }
+      );
+
+      expect(mockDb.withTransactionAsync).toHaveBeenCalled();
+      const call = mockDb.runAsync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0].includes('cluster_splits')
+      );
+      expect(call).toBeDefined();
+      const [, params] = call!;
+      expect(params).toEqual([
+        'parent-1__split_a',
+        'parent-1',
+        JSON.stringify(['p1', 'p2']),
+        expect.any(Number),
+        'parent-1__split_b',
+        'parent-1',
+        JSON.stringify(['p3', 'p4']),
+        expect.any(Number),
+      ]);
+    });
+
+    it('returns persisted splits keyed by parent ID', async () => {
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          sub_cluster_id: 'parent-1__split_a',
+          parent_cluster_id: 'parent-1',
+          photo_ids: JSON.stringify(['p1', 'p2']),
+        },
+        {
+          sub_cluster_id: 'parent-1__split_b',
+          parent_cluster_id: 'parent-1',
+          photo_ids: JSON.stringify(['p3']),
+        },
+      ]);
+
+      const result = await photoCacheDbSuggestions.getClusterSplitsForParents([
+        'parent-1',
+        'parent-2',
+      ]);
+
+      expect(result.size).toBe(1);
+      const splits = result.get('parent-1');
+      expect(splits).toHaveLength(2);
+      expect(splits![0].photoIds).toEqual(['p1', 'p2']);
+      expect(splits![1].photoIds).toEqual(['p3']);
+    });
+
+    it('returns empty map when no parent IDs are provided', async () => {
+      const result = await photoCacheDbSuggestions.getClusterSplitsForParents([]);
+      expect(result.size).toBe(0);
+      expect(mockDb.getAllAsync).not.toHaveBeenCalled();
+    });
+
+    it('skips rows with malformed photo_ids JSON', async () => {
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          sub_cluster_id: 'parent-1__split_a',
+          parent_cluster_id: 'parent-1',
+          photo_ids: 'not-json',
+        },
+      ]);
+
+      const result = await photoCacheDbSuggestions.getClusterSplitsForParents(['parent-1']);
+      expect(result.size).toBe(0);
+    });
+  });
+
+  describe('markPhotosSaved / getAllSavedPhotoIds', () => {
+    it('persists every supplied photo ID in a transaction', async () => {
+      await photoCacheDbSuggestions.markPhotosSaved('cluster-1', ['p1', 'p2', 'p3']);
+
+      expect(mockDb.withTransactionAsync).toHaveBeenCalled();
+      const insertCall = mockDb.runAsync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0].includes('saved_cluster_photos')
+      );
+      expect(insertCall).toBeDefined();
+      const params = insertCall![1] as unknown[];
+      // 3 photos × 3 columns each
+      expect(params).toHaveLength(9);
+      expect(params[0]).toBe('p1');
+      expect(params[3]).toBe('p2');
+      expect(params[6]).toBe('p3');
+    });
+
+    it('is a no-op for an empty photo list', async () => {
+      await photoCacheDbSuggestions.markPhotosSaved('cluster-1', []);
+      expect(mockDb.withTransactionAsync).not.toHaveBeenCalled();
+      expect(mockDb.runAsync).not.toHaveBeenCalled();
+    });
+
+    it('returns the union of all saved photo IDs', async () => {
+      mockDb.getAllAsync.mockResolvedValue([
+        { photo_id: 'p1' },
+        { photo_id: 'p2' },
+        { photo_id: 'p3' },
+      ]);
+
+      const result = await photoCacheDbSuggestions.getAllSavedPhotoIds();
+
+      expect(result).toEqual(new Set(['p1', 'p2', 'p3']));
+    });
+  });
+
+  describe('clearPhotoCache (new tables)', () => {
+    it('deletes cluster_splits and saved_cluster_photos rows', async () => {
+      await photoCacheDb.clearPhotoCache();
+
+      expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM cluster_splits');
+      expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM saved_cluster_photos');
     });
   });
 });

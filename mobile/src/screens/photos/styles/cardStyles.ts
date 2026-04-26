@@ -41,7 +41,7 @@ export const cardStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    zIndex: 10,
+    zIndex: 20,
   },
   floatingActionButton: {
     width: 48,
@@ -60,6 +60,31 @@ export const cardStyles = StyleSheet.create({
   },
   floatingConfirmButton: {
     backgroundColor: colors.success,
+  },
+  alternativesStrip: {
+    position: 'absolute',
+    top: 200, // 240 (hero height) - 12 (gap from bottom) - ~28 (pill height)
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 15,
+  },
+  alternativesStripPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  alternativesStripText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 12,
+    color: colors.white,
+    letterSpacing: 0.2,
   },
   suggestionPhotos: {
     flexDirection: 'row',

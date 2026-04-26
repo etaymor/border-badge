@@ -13,6 +13,7 @@ import {
   createSubCluster,
   getLastImportTime,
   getProcessedClusterIds,
+  saveClusterSplit,
   toLocationClusterDisplay,
   type ScanProgress,
   type TripCandidateDisplay,
@@ -194,18 +195,33 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Photo Scan Hook
   // ==========================================================================
-  const onScanComplete = useCallback((result: ScanResult) => {
-    if (unmountedRef.current) return;
-    setClusterLookup(result.clusterLookup);
-    setClusterDisplays(result.clusterDisplays);
-    photoLookupRef.current = result.photoLookup;
-    clusterLookupRef.current = result.clusterLookup;
-    clusterDisplaysRef.current = result.clusterDisplays;
-    setTripCandidates(result.candidates);
-    setLastImportTimeState(result.importTime);
-    setIsIncremental(result.isIncremental);
-    setPhase('candidates');
+  const mergeAutoDismissedClusterIds = useCallback((ids: Set<string>) => {
+    if (ids.size === 0) return;
+    setDismissedClusterIdsInternal((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
   }, []);
+
+  const onScanComplete = useCallback(
+    (result: ScanResult) => {
+      if (unmountedRef.current) return;
+      setClusterLookup(result.clusterLookup);
+      setClusterDisplays(result.clusterDisplays);
+      photoLookupRef.current = result.photoLookup;
+      clusterLookupRef.current = result.clusterLookup;
+      clusterDisplaysRef.current = result.clusterDisplays;
+      setTripCandidates(result.candidates);
+      setLastImportTimeState(result.importTime);
+      setIsIncremental(result.isIncremental);
+      if (result.autoDismissedClusterIds) {
+        mergeAutoDismissedClusterIds(result.autoDismissedClusterIds);
+      }
+      setPhase('candidates');
+    },
+    [mergeAutoDismissedClusterIds]
+  );
 
   const onScanError = useCallback(() => {
     clearLargeDataStructures();
@@ -423,10 +439,20 @@ export function usePhotoImportWorkflow({
         return { ...prev, locationClusterIds: newIds };
       });
 
-      // Dismiss parent cluster in-memory only — don't persist, because the sub-clusters
-      // aren't persisted either. Persisting would hide the parent on return with no
-      // sub-clusters to show, making the whole collection disappear.
+      // Dismiss parent cluster in-memory; persistence is handled below via the
+      // cluster_splits table so we rebuild sub-clusters on next entry.
       setDismissedClusterIdsInternal((prev) => new Set(prev).add(clusterId));
+
+      // Persist the split so re-segmentation on the next session can rebuild
+      // these sub-clusters. Failure is logged but not surfaced — the in-memory
+      // split still works for this session; only return-visit fidelity is lost.
+      saveClusterSplit(
+        clusterId,
+        { id: subA.id, photoIds: subA.photos.map((p) => p.id) },
+        { id: subB.id, photoIds: subB.photos.map((p) => p.id) }
+      ).catch((err) => {
+        if (__DEV__) console.warn('[PhotoImport] Failed to persist split:', err);
+      });
 
       // Fetch suggestions for the two new sub-clusters
       await fetchForClusters([subA, subB]);
@@ -487,6 +513,7 @@ export function usePhotoImportWorkflow({
     setSelectedTripId,
     setPhase,
     unmountedRef,
+    mergeAutoDismissedClusterIds,
   });
 
   // ==========================================================================

@@ -43,6 +43,35 @@ export interface PlaceInput {
   google_photo_url: string | null;
 }
 
+/**
+ * Context recorded when an entry is created from the photo-import flow.
+ *
+ * Persisted into `place.extra_data.photo_import` so we can run offline evals
+ * over historical data: which suggestion was system-ranked first, which the
+ * user actually chose, how many alternatives they cycled through, whether
+ * they overrode the system's top pick. Snake_case to match the JSONB shape
+ * read by analytics tooling.
+ */
+export interface PhotoImportContext {
+  cluster_id: string;
+  /** Google Place ID of the system's top-ranked suggestion at scan time. */
+  suggested_place_id: string | null;
+  /**
+   * 1-based rank of the place the user actually saved within the original
+   * ranked list, or 0 if the user saved a manual search result that was
+   * never in the suggestions array.
+   */
+  suggested_rank: number;
+  /** How many alternatives the system offered for this cluster. */
+  alternatives_count: number;
+  /** How many distinct alternatives the user actually viewed. */
+  alternatives_viewed: number;
+  /** True when the saved place is not the system's top-ranked suggestion. */
+  was_override: boolean;
+  /** True when this suggestion was served from the SQLite cache, not a fresh API call. */
+  was_from_cache: boolean;
+}
+
 // Entry metadata from social ingest
 export interface EntryMetadata {
   source_type?: string;
@@ -80,6 +109,12 @@ export interface CreateEntryInput {
   entry_date?: string; // ISO date string
   place?: PlaceInput;
   pending_media_ids?: string[]; // Media uploaded before entry creation
+  /**
+   * Optional photo-import provenance. When present, gets merged into
+   * place.extra_data.photo_import on the backend so we can later evaluate
+   * suggestion quality against actual user choices.
+   */
+  photo_import?: PhotoImportContext;
 }
 
 // Input for updating an entry
@@ -212,6 +247,17 @@ export function useCreateEntry() {
         place: input.place,
       });
 
+      // Build place.extra_data, merging google_photo_url and photo_import
+      // provenance. Backend stores this as opaque JSONB on the place row.
+      const extraData: Record<string, unknown> = {};
+      if (input.place?.google_photo_url) {
+        extraData.google_photo_url = input.place.google_photo_url;
+      }
+      if (input.photo_import) {
+        extraData.photo_import = input.photo_import;
+      }
+      const hasExtraData = Object.keys(extraData).length > 0;
+
       // Transform to backend format
       const backendInput = {
         type: input.entry_type,
@@ -226,9 +272,7 @@ export function useCreateEntry() {
               lat: input.place.latitude,
               lng: input.place.longitude,
               address: input.place.address,
-              extra_data: input.place.google_photo_url
-                ? { google_photo_url: input.place.google_photo_url }
-                : undefined,
+              extra_data: hasExtraData ? extraData : undefined,
             }
           : undefined,
         pending_media_ids: input.pending_media_ids,

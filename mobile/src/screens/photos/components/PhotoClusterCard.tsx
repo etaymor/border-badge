@@ -72,6 +72,7 @@ export function PhotoClusterCard({
       friction={3}
       rightThreshold={120}
       overshootRight={true}
+      containerStyle={localStyles.swipeableContainer}
     >
       <View style={styles.suggestionCard}>
         {/* Hero Image - matching PlaceSuggestionCard style */}
@@ -119,6 +120,9 @@ export function PhotoClusterCard({
 }
 
 const localStyles = StyleSheet.create({
+  swipeableContainer: {
+    overflow: 'visible',
+  },
   swipeActionContainer: {
     width: 100,
     backgroundColor: colors.adobeBrick,

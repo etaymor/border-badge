@@ -23,11 +23,29 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { styles } from '../photoImportStyles';
 
+/**
+ * Metadata captured at the moment a user confirms or overrides a suggestion.
+ * Used by useEntryCreation to build the photo_import block on the entry payload
+ * (durable in place.extra_data) and to enrich PostHog events for offline evals.
+ */
+export interface SuggestionDecisionMeta {
+  /** 1-based index of the place currently on screen at decision time. */
+  suggested_rank: number;
+  /** Total alternatives offered for this cluster. */
+  alternatives_count: number;
+  /** How many distinct alternatives the user actually viewed (>= 1). */
+  alternatives_viewed: number;
+}
+
 export interface PlaceSuggestionCardProps {
   suggestion: ClusterSuggestion;
   previewUris: string[];
-  onConfirm: (suggestion: ClusterSuggestion, place: PlaceSuggestion) => void;
-  onReject: (suggestion: ClusterSuggestion) => void;
+  onConfirm: (
+    suggestion: ClusterSuggestion,
+    place: PlaceSuggestion,
+    meta: SuggestionDecisionMeta
+  ) => void;
+  onReject: (suggestion: ClusterSuggestion, meta: SuggestionDecisionMeta) => void;
   onPhotoPress: (uri: string) => void;
   onDismiss?: (clusterId: string) => void;
   /** Number of selected (non-excluded) photos */
@@ -63,25 +81,44 @@ export function PlaceSuggestionCard({
 }: PlaceSuggestionCardProps) {
   const swipeableRef = useRef<Swipeable>(null);
   const [placeIndex, setPlaceIndex] = useState(0);
+  // Track which alternative indices the user has actually viewed so we can
+  // distinguish "accepted the top suggestion without looking" from "cycled
+  // through 3 options before picking one". Always seeded with index 0.
+  const viewedIndicesRef = useRef<Set<number>>(new Set([0]));
 
-  // Reset to first place when suggestion changes (e.g. different cluster)
+  // Reset cycling state when the suggestion changes (e.g. different cluster)
   useEffect(() => {
     setPlaceIndex(0);
+    viewedIndicesRef.current = new Set([0]);
   }, [suggestion.cluster_id]);
 
   const places = suggestion.places;
   const hasAlternatives = places.length > 1;
 
   const goToPrevPlace = useCallback(() => {
-    setPlaceIndex((prev) => (prev > 0 ? prev - 1 : places.length - 1));
+    setPlaceIndex((prev) => {
+      const next = prev > 0 ? prev - 1 : places.length - 1;
+      viewedIndicesRef.current.add(next);
+      return next;
+    });
   }, [places.length]);
 
   const goToNextPlace = useCallback(() => {
-    setPlaceIndex((prev) => (prev < places.length - 1 ? prev + 1 : 0));
+    setPlaceIndex((prev) => {
+      const next = prev < places.length - 1 ? prev + 1 : 0;
+      viewedIndicesRef.current.add(next);
+      return next;
+    });
   }, [places.length]);
 
   const currentPlace = places[placeIndex];
   if (!currentPlace) return null;
+
+  const buildDecisionMeta = (): SuggestionDecisionMeta => ({
+    suggested_rank: placeIndex + 1,
+    alternatives_count: places.length,
+    alternatives_viewed: viewedIndicesRef.current.size,
+  });
 
   const heroUri = previewUris[0];
 
@@ -126,6 +163,7 @@ export function PlaceSuggestionCard({
       rightThreshold={120}
       overshootRight={true}
       enabled={!isUploading} // Disable swipe during upload
+      containerStyle={localStyles.swipeableContainer}
     >
       <View style={styles.suggestionCard}>
         {/* Hero Image */}
@@ -146,18 +184,49 @@ export function PlaceSuggestionCard({
           </TouchableOpacity>
         </View>
 
+        {/* Alternatives strip overlaid on the photo. Rendered as a sibling of
+            the hero container (matching suggestionFloatingActions) so its
+            touch handlers are not affected by the hero's flex-1
+            TouchableOpacity or by FlashList cell recycling that was leaving
+            chevrons unresponsive after a save. */}
+        {hasAlternatives && !isUploading && (
+          <View style={styles.alternativesStrip} pointerEvents="box-none">
+            <View style={styles.alternativesStripPill}>
+              <TouchableOpacity
+                accessibilityLabel="Previous suggestion"
+                onPress={goToPrevPlace}
+                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-back" size={16} color={colors.white} />
+              </TouchableOpacity>
+              <Text style={styles.alternativesStripText}>
+                {placeIndex + 1} of {places.length} options
+              </Text>
+              <TouchableOpacity
+                accessibilityLabel="Next suggestion"
+                onPress={goToNextPlace}
+                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-forward" size={16} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Floating Actions */}
         {!isUploading && (
           <View style={styles.suggestionFloatingActions}>
             <TouchableOpacity
+              accessibilityLabel="Edit place suggestion"
               style={[styles.floatingActionButton, styles.floatingRejectButton]}
-              onPress={() => onReject(suggestion)}
+              onPress={() => onReject(suggestion, buildDecisionMeta())}
             >
-              <Ionicons name="close" size={24} color={colors.white} />
+              <Ionicons name="pencil" size={20} color={colors.white} />
             </TouchableOpacity>
             <TouchableOpacity
+              accessibilityLabel="Confirm place suggestion"
               style={[styles.floatingActionButton, styles.floatingConfirmButton]}
-              onPress={() => onConfirm(suggestion, currentPlace)}
+              onPress={() => onConfirm(suggestion, currentPlace, buildDecisionMeta())}
             >
               <Ionicons name="checkmark" size={24} color={colors.white} />
             </TouchableOpacity>
@@ -183,27 +252,6 @@ export function PlaceSuggestionCard({
               </Text>
             )}
           </View>
-
-          {/* Alternative places navigation */}
-          {hasAlternatives && !isUploading && (
-            <View style={localStyles.alternativesRow}>
-              <TouchableOpacity
-                onPress={goToPrevPlace}
-                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.textTertiary} />
-              </TouchableOpacity>
-              <Text style={localStyles.alternativesText}>
-                {placeIndex + 1} of {places.length} options
-              </Text>
-              <TouchableOpacity
-                onPress={goToNextPlace}
-                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-              >
-                <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-              </TouchableOpacity>
-            </View>
-          )}
 
           {/* Upload progress */}
           {isUploading && (
@@ -231,6 +279,9 @@ export function PlaceSuggestionCard({
 }
 
 const localStyles = StyleSheet.create({
+  swipeableContainer: {
+    overflow: 'visible',
+  },
   swipeActionContainer: {
     width: 100,
     backgroundColor: colors.adobeBrick,
@@ -250,21 +301,6 @@ const localStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 4,
-  },
-  alternativesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    gap: 12,
-  },
-  alternativesText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 13,
-    color: colors.textTertiary,
   },
   uploadContainerInline: {
     marginTop: 16,

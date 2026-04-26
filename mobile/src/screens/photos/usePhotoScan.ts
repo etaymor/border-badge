@@ -42,6 +42,7 @@ export interface ScanResult {
   clusterDisplays: Map<string, LocationClusterDisplay>;
   importTime: number;
   isIncremental: boolean;
+  autoDismissedClusterIds?: Set<string>;
 }
 
 export type ScanOutcome =

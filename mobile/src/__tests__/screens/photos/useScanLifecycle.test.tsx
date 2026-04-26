@@ -194,8 +194,8 @@ describe('useScanLifecycle', () => {
     });
   });
 
-  describe('beforeRemove navigation guard', () => {
-    it('shows the soft-block alert with Continue in Background and Cancel Scan options', () => {
+  describe('back navigation while scanning', () => {
+    it('does not register a beforeRemove listener and does not block back', () => {
       const navigation = createMockNavigation();
       renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
         initialProps: {
@@ -208,65 +208,7 @@ describe('useScanLifecycle', () => {
         },
       });
 
-      const beforeRemove = (
-        navigation as unknown as { _listeners: Record<string, (e: unknown) => void> }
-      )._listeners.beforeRemove;
-      const event = { preventDefault: jest.fn(), data: { action: { type: 'POP' } } };
-      beforeRemove(event);
-
-      expect(event.preventDefault).toHaveBeenCalled();
-      const buttons = global.__mockAlert.alert.mock.calls[0][2];
-      const labels = buttons.map((b: { text: string }) => b.text);
-      expect(labels).toEqual(['Keep Scanning', 'Continue in Background', 'Cancel Scan']);
-    });
-
-    it('Continue in Background dispatches navigation without calling cancel', () => {
-      const navigation = createMockNavigation();
-      const cancelScan = jest.fn();
-      renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
-        initialProps: {
-          phase: 'scanning',
-          cancelScan,
-          scanFailure: null as { title: string; message: string } | null,
-          clearScanFailure: jest.fn(),
-          autoStart: false as boolean | undefined,
-          navigation,
-        },
-      });
-
-      const beforeRemove = (
-        navigation as unknown as { _listeners: Record<string, (e: unknown) => void> }
-      )._listeners.beforeRemove;
-      const event = { preventDefault: jest.fn(), data: { action: { type: 'POP' } } };
-      beforeRemove(event);
-
-      const continueBtn = global.__mockAlert.alert.mock.calls[0][2][1];
-      continueBtn.onPress();
-
-      expect(navigation.dispatch).toHaveBeenCalledWith({ type: 'POP' });
-      expect(cancelScan).not.toHaveBeenCalled();
-    });
-
-    it('does not block navigation when not scanning', () => {
-      const navigation = createMockNavigation();
-      renderHook((props: UseScanLifecycleOptions) => useScanLifecycle(props), {
-        initialProps: {
-          phase: 'idle',
-          cancelScan: jest.fn(),
-          scanFailure: null as { title: string; message: string } | null,
-          clearScanFailure: jest.fn(),
-          autoStart: false as boolean | undefined,
-          navigation,
-        },
-      });
-
-      const beforeRemove = (
-        navigation as unknown as { _listeners: Record<string, (e: unknown) => void> }
-      )._listeners.beforeRemove;
-      const event = { preventDefault: jest.fn(), data: { action: { type: 'POP' } } };
-      beforeRemove(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(navigation.addListener).not.toHaveBeenCalledWith('beforeRemove', expect.any(Function));
       expect(global.__mockAlert.alert).not.toHaveBeenCalled();
     });
   });

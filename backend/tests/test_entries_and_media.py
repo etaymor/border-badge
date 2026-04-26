@@ -132,6 +132,83 @@ def test_create_entry_with_place(
         app.dependency_overrides.clear()
 
 
+def test_create_entry_persists_photo_import_extra_data(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_entry: dict[str, Any],
+    sample_place: dict[str, Any],
+    sample_free_profile: dict[str, Any],
+) -> None:
+    """The mobile photo-import flow embeds suggestion provenance in
+    place.extra_data['photo_import']. The backend treats extra_data as
+    opaque JSONB and must forward it unchanged into the atomic RPC so we
+    can later evaluate ranker accuracy against actual user choices."""
+    from tests.conftest import TEST_TRIP_ID
+
+    photo_import = {
+        "cluster_id": "cluster-42",
+        "suggested_place_id": "ChIJ_top",
+        "suggested_rank": 2,
+        "alternatives_count": 3,
+        "alternatives_viewed": 2,
+        "was_override": True,
+        "was_from_cache": False,
+    }
+
+    mock_supabase_client.get.return_value = [sample_free_profile]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "entry_row": sample_entry,
+            "place_row": sample_place,
+            "error_code": None,
+            "current_count": None,
+        }
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.entries.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                f"/trips/{TEST_TRIP_ID}/entries",
+                headers=auth_headers,
+                json={
+                    "type": "place",
+                    "title": "Central Park",
+                    "place": {
+                        "google_place_id": "ChIJ_alt",
+                        "place_name": "Alt Pick",
+                        "lat": 40.7829,
+                        "lng": -73.9654,
+                        "extra_data": {
+                            "google_photo_url": "https://example.com/photo.jpg",
+                            "photo_import": photo_import,
+                        },
+                    },
+                },
+            )
+        assert response.status_code == 201
+
+        # Atomic RPC was called with the photo_import block intact under
+        # extra_data so it lands in place.extra_data on insert.
+        rpc_calls = mock_supabase_client.rpc.await_args_list
+        assert rpc_calls, "expected atomic_create_entry_with_place to be called"
+        rpc_args = rpc_calls[-1].args
+        assert rpc_args[0] == "atomic_create_entry_with_place"
+        place_data = rpc_args[1]["p_place_data"]
+        assert place_data is not None
+        assert place_data["extra_data"]["photo_import"] == photo_import
+        assert (
+            place_data["extra_data"]["google_photo_url"]
+            == "https://example.com/photo.jpg"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_get_entry(
     client: TestClient,
     mock_supabase_client: AsyncMock,

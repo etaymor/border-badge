@@ -4,11 +4,12 @@
  * Manages:
  * - Keep-awake activation while the screen is focused AND scanning
  * - Scan failure alerts
- * - Back-navigation soft-block while scanning ("Continue in background / Cancel")
  * - Cancel-scan confirmation (elapsed > 30 s) shared with the banner
  *
  * Notably does NOT abort the scan on unmount — the singleton service owns
  * the scan and survives navigation now (see U1/U3 of the background-scan plan).
+ * Back-navigation while scanning is allowed silently; the persistent banner
+ * surfaces progress on other screens.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -57,12 +58,6 @@ export function useScanLifecycle({
   navigation,
 }: UseScanLifecycleOptions): UseScanLifecycleResult {
   const isFocused = useIsFocused();
-
-  // Ref that tracks scanning state synchronously to avoid stale closures.
-  const scanningRef = useRef(false);
-  useEffect(() => {
-    scanningRef.current = phase === 'scanning';
-  }, [phase]);
 
   // Show alert when scan finds no photos or no trips (legacy "alert-and-back"
   // failures), navigate back on dismiss when autoStart was true. Service-level
@@ -118,44 +113,6 @@ export function useScanLifecycle({
       scanStartTimeRef.current = null;
     }
   }, [phase]);
-
-  // Soften back navigation while scanning: leaving the screen is fine — the
-  // scan continues in the background. Offer cancel as the destructive option.
-  useEffect(() => {
-    const unsubscribe = navigation.addListener(
-      'beforeRemove',
-      (e: { preventDefault: () => void; data: { action: unknown } }) => {
-        if (!scanningRef.current) return;
-
-        e.preventDefault();
-        Alert.alert(
-          'Scan in Progress',
-          'Your scan will keep running in the background. You can return to this screen any time to view results.',
-          [
-            { text: 'Keep Scanning', style: 'cancel' },
-            {
-              text: 'Continue in Background',
-              onPress: () =>
-                navigation.dispatch(e.data.action as Parameters<typeof navigation.dispatch>[0]),
-            },
-            {
-              text: 'Cancel Scan',
-              style: 'destructive',
-              onPress: () => {
-                confirmCancelScan(scanStartTimeRef.current, () => {
-                  if (scanningRef.current) {
-                    cancelScan();
-                  }
-                  navigation.dispatch(e.data.action as Parameters<typeof navigation.dispatch>[0]);
-                });
-              },
-            },
-          ]
-        );
-      }
-    );
-    return unsubscribe;
-  }, [navigation, cancelScan]);
 
   // Cancel with confirmation when scan has been running >30 seconds.
   const handleCancelScan = useCallback(() => {

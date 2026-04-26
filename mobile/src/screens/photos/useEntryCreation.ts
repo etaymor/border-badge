@@ -9,18 +9,40 @@ import { Alert } from 'react-native';
 import type { AxiosError } from 'axios';
 
 import type { SelectedPlace } from '@components/places';
-import { useCreateEntry, PlaceInput, CreateEntryInput } from '@hooks/useEntries';
+import {
+  useCreateEntry,
+  PlaceInput,
+  CreateEntryInput,
+  PhotoImportContext,
+} from '@hooks/useEntries';
 import { useCreateTrip } from '@hooks/useTrips';
 import { useMultiClusterUpload } from '@hooks/useMultiClusterUpload';
 import {
   getFullCluster,
   markClusterProcessed,
+  markPhotosSaved,
   type LocationCluster,
   type ClusterSuggestion,
   type PlaceSuggestion,
 } from '@services/photoImport';
 import { Analytics } from '@services/analytics';
+import type { SuggestionDecisionMeta } from './components/PlaceSuggestionCard';
 import type { EntryType } from '@navigation/types';
+
+/**
+ * Snapshot of suggestion provenance, captured the moment a user opens
+ * manual search by overriding a suggestion. The manual-save handler reads
+ * this so it can write a faithful photo_import block ("user rejected
+ * suggestion X and saved Y instead") into place.extra_data.
+ */
+interface OverrideContext {
+  clusterId: string;
+  suggestedPlaceId: string | null;
+  suggestedRank: number;
+  alternativesCount: number;
+  alternativesViewed: number;
+  wasFromCache: boolean;
+}
 
 export interface UseEntryCreationOptions {
   clusterLookup: Map<string, LocationCluster>;
@@ -53,9 +75,14 @@ export function useEntryCreation({
 
   // Track which clusters are currently processing to prevent double-submissions per cluster
   const processingClustersRef = useRef<Set<string>>(new Set());
+  // Snapshot of the suggestion the user was looking at when they opened
+  // manual search via the override (pencil) button. Cleared when the modal
+  // closes. Read by handleManualSelect to attribute overrides correctly.
+  const overrideContextRef = useRef<OverrideContext | null>(null);
 
   /**
    * Confirm a place suggestion and create an entry.
+   * @param meta - Decision context from the suggestion card (rank, cycling).
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
    * @param additionalClusterIds - Additional cluster IDs to mark as processed (for merged suggestions)
    * @param excludedPhotos - Photo IDs the user deselected in the gallery
@@ -64,6 +91,7 @@ export function useEntryCreation({
     async (
       suggestion: ClusterSuggestion,
       place: PlaceSuggestion,
+      meta: SuggestionDecisionMeta,
       wasFromCache = false,
       additionalClusterIds: string[] = [],
       excludedPhotos?: Set<string>
@@ -138,6 +166,21 @@ export function useEntryCreation({
           google_photo_url: null, // Not available from PlaceSuggestion
         };
 
+        // Capture suggestion provenance so we can run offline evals over
+        // "user accepted top suggestion" vs "user picked rank 3" outcomes.
+        const topSuggestionPlaceId = suggestion.places[0]?.place_id ?? null;
+        const wasOverride =
+          topSuggestionPlaceId !== null && place.place_id !== topSuggestionPlaceId;
+        const photoImport: PhotoImportContext = {
+          cluster_id: suggestion.cluster_id,
+          suggested_place_id: topSuggestionPlaceId,
+          suggested_rank: meta.suggested_rank,
+          alternatives_count: meta.alternatives_count,
+          alternatives_viewed: meta.alternatives_viewed,
+          was_override: wasOverride,
+          was_from_cache: wasFromCache,
+        };
+
         // Create entry data with uploaded media IDs
         const entryData: CreateEntryInput = {
           trip_id: selectedTripId,
@@ -148,16 +191,18 @@ export function useEntryCreation({
           entry_date: earliestEntryDate.toISOString().split('T')[0],
           // Attach uploaded photos
           pending_media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+          photo_import: photoImport,
         };
 
         await createEntry.mutateAsync(entryData);
-        // Calculate suggestion rank (1-based index)
-        const suggestionRank =
-          suggestion.places.findIndex((p) => p.place_id === place.place_id) + 1;
         Analytics.photoImportPlaceConfirmed({
           category: place.category,
-          suggestionRank: suggestionRank > 0 ? suggestionRank : 1,
+          suggestionRank: meta.suggested_rank,
           wasFromCache,
+          originalSuggestionPlaceId: topSuggestionPlaceId,
+          alternativesCount: meta.alternatives_count,
+          alternativesViewed: meta.alternatives_viewed,
+          wasOverride,
         });
 
         // Mark cluster as processed in memory and persist to SQLite
@@ -176,6 +221,15 @@ export function useEntryCreation({
         for (const additionalId of additionalClusterIds) {
           await markClusterProcessed(additionalId, 'confirmed');
         }
+
+        // Persist the photo IDs that were actually uploaded (post-excludedPhotos
+        // filter) so a future scan auto-dismisses any cluster whose photos are
+        // entirely saved — even when re-segmentation produces a different
+        // cluster ID (e.g. after a manual split).
+        await markPhotosSaved(
+          suggestion.cluster_id,
+          photosToUpload.map((p) => p.id)
+        );
 
         // Show alert if some photos failed to upload
         if (failedCount > 0) {
@@ -201,6 +255,12 @@ export function useEntryCreation({
           for (const id of allClusterIds) {
             await markClusterProcessed(id, 'confirmed');
           }
+          // The place already exists in the trip — treat this cluster's photos
+          // as saved so they don't reappear after re-segmentation.
+          await markPhotosSaved(
+            suggestion.cluster_id,
+            (cluster?.photos ?? []).map((p) => p.id)
+          );
           Alert.alert(
             'Already Saved',
             `"${place.name}" is already in this trip. You can add photos to it from the trip details.`
@@ -228,16 +288,34 @@ export function useEntryCreation({
 
   /**
    * Reject a place suggestion and open manual search.
+   * @param meta - Decision context from the suggestion card at reject time.
    * @param wasFromCache - Whether this suggestion was served from SQLite cache
    */
   const handleRejectPlace = useCallback(
-    (suggestion: ClusterSuggestion, wasFromCache = false) => {
+    (suggestion: ClusterSuggestion, meta: SuggestionDecisionMeta, wasFromCache = false) => {
+      const topSuggestionPlaceId = suggestion.places[0]?.place_id ?? null;
+      const currentPlaceId = suggestion.places[meta.suggested_rank - 1]?.place_id ?? null;
       Analytics.photoImportPlaceRejected({
         suggestionCount: suggestion.places.length,
         wasFromCache,
+        originalSuggestionPlaceId: currentPlaceId,
+        suggestedRank: meta.suggested_rank,
+        alternativesViewed: meta.alternatives_viewed,
       });
       const cluster = getFullCluster(suggestion.cluster_id, clusterLookup);
       if (cluster) {
+        // Stash provenance so handleManualSelect can record the override
+        // ("user rejected suggestion X, manually picked Y") in the photo_import
+        // block. We capture the *top* suggestion id, not the currently shown
+        // one — that's what we want to evaluate the ranker against.
+        overrideContextRef.current = {
+          clusterId: cluster.id,
+          suggestedPlaceId: topSuggestionPlaceId,
+          suggestedRank: meta.suggested_rank,
+          alternativesCount: meta.alternatives_count,
+          alternativesViewed: meta.alternatives_viewed,
+          wasFromCache,
+        };
         setManualSearchCluster(cluster);
         Analytics.photoImportManualSearchOpened();
       }
@@ -287,11 +365,15 @@ export function useEntryCreation({
 
   /**
    * Open manual search for a specific cluster.
+   * Distinct from handleRejectPlace: there is no suggestion provenance to
+   * capture here (user opened search directly), so we clear any stale
+   * override context.
    */
   const handleAddEntryForCluster = useCallback(
     (clusterId: string) => {
       const cluster = getFullCluster(clusterId, clusterLookup);
       if (cluster) {
+        overrideContextRef.current = null;
         setManualSearchCluster(cluster);
         Analytics.photoImportManualSearchOpened();
       }
@@ -301,9 +383,18 @@ export function useEntryCreation({
 
   /**
    * Create entry from manual place selection.
+   * @param excludedPhotos - Photo IDs the user deselected in the gallery before
+   *   opening manual search. Filtered out before upload so the override path
+   *   honors the same selection as the confirm path.
    */
   const handleManualSelect = useCallback(
-    async (place: SelectedPlace, category: EntryType, tripIdToUse: string, notes?: string) => {
+    async (
+      place: SelectedPlace,
+      category: EntryType,
+      tripIdToUse: string,
+      notes?: string,
+      excludedPhotos?: Set<string>
+    ) => {
       const cluster = manualSearchCluster;
       const clusterId = cluster?.id;
 
@@ -327,12 +418,17 @@ export function useEntryCreation({
         resetUpload(clusterId);
       }
 
+      const photosToUpload =
+        cluster && excludedPhotos && excludedPhotos.size > 0
+          ? cluster.photos.filter((p) => !excludedPhotos.has(p.id))
+          : (cluster?.photos ?? []);
+
       try {
         // Upload photos first if we have a cluster
         let mediaIds: string[] = [];
         let failedCount = 0;
         if (cluster && clusterId) {
-          const uploadResult = await uploadPhotos(clusterId, cluster.photos, tripIdToUse);
+          const uploadResult = await uploadPhotos(clusterId, photosToUpload, tripIdToUse);
           mediaIds = uploadResult.mediaIds;
           failedCount = uploadResult.failedCount;
         }
@@ -347,6 +443,27 @@ export function useEntryCreation({
           google_photo_url: place.google_photo_url,
         };
 
+        // If this manual save was triggered by overriding a suggestion,
+        // attach provenance so we can later evaluate "user rejected the
+        // ranker's pick and saved Y instead". When the user opened search
+        // directly (no suggestion ever shown), photoImport stays undefined.
+        const overrideCtx =
+          clusterId && overrideContextRef.current?.clusterId === clusterId
+            ? overrideContextRef.current
+            : null;
+        const photoImport: PhotoImportContext | undefined =
+          overrideCtx && clusterId
+            ? {
+                cluster_id: clusterId,
+                suggested_place_id: overrideCtx.suggestedPlaceId,
+                suggested_rank: 0, // Manual entry, not from the suggestions array
+                alternatives_count: overrideCtx.alternativesCount,
+                alternatives_viewed: overrideCtx.alternativesViewed,
+                was_override: true,
+                was_from_cache: overrideCtx.wasFromCache,
+              }
+            : undefined;
+
         // Create entry data with uploaded media IDs
         const entryData: CreateEntryInput = {
           trip_id: tripIdToUse,
@@ -358,6 +475,7 @@ export function useEntryCreation({
           entry_date: cluster?.timeRange.start.toISOString().split('T')[0],
           // Attach uploaded photos
           pending_media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+          photo_import: photoImport,
         };
 
         await createEntry.mutateAsync(entryData);
@@ -365,13 +483,23 @@ export function useEntryCreation({
         Analytics.photoImportPlaceConfirmed({
           category,
           suggestionRank: 0, // Manual entry, not from suggestions
-          wasFromCache: false,
+          wasFromCache: overrideCtx?.wasFromCache ?? false,
+          originalSuggestionPlaceId: overrideCtx?.suggestedPlaceId ?? null,
+          alternativesCount: overrideCtx?.alternativesCount,
+          alternativesViewed: overrideCtx?.alternativesViewed,
+          wasOverride: overrideCtx ? true : undefined,
         });
 
         // Entry saved successfully - mark cluster as processed in memory and persist to SQLite
         if (clusterId) {
           setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
           await markClusterProcessed(clusterId, 'confirmed');
+          // Persist post-excludedPhotos IDs so a future scan auto-dismisses any
+          // re-segmented cluster whose photos are entirely saved.
+          await markPhotosSaved(
+            clusterId,
+            photosToUpload.map((p) => p.id)
+          );
         }
 
         // Show alert if some photos failed to upload
@@ -382,7 +510,8 @@ export function useEntryCreation({
           );
         }
 
-        // Success! Now close the modal
+        // Success! Now close the modal and clear any override provenance.
+        overrideContextRef.current = null;
         setManualSearchCluster(null);
 
         // Return the cluster ID for compatibility (screen may also track dismissed state)
@@ -395,7 +524,12 @@ export function useEntryCreation({
           if (clusterId) {
             setDismissedClusterIds((prev) => new Set(prev).add(clusterId));
             await markClusterProcessed(clusterId, 'confirmed');
+            await markPhotosSaved(
+              clusterId,
+              photosToUpload.map((p) => p.id)
+            );
           }
+          overrideContextRef.current = null;
           setManualSearchCluster(null); // Close the modal
           Alert.alert(
             'Already Saved',
@@ -448,6 +582,7 @@ export function useEntryCreation({
    * Close manual search modal.
    */
   const closeManualSearch = useCallback(() => {
+    overrideContextRef.current = null;
     setManualSearchCluster(null);
   }, [setManualSearchCluster]);
 

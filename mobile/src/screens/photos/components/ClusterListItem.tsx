@@ -16,6 +16,7 @@ import type { ClusterDisplayItem } from '../photoImportHelpers';
 import { buildSuggestionFromMerged } from '../photoImportHelpers';
 import type { MergedSuggestion } from '../photoImportTypes';
 import { PlaceSuggestionCard, PhotoClusterCard } from './index';
+import type { SuggestionDecisionMeta } from './PlaceSuggestionCard';
 
 export interface ClusterListItemProps {
   item: ClusterDisplayItem;
@@ -25,11 +26,12 @@ export interface ClusterListItemProps {
   onConfirmPlace: (
     suggestion: ClusterSuggestion,
     place: PlaceSuggestion,
+    meta: SuggestionDecisionMeta,
     wasFromCache: boolean,
     additionalClusterIds: string[],
     excluded?: Set<string>
   ) => Promise<void>;
-  onRejectPlace: (suggestion: ClusterSuggestion) => void;
+  onRejectPlace: (suggestion: ClusterSuggestion, meta: SuggestionDecisionMeta) => void;
   onHideCluster: (clusterId: string) => Promise<void>;
   onHideMultipleClusters: (clusterIds: string[]) => Promise<void>;
   onAddEntryForCluster: (clusterId: string) => void;
@@ -71,9 +73,9 @@ export function ClusterListItem({
       <PlaceSuggestionCard
         suggestion={buildSuggestionFromMerged(merged)}
         previewUris={merged.previewUris}
-        onConfirm={(suggestion, place) => {
+        onConfirm={(suggestion, place, meta) => {
           const excluded = excludedPhotoIds.get(merged.primaryClusterId);
-          onConfirmPlace(suggestion, place, false, additionalClusterIds, excluded);
+          onConfirmPlace(suggestion, place, meta, false, additionalClusterIds, excluded);
         }}
         onReject={onRejectPlace}
         onPhotoPress={(uri) => onOpenGalleryForMerged(uri, merged)}
@@ -102,9 +104,9 @@ export function ClusterListItem({
       <PlaceSuggestionCard
         suggestion={item.data}
         previewUris={item.cluster.previewUris}
-        onConfirm={(suggestion, place) => {
+        onConfirm={(suggestion, place, meta) => {
           const excluded = excludedPhotoIds.get(clusterId);
-          onConfirmPlace(suggestion, place, false, [], excluded);
+          onConfirmPlace(suggestion, place, meta, false, [], excluded);
         }}
         onReject={onRejectPlace}
         onPhotoPress={(uri) => onOpenGalleryForCluster(uri, clusterId, item.cluster)}
