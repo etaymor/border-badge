@@ -1,5 +1,11 @@
 import { useCallback, useEffect } from 'react';
 import { LogBox } from 'react-native';
+import { enableFreeze } from 'react-native-screens';
+
+// Suspend off-screen native screens from re-rendering. Must run once at module
+// load before any navigators mount. Pairs with freezeOnBlur on heavy stacks
+// (notably OnboardingNavigator).
+enableFreeze(true);
 
 // Suppress known harmless Reanimated warnings about off-screen FlatList items
 LogBox.ignoreLogs([

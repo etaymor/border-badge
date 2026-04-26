@@ -11,8 +11,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { colors } from '@constants/colors';
+import { invalidateCountriesCache } from '@hooks/useCountries';
 import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { storeOnboardingComplete } from '@services/api';
@@ -24,6 +26,7 @@ type Props = OnboardingStackScreenProps<'Paywall'>;
 export function PaywallScreen(_props: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const hasPresented = useRef(false);
+  const queryClient = useQueryClient();
   const { presentPaywall } = usePaywallPresentation('onboarding');
   const { setHasCompletedOnboarding, setNeedsPostSignupFlow } = useAuthStore();
 
@@ -33,9 +36,14 @@ export function PaywallScreen(_props: Props) {
     } catch (e) {
       console.warn('Failed to persist onboarding complete flag:', e);
     }
+    // Force passport screen to mount with fresh data: useCountries (SQLite-backed)
+    // can otherwise still be loading on the first frame, leaving the stamps row empty
+    // even though stats are populated from the migration-seeded user-countries cache.
+    invalidateCountriesCache();
+    await queryClient.invalidateQueries({ queryKey: ['user-countries'] });
     setHasCompletedOnboarding(true);
     setNeedsPostSignupFlow(false);
-  }, [setHasCompletedOnboarding, setNeedsPostSignupFlow]);
+  }, [queryClient, setHasCompletedOnboarding, setNeedsPostSignupFlow]);
 
   const handlePresentPaywall = useCallback(async () => {
     // Prevent double presentation

@@ -57,6 +57,11 @@ export function OnboardingNavigator() {
       screenOptions={{
         // Default transition for screens without specific overrides
         ...OnboardingSlidePreset,
+        // Suspend off-screen onboarding screens from re-rendering. Requires
+        // enableFreeze() at app root (see App.tsx). With ~14 onboarding screens
+        // (including 6 country grids and several video screens), this prevents
+        // the cumulative lag the user notices by the end of the flow.
+        freezeOnBlur: true,
       }}
       initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'WelcomeCarousel'}
     >
