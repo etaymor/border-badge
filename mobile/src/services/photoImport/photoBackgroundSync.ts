@@ -103,6 +103,16 @@ export async function performBackgroundPhotoSync(
     return null;
   }
 
+  // Skip if the singleton scan service is already doing real work — bg sync
+  // and the service share the same SQLite cache and would otherwise interleave.
+  // Lazy require so this module stays importable from the service itself
+  // (which calls abortBackgroundSync from photoScanService.start).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { isScanRunning } = require('./photoScanService');
+  if (isScanRunning()) {
+    return null;
+  }
+
   // Atomically check and acquire lock before any async operations to prevent race conditions.
   // In JavaScript's single-threaded event loop, synchronous code runs to completion,
   // so this check-and-set is atomic as long as it happens before any `await`.

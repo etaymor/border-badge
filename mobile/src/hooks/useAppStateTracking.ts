@@ -9,7 +9,13 @@ import {
   syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
-import { performBackgroundPhotoSync } from '@services/photoImport';
+import {
+  cancelScan as cancelPhotoScan,
+  detectStuckScan,
+  performBackgroundPhotoSync,
+  tryResumeScan,
+} from '@services/photoImport';
+import { usePhotoScanStore } from '@stores/photoScanStore';
 
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -39,6 +45,12 @@ export function useAppStateTracking(
       if (prevUserIdRef.current) {
         hasTrackedInitialOpenRef.current = false;
         sessionIdRef.current = generateSessionId();
+
+        // Sign-out (or account switch): cancel any in-flight headless photo
+        // scan so we don't keep work running for a logged-out user.
+        if (usePhotoScanStore.getState().phase === 'scanning') {
+          cancelPhotoScan();
+        }
       }
       prevUserIdRef.current = userId;
     }
@@ -72,7 +84,17 @@ export function useAppStateTracking(
           // Check for URLs shared via Share Extension while app was in background
           void checkAppGroupForSharedURL();
 
-          // Background photo sync - silently cache new photos for faster photo import
+          // First, check whether a prior scan was suspended mid-run. tryResumeScan
+          // runs the seven-gate check, transitions the store to `failed` when a
+          // gate trips, and otherwise calls photoScanService.start({ resumed: true }).
+          // If a scan is currently running, also surface a stuck-detection check.
+          tryResumeScan().catch((err) => {
+            if (__DEV__) console.warn('[AppStateTracking] tryResumeScan failed:', err);
+          });
+          detectStuckScan();
+
+          // Background photo sync - silently cache new photos for faster photo import.
+          // No-ops when the scan service is running (early-return inside).
           performBackgroundPhotoSync(homeCountry).catch(() => {
             // Errors already handled internally
           });
