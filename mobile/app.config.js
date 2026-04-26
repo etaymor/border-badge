@@ -4,7 +4,7 @@ export default {
   expo: {
     name: 'Atlasi',
     slug: 'border-badge',
-    version: '1.0.11',
+    version: '1.0.12',
     orientation: 'portrait',
     icon: './assets/Atlasi-book-app-icon-cream.png',
     userInterfaceStyle: 'automatic',
@@ -20,7 +20,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.atlasi.app',
-      buildNumber: '1',
+      buildNumber: '2',
       usesAppleSignIn: true,
       icon: {
         light: './assets/Atlasi-book-app-icon-cream.png',
