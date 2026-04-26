@@ -73,6 +73,16 @@ export function usePhotoScan({
   // observes phase==='completed' doesn't double-consume the same result.
   const consumedImportTimeRef = useRef<number | null>(null);
 
+  const completeWithResult = useCallback(
+    (result: ScanResult) => {
+      const candidates = filterCountryCode
+        ? result.candidates.filter((candidate) => candidate.countryCode === filterCountryCode)
+        : result.candidates;
+      onScanCompleteRef.current({ ...result, candidates });
+    },
+    [filterCountryCode]
+  );
+
   // ----- Mount-time recovery -----
   // If the service already has a completed result waiting (because the screen
   // unmounted before consuming it), pull it on first mount.
@@ -85,12 +95,12 @@ export function usePhotoScan({
       const result = consumeResult();
       if (result && consumedImportTimeRef.current !== result.importTime) {
         consumedImportTimeRef.current = result.importTime;
-        onScanCompleteRef.current(result);
+        completeWithResult(result);
       }
     }
-    // Intentionally empty deps: only fires once per mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Runs on mount and if the requested country filter changes before the
+    // completed result is consumed.
+  }, [completeWithResult]);
 
   // ----- Subscriptions -----
 
@@ -117,7 +127,7 @@ export function usePhotoScan({
           const result = consumeResult();
           if (result && consumedImportTimeRef.current !== result.importTime) {
             consumedImportTimeRef.current = result.importTime;
-            onScanCompleteRef.current(result);
+            completeWithResult(result);
           }
         } else if (phase === 'failed' && selectPhotoScanFailure(state)) {
           onScanErrorRef.current();
@@ -127,7 +137,7 @@ export function usePhotoScan({
           consumedImportTimeRef.current = null;
         }
       }),
-    []
+    [completeWithResult]
   );
 
   const startScan = useCallback(

@@ -1,5 +1,3 @@
-import { View } from 'react-native';
-
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-navigation/native';
 
@@ -33,24 +31,24 @@ export const HIDDEN_TAB_BAR_SCREENS = [
  * can decide visibility against `HIDDEN_TAB_BAR_SCREENS` without copy-paste.
  */
 export function getFocusedLeafRouteName(
-  route: RouteProp<MainTabParamList, keyof MainTabParamList>
+  route: RouteProp<MainTabParamList, keyof MainTabParamList> | { name: string; state?: unknown }
 ): string | undefined {
-  let routeName = getFocusedRouteNameFromRoute(route);
-  if (!routeName) return undefined;
+  let routeName = getFocusedRouteNameFromRoute(route as RouteProp<MainTabParamList>);
+  if (!routeName) return route.name;
 
   const routeWithState = route as typeof route & {
-    state?: { routes: Array<{ name: string; state?: { routes: Array<{ name: string }> } }> };
+    state?: { routes: Array<{ name: string; state?: unknown }> };
   };
-  let currentRoute = routeWithState.state?.routes.find(
-    (r: { name: string }) => r.name === routeName
-  );
+  let currentRoute = routeWithState.state?.routes.find((r) => r.name === routeName);
 
   while (currentRoute) {
-    const nextRouteName = getFocusedRouteNameFromRoute(currentRoute);
+    const nextRouteName = getFocusedRouteNameFromRoute(currentRoute as RouteProp<MainTabParamList>);
     if (!nextRouteName) break;
     routeName = nextRouteName;
-    const nestedState = currentRoute.state;
-    currentRoute = nestedState?.routes.find((r: { name: string }) => r.name === nextRouteName);
+    const nestedState = currentRoute.state as
+      | { routes?: Array<{ name: string; state?: unknown }> }
+      | undefined;
+    currentRoute = nestedState?.routes?.find((r) => r.name === nextRouteName);
   }
   return routeName;
 }
@@ -106,21 +104,21 @@ function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamLis
 }
 
 export function MainTabNavigator() {
-  return (
-    <View style={{ flex: 1 }}>
-      {/* PersistentScanBanner reads the focused leaf route via React Navigation,
-          so it must mount inside the navigation tree below NavigationContainer.
-          It self-positions absolutely above the tab bar. */}
-      <PersistentScanBanner />
-      <MainTabNavigatorImpl />
-    </View>
-  );
+  return <MainTabNavigatorImpl />;
 }
 
 function MainTabNavigatorImpl() {
   return (
     <Tab.Navigator
-      tabBar={(props) => <LiquidGlassTabBar {...props} />}
+      tabBar={(props) => (
+        <>
+          <PersistentScanBanner
+            focusedLeaf={getFocusedLeafRouteName(props.state.routes[props.state.index])}
+            navigation={props.navigation}
+          />
+          <LiquidGlassTabBar {...props} />
+        </>
+      )}
       screenOptions={{
         headerShown: false, // Stacks have their own headers
       }}

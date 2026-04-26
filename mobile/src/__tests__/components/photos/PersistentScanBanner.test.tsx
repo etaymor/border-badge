@@ -11,16 +11,6 @@ import { resetPhotoScanStore, usePhotoScanStore } from '../../../stores/photoSca
 let mockFocusedLeaf: string | undefined = 'Passport';
 const mockNavigate = jest.fn();
 
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
-  useNavigationState: (selector: (state: unknown) => unknown) => {
-    // Build a fake state that selector resolves to mockFocusedLeaf
-    return mockFocusedLeaf
-      ? selector({ index: 0, routes: [{ name: mockFocusedLeaf }] })
-      : selector(undefined);
-  },
-}));
-
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, top: 0, left: 0, right: 0 }),
 }));
@@ -37,6 +27,10 @@ jest.mock('@stores/onboardingStore', () => ({
 }));
 
 const photoImportMock = jest.requireMock('@services/photoImport');
+const renderBanner = () =>
+  render(
+    <PersistentScanBanner focusedLeaf={mockFocusedLeaf} navigation={{ navigate: mockNavigate }} />
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -46,21 +40,21 @@ beforeEach(() => {
 
 describe('PersistentScanBanner visibility', () => {
   it('renders nothing when phase is idle', () => {
-    const tree = render(<PersistentScanBanner />);
+    const tree = renderBanner();
     expect(tree.toJSON()).toBeNull();
   });
 
   it('renders nothing when focused leaf is in HIDDEN_TAB_BAR_SCREENS even while scanning', () => {
     usePhotoScanStore.setState({ phase: 'scanning' });
     mockFocusedLeaf = 'PhotoImport';
-    const tree = render(<PersistentScanBanner />);
+    const tree = renderBanner();
     expect(tree.toJSON()).toBeNull();
   });
 
   it.each(['ShareCapture', 'EntryForm', 'TripForm'])('hides on hidden screen %s', (screen) => {
     usePhotoScanStore.setState({ phase: 'scanning' });
     mockFocusedLeaf = screen;
-    const tree = render(<PersistentScanBanner />);
+    const tree = renderBanner();
     expect(tree.toJSON()).toBeNull();
   });
 });
@@ -71,7 +65,7 @@ describe('PersistentScanBanner state matrix', () => {
       phase: 'scanning',
       progress: { phase: 'counting', current: 0, total: 0, percentage: 0 },
     });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     expect(getByText('Starting scan…')).toBeTruthy();
   });
 
@@ -80,13 +74,13 @@ describe('PersistentScanBanner state matrix', () => {
       phase: 'scanning',
       progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
     });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     expect(getByText('Scanning photos · 50%')).toBeTruthy();
   });
 
   it('shows completed message and navigates to PhotoImport on tap', () => {
     usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     const node = getByText('Scan complete — tap to continue');
     fireEvent.press(node);
     expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
@@ -97,7 +91,7 @@ describe('PersistentScanBanner state matrix', () => {
       phase: 'failed',
       scanFailure: { reason: 'stuck', title: 't', message: 'm' },
     });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     const node = getByText('Scan stopped — tap to retry');
     fireEvent.press(node);
     expect(photoImportMock.startScan).toHaveBeenCalled();
@@ -108,7 +102,7 @@ describe('PersistentScanBanner state matrix', () => {
       phase: 'failed',
       scanFailure: { reason: 'no-trips', title: 't', message: 'm' },
     });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     const node = getByText('No travel photos found — tap for details');
     fireEvent.press(node);
     expect(mockNavigate).toHaveBeenCalledWith('Passport', { screen: 'PhotoImport' });
@@ -119,7 +113,7 @@ describe('PersistentScanBanner state matrix', () => {
       phase: 'scanning',
       progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
     });
-    const { getByText } = render(<PersistentScanBanner />);
+    const { getByText } = renderBanner();
     const cancelBtn = getByText('Cancel');
     fireEvent.press(cancelBtn);
     expect(photoImportMock.cancelScan).toHaveBeenCalled();
@@ -136,7 +130,7 @@ describe('PersistentScanBanner auto-dismiss', () => {
 
   it('auto-dismisses 30s after entering completed state', () => {
     usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
-    render(<PersistentScanBanner />);
+    renderBanner();
 
     act(() => {
       jest.advanceTimersByTime(30_001);

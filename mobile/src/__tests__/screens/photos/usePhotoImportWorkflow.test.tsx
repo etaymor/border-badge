@@ -490,6 +490,46 @@ describe('usePhotoImportWorkflow', () => {
       expect(result.current.phase).toBe('scanning');
     });
 
+    it('initializes phase=idle for pre-existing alert-style failures', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+      usePhotoScanStore.setState({
+        phase: 'failed',
+        scanFailure: {
+          reason: 'no-trips',
+          title: 'No Trips Found',
+          message: 'No travel photos found.',
+        },
+      });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      expect(result.current.phase).toBe('idle');
+      expect(result.current.scanFailure).toEqual(expect.objectContaining({ reason: 'no-trips' }));
+    });
+
+    it('initializes phase=scanning for pre-existing inline retry failures', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+      usePhotoScanStore.setState({
+        phase: 'failed',
+        scanFailure: {
+          reason: 'stuck',
+          title: 'Scan Stopped',
+          message: 'The scan stopped making progress. Tap to retry.',
+        },
+      });
+
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      expect(result.current.phase).toBe('scanning');
+      expect(result.current.scanFailure).toEqual(expect.objectContaining({ reason: 'stuck' }));
+    });
+
     it('consumes a pre-existing completed result on mount', async () => {
       const mockCandidates = [createMockTripCandidate('trip-1')];
       mockScanResultRef.current = {

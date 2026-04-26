@@ -180,6 +180,52 @@ describe('usePhotoScan adapter', () => {
     expect(mockedService.consumeResult).toHaveBeenCalled();
   });
 
+  it('applies the caller country filter to a completed already-running scan result', async () => {
+    const jpCandidate = {
+      id: 'trip-jp',
+      countryCode: 'JP',
+      dateRange: { start: new Date(), end: new Date() },
+      photoIds: [],
+      photoCount: 0,
+      previewUris: [],
+      locationClusterIds: [],
+    };
+    const frCandidate = {
+      ...jpCandidate,
+      id: 'trip-fr',
+      countryCode: 'FR',
+    };
+    const result = {
+      candidates: [jpCandidate, frCandidate],
+      photoLookup: new Map(),
+      clusterLookup: new Map(),
+      clusterDisplays: new Map(),
+      importTime: Date.now(),
+      isIncremental: false,
+    };
+    mockResultRef.current = result;
+
+    const onScanComplete = jest.fn();
+    renderHook(() =>
+      usePhotoScan({
+        homeCountry: 'US',
+        filterCountryCode: 'JP',
+        onScanProgress: jest.fn(),
+        onScanComplete,
+        onScanError: jest.fn(),
+      })
+    );
+
+    act(() => {
+      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+    });
+
+    expect(onScanComplete).toHaveBeenCalledWith({
+      ...result,
+      candidates: [jpCandidate],
+    });
+  });
+
   it('does not double-consume on repeated phase=completed updates', async () => {
     const result = {
       candidates: [],

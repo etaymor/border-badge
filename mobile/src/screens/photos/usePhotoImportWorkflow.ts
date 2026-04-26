@@ -40,6 +40,15 @@ export type {
   UsePhotoImportWorkflowOptions,
 } from './photoImportTypes';
 
+function isAlertScanFailure(reason: ScanFailureReason): boolean {
+  return (
+    reason === 'no-photos' ||
+    reason === 'no-trips' ||
+    reason === 'home-country' ||
+    reason === 'scan-error'
+  );
+}
+
 export function usePhotoImportWorkflow({
   filterCountryCode,
   tripId,
@@ -61,9 +70,16 @@ export function usePhotoImportWorkflow({
   // failed-state branch renders the Retry button on first paint.
   const [phase, setPhase] = useState<ImportPhase>(() => {
     if (skipToSuggestions && tripId) return 'loading';
-    const servicePhase = usePhotoScanStore.getState().phase;
+    const serviceState = usePhotoScanStore.getState();
+    const servicePhase = serviceState.phase;
     if (servicePhase === 'scanning') return 'scanning';
-    if (servicePhase === 'failed' && usePhotoScanStore.getState().scanFailure) return 'scanning';
+    if (
+      servicePhase === 'failed' &&
+      serviceState.scanFailure &&
+      !isAlertScanFailure(serviceState.scanFailure.reason)
+    ) {
+      return 'scanning';
+    }
     return 'idle';
   });
 
@@ -235,17 +251,12 @@ export function usePhotoImportWorkflow({
       if (state.phase === prev.phase) return;
       if (state.phase === 'failed' && state.scanFailure) {
         const reason = state.scanFailure.reason;
-        const isAlertReason =
-          reason === 'no-photos' ||
-          reason === 'no-trips' ||
-          reason === 'home-country' ||
-          reason === 'scan-error';
         setScanFailure({
           reason,
           title: state.scanFailure.title,
           message: state.scanFailure.message,
         });
-        if (isAlertReason) {
+        if (isAlertScanFailure(reason)) {
           setPhase('idle');
         } else {
           setPhase('scanning');

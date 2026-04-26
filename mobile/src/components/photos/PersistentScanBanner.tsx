@@ -17,7 +17,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { useNavigation, useNavigationState, type NavigationProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
@@ -53,25 +52,13 @@ const HIDDEN_TAB_BAR_SCREENS = [
 
 const COMPLETED_AUTO_DISMISS_MS = 30_000;
 
-// Walk the active navigation state to find the focused leaf route name.
-// React Navigation provides this nested under each route's `state` until you
-// reach a leaf, where `state` is undefined.
-function findFocusedLeaf(
-  state: ReturnType<typeof useNavigationState> | undefined
-): string | undefined {
-  if (!state) return undefined;
+interface PersistentScanBannerProps {
+  focusedLeaf?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let current: any = state;
-  let lastName: string | undefined;
-  while (current?.routes && typeof current.index === 'number') {
-    const route = current.routes[current.index];
-    lastName = route.name;
-    current = route.state;
-  }
-  return lastName;
+  navigation: { navigate: (...args: any[]) => void };
 }
 
-export function PersistentScanBanner() {
+export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScanBannerProps) {
   const phase = usePhotoScanStore(selectPhotoScanPhase);
   const progress = usePhotoScanStore(selectPhotoScanProgress);
   const scanFailure = usePhotoScanStore(selectPhotoScanFailure);
@@ -79,9 +66,6 @@ export function PersistentScanBanner() {
   const homeCountry = useOnboardingStore(selectHomeCountry);
 
   const insets = useSafeAreaInsets();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const navigation = useNavigation<NavigationProp<any>>();
-  const focusedLeaf = useNavigationState(findFocusedLeaf);
 
   const [isCancelling, setIsCancelling] = useState(false);
 
