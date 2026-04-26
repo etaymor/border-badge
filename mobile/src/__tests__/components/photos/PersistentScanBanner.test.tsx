@@ -57,15 +57,12 @@ describe('PersistentScanBanner visibility', () => {
     expect(tree.toJSON()).toBeNull();
   });
 
-  it.each(['ShareCapture', 'EntryForm', 'TripForm'])(
-    'hides on hidden screen %s',
-    (screen) => {
-      usePhotoScanStore.setState({ phase: 'scanning' });
-      mockFocusedLeaf = screen;
-      const tree = render(<PersistentScanBanner />);
-      expect(tree.toJSON()).toBeNull();
-    }
-  );
+  it.each(['ShareCapture', 'EntryForm', 'TripForm'])('hides on hidden screen %s', (screen) => {
+    usePhotoScanStore.setState({ phase: 'scanning' });
+    mockFocusedLeaf = screen;
+    const tree = render(<PersistentScanBanner />);
+    expect(tree.toJSON()).toBeNull();
+  });
 });
 
 describe('PersistentScanBanner state matrix', () => {

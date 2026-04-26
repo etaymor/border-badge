@@ -33,7 +33,9 @@ jest.mock('../../../services/photoImport/visionPhoto', () => ({
 
 // Drives the photoScanService mock — tests push results/failures here, then the
 // mocked startScan call updates the photoScanStore to simulate the service.
-const mockScanResultRef: { current: import('../../../screens/photos/usePhotoScan').ScanResult | null } = {
+const mockScanResultRef: {
+  current: import('../../../screens/photos/usePhotoScan').ScanResult | null;
+} = {
   current: null,
 };
 const mockServiceFailureRef: {
@@ -46,14 +48,16 @@ jest.mock('../../../services/photoImport', () => {
   return {
     extractPhotosWithLocation: jest.fn(),
     segmentTripsFromCache: jest.fn(),
-    photoToCachedPhoto: jest.fn((photo: { creationTime: Date; location: { latitude: number; longitude: number } }) => ({
-      ...photo,
-      creationTime: photo.creationTime.getTime(),
-      latitude: photo.location.latitude,
-      longitude: photo.location.longitude,
-      geohash: 'testgeohash',
-      countryCode: 'JP',
-    })),
+    photoToCachedPhoto: jest.fn(
+      (photo: { creationTime: Date; location: { latitude: number; longitude: number } }) => ({
+        ...photo,
+        creationTime: photo.creationTime.getTime(),
+        latitude: photo.location.latitude,
+        longitude: photo.location.longitude,
+        geohash: 'testgeohash',
+        countryCode: 'JP',
+      })
+    ),
     getFullCluster: jest.fn(),
     HomeCountryNotSetError: class HomeCountryNotSetError extends Error {
       constructor() {
@@ -429,9 +433,7 @@ describe('usePhotoImportWorkflow', () => {
         await result.current.startScan();
       });
 
-      expect(result.current.scanFailure).toEqual(
-        expect.objectContaining({ reason: 'no-trips' })
-      );
+      expect(result.current.scanFailure).toEqual(expect.objectContaining({ reason: 'no-trips' }));
       expect(result.current.phase).toBe('idle');
     });
 

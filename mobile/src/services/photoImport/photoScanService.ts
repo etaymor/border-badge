@@ -526,4 +526,3 @@ export function __resetForTesting(): void {
   foregroundEventInFlight = null;
   resetPhotoScanStore();
 }
-

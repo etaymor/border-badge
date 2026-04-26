@@ -295,7 +295,12 @@ describe('photoScanService cancel', () => {
     let segmentationCalled = false;
     clusteringCache.segmentTripsFromCache.mockImplementation(() => {
       segmentationCalled = true;
-      return { candidates: [], photoLookup: new Map(), clusterLookup: new Map(), clusterDisplays: new Map() };
+      return {
+        candidates: [],
+        photoLookup: new Map(),
+        clusterLookup: new Map(),
+        clusterDisplays: new Map(),
+      };
     });
 
     await startScan({ homeCountry: 'US' });

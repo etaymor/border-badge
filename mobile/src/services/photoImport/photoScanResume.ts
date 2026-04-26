@@ -100,10 +100,8 @@ export async function tryResumeScan(): Promise<ResumeOutcome> {
   // Premium = subscribed or trialing; otherwise check the free-tier counter.
   // Mirrors useCanImportPhotos in subscriptionStore.
   const subscriptionState = useSubscriptionStore.getState();
-  const isPremium =
-    subscriptionState.status === 'premium' || subscriptionState.status === 'trial';
-  const canImportPhotos =
-    isPremium || subscriptionState.photoImportUsage < FREE_LIMITS.photoImport;
+  const isPremium = subscriptionState.status === 'premium' || subscriptionState.status === 'trial';
+  const canImportPhotos = isPremium || subscriptionState.photoImportUsage < FREE_LIMITS.photoImport;
   if (!canImportPhotos) {
     await clearScanInProgressMetadata();
     markFailed({

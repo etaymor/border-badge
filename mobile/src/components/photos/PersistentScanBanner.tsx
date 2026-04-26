@@ -17,11 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import {
-  useNavigation,
-  useNavigationState,
-  type NavigationProp,
-} from '@react-navigation/native';
+import { useNavigation, useNavigationState, type NavigationProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
@@ -177,11 +173,7 @@ export function PersistentScanBanner() {
   if (phase === 'scanning') {
     const percentage = progress?.percentage ?? 0;
     return (
-      <View
-        style={containerStyle}
-        accessibilityLiveRegion="polite"
-        accessibilityRole="progressbar"
-      >
+      <View style={containerStyle} accessibilityLiveRegion="polite" accessibilityRole="progressbar">
         <TouchableOpacity
           style={styles.tappableArea}
           onPress={handleNavigateToPhotoImport}

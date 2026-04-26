@@ -23,8 +23,14 @@ export interface UseScanLifecycleOptions {
   phase: string;
   /** Cancels the running scan */
   cancelScan: () => void;
-  /** Non-null when the scan ended with a user-facing failure */
-  scanFailure: { title: string; message: string } | null;
+  /**
+   * Non-null when the scan ended with a user-facing failure. The optional
+   * `reason` field gates the alert: only legacy "alert-and-back" reasons
+   * (no-photos / no-trips / home-country) trigger the alert; service-level
+   * reasons (stuck, stale, no-permission, subscription-expired) render the
+   * failed-state branch in ScanningPhase with a Retry button instead.
+   */
+  scanFailure: { title: string; message: string; reason?: string } | null;
   /** Clears the current scanFailure value */
   clearScanFailure: () => void;
   /** When true the screen was opened with auto-start; affects post-failure navigation */
@@ -55,9 +61,19 @@ export function useScanLifecycle({
     scanningRef.current = phase === 'scanning';
   }, [phase]);
 
-  // Show alert when scan finds no photos or no trips, navigate back on dismiss.
+  // Show alert when scan finds no photos or no trips (legacy "alert-and-back"
+  // failures), navigate back on dismiss when autoStart was true. Service-level
+  // failures (stuck, stale, no-permission, subscription-expired) render
+  // in-screen via ScanningPhase's failed-state branch instead.
+  const isAlertReason =
+    !scanFailure?.reason ||
+    scanFailure.reason === 'no-photos' ||
+    scanFailure.reason === 'no-trips' ||
+    scanFailure.reason === 'home-country' ||
+    scanFailure.reason === 'scan-error';
   useEffect(() => {
     if (!scanFailure) return;
+    if (!isAlertReason) return;
     Alert.alert(scanFailure.title, scanFailure.message, [
       {
         text: 'OK',
@@ -69,7 +85,7 @@ export function useScanLifecycle({
         },
       },
     ]);
-  }, [scanFailure, clearScanFailure, autoStart, navigation]);
+  }, [scanFailure, isAlertReason, clearScanFailure, autoStart, navigation]);
 
   // Keep screen awake while the user is actively watching the scan.
   // The scan now survives navigation, so keep-awake is no longer load-bearing

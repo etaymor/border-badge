@@ -56,10 +56,23 @@ export function usePhotoImportWorkflow({
   // flash of idle state). When the singleton scan service is mid-run from a
   // prior screen mount or auto-resume, initialize to 'scanning' so we don't
   // briefly render IdlePhase before the subscription kicks in (R3).
+  // When the service surfaced a recoverable failure that the user came back
+  // to retry (banner-driven), also initialize to 'scanning' so ScanningPhase's
+  // failed-state branch renders the Retry button on first paint.
   const [phase, setPhase] = useState<ImportPhase>(() => {
     if (skipToSuggestions && tripId) return 'loading';
-    return usePhotoScanStore.getState().phase === 'scanning' ? 'scanning' : 'idle';
+    const servicePhase = usePhotoScanStore.getState().phase;
+    if (servicePhase === 'scanning') return 'scanning';
+    if (servicePhase === 'failed' && usePhotoScanStore.getState().scanFailure) return 'scanning';
+    return 'idle';
   });
+
+  // Seed local scanFailure state from the service when the screen mounts
+  // mid-failure (e.g. via banner "tap to retry" deep-link).
+  const initialServiceFailure = useState(() => {
+    const state = usePhotoScanStore.getState();
+    return state.phase === 'failed' ? state.scanFailure : null;
+  })[0];
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [tripCandidates, setTripCandidates] = useState<TripCandidateDisplay[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<TripCandidateDisplay | null>(null);
@@ -73,7 +86,7 @@ export function usePhotoImportWorkflow({
     reason: ScanFailureReason;
     title: string;
     message: string;
-  } | null>(null);
+  } | null>(initialServiceFailure);
 
   const clearScanFailure = useCallback(() => {
     setScanFailure(null);
@@ -213,18 +226,30 @@ export function usePhotoImportWorkflow({
   );
 
   // Mirror service-side scan failures into the screen's local scanFailure state.
-  // The service publishes failures via the store; the screen's existing alert
-  // pipeline reads from `scanFailure`. This keeps the UI surface unchanged.
+  // Legacy reasons (no-photos, no-trips, home-country, scan-error) drop the
+  // screen back to idle so the alert flow runs. Service-level reasons (stuck,
+  // stale, no-permission, subscription-expired) keep the screen in 'scanning'
+  // so ScanningPhase's failed-state branch renders the inline Retry button.
   useEffect(() => {
     return usePhotoScanStore.subscribe((state, prev) => {
       if (state.phase === prev.phase) return;
       if (state.phase === 'failed' && state.scanFailure) {
+        const reason = state.scanFailure.reason;
+        const isAlertReason =
+          reason === 'no-photos' ||
+          reason === 'no-trips' ||
+          reason === 'home-country' ||
+          reason === 'scan-error';
         setScanFailure({
-          reason: state.scanFailure.reason,
+          reason,
           title: state.scanFailure.title,
           message: state.scanFailure.message,
         });
-        setPhase('idle');
+        if (isAlertReason) {
+          setPhase('idle');
+        } else {
+          setPhase('scanning');
+        }
       } else if (state.phase === 'scanning' && prev.phase !== 'scanning') {
         // Service spun up a scan from outside this screen (auto-resume,
         // banner-driven retry). Reflect in the screen's phase.

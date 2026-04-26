@@ -152,7 +152,9 @@ describe('tryResumeScan gates', () => {
       startedAt: Date.now() - 1000,
     });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    jest.requireMock('@stores/onboardingStore').useOnboardingStore.__setState({ homeCountry: null });
+    jest
+      .requireMock('@stores/onboardingStore')
+      .useOnboardingStore.__setState({ homeCountry: null });
 
     const result = await tryResumeScan();
     expect(result).toEqual({ status: 'failed-gate', reason: 'no-home-country' });

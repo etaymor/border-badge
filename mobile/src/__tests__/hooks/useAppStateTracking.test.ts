@@ -71,9 +71,7 @@ function fireForeground() {
 
 describe('useAppStateTracking foreground resume', () => {
   it('calls tryResumeScan and detectStuckScan on foreground when authenticated', () => {
-    renderHook(() =>
-      useAppStateTracking(makeSession('user-1'), jest.fn(), 'US')
-    );
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
 
     fireForeground();
 
@@ -83,9 +81,7 @@ describe('useAppStateTracking foreground resume', () => {
   });
 
   it('does not call tryResumeScan when unauthenticated', () => {
-    renderHook(() =>
-      useAppStateTracking(null, jest.fn(), 'US')
-    );
+    renderHook(() => useAppStateTracking(null, jest.fn(), 'US'));
 
     fireForeground();
 

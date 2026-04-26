@@ -9,18 +9,16 @@
 import { renderHook, act } from '@testing-library/react-native';
 
 import { usePhotoScan } from '../../../screens/photos/usePhotoScan';
-import {
-  resetPhotoScanStore,
-  usePhotoScanStore,
-} from '../../../stores/photoScanStore';
+import { resetPhotoScanStore, usePhotoScanStore } from '../../../stores/photoScanStore';
 
 // --- Mocks ---
 
 // Drive the service surface from the test. The mock writes through to the real
 // store so the adapter's subscription forwards updates as in production.
-const mockResultRef: { current: import('../../../screens/photos/usePhotoScan').ScanResult | null } = {
-  current: null,
-};
+const mockResultRef: { current: import('../../../screens/photos/usePhotoScan').ScanResult | null } =
+  {
+    current: null,
+  };
 
 jest.mock('@services/photoImport', () => ({
   startScan: jest.fn(async (opts: { homeCountry: string | null }) => {
@@ -140,9 +138,7 @@ describe('usePhotoScan adapter', () => {
       });
     });
 
-    expect(onScanProgress).toHaveBeenCalledWith(
-      expect.objectContaining({ percentage: 50 })
-    );
+    expect(onScanProgress).toHaveBeenCalledWith(expect.objectContaining({ percentage: 50 }));
   });
 
   it('consumes result and forwards to onScanComplete when phase transitions to completed', async () => {

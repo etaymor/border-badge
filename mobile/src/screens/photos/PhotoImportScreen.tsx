@@ -396,12 +396,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         />
       )}
 
-      {/* Scanning State */}
+      {/* Scanning State (also renders the failed-state branch with Retry) */}
       {phase === 'scanning' && (
         <ScanningPhase
           scanProgress={scanProgress}
           isIncremental={isIncremental}
           onCancelScan={handleCancelScan}
+          scanFailure={scanFailure}
+          onRetryScan={() => startScan(false)}
         />
       )}
 

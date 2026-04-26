@@ -19,10 +19,7 @@ const CANCEL_CONFIRM_THRESHOLD_MS = 30_000;
  * caller doesn't track it (banner case) — null falls back to "skip the
  * confirmation" because the banner can't know exactly when the scan started.
  */
-export function confirmCancelScan(
-  scanStartedAt: number | null,
-  onConfirm: () => void
-): void {
+export function confirmCancelScan(scanStartedAt: number | null, onConfirm: () => void): void {
   const elapsed = scanStartedAt != null ? Date.now() - scanStartedAt : 0;
   if (elapsed > CANCEL_CONFIRM_THRESHOLD_MS) {
     Alert.alert('Cancel Scan?', 'Your scan is in progress. Are you sure you want to cancel?', [
