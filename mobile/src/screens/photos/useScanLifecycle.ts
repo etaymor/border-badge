@@ -2,14 +2,21 @@
  * useScanLifecycle - Encapsulates scan-related side effects for PhotoImportScreen.
  *
  * Manages:
- * - Keep-awake during scanning
+ * - Keep-awake activation while the screen is focused AND scanning
  * - Scan failure alerts
- * - Back-navigation guard while scanning
- * - Cancel-scan confirmation (elapsed > 30 s)
+ * - Back-navigation soft-block while scanning ("Continue in background / Cancel")
+ * - Cancel-scan confirmation (elapsed > 30 s) shared with the banner
+ *
+ * Notably does NOT abort the scan on unmount — the singleton service owns
+ * the scan and survives navigation now (see U1/U3 of the background-scan plan).
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
+
+import { useIsFocused } from '@react-navigation/native';
+
+import { confirmCancelScan } from './cancelScanConfirmation';
 
 export interface UseScanLifecycleOptions {
   /** Current workflow phase (e.g. 'idle', 'scanning', 'candidates', 'suggestions') */
@@ -28,7 +35,7 @@ export interface UseScanLifecycleOptions {
 }
 
 interface UseScanLifecycleResult {
-  /** Call this from the Cancel button – shows a confirmation alert when the scan has been running >30 s */
+  /** Call from the Cancel button — confirms when the scan has been running >30 s */
   handleCancelScan: () => void;
 }
 
@@ -40,7 +47,9 @@ export function useScanLifecycle({
   autoStart,
   navigation,
 }: UseScanLifecycleOptions): UseScanLifecycleResult {
-  // Ref that tracks scanning state synchronously to avoid stale closures in beforeRemove
+  const isFocused = useIsFocused();
+
+  // Ref that tracks scanning state synchronously to avoid stale closures.
   const scanningRef = useRef(false);
   useEffect(() => {
     scanningRef.current = phase === 'scanning';
@@ -62,13 +71,17 @@ export function useScanLifecycle({
     ]);
   }, [scanFailure, clearScanFailure, autoStart, navigation]);
 
-  // Keep screen awake during scanning
+  // Keep screen awake while the user is actively watching the scan.
+  // The scan now survives navigation, so keep-awake is no longer load-bearing
+  // for correctness — but holding it while the screen is focused avoids the
+  // iOS idle-timeout → screen-lock → suspend cycle that would otherwise force
+  // a resume.
   // Lazy require to avoid loading native module at app startup (PassportNavigator
   // statically imports PhotoImportScreen, which would eagerly evaluate this module).
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const KeepAwake = require('expo-keep-awake');
-    if (phase === 'scanning') {
+    if (phase === 'scanning' && isFocused) {
       KeepAwake.activateKeepAwakeAsync('photo-scan').catch((err: unknown) => {
         if (__DEV__) console.warn('[PhotoImport] Failed to activate keep-awake:', err);
       });
@@ -78,31 +91,22 @@ export function useScanLifecycle({
     return () => {
       KeepAwake.deactivateKeepAwake('photo-scan');
     };
-  }, [phase]);
-
-  // Abort scan on unmount (e.g., app backgrounding) when navigation guards don't fire
-  const cancelScanRef = useRef(cancelScan);
-  cancelScanRef.current = cancelScan;
-  useEffect(() => {
-    return () => {
-      if (scanningRef.current) {
-        cancelScanRef.current();
-      }
-    };
-  }, []);
+  }, [phase, isFocused]);
 
   // Track scan start time for cancel confirmation
   const scanStartTimeRef = useRef<number | null>(null);
   useEffect(() => {
     if (phase === 'scanning') {
-      scanStartTimeRef.current = Date.now();
+      if (scanStartTimeRef.current === null) {
+        scanStartTimeRef.current = Date.now();
+      }
     } else {
       scanStartTimeRef.current = null;
     }
   }, [phase]);
 
-  // Block back navigation during scanning with confirmation.
-  // Uses scanningRef to avoid stale closure when phase updates on the same tick.
+  // Soften back navigation while scanning: leaving the screen is fine — the
+  // scan continues in the background. Offer cancel as the destructive option.
   useEffect(() => {
     const unsubscribe = navigation.addListener(
       'beforeRemove',
@@ -110,36 +114,37 @@ export function useScanLifecycle({
         if (!scanningRef.current) return;
 
         e.preventDefault();
-        Alert.alert('Scan in Progress', "If you leave now, you'll need to restart the scan.", [
-          { text: 'Keep Scanning', style: 'cancel' },
-          {
-            text: 'Stop Scan',
-            style: 'destructive',
-            onPress: () => {
-              // Guard: scan may have completed while the alert was visible
-              if (scanningRef.current) {
-                cancelScan();
-              }
-              navigation.dispatch(e.data.action);
+        Alert.alert(
+          'Scan in Progress',
+          'Your scan will keep running in the background. You can return to this screen any time to view results.',
+          [
+            { text: 'Keep Scanning', style: 'cancel' },
+            {
+              text: 'Continue in Background',
+              onPress: () => navigation.dispatch(e.data.action),
             },
-          },
-        ]);
+            {
+              text: 'Cancel Scan',
+              style: 'destructive',
+              onPress: () => {
+                confirmCancelScan(scanStartTimeRef.current, () => {
+                  if (scanningRef.current) {
+                    cancelScan();
+                  }
+                  navigation.dispatch(e.data.action);
+                });
+              },
+            },
+          ]
+        );
       }
     );
     return unsubscribe;
   }, [navigation, cancelScan]);
 
-  // Cancel with confirmation when scan has been running >30 seconds
+  // Cancel with confirmation when scan has been running >30 seconds.
   const handleCancelScan = useCallback(() => {
-    const elapsed = scanStartTimeRef.current ? Date.now() - scanStartTimeRef.current : 0;
-    if (elapsed > 30000) {
-      Alert.alert('Cancel Scan?', 'Your scan is in progress. Are you sure you want to cancel?', [
-        { text: 'Keep Scanning', style: 'cancel' },
-        { text: 'Cancel Scan', style: 'destructive', onPress: cancelScan },
-      ]);
-    } else {
-      cancelScan();
-    }
+    confirmCancelScan(scanStartTimeRef.current, cancelScan);
   }, [cancelScan]);
 
   return { handleCancelScan };
