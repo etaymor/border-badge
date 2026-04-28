@@ -7,7 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.schemas.photos import PhotoCluster, PlaceSuggestionRequest
+from app.schemas.photos import (
+    MAX_PHOTOS_PER_CLUSTER,
+    PhotoCluster,
+    PlaceSuggestionRequest,
+)
 
 
 @pytest.fixture
@@ -87,6 +91,34 @@ class TestPhotoClusterVisionImages:
         valid_b64 = base64.b64encode(b"fake-jpeg-data").decode()
         cluster = PhotoCluster(**_make_cluster(vision_images_base64=[valid_b64]))
         assert cluster.vision_images_base64 == [valid_b64]
+
+
+class TestPhotoCountCap:
+    """Per-cluster photo cap. Real users hit this with wedding venues, all-day
+    museum visits, and burst-mode photography. Production was returning 422 with
+    the previous cap of 100."""
+
+    @staticmethod
+    def _photo(i: int) -> dict[str, Any]:
+        return {
+            "asset_id": f"photo-{i}",
+            "latitude": 35.6762,
+            "longitude": 139.6503,
+        }
+
+    def test_800_photos_in_one_cluster_accepted(self) -> None:
+        """800 photos at one place must validate (was 422 with old cap of 100)."""
+        cluster = _make_cluster(photos=[self._photo(i) for i in range(800)])
+        req = PlaceSuggestionRequest(clusters=[PhotoCluster(**cluster)])
+        assert len(req.clusters[0].photos) == 800
+
+    def test_over_cluster_cap_rejected(self) -> None:
+        """One photo over MAX_PHOTOS_PER_CLUSTER must 422 with a clear field error."""
+        photos = [self._photo(i) for i in range(MAX_PHOTOS_PER_CLUSTER + 1)]
+        with pytest.raises(ValidationError) as exc_info:
+            PhotoCluster(**_make_cluster(photos=photos))
+        # Error must mention the photos field so logs are diagnosable.
+        assert any("photos" in str(e["loc"]) for e in exc_info.value.errors())
 
 
 class TestRequestLevelVisionImageLimit:

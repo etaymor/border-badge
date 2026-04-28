@@ -17,8 +17,11 @@ from app.schemas.entries import EntryType
 
 # Input validation constants
 MAX_CLUSTERS_PER_REQUEST = 100
-MAX_PHOTOS_PER_CLUSTER = 100
-MAX_PHOTOS_PER_REQUEST = 500
+# Per-cluster cap is generous: a "cluster" is photos at one ~150m geohash cell,
+# which can be a wedding venue, all-day museum, or burst-mode beach session —
+# easily hundreds of photos at one place. The request-wide cap is the real ceiling.
+MAX_PHOTOS_PER_CLUSTER = 1000
+MAX_PHOTOS_PER_REQUEST = 2000
 MAX_VISION_IMAGES_PER_REQUEST = 50
 MAX_VISION_PAYLOAD_CHARS = (
     10_000_000  # ~7.5MB decoded; accommodates 15 clusters x 3 images comfortably

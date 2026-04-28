@@ -9,6 +9,8 @@ from pathlib import Path
 
 import jwt
 from fastapi import FastAPI
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -215,9 +217,39 @@ async def rate_limit_exceeded_handler(
     )
 
 
+async def photo_suggest_validation_logging_handler(
+    request: Request, exc: RequestValidationError
+) -> Response:
+    """Log Pydantic 422 detail for /photos/suggest-places, then default response.
+
+    Production access logs only show "422" with no field detail, which has burned
+    us twice on this route (vision payload size, then per-cluster photo cap).
+    Logging exc.errors() here makes the next failure self-diagnosing without a
+    second deploy. Scoped to one path to avoid noisy logs elsewhere.
+
+    Body is intentionally not logged: it can contain base64 image data.
+    """
+    if request.url.path == "/photos/suggest-places":
+        errors = exc.errors()
+        # Strip 'input' from each error to avoid leaking base64 payloads.
+        sanitized = [{k: v for k, v in err.items() if k != "input"} for err in errors]
+        logger.warning(
+            "Validation 422 on /photos/suggest-places",
+            extra={
+                "path": request.url.path,
+                "error_count": len(errors),
+                "errors": sanitized,
+            },
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
 # Add rate limiter to app state and exception handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(
+    RequestValidationError, photo_suggest_validation_logging_handler
+)
 
 # Add security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
