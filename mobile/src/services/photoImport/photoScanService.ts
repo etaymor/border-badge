@@ -332,7 +332,9 @@ async function runScan(
 
       let countriesChanged = false;
       for (const photo of batchPhotos) {
-        const code = iso1A2Code([photo.location.longitude, photo.location.latitude]);
+        const code = iso1A2Code([photo.location.longitude, photo.location.latitude], {
+          level: 'territory',
+        });
         photoCountryCodes.set(photo.id, code ?? null);
         if (code && !discoveredCountryCodes.has(code)) {
           discoveredCountryCodes.add(code);

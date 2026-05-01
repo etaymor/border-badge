@@ -292,8 +292,11 @@ export function geocodeClusterCentroids(
   const total = clusters.length;
 
   for (const cluster of clusters) {
-    // country-coder takes [longitude, latitude] order
-    const countryCode = iso1A2Code([cluster.centroid.longitude, cluster.centroid.latitude]);
+    // country-coder takes [longitude, latitude] order.
+    // level: 'territory' so HK/MO/PR/etc. resolve to themselves, not their parent country.
+    const countryCode = iso1A2Code([cluster.centroid.longitude, cluster.centroid.latitude], {
+      level: 'territory',
+    });
     cluster.countryCode = countryCode ?? undefined;
 
     completed++;

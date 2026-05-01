@@ -16,6 +16,7 @@ import {
   clusterByLocation,
   mergeAdjacentClusters,
   computeTimeHint,
+  geocodeClusterCentroids,
 } from '../../../services/photoImport/photoClustering';
 import { segmentTripsByTimeGap } from '../../../services/photoImport/photoClusteringTrips';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
@@ -563,6 +564,48 @@ describe('photoClustering', () => {
 
     it('prioritizes dwell over time-of-day (long dwell at lunchtime = attraction)', () => {
       expect(computeTimeHint(createClusterWithTime(12, 180))).toBe('attraction');
+    });
+  });
+
+  describe('geocodeClusterCentroids', () => {
+    // Helper: build a minimal cluster at a given coordinate.
+    function clusterAt(id: string, lat: number, lng: number): LocationCluster {
+      const photo = createTestPhoto(id, lat, lng);
+      return {
+        id,
+        geohash: id,
+        centroid: { latitude: lat, longitude: lng },
+        photos: [photo],
+        timeRange: { start: photo.creationTime, end: photo.creationTime },
+      };
+    }
+
+    it('assigns "HK" to Hong Kong coordinates (not "CN")', () => {
+      // Central, Hong Kong Island
+      const clusters = [clusterAt('hk', 22.2818, 114.1583)];
+      geocodeClusterCentroids(clusters);
+      expect(clusters[0].countryCode).toBe('HK');
+    });
+
+    it('assigns "MO" to Macau coordinates (not "CN")', () => {
+      // Senado Square, Macau
+      const clusters = [clusterAt('mo', 22.1936, 113.5402)];
+      geocodeClusterCentroids(clusters);
+      expect(clusters[0].countryCode).toBe('MO');
+    });
+
+    it('still assigns "CN" to mainland China coordinates', () => {
+      // Tiananmen Square, Beijing
+      const clusters = [clusterAt('cn', 39.9055, 116.3976)];
+      geocodeClusterCentroids(clusters);
+      expect(clusters[0].countryCode).toBe('CN');
+    });
+
+    it('assigns "PR" to Puerto Rico coordinates (not "US")', () => {
+      // Old San Juan
+      const clusters = [clusterAt('pr', 18.4655, -66.1057)];
+      geocodeClusterCentroids(clusters);
+      expect(clusters[0].countryCode).toBe('PR');
     });
   });
 });
