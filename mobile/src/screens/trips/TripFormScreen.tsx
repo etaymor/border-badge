@@ -113,11 +113,15 @@ export function TripFormScreen({ navigation, route }: Props) {
     return countries.find((c) => c.code === selectedCountryCode) || null;
   }, [selectedCountryCode, countries]);
 
-  // Populate form when editing
+  // Populate form when editing. Pre-fill country so the user can change it.
+  // System trips (e.g. Saved Places) have no country and the picker is hidden below.
   useEffect(() => {
     if (existingTrip && isEditing) {
       setName(existingTrip.name);
       setCoverImageUrl(existingTrip.cover_image_url || '');
+      if (existingTrip.country_code) {
+        setSelectedCountryCode(existingTrip.country_code);
+      }
     }
   }, [existingTrip, isEditing]);
 
@@ -127,6 +131,10 @@ export function TripFormScreen({ navigation, route }: Props) {
       setSelectedCountryCode(initialCountryId);
     }
   }, [initialCountryId, isEditing]);
+
+  // System trips (Saved Places) cannot have their country changed.
+  const isSystemTrip = !!existingTrip?.is_system;
+  const showCountryPicker = !isEditing || (isEditing && !isSystemTrip);
 
   const handleSelectCountry = (country: Country) => {
     setSelectedCountryCode(country.code);
@@ -147,8 +155,8 @@ export function TripFormScreen({ navigation, route }: Props) {
       setNameError('');
     }
 
-    // Country is required for new trips
-    if (!isEditing && !selectedCountryCode) {
+    // Country is required when the picker is visible (new trips, or editing a non-system trip).
+    if (showCountryPicker && !selectedCountryCode) {
       setCountryError('Please select a country');
       isValid = false;
     } else {
@@ -163,11 +171,21 @@ export function TripFormScreen({ navigation, route }: Props) {
 
     try {
       if (isEditing && tripId) {
-        // Update existing trip
+        // Update existing trip. Only send country_code if it actually changed,
+        // so the backend doesn't redundantly resolve it on every name/image edit.
+        const originalCountryCode = existingTrip?.country_code;
+        const countryChanged =
+          !!selectedCountryCode && !isSystemTrip && selectedCountryCode !== originalCountryCode;
         await updateTrip.mutateAsync({
           id: tripId,
           name: name.trim(),
           cover_image_url: coverImageUrl.trim() || undefined,
+          ...(countryChanged
+            ? {
+                country_code: selectedCountryCode,
+                previousCountryCode: originalCountryCode,
+              }
+            : {}),
         });
         navigation.goBack();
       } else {
@@ -261,10 +279,10 @@ export function TripFormScreen({ navigation, route }: Props) {
               {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
             </Text>
 
-            {/* Country Picker - only show for new trips */}
-            {!isEditing && (
+            {/* Country Picker - shown for new trips and when editing a non-system trip. */}
+            {showCountryPicker && (
               <View style={[styles.section, styles.countryPickerSection]}>
-                <Text style={styles.label}>DESTINATION</Text>
+                <Text style={styles.label}>{isEditing ? 'COUNTRY' : 'DESTINATION'}</Text>
 
                 {/* Show selected country or search input */}
                 {selectedCountry ? (
@@ -347,8 +365,9 @@ export function TripFormScreen({ navigation, route }: Props) {
               </Pressable>
             )}
 
-            {/* Show country context when editing or pre-selected */}
-            {isEditing && initialCountryName && (
+            {/* Fallback country context — shown only when the picker is hidden
+                (system trips), since the picker itself already shows the country. */}
+            {isEditing && !showCountryPicker && initialCountryName && (
               <View style={styles.contextBanner}>
                 <Ionicons name="location-sharp" size={16} color={colors.adobeBrick} />
                 <Text style={styles.contextText}>Trip in {initialCountryName}</Text>

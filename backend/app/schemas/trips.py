@@ -67,6 +67,7 @@ class TripUpdate(BaseModel):
     """Request to update a trip."""
 
     name: str | None = None
+    country_code: str | None = None  # 2-letter ISO code; rejected for system trips
     cover_image_url: str | None = None
     date_start: date | None = None
     date_end: date | None = None

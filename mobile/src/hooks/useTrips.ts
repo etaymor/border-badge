@@ -54,6 +54,7 @@ export interface CreateTripInput {
 export interface UpdateTripInput {
   id: string;
   name?: string;
+  country_code?: string; // 2-letter ISO code; rejected by backend for system trips
   cover_image_url?: string;
   previousCountryCode?: string; // For cache invalidation when country changes
 }
