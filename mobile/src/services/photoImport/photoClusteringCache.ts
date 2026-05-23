@@ -45,7 +45,9 @@ export function photoToCachedPhoto(
   const countryCode =
     precomputedCountryCode !== undefined
       ? precomputedCountryCode
-      : (iso1A2Code([photo.location.longitude, photo.location.latitude]) ?? null);
+      : (iso1A2Code([photo.location.longitude, photo.location.latitude], {
+          level: 'territory',
+        }) ?? null);
 
   return {
     id: photo.id,

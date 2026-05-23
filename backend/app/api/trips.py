@@ -306,6 +306,34 @@ async def update_trip(
             detail="No fields to update",
         )
 
+    # Resolve country_code -> country_id. Reject system trips and unknown codes.
+    if "country_code" in update_data:
+        new_country_code = update_data.pop("country_code")
+        if not new_country_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="country_code cannot be empty",
+            )
+        existing_trip = await db.get(
+            "trip", {"id": f"eq.{trip_id}", "select": "is_system"}
+        )
+        if not existing_trip:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found"
+            )
+        if existing_trip[0].get("is_system"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change country of a system trip",
+            )
+        countries = await db.get("country", {"code": f"eq.{new_country_code}"})
+        if not countries:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Country not found: {new_country_code}",
+            )
+        update_data["country_id"] = str(countries[0]["id"])
+
     # Handle date range separately
     if "date_start" in update_data or "date_end" in update_data:
         # Need to fetch existing dates first

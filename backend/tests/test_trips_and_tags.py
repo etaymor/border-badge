@@ -567,6 +567,112 @@ def test_update_trip_no_fields_returns_400(
         app.dependency_overrides.clear()
 
 
+def test_update_trip_country_code(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
+) -> None:
+    """PATCH with country_code resolves the new country_id and updates the trip."""
+    new_country_id = "11111111-1111-1111-1111-111111111111"
+    new_country = {
+        **sample_country,
+        "id": new_country_id,
+        "code": "HK",
+        "name": "Hong Kong",
+    }
+    updated_trip = {
+        **sample_trip,
+        "country_id": new_country_id,
+        "country": {"code": "HK"},
+    }
+
+    # First db.get: existing trip is_system check. Second db.get: country lookup.
+    mock_supabase_client.get.side_effect = [
+        [{"is_system": False}],
+        [new_country],
+    ]
+    mock_supabase_client.patch.return_value = [updated_trip]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={"country_code": "HK"},
+            )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["country_code"] == "HK"
+        # Confirm the patch payload sent country_id (not country_code) to the DB
+        patch_call_args = mock_supabase_client.patch.call_args
+        assert patch_call_args.args[1] == {"country_id": new_country_id}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_trip_country_code_unknown_returns_400(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """PATCH with an unknown country_code returns 400 and does not patch."""
+    mock_supabase_client.get.side_effect = [
+        [{"is_system": False}],
+        [],  # country lookup returns empty
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={"country_code": "ZZ"},
+            )
+        assert response.status_code == 400
+        assert "Country not found" in response.json()["detail"]
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_trip_country_code_rejects_system_trip(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+) -> None:
+    """System trips (e.g. Saved Places) cannot have their country changed."""
+    mock_supabase_client.get.side_effect = [[{"is_system": True}]]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.patch(
+                f"/trips/{sample_trip['id']}",
+                headers=auth_headers,
+                json={"country_code": "HK"},
+            )
+        assert response.status_code == 400
+        assert "system trip" in response.json()["detail"].lower()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ============================================================================
 # Delete and Restore Trip Tests
 # ============================================================================

@@ -6,7 +6,7 @@ export default {
     slug: 'border-badge',
     version: '1.0.12',
     orientation: 'portrait',
-    icon: './assets/Atlasi-book-app-icon-cream.png',
+    icon: './assets/atlasi-stamp-app-icon.png',
     userInterfaceStyle: 'automatic',
     // Deep link scheme - handles all paths like atlasi://auth-callback, atlasi://share
     // Used by: magic link auth, OAuth callbacks, share extension
@@ -23,8 +23,8 @@ export default {
       buildNumber: '2',
       usesAppleSignIn: true,
       icon: {
-        light: './assets/Atlasi-book-app-icon-cream.png',
-        dark: './assets/Atlasi-book-app-icon-midnight.png',
+        light: './assets/atlasi-stamp-app-icon.png',
+        dark: './assets/atlasi-stamp-app-icon.png',
       },
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
@@ -86,8 +86,8 @@ export default {
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: './assets/Atlasi-book-app-icon-cream.png',
-        monochromeImage: './assets/Atlasi-book-app-icon-midnight.png',
+        foregroundImage: './assets/atlasi-stamp-app-icon.png',
+        monochromeImage: './assets/atlasi-stamp-app-icon.png',
         backgroundColor: '#FDF6ED',
       },
       edgeToEdgeEnabled: true,

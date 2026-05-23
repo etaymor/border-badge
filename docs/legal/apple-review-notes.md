@@ -46,7 +46,7 @@ Value: a single, visual record of a user's travel history that is easy to build,
 | Supabase | Authentication (email/password, Apple, Google), PostgreSQL database, file storage for photos |
 | Google Places API | Place autocomplete, place details, location metadata for entries |
 | RevenueCat | Subscription management, paywall, free-tier usage tracking |
-| OpenRouter (Gemini 2.5 Flash-Lite) | LLM extraction of place names from social media captions, entry-type classification, traveler classification |
+| OpenRouter (Gemini 3.1 Flash-Lite) | LLM extraction of place names from social media captions, entry-type classification, traveler classification |
 | TikTok oEmbed | Thumbnail and metadata for shared TikTok URLs |
 | Instagram oEmbed | Thumbnail and metadata for shared Instagram URLs |
 | Resend | Transactional and welcome emails |
