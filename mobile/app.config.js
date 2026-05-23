@@ -4,7 +4,7 @@ export default {
   expo: {
     name: 'Atlasi',
     slug: 'border-badge',
-    version: '1.0.12',
+    version: '1.0.13',
     orientation: 'portrait',
     icon: './assets/atlasi-stamp-app-icon.png',
     userInterfaceStyle: 'automatic',
@@ -20,7 +20,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.atlasi.app',
-      buildNumber: '2',
+      buildNumber: '3',
       usesAppleSignIn: true,
       icon: {
         light: './assets/atlasi-stamp-app-icon.png',
