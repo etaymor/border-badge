@@ -45,6 +45,34 @@ def sanitize_address(text: str) -> str:
     return sanitize_place_text(text, MAX_ADDRESS_LENGTH)
 
 
+def _normalize_name(text: str) -> str:
+    """Lowercase, strip punctuation, and collapse whitespace for name matching."""
+    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+    return " ".join(cleaned.split())
+
+
+def name_matches_candidate(place_name: str, candidate: str) -> bool:
+    """Whether a place's display name confidently matches a detected business name.
+
+    Used to suppress a redundant Text Search: if the Nearby result already
+    contains a place whose name matches the vision-detected signage text, the
+    (Enterprise-tier) Text Search adds nothing. Matching is intentionally
+    conservative — substring containment after normalization — so suppression
+    only fires on a strong match and never hides a genuinely different place.
+    """
+    if not place_name or not candidate:
+        return False
+    name = _normalize_name(place_name)
+    cand = _normalize_name(candidate)
+    if not name or not cand:
+        return False
+    # Require the shorter normalized string to be contained in the longer, and the
+    # candidate to be substantial (>= 3 chars) to avoid trivial coincidences.
+    if len(cand) < 3:
+        return False
+    return cand in name or name in cand
+
+
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate distance in meters between two coordinates using Haversine formula.

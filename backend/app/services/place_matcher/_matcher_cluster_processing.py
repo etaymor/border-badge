@@ -13,6 +13,7 @@ from .constants import (
     MAX_SUGGESTIONS_PER_CLUSTER,
 )
 from .exceptions import QuotaExhaustedError, RateLimitError
+from .utils import name_matches_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ class ClusterProcessingMixin:
                     return cluster_id, []
 
         text_search_tasks = []
-        for cluster, _places, _radius_used in search_results:
+        for cluster, nearby_places, _radius_used in search_results:
             cluster_id = cluster["id"]
             vision_result = vision_map.get(cluster_id)
             if (
@@ -159,6 +160,23 @@ class ClusterProcessingMixin:
             ):
                 candidates = vision_result.business_name_candidates
                 if candidates:
+                    # LLM-gating: suppress the (Enterprise-tier) Text Search when the
+                    # Nearby result already contains a place whose name matches the
+                    # vision-detected signage. The Text Search would only re-find
+                    # what we already have, so skipping it is a pure cost saving with
+                    # no quality loss.
+                    already_found = any(
+                        name_matches_candidate(
+                            p.get("displayName", {}).get("text", ""), candidates[0]
+                        )
+                        for p in nearby_places
+                    )
+                    if already_found:
+                        logger.info(
+                            f"Cluster {cluster_id}: suppressing text search for "
+                            f"'{candidates[0]}' — already in nearby results"
+                        )
+                        continue
                     lat = cluster["centroid"]["latitude"]
                     lng = cluster["centroid"]["longitude"]
                     text_search_tasks.append(

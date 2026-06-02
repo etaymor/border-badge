@@ -23,6 +23,7 @@ from app.services.place_matcher._matcher_ranking import (
     VISION_HIGH_CONFIDENCE_BONUS,
     VISION_MEDIUM_CONFIDENCE_BONUS,
 )
+from app.services.place_matcher.utils import name_matches_candidate
 
 
 class TestHaversineDistance:
@@ -60,6 +61,38 @@ class TestHaversineDistance:
         distance = PlaceMatcher._haversine(lat1, lon1, lat2, lon2)
 
         assert 0 < distance < 100
+
+
+class TestNameMatchesCandidate:
+    """Tests for the text-search-suppression name matcher (U5)."""
+
+    def test_exact_match(self) -> None:
+        assert name_matches_candidate("Tsukiji Ramen", "Tsukiji Ramen")
+
+    def test_case_insensitive(self) -> None:
+        assert name_matches_candidate("TSUKIJI RAMEN", "tsukiji ramen")
+
+    def test_punctuation_normalized_to_whitespace(self) -> None:
+        # Trailing punctuation/extra spaces must not defeat the match.
+        assert name_matches_candidate("Blue Bottle Coffee!", "Blue Bottle Coffee")
+
+    def test_candidate_is_substring_of_name(self) -> None:
+        # Vision reads "Tsukiji Ramen"; Google's full name is longer.
+        assert name_matches_candidate("Tsukiji Ramen Honten Tokyo", "Tsukiji Ramen")
+
+    def test_name_is_substring_of_candidate(self) -> None:
+        assert name_matches_candidate("Ramen", "Tsukiji Ramen")
+
+    def test_different_names_do_not_match(self) -> None:
+        assert not name_matches_candidate("Nearby Cafe", "Signboard Ramen House")
+
+    def test_empty_inputs_do_not_match(self) -> None:
+        assert not name_matches_candidate("", "Ramen")
+        assert not name_matches_candidate("Ramen", "")
+
+    def test_too_short_candidate_does_not_match(self) -> None:
+        # A 1-2 char candidate must not trivially match via containment.
+        assert not name_matches_candidate("A Big Restaurant", "a")
 
 
 class TestTypeToCategoryMapping:
@@ -1976,9 +2009,11 @@ class TestVisionRanking:
         monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
         monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
 
+        # Detected name differs from the nearby place so the text search is NOT
+        # suppressed and we genuinely exercise the rate-limit fallback path.
         vision_result = VisionResult(
             category="food",
-            detected_text=["Nearby Cafe"],
+            detected_text=["Signboard Ramen House"],
             confidence="high",
         )
 
@@ -2091,6 +2126,134 @@ class TestVisionRanking:
             f"expected <= 5 (semaphore limit). "
             f"Text searches are bypassing the concurrency semaphore."
         )
+
+    @pytest.mark.asyncio
+    async def test_text_search_suppressed_when_nearby_already_matches(
+        self, matcher, monkeypatch
+    ) -> None:
+        """If a nearby result already matches the vision name, skip the text search.
+
+        The Enterprise-tier Text Search would only re-find a place we already have,
+        so it must be suppressed (U5 LLM-gating cost saving).
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        nearby_places = [
+            {
+                "id": "place-ramen",
+                "displayName": {"text": "Tsukiji Ramen Honten"},
+                "formattedAddress": "1 Tsukiji",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant", "ramen_restaurant"],
+                "rating": 4.4,
+                "userRatingCount": 420,
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return nearby_places, 15
+
+        text_search_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_search_called
+            text_search_called = True
+            return []
+
+        # Enrichment is irrelevant here; keep ratings already present.
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        # Vision detects "Tsukiji Ramen" — already present in the nearby results.
+        vision_result = VisionResult(
+            category="food",
+            detected_text=["Tsukiji Ramen"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert failed_count == 0
+        assert text_search_called is False  # suppressed
+        assert results[0]["places"][0]["place_id"] == "place-ramen"
+
+    @pytest.mark.asyncio
+    async def test_text_search_runs_when_nearby_does_not_match(
+        self, matcher, monkeypatch
+    ) -> None:
+        """When no nearby result matches the vision name, the text search must run."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        nearby_places = [
+            {
+                "id": "place-other",
+                "displayName": {"text": "Some Other Cafe"},
+                "formattedAddress": "2 Elsewhere",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "rating": 4.0,
+                "userRatingCount": 50,
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return nearby_places, 15
+
+        text_search_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_search_called
+            text_search_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision_result = VisionResult(
+            category="food",
+            detected_text=["Tsukiji Ramen Honten"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert text_search_called is True  # not suppressed — genuinely different
 
 
 # ============================================================================
