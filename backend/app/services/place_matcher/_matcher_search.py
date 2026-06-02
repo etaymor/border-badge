@@ -397,7 +397,9 @@ class SearchMixin:
             }
             # Write rating fields through to the persistent by-ID cache so future
             # enrichments of this place (any user/deploy) skip the paid call.
-            await set_place_details_cache(place_id, {**(cached or {}), **ratings})
+            # set_place_details_cache merges onto any existing full-details blob,
+            # so this preserves (and is preserved by) social-ingest writes.
+            await set_place_details_cache(place_id, ratings)
             return place_id, ratings
 
         results = await asyncio.gather(

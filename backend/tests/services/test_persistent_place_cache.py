@@ -143,6 +143,7 @@ class TestPlaceDetailsCache:
     @pytest.mark.asyncio
     async def test_set_upserts(self) -> None:
         mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=[])  # no existing row to merge
         mock_db.upsert = AsyncMock(return_value=[])
         with patch(PATCH_TARGET, return_value=mock_db):
             await pc.set_place_details_cache("abc", {"place_id": "abc", "name": "X"})
@@ -150,6 +151,31 @@ class TestPlaceDetailsCache:
         args, _ = mock_db.upsert.call_args
         assert args[0] == "cached_google_place"
         assert args[1][0]["google_place_id"] == "abc"
+        assert args[1][0]["details"] == {"place_id": "abc", "name": "X"}
+
+    @pytest.mark.asyncio
+    async def test_set_merges_with_existing_row(self) -> None:
+        # An existing full-details row must keep its fields when a rating-only
+        # write lands (and vice versa) — neither writer evicts the other.
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(
+            return_value=[
+                {
+                    "details": {"place_id": "abc", "name": "Cafe", "address": "1 St"},
+                    "expires_at": _future(),
+                }
+            ]
+        )
+        mock_db.upsert = AsyncMock(return_value=[])
+        with patch(PATCH_TARGET, return_value=mock_db):
+            await pc.set_place_details_cache(
+                "abc", {"rating": 4.5, "userRatingCount": 99}
+            )
+        merged = mock_db.upsert.call_args[0][1][0]["details"]
+        assert merged["name"] == "Cafe"  # preserved
+        assert merged["address"] == "1 St"  # preserved
+        assert merged["rating"] == 4.5  # added
+        assert merged["userRatingCount"] == 99
 
     @pytest.mark.asyncio
     async def test_set_ignores_empty_id(self) -> None:

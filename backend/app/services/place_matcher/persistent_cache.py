@@ -158,7 +158,15 @@ async def get_place_details_cache(google_place_id: str) -> dict | None:
 async def set_place_details_cache(
     google_place_id: str, details: dict[str, Any]
 ) -> None:
-    """Store enriched Place Details keyed by ``google_place_id`` (best-effort)."""
+    """Store enriched Place Details keyed by ``google_place_id`` (best-effort).
+
+    Two callers write this table with different (partial) shapes: social ingest
+    writes full details without rating fields, and photo-import finalist
+    enrichment writes rating-only fields. To keep both writers cooperative
+    regardless of order, the new ``details`` are MERGED onto any existing row's
+    blob rather than replacing it — so a full-details write never drops a prior
+    enrichment's rating, and vice versa.
+    """
     if not google_place_id or not isinstance(details, dict):
         return
     if not _persistent_cache_enabled():
@@ -168,12 +176,16 @@ async def set_place_details_cache(
     expires_at = (now + timedelta(days=PLACE_DETAILS_CACHE_TTL_DAYS)).isoformat()
     try:
         db = get_supabase_client()
+        # Merge with any existing blob so neither writer evicts the other's
+        # fields. Missing/expired existing row -> {} -> plain insert of details.
+        existing = await get_place_details_cache(google_place_id) or {}
+        merged = {**existing, **details}
         await db.upsert(
             "cached_google_place",
             [
                 {
                     "google_place_id": google_place_id,
-                    "details": details,
+                    "details": merged,
                     "updated_at": now_iso,
                     "expires_at": expires_at,
                 }
