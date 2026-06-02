@@ -1260,6 +1260,103 @@ class TestDensityDetection:
 
 
 # ============================================================================
+# Tiered Search Radius Reuse Tests (U2)
+# ============================================================================
+
+
+def _quality_place(place_id: str = "p1") -> dict:
+    """A minimal place that survives _filter_low_quality_places."""
+    return {
+        "id": place_id,
+        "displayName": {"text": "Test Cafe"},
+        "primaryType": "cafe",
+        "types": ["cafe"],
+        "userRatingCount": 100,
+        "rating": 4.5,
+        "businessStatus": "OPERATIONAL",
+        "location": {"latitude": 0.0, "longitude": 0.0},
+    }
+
+
+class TestTieredSearchRadiusReuse:
+    """`_search_nearby_tiered` must never re-search a radius and must not drop
+    the sparse profile's smallest tier (regression for the old `[1:]` slice)."""
+
+    def _matcher_recording_radii(
+        self, radii_seen: list[int], results_by_radius: dict[int, list[dict]]
+    ) -> PlaceMatcher:
+        matcher = PlaceMatcher(http_client=MagicMock())
+
+        async def fake_execute_search(latitude, longitude, radius):
+            radii_seen.append(int(radius))
+            return results_by_radius.get(int(radius), [])
+
+        matcher._execute_search = fake_execute_search  # type: ignore[method-assign]
+        return matcher
+
+    @pytest.mark.asyncio
+    async def test_dense_returns_on_first_tier_no_extra_calls(self) -> None:
+        # 3+ raw results at 15m -> DENSE, and they pass quality -> stop at 15m.
+        radii_seen: list[int] = []
+        results = {15: [_quality_place(f"p{i}") for i in range(3)]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert radius_used == 15
+        assert len(places) == 3
+        assert radii_seen == [15]  # no redundant calls
+
+    @pytest.mark.asyncio
+    async def test_no_radius_searched_twice(self) -> None:
+        # Empty everywhere: every density tier is attempted exactly once, and the
+        # 15m probe radius is never re-issued by the expansion loop.
+        radii_seen: list[int] = []
+        matcher = self._matcher_recording_radii(radii_seen, {})
+
+        await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert len(radii_seen) == len(set(radii_seen))  # no duplicates
+
+    @pytest.mark.asyncio
+    async def test_medium_does_not_repeat_15m_probe(self) -> None:
+        # 1-2 raw results at 15m -> MEDIUM ([15, 50, 125]); none pass quality so
+        # we expand. The 15m tier must not be searched a second time.
+        radii_seen: list[int] = []
+        # One low-quality place at 15m (passes density >=1, fails quality filter)
+        low_quality = {
+            "id": "lq",
+            "displayName": {"text": "Laundro"},
+            "primaryType": "laundry",
+            "types": ["laundry"],
+            "userRatingCount": 0,
+            "businessStatus": "OPERATIONAL",
+            "location": {"latitude": 0.0, "longitude": 0.0},
+        }
+        results = {15: [low_quality], 50: [_quality_place()]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert radius_used == 50
+        assert radii_seen == [15, 50]  # 15 not repeated
+
+    @pytest.mark.asyncio
+    async def test_sparse_searches_its_smallest_tier(self) -> None:
+        # 0 results at 15m -> SPARSE ([25, 100, 250]). The 25m tier must be
+        # searched (the old positional `[1:]` slice dropped it).
+        radii_seen: list[int] = []
+        results = {25: [_quality_place()]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert radius_used == 25
+        assert 25 in radii_seen
+        assert radii_seen == [15, 25]
+
+
+# ============================================================================
 # Tourist Relevance Filter Tests
 # ============================================================================
 

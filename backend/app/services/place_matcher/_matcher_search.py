@@ -75,8 +75,11 @@ class SearchMixin:
         Returns:
             Tuple of (quality_places, radius_used)
         """
-        # First search at smallest radius (always 15m for density detection)
+        # First search at smallest radius (always 15m for density detection).
+        # Track every radius we've actually searched so later tiers never re-issue
+        # a call at an already-searched radius (each Nearby call is Enterprise-tier).
         first_radius = SEARCH_RADII_METERS[0]
+        searched_radii: set[int] = {first_radius}
         first_places = await self._execute_search(latitude, longitude, first_radius)
 
         # Detect density from raw result count (BEFORE quality filtering)
@@ -96,9 +99,14 @@ class SearchMixin:
                 f"but 0 passed quality filter, expanding"
             )
 
-        # Use density-adaptive radii for remaining tiers (skip first)
-        remaining_radii = DENSITY_SEARCH_RADII[density.value][1:]
-        for radius in remaining_radii:
+        # Expand through the density-appropriate radii, skipping any radius we've
+        # already searched. (Filtering by value rather than slicing by position
+        # also ensures the sparse profile's smallest tier — which differs from the
+        # 15m probe — is not silently dropped.)
+        for radius in DENSITY_SEARCH_RADII[density.value]:
+            if radius in searched_radii:
+                continue
+            searched_radii.add(radius)
             places = await self._execute_search(latitude, longitude, radius)
             if places:
                 quality_places = self._filter_low_quality_places(places)
