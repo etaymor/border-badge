@@ -22,6 +22,7 @@ import {
   getFullCluster,
   getCachedSuggestions,
   cacheSuggestions,
+  clusterLocationKey,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
@@ -137,8 +138,12 @@ export function usePlaceSuggestions({
         return undefined;
       }
 
-      // Check SQLite cache for existing suggestions
-      const cachedSuggestionsMap = await getCachedSuggestions(allClusters.map((c) => c.id));
+      // Check SQLite cache for existing suggestions. Pass the location key so a
+      // re-segmented/split cluster reuses a prior result for the same physical
+      // spot (via the location_key fallback) instead of re-buying it.
+      const cachedSuggestionsMap = await getCachedSuggestions(
+        allClusters.map((c) => ({ id: c.id, locationKey: clusterLocationKey(c.centroid) }))
+      );
 
       // Separate cached and uncached clusters
       const cachedClusterIds = new Set(cachedSuggestionsMap.keys());
@@ -258,6 +263,7 @@ export function usePlaceSuggestions({
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
             return {
               cluster_id: cluster.id,
+              location_key: clusterLocationKey(cluster.centroid),
               places: suggestion?.places ?? [],
             };
           });
@@ -369,7 +375,11 @@ export function usePlaceSuggestions({
         .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
         .map((cluster) => {
           const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-          return { cluster_id: cluster.id, places: suggestion?.places ?? [] };
+          return {
+            cluster_id: cluster.id,
+            location_key: clusterLocationKey(cluster.centroid),
+            places: suggestion?.places ?? [],
+          };
         });
       await cacheSuggestions(toCache);
 

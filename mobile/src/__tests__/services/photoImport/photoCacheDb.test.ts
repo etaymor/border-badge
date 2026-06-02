@@ -509,6 +509,91 @@ describe('photoCacheDb', () => {
       expect(result.size).toBe(1);
       expect(result.get('cluster-old-with-places')).toEqual(places);
     });
+
+    it('falls back to location_key when the cluster_id misses', async () => {
+      const places = [
+        {
+          place_id: 'place-1',
+          name: 'Test Place',
+          address: '123 Main St',
+          location: { latitude: 41.0, longitude: 19.8 },
+          category: 'Place',
+          distance_m: 50,
+          types: ['tourist_attraction'],
+        },
+      ];
+      // Tier 1 (cluster_id IN ...) misses; Tier 2 (location_key IN ...) hits.
+      mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('location_key IN')) {
+          return [
+            {
+              location_key: 'geohashabc',
+              suggestions_json: JSON.stringify(places),
+              cached_at: Date.now(),
+            },
+          ];
+        }
+        if (sql.includes('cluster_id IN')) return [];
+        return []; // PRAGMA table_info etc.
+      });
+
+      const result = await photoCacheDbSuggestions.getCachedSuggestions([
+        { id: 'new-cluster-id', locationKey: 'geohashabc' },
+      ]);
+
+      // A re-segmented cluster reuses the prior result for the same physical spot.
+      expect(result.get('new-cluster-id')).toEqual(places);
+    });
+
+    it('prefers the cluster_id match over the location fallback', async () => {
+      const idPlaces = [
+        {
+          place_id: 'by-id',
+          name: 'By Id',
+          address: 'a',
+          location: { latitude: 1, longitude: 2 },
+          category: 'Place',
+          distance_m: 1,
+          types: [],
+        },
+      ];
+      mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('cluster_id IN')) {
+          return [
+            { cluster_id: 'c1', suggestions_json: JSON.stringify(idPlaces), cached_at: Date.now() },
+          ];
+        }
+        return []; // location_key query should not be needed
+      });
+
+      const result = await photoCacheDbSuggestions.getCachedSuggestions([
+        { id: 'c1', locationKey: 'geohashabc' },
+      ]);
+
+      expect(result.get('c1')).toEqual(idPlaces);
+    });
+  });
+
+  describe('clusterLocationKey', () => {
+    it('produces a stable key for the same centroid', () => {
+      const a = photoCacheDbSuggestions.clusterLocationKey({ latitude: 41.0, longitude: 19.8 });
+      const b = photoCacheDbSuggestions.clusterLocationKey({ latitude: 41.0, longitude: 19.8 });
+      expect(a).toBe(b);
+      expect(typeof a).toBe('string');
+      expect(a.length).toBeGreaterThan(0);
+    });
+
+    it('produces different keys for far-apart centroids', () => {
+      const tokyo = photoCacheDbSuggestions.clusterLocationKey({
+        latitude: 35.6762,
+        longitude: 139.6503,
+      });
+      const paris = photoCacheDbSuggestions.clusterLocationKey({
+        latitude: 48.8566,
+        longitude: 2.3522,
+      });
+      expect(tokyo).not.toBe(paris);
+    });
   });
 
   describe('database initialization', () => {
@@ -538,7 +623,7 @@ describe('photoCacheDb', () => {
       // Schema version should be stored
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
-        ['schema_version', '2']
+        ['schema_version', '3']
       );
     });
 

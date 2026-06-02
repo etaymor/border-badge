@@ -116,6 +116,7 @@ jest.mock('../../../services/photoImport', () => {
     getProcessedClusterIds: jest.fn().mockResolvedValue(new Set<string>()),
     getCachedSuggestions: jest.fn().mockResolvedValue(new Map()),
     cacheSuggestions: jest.fn().mockResolvedValue(undefined),
+    clusterLocationKey: jest.fn().mockReturnValue('geohash-test-key'),
     getLastSelectedCandidateId: jest.fn().mockResolvedValue(null),
     setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
     computeTimeHint: jest.fn().mockReturnValue(null),

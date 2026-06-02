@@ -5,10 +5,28 @@
  * All functions share the same SQLite database via getDb().
  */
 
+import * as geohash from 'ngeohash';
+
 import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
 const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Geohash precision for the suggestion location key. Precision 7 (~153m cells)
+ * matches the clustering precision, so a re-segmented or manually split cluster
+ * at the same physical spot resolves to the same key and reuses cached results
+ * instead of re-buying them from Google.
+ */
+const LOCATION_KEY_PRECISION = 7;
+
+/**
+ * Compute the location cache key for a cluster centroid. Stable across cluster-id
+ * changes (splits, re-segmentation) for the same physical location.
+ */
+export function clusterLocationKey(centroid: { latitude: number; longitude: number }): string {
+  return geohash.encode(centroid.latitude, centroid.longitude, LOCATION_KEY_PRECISION);
+}
 
 // =============================================================================
 // Processed Clusters (for hiding already-processed suggestions)
@@ -84,6 +102,11 @@ export async function setLastSelectedCandidateId(
 
 export interface CachedPlaceSuggestion {
   cluster_id: string;
+  /**
+   * Quantized centroid geohash for the location-fallback lookup. Optional for
+   * backward compatibility; when omitted the row is only reachable by cluster_id.
+   */
+  location_key?: string;
   places: Array<{
     place_id: string;
     name: string;
@@ -95,23 +118,71 @@ export interface CachedPlaceSuggestion {
   }>;
 }
 
+/** A cluster identified for cache lookup by both its id and physical location. */
+export interface ClusterCacheRef {
+  id: string;
+  locationKey: string;
+}
+
+/**
+ * Parse a cached suggestions row, honoring the empty-result TTL.
+ * Returns the places array, or null if the row is invalid or an expired empty.
+ */
+function parseSuggestionsRow(
+  suggestionsJson: string,
+  cachedAt: number,
+  now: number,
+  label: string
+): CachedPlaceSuggestion['places'] | null {
+  try {
+    const places = JSON.parse(suggestionsJson);
+    // Empty suggestions expire after TTL so transient failures get retried
+    if (Array.isArray(places) && places.length === 0) {
+      if (now - (cachedAt ?? 0) > EMPTY_SUGGESTION_TTL_MS) {
+        if (__DEV__) console.log(`[PhotoCache] Expired empty cache for ${label}`);
+        return null;
+      }
+    }
+    return places;
+  } catch {
+    if (__DEV__) console.warn(`[PhotoCache] Invalid JSON for ${label}`);
+    return null;
+  }
+}
+
 /**
  * Get cached place suggestions for multiple clusters.
  * Returns a Map of cluster_id -> places array for clusters that have cached data.
- * Clusters not in the cache are not included in the result.
+ *
+ * Lookup is two-tier: an exact cluster_id match first, then a fallback to the
+ * cluster's physical location_key. The location fallback means a manual split or
+ * re-segmentation that mints a new cluster_id still reuses the prior result for
+ * the same physical spot instead of re-buying it from Google.
+ *
+ * Accepts either ClusterCacheRef objects (preferred) or bare cluster-id strings
+ * (id-only lookup, for callers without centroid data).
  */
 export async function getCachedSuggestions(
-  clusterIds: string[]
+  clusters: ClusterCacheRef[] | string[]
 ): Promise<Map<string, CachedPlaceSuggestion['places']>> {
-  if (clusterIds.length === 0) return new Map();
+  if (clusters.length === 0) return new Map();
+
+  // Normalize input: bare strings become id-only refs (no location fallback).
+  const refs: ClusterCacheRef[] =
+    typeof clusters[0] === 'string'
+      ? (clusters as string[]).map((id) => ({ id, locationKey: '' }))
+      : (clusters as ClusterCacheRef[]);
 
   const database = await getDb();
   const result = new Map<string, CachedPlaceSuggestion['places']>();
+  const now = Date.now();
 
-  // Batch size must stay under SQLITE_PARAM_LIMIT (999)
   const BATCH_SIZE = Math.min(100, SQLITE_PARAM_LIMIT);
-  for (let i = 0; i < clusterIds.length; i += BATCH_SIZE) {
-    const batch = clusterIds.slice(i, i + BATCH_SIZE);
+
+  // Tier 1: exact cluster_id match.
+  const ids = refs.map((r) => r.id);
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
     const placeholders = batch.map(() => '?').join(',');
     const rows = await database.getAllAsync<{
       cluster_id: string;
@@ -121,27 +192,57 @@ export async function getCachedSuggestions(
       `SELECT cluster_id, suggestions_json, cached_at FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
       batch
     );
-
-    const now = Date.now();
     for (const row of rows) {
-      try {
-        const places = JSON.parse(row.suggestions_json);
-        // Empty suggestions expire after TTL so transient failures get retried
-        if (Array.isArray(places) && places.length === 0) {
-          const age = now - (row.cached_at ?? 0);
-          if (age > EMPTY_SUGGESTION_TTL_MS) {
-            if (__DEV__) {
-              console.log(`[PhotoCache] Expired empty cache for cluster ${row.cluster_id}`);
-            }
-            continue;
-          }
-        }
-        result.set(row.cluster_id, places);
-      } catch {
-        // Skip invalid JSON entries
-        if (__DEV__) {
-          console.warn(`[PhotoCache] Invalid JSON for cluster ${row.cluster_id}`);
-        }
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `cluster ${row.cluster_id}`
+      );
+      if (places !== null) result.set(row.cluster_id, places);
+    }
+  }
+
+  // Tier 2: location_key fallback for clusters that missed the id lookup.
+  const unresolved = refs.filter((r) => r.locationKey && !result.has(r.id));
+  if (unresolved.length === 0) return result;
+
+  // Map each location_key back to the cluster id(s) waiting on it.
+  const keyToIds = new Map<string, string[]>();
+  for (const ref of unresolved) {
+    const list = keyToIds.get(ref.locationKey) ?? [];
+    list.push(ref.id);
+    keyToIds.set(ref.locationKey, list);
+  }
+
+  const keys = [...keyToIds.keys()];
+  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+    const batch = keys.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    // Pick the most recent entry per location_key.
+    const rows = await database.getAllAsync<{
+      location_key: string;
+      suggestions_json: string;
+      cached_at: number;
+    }>(
+      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+       WHERE location_key IN (${placeholders})
+       ORDER BY cached_at DESC`,
+      batch
+    );
+    const seenKeys = new Set<string>();
+    for (const row of rows) {
+      if (seenKeys.has(row.location_key)) continue; // keep newest per key
+      seenKeys.add(row.location_key);
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `location ${row.location_key}`
+      );
+      if (places === null) continue;
+      for (const id of keyToIds.get(row.location_key) ?? []) {
+        if (!result.has(id)) result.set(id, places);
       }
     }
   }
@@ -164,11 +265,16 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
   await database.withTransactionAsync(async () => {
     for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
       const batch = suggestions.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((s) => [s.cluster_id, JSON.stringify(s.places), now]);
+      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+      const values = batch.flatMap((s) => [
+        s.cluster_id,
+        JSON.stringify(s.places),
+        now,
+        s.location_key ?? null,
+      ]);
 
       await database.runAsync(
-        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at) VALUES ${placeholders}`,
+        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
         values
       );
     }

@@ -42,7 +42,7 @@ function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
 }
 
 const DB_NAME = 'photos.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * SQLite has a default limit of 999 bound parameters per query.
@@ -154,7 +154,8 @@ async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS cached_place_suggestions (
       cluster_id TEXT PRIMARY KEY NOT NULL,
       suggestions_json TEXT NOT NULL,
-      cached_at INTEGER NOT NULL
+      cached_at INTEGER NOT NULL,
+      location_key TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cached_trip_segments (
@@ -190,8 +191,38 @@ async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_saved_cluster_photos_cluster ON saved_cluster_photos(cluster_id);
   `);
 
+  // Migrate pre-existing databases (CREATE TABLE IF NOT EXISTS does not alter an
+  // already-created table). location_key lets suggestion lookups fall back to the
+  // physical spot when a re-segmented/split cluster mints a new cluster_id.
+  await addColumnIfMissing('cached_place_suggestions', 'location_key', 'TEXT');
+  await db.execAsync(
+    'CREATE INDEX IF NOT EXISTS idx_cached_suggestions_location ON cached_place_suggestions(location_key);'
+  );
+
   // Store schema version for future migrations
   await setMetadata('schema_version', SCHEMA_VERSION.toString());
+}
+
+/**
+ * Add a column to an existing table if it isn't already present.
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`; attempt the ALTER and swallow the
+ * "duplicate column name" error when the column already exists. (Avoids an extra
+ * PRAGMA read so callers' query-call ordering is unaffected.)
+ */
+async function addColumnIfMissing(
+  table: string,
+  column: string,
+  definition: string
+): Promise<void> {
+  if (!db) return;
+  try {
+    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate column name/i.test(message)) {
+      throw error;
+    }
+  }
 }
 
 /**
