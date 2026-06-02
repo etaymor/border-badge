@@ -36,6 +36,46 @@ class TestGetPlaceDetailsByIdCache:
         mock_http.assert_not_called()  # cache hit must not touch the network
 
     @pytest.mark.asyncio
+    async def test_partial_rating_only_entry_does_not_short_circuit(self) -> None:
+        """A rating-only enrichment entry (no name/address) must not be returned.
+
+        The photo-import finalist enrichment writes rating-only entries into the
+        same by-ID cache table; social ingest needs the full detail shape, so a
+        partial entry must fall through to a real fetch instead of returning a
+        place with no name/address.
+        """
+        partial = {"rating": 4.5, "userRatingCount": 120}  # no place_id/name
+        api_payload = {
+            "id": "abc",
+            "displayName": {"text": "Full Cafe"},
+            "formattedAddress": "1 Main St",
+            "location": {"latitude": 1.0, "longitude": 2.0},
+            "addressComponents": [],
+            "primaryType": "cafe",
+            "types": ["cafe"],
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = api_payload
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(
+                f"{CLIENT}.get_place_details_cache",
+                new=AsyncMock(return_value=partial),
+            ),
+            patch(f"{CLIENT}.set_place_details_cache", new=AsyncMock()),
+            patch(f"{CLIENT}.get_http_client", return_value=mock_client),
+        ):
+            result = await get_place_details("abc")
+
+        mock_client.get.assert_awaited_once()  # partial entry → real fetch
+        assert result is not None
+        assert result["name"] == "Full Cafe"
+
+    @pytest.mark.asyncio
     async def test_cache_miss_calls_api_and_writes_through(self) -> None:
         api_payload = {
             "id": "abc",
@@ -69,6 +109,45 @@ class TestGetPlaceDetailsByIdCache:
         mock_client.get.assert_awaited_once()  # cache miss hits the API
         set_cache.assert_awaited_once()  # and writes the result through to L2
         assert set_cache.call_args[0][0] == "abc"
+
+    @pytest.mark.asyncio
+    async def test_details_field_mask_omits_website(self) -> None:
+        """websiteUri is never surfaced/saved, so it must not be requested.
+
+        Dropping it keeps the Place Details call on a cheaper SKU. The result
+        dict no longer carries a ``website`` key either.
+        """
+        api_payload = {
+            "id": "abc",
+            "displayName": {"text": "Fresh Cafe"},
+            "formattedAddress": "1 Main St",
+            "location": {"latitude": 1.0, "longitude": 2.0},
+            "addressComponents": [],
+            "primaryType": "cafe",
+            "types": ["cafe"],
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = api_payload
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(
+                f"{CLIENT}.get_place_details_cache",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(f"{CLIENT}.set_place_details_cache", new=AsyncMock()),
+            patch(f"{CLIENT}.get_http_client", return_value=mock_client),
+        ):
+            result = await get_place_details("abc")
+
+        mask = mock_client.get.call_args.kwargs["headers"]["X-Goog-FieldMask"]
+        assert "websiteUri" not in mask
+        assert "displayName" in mask  # other fields still requested
+        assert result is not None
+        assert "website" not in result
 
 
 class TestCleanInstagramProfileName:

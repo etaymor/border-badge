@@ -1111,7 +1111,12 @@ class TestQualityFiltering:
             assert len(filtered) == 1, f"Institutional type '{inst_type}' should pass"
 
     def test_handles_missing_fields_gracefully(self, matcher) -> None:
-        """Test that places with missing optional fields are handled."""
+        """Test that places with missing optional fields are handled.
+
+        With the two-pass field mask (U3), the WIDE search omits rating fields,
+        so a place without ``userRatingCount`` skips the review-count gate (the
+        gate is re-applied after the finalist is enriched). Both places pass.
+        """
         places = [
             {
                 "id": "place-1",
@@ -1128,10 +1133,9 @@ class TestQualityFiltering:
 
         filtered = matcher._filter_low_quality_places(places)
 
-        # place-1: No reviews (0) and not institutional -> filtered out
-        # place-2: No reviews but institutional type -> passes
-        assert len(filtered) == 1
-        assert filtered[0]["id"] == "place-2"
+        # Both pass: review-count gate is skipped when userRatingCount is absent.
+        assert len(filtered) == 2
+        assert {p["id"] for p in filtered} == {"place-1", "place-2"}
 
 
 class TestQualityRanking:
@@ -2087,3 +2091,331 @@ class TestVisionRanking:
             f"expected <= 5 (semaphore limit). "
             f"Text searches are bypassing the concurrency semaphore."
         )
+
+
+# ============================================================================
+# Two-Pass Field Mask Tests (U3)
+# ============================================================================
+
+
+class TestWideSearchFieldMask:
+    """The bulk Nearby/Text Search must use the cheap WIDE mask (no rating)."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_nearby_search_omits_rating_fields(self, matcher) -> None:
+        """Nearby Search must not request rating/userRatingCount (Enterprise SKU)."""
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+        captured = {}
+
+        async def mock_post(*args, **kwargs):
+            captured["mask"] = kwargs["headers"]["X-Goog-FieldMask"]
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"places": []}
+            return mock_response
+
+        matcher._client.post = mock_post
+        await matcher._execute_search(35.0, 139.0, 30.0)
+        await places_cache.clear()
+
+        mask = captured["mask"]
+        assert "rating" not in mask
+        assert "userRatingCount" not in mask
+        # businessStatus must remain so the closed-permanently filter works.
+        assert "businessStatus" in mask
+        assert "places.id" in mask
+
+    @pytest.mark.asyncio
+    async def test_text_search_omits_rating_fields(self, matcher) -> None:
+        """Text Search must not request rating/userRatingCount either."""
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+        captured = {}
+
+        async def mock_post(*args, **kwargs):
+            captured["mask"] = kwargs["headers"]["X-Goog-FieldMask"]
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"places": []}
+            return mock_response
+
+        matcher._client.post = mock_post
+        await matcher._execute_text_search("Sushi Dai", 35.0, 139.0)
+        await places_cache.clear()
+
+        mask = captured["mask"]
+        assert "rating" not in mask
+        assert "userRatingCount" not in mask
+
+
+class TestQualityFilterRatingGate:
+    """The review-count gate applies only when userRatingCount is present."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    def test_review_gate_skipped_when_rating_absent(self, matcher) -> None:
+        """A wide-pass place (no userRatingCount) is kept despite no review data."""
+        places = [
+            {
+                "id": "wide-1",
+                "displayName": {"text": "Cafe From Wide Search"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "businessStatus": "OPERATIONAL",
+                # No userRatingCount -> review gate skipped
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "wide-1"
+
+    def test_review_gate_applied_when_rating_present(self, matcher) -> None:
+        """A place that carries userRatingCount is still gated as before."""
+        places = [
+            {
+                "id": "low",
+                "displayName": {"text": "Few Reviews"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "userRatingCount": MIN_REVIEW_COUNT - 1,
+            },
+            {
+                "id": "ok",
+                "displayName": {"text": "Enough Reviews"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "userRatingCount": MIN_REVIEW_COUNT,
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert {p["id"] for p in filtered} == {"ok"}
+
+    def test_other_gates_still_apply_without_rating(self, matcher) -> None:
+        """Non-tourist / closed / unnamed places are still dropped in wide pass."""
+        places = [
+            {
+                "id": "gas",
+                "displayName": {"text": "Shell"},
+                "primaryType": "gas_station",
+                "types": ["gas_station"],
+                "businessStatus": "OPERATIONAL",
+            },
+            {
+                "id": "closed",
+                "displayName": {"text": "Old Cafe"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "businessStatus": "CLOSED_PERMANENTLY",
+            },
+            {
+                "id": "noname",
+                "displayName": {"text": ""},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+            },
+            {
+                "id": "good",
+                "displayName": {"text": "Nice Cafe"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert {p["id"] for p in filtered} == {"good"}
+
+
+class TestFinalistEnrichment:
+    """Enrichment fetches rating only for finalists, merges, and re-ranks."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_enrich_place_ratings_returns_mask_and_values(
+        self, matcher, monkeypatch
+    ) -> None:
+        """_enrich_place_ratings uses the ENRICH mask and returns rating values."""
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_search.get_place_details_cache",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_search.set_place_details_cache",
+            AsyncMock(return_value=None),
+        )
+        captured = {}
+
+        async def mock_get(url, *args, **kwargs):
+            captured["mask"] = kwargs["headers"]["X-Goog-FieldMask"]
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "id": url.rsplit("/", 1)[-1],
+                "rating": 4.6,
+                "userRatingCount": 321,
+            }
+            return mock_response
+
+        matcher._client.get = mock_get
+
+        result = await matcher._enrich_place_ratings(["place-a"])
+
+        assert captured["mask"] == "id,rating,userRatingCount"
+        assert result == {"place-a": {"rating": 4.6, "userRatingCount": 321}}
+
+    @pytest.mark.asyncio
+    async def test_enrich_uses_by_id_cache_without_http(
+        self, matcher, monkeypatch
+    ) -> None:
+        """A cached place with rating must not trigger a Place Details HTTP call."""
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_search.get_place_details_cache",
+            AsyncMock(return_value={"rating": 4.1, "userRatingCount": 99}),
+        )
+        http_get = AsyncMock()
+        matcher._client.get = http_get
+
+        result = await matcher._enrich_place_ratings(["cached-1"])
+
+        assert result == {"cached-1": {"rating": 4.1, "userRatingCount": 99}}
+        http_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_enrichment_merges_rating_and_reranks(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Finalists are enriched with rating, then re-ranked on that signal.
+
+        Two equidistant restaurants: the wide search carries no rating, so the
+        first pass cannot separate them. After enrichment, the higher-rated /
+        more-reviewed place must surface first.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        # Both at the same location, no rating fields (wide-pass shape).
+        wide_places = [
+            {
+                "id": "meh",
+                "displayName": {"text": "Meh Diner"},
+                "formattedAddress": "1 St",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "businessStatus": "OPERATIONAL",
+            },
+            {
+                "id": "great",
+                "displayName": {"text": "Great Diner"},
+                "formattedAddress": "2 St",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return wide_places, 15
+
+        async def mock_enrich(place_ids):
+            return {
+                "meh": {"rating": 3.6, "userRatingCount": 8},
+                "great": {"rating": 4.8, "userRatingCount": 5000},
+            }
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        assert place_ids[0] == "great"
+        assert set(place_ids) == {"great", "meh"}
+
+    @pytest.mark.asyncio
+    async def test_enrichment_failure_degrades_to_first_pass(
+        self, matcher, monkeypatch
+    ) -> None:
+        """If enrichment raises, the un-enriched first-pass ranking is returned."""
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        wide_places = [
+            {
+                "id": "close",
+                "displayName": {"text": "Close Cafe"},
+                "formattedAddress": "1 St",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return wide_places, 15
+
+        async def boom(place_ids):
+            raise RuntimeError("enrichment down")
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", boom)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        # No crash; first-pass suggestion is still returned.
+        assert failed == 0
+        assert len(results) == 1
+        assert results[0]["places"][0]["place_id"] == "close"

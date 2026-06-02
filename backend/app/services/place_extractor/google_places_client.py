@@ -184,8 +184,14 @@ async def get_place_details(place_id: str) -> dict | None:
     # Consult the cross-user persistent by-ID cache before paying for a call.
     # Place metadata is stable, so a cached hit avoids an Enterprise-tier
     # Place Details call entirely (shared across users and deploys).
+    #
+    # The same table is also written with rating-only enrichment entries by the
+    # photo-import finalist enrichment (see place_matcher._enrich_place_ratings),
+    # which omit name/address. Only trust a cached entry that carries the full
+    # social-ingest detail shape; otherwise fall through to a real fetch (which
+    # overwrites the partial entry with full details).
     cached = await get_place_details_cache(place_id)
-    if cached is not None:
+    if cached is not None and cached.get("place_id") and cached.get("name"):
         logger.debug(f"places_details_cache_hit: place_id={place_id}")
         return cached
 
@@ -201,7 +207,10 @@ async def get_place_details(place_id: str) -> dict | None:
             url,
             headers={
                 "X-Goog-Api-Key": settings.google_places_api_key,
-                "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri,primaryType,types",
+                # websiteUri dropped: it is never surfaced/saved downstream (the
+                # DetectedPlace built from this result has no website field), and
+                # requesting it pushed this Place Details call to a pricier SKU.
+                "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,primaryType,types",
             },
             timeout=API_TIMEOUT_SECONDS,
         )
@@ -246,7 +255,6 @@ async def get_place_details(place_id: str) -> dict | None:
             "city": city,
             "country": country,
             "country_code": country_code,
-            "website": data.get("websiteUri"),
             "photos": data.get("photos", []),
             "primary_type": primary_type,
             "types": types,

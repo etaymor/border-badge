@@ -14,6 +14,8 @@ MAX_ADDRESS_LENGTH = 500
 # Google Places API endpoints (New API v1)
 NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+# Place Details base; append "/{place_id}" to fetch a single place.
+PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places"
 
 # Configuration
 SEARCH_RADII_METERS = [
@@ -326,8 +328,17 @@ INSTITUTIONAL_TYPES: set[str] = {
     "stadium",
 }
 
-# Field mask for Places API - includes quality signals for filtering
-FIELD_MASK = ",".join(
+# Field mask for the WIDE Nearby/Text Search pass.
+#
+# Cost: the New Places API bills the WHOLE call at the most expensive tier of any
+# requested field. ``rating``/``userRatingCount`` are Enterprise-tier ($35/1k),
+# so requesting them on the bulk multi-tier search (up to 4 calls/cluster) forced
+# every Nearby/Text Search to the Enterprise SKU. Dropping them keeps the wide
+# pass at the Pro tier ($32/1k, with the monthly free cap at 5,000 instead of
+# 1,000). ``businessStatus`` stays so the permanently-closed filter still works.
+#
+# The rating signals ride only on the handful of finalists via ENRICH_FIELD_MASK.
+WIDE_FIELD_MASK = ",".join(
     [
         "places.id",
         "places.displayName",
@@ -335,9 +346,15 @@ FIELD_MASK = ",".join(
         "places.location",
         "places.types",
         "places.primaryType",
-        # Quality signals for filtering
-        "places.rating",
-        "places.userRatingCount",
         "places.businessStatus",
     ]
 )
+
+# Place Details field mask used to enrich the top finalists with the live rating
+# signals the ranking needs. Requested per-place only for surfaced candidates.
+ENRICH_FIELD_MASK = "id,rating,userRatingCount"
+
+# Backwards-compatible alias. Historically the wide search requested rating
+# signals under this name; the enrichment pass now carries those. Kept so any
+# external importer (and the package ``__init__`` export) still resolves.
+FIELD_MASK = WIDE_FIELD_MASK

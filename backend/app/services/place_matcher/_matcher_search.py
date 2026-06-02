@@ -1,5 +1,6 @@
 """Search and filtering logic for PlaceMatcher."""
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -17,19 +18,27 @@ from .constants import (
     DENSITY_SEARCH_RADII,
     DENSITY_THRESHOLD_DENSE,
     DENSITY_THRESHOLD_MEDIUM,
-    FIELD_MASK,
+    ENRICH_FIELD_MASK,
     INSTITUTIONAL_TYPES,
+    MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACES_PER_SEARCH,
     MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
     NON_TOURIST_TYPES,
+    PLACE_DETAILS_URL,
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
     TEXT_SEARCH_URL,
+    WIDE_FIELD_MASK,
     DensityLevel,
 )
 from .exceptions import ConfigurationError, QuotaExhaustedError, RateLimitError
-from .persistent_cache import get_search_cache, set_search_cache
+from .persistent_cache import (
+    get_place_details_cache,
+    get_search_cache,
+    set_place_details_cache,
+    set_search_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +182,7 @@ class SearchMixin:
                 headers={
                     "Content-Type": "application/json",
                     "X-Goog-Api-Key": self._settings.google_places_api_key,
-                    "X-Goog-FieldMask": FIELD_MASK,
+                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
                 },
             )
 
@@ -285,7 +294,7 @@ class SearchMixin:
                 headers={
                     "Content-Type": "application/json",
                     "X-Goog-Api-Key": self._settings.google_places_api_key,
-                    "X-Goog-FieldMask": FIELD_MASK,
+                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
                 },
             )
 
@@ -313,6 +322,87 @@ class SearchMixin:
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
             return []
+
+    async def _enrich_place_ratings(
+        self,
+        place_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch live rating signals for a small set of finalist place IDs.
+
+        The WIDE Nearby/Text Search omits ``rating``/``userRatingCount`` to keep
+        that bulk call off the Enterprise SKU. The ranking still needs those
+        signals for the handful of candidates that surface to the user, so they
+        are fetched here via per-place Place Details calls — only for finalists.
+
+        Best-effort: a failed or empty lookup is simply omitted from the result
+        so the caller can fall back to the un-enriched first-pass ranking. The
+        cross-user persistent by-ID cache is consulted first so a finalist that
+        was enriched before (any user/deploy) costs nothing.
+
+        Args:
+            place_ids: Distinct Google place IDs to enrich.
+
+        Returns:
+            Mapping of place_id -> {"rating": float, "userRatingCount": int} for
+            every ID that resolved. IDs that failed/missing are omitted.
+        """
+        if not self._settings.google_places_api_key or not place_ids:
+            return {}
+
+        # Bound concurrency to the same limit as the wide searches so a deep
+        # finalist set never bursts past the API rate limit.
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
+
+        async def fetch_one(place_id: str) -> tuple[str, dict[str, Any]] | None:
+            # Persistent by-ID cache stores full Place Details dicts; reuse the
+            # rating fields when present to avoid a paid call.
+            cached = await get_place_details_cache(place_id)
+            if cached is not None and cached.get("userRatingCount") is not None:
+                return place_id, {
+                    "rating": cached.get("rating"),
+                    "userRatingCount": cached.get("userRatingCount"),
+                }
+
+            async with semaphore:
+                try:
+                    response = await self._client.get(
+                        f"{PLACE_DETAILS_URL}/{place_id}",
+                        headers={
+                            "X-Goog-Api-Key": self._settings.google_places_api_key,
+                            "X-Goog-FieldMask": ENRICH_FIELD_MASK,
+                        },
+                    )
+                except (httpx.TimeoutException, httpx.RequestError) as e:
+                    logger.warning(f"Rating enrichment failed for {place_id}: {e}")
+                    return None
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"Rating enrichment error for {place_id}: "
+                    f"status={response.status_code}"
+                )
+                return None
+
+            data = response.json()
+            ratings = {
+                "rating": data.get("rating"),
+                "userRatingCount": data.get("userRatingCount"),
+            }
+            # Write rating fields through to the persistent by-ID cache so future
+            # enrichments of this place (any user/deploy) skip the paid call.
+            await set_place_details_cache(place_id, {**(cached or {}), **ratings})
+            return place_id, ratings
+
+        results = await asyncio.gather(
+            *[fetch_one(pid) for pid in place_ids],
+            return_exceptions=True,
+        )
+
+        enriched: dict[str, dict[str, Any]] = {}
+        for r in results:
+            if isinstance(r, tuple):
+                enriched[r[0]] = r[1]
+        return enriched
 
     @staticmethod
     def _parse_error_reason(response: httpx.Response) -> str | None:
@@ -368,6 +458,13 @@ class SearchMixin:
         - Has a non-empty display name
         - Has at least MIN_REVIEW_COUNT reviews (or is institutional)
 
+        The review-count gate only applies when ``userRatingCount`` is present.
+        The WIDE search pass omits rating fields (cost: they would force the
+        Enterprise SKU), so those places have no review count yet and skip this
+        gate here — it is re-applied after the finalists are enriched. Places that
+        DO carry ``userRatingCount`` (enriched results, unit tests) are gated
+        exactly as before.
+
         Args:
             places: Raw places from API response
 
@@ -379,6 +476,7 @@ class SearchMixin:
         for place in places:
             display_name = place.get("displayName", {})
             name = display_name.get("text", "").strip()
+            has_rating_count = place.get("userRatingCount") is not None
             rating_count = place.get("userRatingCount", 0) or 0
             business_status = place.get("businessStatus", "OPERATIONAL")
             primary_type = place.get("primaryType", "unknown")
@@ -399,9 +497,15 @@ class SearchMixin:
                 logger.debug(f"Filtered (no name): place_id={place.get('id')}")
                 continue
 
-            # Must have enough reviews OR be an institutional type
+            # Must have enough reviews OR be an institutional type.
+            # Skipped when the rating count is absent (wide pass) — deferred until
+            # the finalist is enriched with live rating signals.
             is_institutional = primary_type in INSTITUTIONAL_TYPES
-            if rating_count < MIN_REVIEW_COUNT and not is_institutional:
+            if (
+                has_rating_count
+                and rating_count < MIN_REVIEW_COUNT
+                and not is_institutional
+            ):
                 logger.debug(
                     f"Filtered (low reviews): {name} | type={primary_type} | "
                     f"reviews={rating_count} < {MIN_REVIEW_COUNT}"

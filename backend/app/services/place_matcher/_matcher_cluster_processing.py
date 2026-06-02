@@ -173,8 +173,13 @@ class ClusterProcessingMixin:
                 if isinstance(tr, tuple):
                     text_search_map[tr[0]] = tr[1]
 
-        # Rank and build suggestions with vision data + text search
-        successful = []
+        # First pass: rank each cluster on signals that don't need a live rating
+        # (distance + vision + dwell/time-hint + closed/type filtering), then take
+        # the top finalists. Only those finalists get enriched with the expensive
+        # rating signals — the wide search deliberately omitted them.
+        per_cluster_merged: dict[str, list[dict]] = {}
+        per_cluster_finalists: dict[str, list[dict]] = {}
+        finalist_ids: set[str] = set()
 
         for cluster, places, _radius_used in search_results:
             cluster_id = cluster["id"]
@@ -190,17 +195,56 @@ class ClusterProcessingMixin:
                 ]
             else:
                 merged = places
+            per_cluster_merged[cluster_id] = merged
 
-            ranked_places = self._rank_by_distance(
+            first_pass = self._rank_by_distance(
                 places=merged,
                 cluster=cluster,
                 time_hint=cluster.get("time_hint"),
                 vision_result=vision_result,
             )
+            finalists = first_pass[:MAX_SUGGESTIONS_PER_CLUSTER]
+            per_cluster_finalists[cluster_id] = finalists
+            finalist_ids.update(p["place_id"] for p in finalists)
 
-            suggestions = (
-                ranked_places[:MAX_SUGGESTIONS_PER_CLUSTER] if ranked_places else []
-            )
+        # Enrich only the surfaced finalists with rating/userRatingCount, then
+        # re-rank so the rating/Bayesian/fame signals take effect on that set.
+        # Best-effort: on failure we keep the un-enriched first-pass order.
+        enriched_ratings: dict[str, dict[str, Any]] = {}
+        if finalist_ids:
+            try:
+                enriched_ratings = await self._enrich_place_ratings(list(finalist_ids))
+            except Exception as e:  # never crash the request on enrichment
+                logger.warning(f"Rating enrichment unavailable: {e}")
+                enriched_ratings = {}
+
+        # Rank and build suggestions with vision data + text search
+        successful = []
+
+        for cluster, _places, _radius_used in search_results:
+            cluster_id = cluster["id"]
+            vision_result = vision_map.get(cluster_id)
+            finalists = per_cluster_finalists.get(cluster_id, [])
+
+            if enriched_ratings:
+                # Merge live ratings back onto the original merged place dicts for
+                # just the finalists, then re-rank that small enriched set.
+                finalist_place_ids = {p["place_id"] for p in finalists}
+                enriched_places = [
+                    {**p, **enriched_ratings.get(p["id"], {})}
+                    for p in per_cluster_merged.get(cluster_id, [])
+                    if p["id"] in finalist_place_ids
+                ]
+                reranked = self._rank_by_distance(
+                    places=enriched_places,
+                    cluster=cluster,
+                    time_hint=cluster.get("time_hint"),
+                    vision_result=vision_result,
+                )
+                suggestions = reranked or finalists
+            else:
+                suggestions = finalists
+
             logger.info(
                 f"Cluster {cluster_id}: returning {len(suggestions)} suggestions"
                 + (f", top={suggestions[0]['name']}" if suggestions else "")
