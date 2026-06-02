@@ -29,8 +29,19 @@ from .constants import (
     DensityLevel,
 )
 from .exceptions import ConfigurationError, QuotaExhaustedError, RateLimitError
+from .persistent_cache import get_search_cache, set_search_cache
 
 logger = logging.getLogger(__name__)
+
+
+def _type_set_hash(types: list[str]) -> str:
+    """Short, order-independent hash of an included-type set for cache keys.
+
+    Two searches with the same set of ``includedTypes`` (regardless of order)
+    share a cache entry; a narrowed set gets its own entry.
+    """
+    canonical = ",".join(sorted(types))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:8]
 
 
 class SearchMixin:
@@ -129,7 +140,12 @@ class SearchMixin:
             logger.error("Google Places API key not configured")
             raise ConfigurationError("Google Places API key not configured")
 
-        cache_key = places_cache.get_cache_key(latitude, longitude, int(radius))
+        cache_key = places_cache.get_cache_key(
+            latitude,
+            longitude,
+            int(radius),
+            type_set_hash=_type_set_hash(SEARCHABLE_PLACE_TYPES),
+        )
 
         async def fetch_from_api() -> list[dict]:
             """Fetch places from Google Places API."""
@@ -191,8 +207,15 @@ class SearchMixin:
             return places
 
         try:
-            # Use single-flight pattern to prevent cache stampedes
-            return await places_cache.get_or_fetch(cache_key, fetch_from_api)
+            # Use single-flight pattern to prevent cache stampedes.
+            # Persistent L2 (Postgres) sits behind the in-memory L1 so popular
+            # locations survive deploys and are shared across instances/users.
+            return await places_cache.get_or_fetch(
+                cache_key,
+                fetch_from_api,
+                l2_get=get_search_cache,
+                l2_set=set_search_cache,
+            )
 
         except httpx.TimeoutException:
             # Never log coordinates (PII) - use hash for debugging
@@ -273,7 +296,12 @@ class SearchMixin:
             return places
 
         try:
-            return await places_cache.get_or_fetch(cache_key, fetch_from_api)
+            return await places_cache.get_or_fetch(
+                cache_key,
+                fetch_from_api,
+                l2_get=get_search_cache,
+                l2_set=set_search_cache,
+            )
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
             return []

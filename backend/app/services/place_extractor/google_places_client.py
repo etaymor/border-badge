@@ -12,6 +12,10 @@ from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.services.place_extractor.data import MAJOR_CITIES
 from app.services.place_extractor.location_hints import LocationHint
+from app.services.place_matcher.persistent_cache import (
+    get_place_details_cache,
+    set_place_details_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +181,14 @@ async def get_place_details(place_id: str) -> dict | None:
     if not is_configured():
         return None
 
+    # Consult the cross-user persistent by-ID cache before paying for a call.
+    # Place metadata is stable, so a cached hit avoids an Enterprise-tier
+    # Place Details call entirely (shared across users and deploys).
+    cached = await get_place_details_cache(place_id)
+    if cached is not None:
+        logger.debug(f"places_details_cache_hit: place_id={place_id}")
+        return cached
+
     settings = get_settings()
     url = f"{PLACES_DETAILS_URL}/{place_id}"
     logger.info(f"PLACES DETAILS: fetching {url}")
@@ -243,6 +255,12 @@ async def get_place_details(place_id: str) -> dict | None:
         logger.info(
             f"PLACES DETAILS SUCCESS: {result['name']}, country={country_code}, primary_type={primary_type}"
         )
+
+        # Write-through to the persistent by-ID cache so future resolutions of
+        # this place (any user, any deploy) skip the Place Details call.
+        resolved_id = result.get("place_id")
+        if resolved_id:
+            await set_place_details_cache(resolved_id, result)
 
         return result
 

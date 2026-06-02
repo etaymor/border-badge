@@ -1,7 +1,7 @@
 """Tests for place extractor service."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -11,6 +11,64 @@ from app.services.place_extractor import (
     extract_place_from_profile,
 )
 from app.services.place_extractor.extractor import _extract_place_impl
+from app.services.place_extractor.google_places_client import get_place_details
+
+CLIENT = "app.services.place_extractor.google_places_client"
+
+
+class TestGetPlaceDetailsByIdCache:
+    """The persistent by-ID cache must short-circuit the Place Details call."""
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_http_call(self) -> None:
+        cached = {"place_id": "abc", "name": "Cached Cafe"}
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(
+                f"{CLIENT}.get_place_details_cache",
+                new=AsyncMock(return_value=cached),
+            ),
+            patch(f"{CLIENT}.get_http_client") as mock_http,
+        ):
+            result = await get_place_details("abc")
+
+        assert result == cached
+        mock_http.assert_not_called()  # cache hit must not touch the network
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_calls_api_and_writes_through(self) -> None:
+        api_payload = {
+            "id": "abc",
+            "displayName": {"text": "Fresh Cafe"},
+            "formattedAddress": "1 Main St",
+            "location": {"latitude": 1.0, "longitude": 2.0},
+            "addressComponents": [],
+            "primaryType": "cafe",
+            "types": ["cafe"],
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = api_payload
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        set_cache = AsyncMock()
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(
+                f"{CLIENT}.get_place_details_cache",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(f"{CLIENT}.set_place_details_cache", new=set_cache),
+            patch(f"{CLIENT}.get_http_client", return_value=mock_client),
+        ):
+            result = await get_place_details("abc")
+
+        assert result is not None
+        assert result["name"] == "Fresh Cafe"
+        mock_client.get.assert_awaited_once()  # cache miss hits the API
+        set_cache.assert_awaited_once()  # and writes the result through to L2
+        assert set_cache.call_args[0][0] == "abc"
 
 
 class TestCleanInstagramProfileName:

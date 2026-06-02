@@ -353,7 +353,23 @@ class TestPlacesCacheCacheKeyGeneration:
 
         # Both should produce same key due to truncation to 5 decimal places
         assert key1 == key2
-        assert key1 == "35.67891_139.65032_30"
+        assert key1 == "nearby_35.67891_139.65032_30"
+
+    def test_get_cache_key_type_set_hash_disambiguates(self) -> None:
+        """Different included-type sets must produce different keys.
+
+        A narrowed search must never return a wider search's cached result.
+        """
+        cache = PlacesCache()
+
+        key_no_hash = cache.get_cache_key(35.67891, 139.65032, 30)
+        key_hash_a = cache.get_cache_key(35.67891, 139.65032, 30, "aaaa")
+        key_hash_b = cache.get_cache_key(35.67891, 139.65032, 30, "bbbb")
+
+        assert key_no_hash == "nearby_35.67891_139.65032_30"
+        assert key_hash_a == "nearby_35.67891_139.65032_30_aaaa"
+        assert key_hash_a != key_hash_b
+        assert key_hash_a != key_no_hash
 
     def test_get_cache_key_includes_radius(self) -> None:
         """Test that different radii produce different keys."""

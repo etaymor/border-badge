@@ -1,7 +1,14 @@
-"""In-memory LRU cache for Google Places API responses."""
+"""In-memory LRU cache for Google Places API responses.
+
+This is the fast L1 layer. An optional Postgres L2 (``persistent_cache``) sits
+behind it via the ``l2_get``/``l2_set`` hooks on :meth:`PlacesCache.get_or_fetch`,
+so a cold L1 (e.g. just after a deploy) still resolves popular locations from our
+DB instead of re-buying them from Google.
+"""
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 
@@ -36,22 +43,34 @@ class PlacesCache:
         # Single-flight pattern: track in-flight requests to prevent stampedes
         self._in_flight: dict[str, asyncio.Future[list[dict]]] = {}
 
-    def get_cache_key(self, lat: float, lng: float, radius: int) -> str:
+    def get_cache_key(
+        self,
+        lat: float,
+        lng: float,
+        radius: int,
+        type_set_hash: str | None = None,
+    ) -> str:
         """
-        Generate a cache key from coordinates and radius.
+        Generate a cache key from coordinates, radius, and the searched type set.
 
         Truncates to 5 decimal places (~1.1m precision) to match input coordinate
         precision and avoid returning wrong places for nearby-but-different locations.
+
+        The ``type_set_hash`` disambiguates searches that differ only by their
+        ``includedTypes`` (e.g. when the type list is narrowed per cluster), so a
+        narrowed search never returns a wider search's cached result.
 
         Args:
             lat: Latitude
             lng: Longitude
             radius: Search radius in meters
+            type_set_hash: Optional short hash of the searched ``includedTypes`` set
 
         Returns:
             Cache key string
         """
-        return f"{round(lat, 5)}_{round(lng, 5)}_{radius}"
+        base = f"nearby_{round(lat, 5)}_{round(lng, 5)}_{radius}"
+        return f"{base}_{type_set_hash}" if type_set_hash else base
 
     async def get(self, key: str) -> list[dict] | None:
         """
@@ -107,7 +126,14 @@ class PlacesCache:
         """Return the number of cached entries."""
         return len(self._cache)
 
-    async def get_or_fetch(self, key: str, fetch_fn: Any) -> list[dict]:
+    async def get_or_fetch(
+        self,
+        key: str,
+        fetch_fn: Any,
+        *,
+        l2_get: Callable[[str], Awaitable[list[dict] | None]] | None = None,
+        l2_set: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+    ) -> list[dict]:
         """
         Get cached result or fetch using provided function (single-flight pattern).
 
@@ -115,9 +141,19 @@ class PlacesCache:
         If a request is already in-flight for the same key, subsequent callers
         wait for that result instead of making duplicate API calls.
 
+        An optional persistent L2 cache sits between L1 and ``fetch_fn``: the owner
+        of a fresh request consults ``l2_get`` before calling ``fetch_fn``, and
+        writes a freshly fetched result back via ``l2_set``. L2 is consulted only
+        by the single-flight owner (waiters share the owner's result), so it is
+        never stampeded.
+
         Args:
             key: Cache key
             fetch_fn: Async callable that fetches data if not cached
+            l2_get: Optional async callable ``(key) -> list[dict] | None`` reading
+                the persistent L2 cache
+            l2_set: Optional async callable ``(key, data) -> None`` writing the
+                persistent L2 cache
 
         Returns:
             Cached or freshly fetched places list
@@ -150,10 +186,22 @@ class PlacesCache:
         if existing_future is not None:
             return await existing_future
 
-        # We own this request - fetch the data
+        # We own this request - check L2, then fetch the data
         assert our_future is not None  # Type narrowing for mypy/pyright
         try:
-            result = await fetch_fn()
+            result: list[dict] | None = None
+
+            # Consult persistent L2 before paying for a fresh API call.
+            if l2_get is not None:
+                result = await l2_get(key)
+
+            if result is None:
+                result = await fetch_fn()
+                # Write-through to L2 so other instances/deploys reuse this.
+                if l2_set is not None:
+                    await l2_set(key, result)
+            # result is now guaranteed non-None (L2 hit or fresh fetch)
+            assert result is not None  # Type narrowing for mypy/pyright
             # Cache and resolve future
             async with self._lock:
                 # Store in cache with LRU eviction (guard against max_size=0)
