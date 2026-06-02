@@ -90,6 +90,16 @@ class Settings(BaseSettings):
         le=1.0,
         description="Minimum confidence score (0.0-1.0) for place extraction",
     )
+    multimodal_max_resolved_places: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description=(
+            "Max places resolved (Autocomplete+Details) per multimodal/video "
+            "extraction. Bounds worst-case Google Places fan-out for video/carousel "
+            "posts (each resolved place is one Autocomplete + one Place Details)."
+        ),
+    )
 
     # Google Places API settings
     places_api_timeout_seconds: float = Field(
