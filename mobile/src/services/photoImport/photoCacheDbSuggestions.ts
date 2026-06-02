@@ -8,24 +8,20 @@
 import * as geohash from 'ngeohash';
 
 import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
+import { GEOHASH_PRECISION } from './photoClustering';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
 const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Geohash precision for the suggestion location key. Precision 7 (~153m cells)
- * matches the clustering precision, so a re-segmented or manually split cluster
- * at the same physical spot resolves to the same key and reuses cached results
- * instead of re-buying them from Google.
- */
-const LOCATION_KEY_PRECISION = 7;
-
-/**
  * Compute the location cache key for a cluster centroid. Stable across cluster-id
- * changes (splits, re-segmentation) for the same physical location.
+ * changes (splits, re-segmentation) for the same physical location, so a
+ * re-segmented cluster at the same spot reuses cached results instead of
+ * re-buying them from Google. Uses the shared GEOHASH_PRECISION (~153m cells) so
+ * the key granularity always tracks the clustering granularity.
  */
 export function clusterLocationKey(centroid: { latitude: number; longitude: number }): string {
-  return geohash.encode(centroid.latitude, centroid.longitude, LOCATION_KEY_PRECISION);
+  return geohash.encode(centroid.latitude, centroid.longitude, GEOHASH_PRECISION);
 }
 
 // =============================================================================

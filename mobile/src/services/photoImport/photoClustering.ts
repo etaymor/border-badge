@@ -13,7 +13,7 @@ import type { LocationCluster, PhotoWithLocation, TimeHint } from './types';
 // Clustering configuration constants
 // These are fixed values to ensure consistency between cached photos (SQLite)
 // and runtime clustering. Changing these would create data consistency bugs.
-const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
+export const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
 const DEFAULT_MERGE_THRESHOLD_M = 80; // Merge clusters whose centroids are within 80m
 const GEOHASH_PREFIX_LEN = 5; // Clusters not sharing 5-char prefix are >4.9km apart
 const MAX_CLUSTERS_FOR_MERGE = 200; // Safety cap: skip O(N^2) merge above this

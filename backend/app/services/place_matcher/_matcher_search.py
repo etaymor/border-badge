@@ -47,10 +47,17 @@ def _type_set_hash(types: list[str]) -> str:
     """Short, order-independent hash of an included-type set for cache keys.
 
     Two searches with the same set of ``includedTypes`` (regardless of order)
-    share a cache entry; a narrowed set gets its own entry.
+    share a cache entry; a narrowed set gets its own entry. Reserved for future
+    per-cluster type narrowing — today every search uses the full
+    ``SEARCHABLE_PLACE_TYPES`` set, so the hash is precomputed once below.
     """
     canonical = ",".join(sorted(types))
     return hashlib.sha256(canonical.encode()).hexdigest()[:8]
+
+
+# Precomputed once: every Nearby/Text search currently uses the full type set, so
+# there is no need to re-hash it on each (hot-path) search call.
+_SEARCHABLE_TYPE_SET_HASH = _type_set_hash(SEARCHABLE_PLACE_TYPES)
 
 
 class SearchMixin:
@@ -161,7 +168,7 @@ class SearchMixin:
             latitude,
             longitude,
             int(radius),
-            type_set_hash=_type_set_hash(SEARCHABLE_PLACE_TYPES),
+            type_set_hash=_SEARCHABLE_TYPE_SET_HASH,
         )
 
         async def fetch_from_api() -> list[dict]:

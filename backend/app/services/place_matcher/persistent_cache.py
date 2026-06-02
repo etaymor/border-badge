@@ -163,8 +163,9 @@ async def set_place_details_cache(
         return
     if not _persistent_cache_enabled():
         return
-    now_iso = _now().isoformat()
-    expires_at = (_now() + timedelta(days=PLACE_DETAILS_CACHE_TTL_DAYS)).isoformat()
+    now = _now()
+    now_iso = now.isoformat()
+    expires_at = (now + timedelta(days=PLACE_DETAILS_CACHE_TTL_DAYS)).isoformat()
     try:
         db = get_supabase_client()
         await db.upsert(

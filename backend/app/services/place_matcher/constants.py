@@ -353,8 +353,3 @@ WIDE_FIELD_MASK = ",".join(
 # Place Details field mask used to enrich the top finalists with the live rating
 # signals the ranking needs. Requested per-place only for surfaced candidates.
 ENRICH_FIELD_MASK = "id,rating,userRatingCount"
-
-# Backwards-compatible alias. Historically the wide search requested rating
-# signals under this name; the enrichment pass now carries those. Kept so any
-# external importer (and the package ``__init__`` export) still resolves.
-FIELD_MASK = WIDE_FIELD_MASK

@@ -8,7 +8,6 @@ from .cache import PlacesCache, places_cache
 from .constants import (
     DENSITY_SEARCH_RADII,
     ENRICH_FIELD_MASK,
-    FIELD_MASK,
     INSTITUTIONAL_TYPES,
     MAX_ADDRESS_LENGTH,
     MAX_CONCURRENT_PLACES_REQUESTS,
@@ -61,7 +60,6 @@ __all__ = [
     "NEARBY_SEARCH_URL",
     "TEXT_SEARCH_URL",
     "PLACE_DETAILS_URL",
-    "FIELD_MASK",
     "WIDE_FIELD_MASK",
     "ENRICH_FIELD_MASK",
     "MIN_REVIEW_COUNT",
