@@ -10,10 +10,43 @@ from app.services.place_extractor import (
     clean_instagram_profile_name,
     extract_place_from_profile,
 )
-from app.services.place_extractor.extractor import _extract_place_impl
+from app.services.place_extractor.extractor import _extract_place_impl, try_candidate
 from app.services.place_extractor.google_places_client import get_place_details
 
 CLIENT = "app.services.place_extractor.google_places_client"
+EXTRACTOR = "app.services.place_extractor.extractor"
+
+
+class TestTryCandidateSessionToken:
+    """Autocomplete + Place Details must share one session token (free Session SKU)."""
+
+    @pytest.mark.asyncio
+    async def test_same_session_token_on_both_legs(self) -> None:
+        search = AsyncMock(return_value=[{"place_id": "abc", "name": "Cafe"}])
+        details = AsyncMock(
+            return_value={
+                "place_id": "abc",
+                "name": "Cafe",
+                "address": "1 Main St",
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "primary_type": "cafe",
+                "types": ["cafe"],
+            }
+        )
+        with (
+            patch(f"{EXTRACTOR}.search_places", new=search),
+            patch(f"{EXTRACTOR}.get_place_details", new=details),
+        ):
+            result = await try_candidate("Cafe")
+
+        assert result is not None
+        # Both legs were called with a session_token, and it is the same value.
+        search_token = search.call_args.kwargs.get("session_token")
+        details_token = details.call_args.kwargs.get("session_token")
+        assert search_token, "Autocomplete leg missing session_token"
+        assert details_token, "Place Details leg missing session_token"
+        assert search_token == details_token
 
 
 class TestGetPlaceDetailsByIdCache:
@@ -148,6 +181,60 @@ class TestGetPlaceDetailsByIdCache:
         assert "displayName" in mask  # other fields still requested
         assert result is not None
         assert "website" not in result
+
+    @pytest.mark.asyncio
+    async def test_session_token_passed_as_query_param(self) -> None:
+        """get_place_details forwards the session token as a query param."""
+        api_payload = {
+            "id": "abc",
+            "displayName": {"text": "Cafe"},
+            "formattedAddress": "1 Main St",
+            "location": {"latitude": 1.0, "longitude": 2.0},
+            "addressComponents": [],
+            "primaryType": "cafe",
+            "types": ["cafe"],
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = api_payload
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(
+                f"{CLIENT}.get_place_details_cache",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(f"{CLIENT}.set_place_details_cache", new=AsyncMock()),
+            patch(f"{CLIENT}.get_http_client", return_value=mock_client),
+        ):
+            await get_place_details("abc", session_token="tok-123")
+
+        assert mock_client.get.call_args.kwargs["params"] == {"sessionToken": "tok-123"}
+
+
+class TestSearchPlacesSessionToken:
+    """search_places includes the session token in the Autocomplete request body."""
+
+    @pytest.mark.asyncio
+    async def test_session_token_in_body(self) -> None:
+        from app.services.place_extractor.google_places_client import search_places
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"suggestions": []}
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with (
+            patch(f"{CLIENT}.is_configured", return_value=True),
+            patch(f"{CLIENT}.get_http_client", return_value=mock_client),
+        ):
+            await search_places("Cafe Lomi", session_token="tok-123")
+
+        body = mock_client.post.call_args.kwargs["json"]
+        assert body["sessionToken"] == "tok-123"
 
 
 class TestCleanInstagramProfileName:
