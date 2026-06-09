@@ -157,36 +157,33 @@ TIME_HINT_TYPE_MATCHES: dict[str, set[str]] = {
 
 # Place types to search for in Nearby Search API (Table A types only)
 # See: https://developers.google.com/maps/documentation/places/web-service/place-types#table-a
-# Curated for travel recommendations - max 50 types allowed per API request
+# Curated for travel recommendations - max 50 types allowed per API request.
+#
+# ``includedTypes`` matches against a place's FULL types array, and every
+# cuisine-specific restaurant also carries the umbrella "restaurant" type (same
+# for hotel/resort_hotel under "lodging"). The redundant subtypes were removed
+# to free slots for whole missing categories — religious sites, wineries,
+# plazas, stadiums — each of which was previously unrecallable.
 SEARCHABLE_PLACE_TYPES: list[str] = [
-    # Food & Drink - Core (7)
+    # Food & Drink (12) — "restaurant" covers all cuisine subtypes
     "restaurant",
     "cafe",
     "coffee_shop",
     "bar",
     "bakery",
-    "fine_dining_restaurant",
-    "seafood_restaurant",
-    # Food & Drink - Popular cuisines (10)
-    "italian_restaurant",
-    "french_restaurant",
-    "japanese_restaurant",
-    "sushi_restaurant",
-    "thai_restaurant",
-    "indian_restaurant",
-    "mexican_restaurant",
-    "mediterranean_restaurant",
-    "steak_house",
-    "pizza_restaurant",
-    # Food & Drink - Casual (3)
     "ice_cream_shop",
     "wine_bar",
     "pub",
-    # Lodging (3)
-    "hotel",
-    "resort_hotel",
+    "food_court",
+    "dessert_shop",
+    "tea_house",
+    "winery",
+    # Drinks production / tours (2)
+    "brewery",
+    "vineyard",
+    # Lodging (1) — "lodging" covers hotel, resort_hotel, motel, inn, hostel
     "lodging",
-    # Culture & Attractions (7)
+    # Culture & Attractions (8)
     "museum",
     "art_gallery",
     "historical_landmark",
@@ -194,13 +191,21 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "performing_arts_theater",
     "tourist_attraction",
     "cultural_landmark",
-    # Entertainment & Recreation (13)
+    "visitor_center",
+    # Religious sites (4) — place_of_worship is Table B only; concrete types work
+    "church",
+    "hindu_temple",
+    "mosque",
+    "synagogue",
+    # Entertainment & Recreation (17)
     "amusement_park",
     "aquarium",
     "zoo",
     "botanical_garden",
     "national_park",
+    "state_park",
     "park",
+    "plaza",
     "beach",
     "hiking_area",
     "ski_resort",
@@ -208,6 +213,8 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "observation_deck",
     "garden",
     "wildlife_park",
+    "water_park",
+    "stadium",
     # Nightlife & Wellness (3)
     "spa",
     "night_club",
@@ -216,9 +223,7 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "market",
     "store",
     "shopping_mall",
-    # Note: place_of_worship is NOT supported by Nearby Search API (Table A)
-    # Religious sites are typically tagged as tourist_attraction or historical_landmark
-]  # Total: 49 types
+]  # Total: 50 types (API maximum)
 
 # Place type to entry category mapping (includes types returned by API)
 TYPE_TO_CATEGORY: dict[str, str] = {
@@ -256,6 +261,10 @@ TYPE_TO_CATEGORY: dict[str, str] = {
     "wine_bar": "food",
     "pub": "food",
     "tea_house": "food",
+    "food_court": "food",
+    "dessert_shop": "food",
+    "winery": "food",
+    "brewery": "food",
     # Lodging
     "hotel": "stay",
     "lodging": "stay",
@@ -289,6 +298,8 @@ TYPE_TO_CATEGORY: dict[str, str] = {
     "observation_deck": "experience",
     "garden": "experience",
     "stadium": "experience",
+    "plaza": "experience",
+    "vineyard": "experience",
     # Experience - Wellness & Nightlife
     "spa": "experience",
     "night_club": "experience",

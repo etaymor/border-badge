@@ -37,6 +37,7 @@ Dataset schema (JSON):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import random
 import sys
@@ -49,8 +50,10 @@ from unittest.mock import AsyncMock
 # Add backend root to import path.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import app.services.place_matcher._matcher_search as matcher_search_module
 from app.services.photo_vision import PhotoClassifier, VisionResult
-from app.services.place_matcher import PlaceMatcher
+from app.services.place_matcher import MAX_PLACES_PER_SEARCH, PlaceMatcher
+from app.services.place_matcher.utils import haversine
 
 WeightName = Literal[
     "places_rank_distance_weight",
@@ -130,6 +133,24 @@ def parse_args() -> argparse.Namespace:
         "--no-search",
         action="store_true",
         help="Only evaluate current config; skip random search",
+    )
+    parser.add_argument(
+        "--pipeline",
+        action="store_true",
+        help=(
+            "Also simulate the tiered Nearby search per sample (treating the "
+            "sample's places as the ground-truth world) to measure candidate "
+            "RECALL, end-to-end top-1, and paid Nearby calls per cluster"
+        ),
+    )
+    parser.add_argument(
+        "--stop-threshold",
+        type=int,
+        default=None,
+        help=(
+            "Override MIN_QUALITY_RESULTS_BEFORE_STOP for --pipeline (1 "
+            "reproduces the legacy stop-at-first-hit behavior)"
+        ),
     )
     return parser.parse_args()
 
@@ -243,6 +264,114 @@ def evaluate(
     )
 
 
+@dataclass
+class PipelineMetrics:
+    total: int
+    candidate_recall: float
+    e2e_top1: float
+    avg_nearby_calls: float
+
+
+def evaluate_pipeline(
+    matcher: PlaceMatcher,
+    samples: list[dict[str, Any]],
+    vision_mode: Literal["none", "single", "aggregate"],
+    stop_threshold: int | None,
+) -> PipelineMetrics:
+    """Simulate the tiered Nearby search per sample to measure recall + cost.
+
+    Treats the sample's `places` list as the complete world: a simulated
+    Nearby call at radius R returns the places within R meters of the search
+    point, distance-sorted and capped at MAX_PLACES_PER_SEARCH (matching
+    rankPreference=DISTANCE). This exposes failures the ranking-only eval
+    cannot see — the visited place never being fetched at all — and counts
+    the paid Nearby calls each policy makes.
+    """
+    original_threshold = matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP
+    if stop_threshold is not None:
+        matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP = stop_threshold
+
+    total = 0
+    recall_hits = 0
+    top1_hits = 0
+    call_counts: list[int] = []
+
+    try:
+        for sample in samples:
+            cluster = sample.get("cluster", {})
+            world = sample.get("places", [])
+            expected_place_id = sample.get("expected_place_id")
+            if not expected_place_id or not cluster or not isinstance(world, list):
+                continue
+
+            calls = 0
+
+            async def fake_execute_search(
+                latitude: float,
+                longitude: float,
+                radius: float,
+                _world: list[dict[str, Any]] = world,
+            ) -> list[dict[str, Any]]:
+                nonlocal calls
+                calls += 1
+                in_radius = [
+                    p
+                    for p in _world
+                    if haversine(
+                        latitude,
+                        longitude,
+                        p["location"]["latitude"],
+                        p["location"]["longitude"],
+                    )
+                    <= radius
+                ]
+                in_radius.sort(
+                    key=lambda p: haversine(
+                        latitude,
+                        longitude,
+                        p["location"]["latitude"],
+                        p["location"]["longitude"],
+                    )
+                )
+                return in_radius[:MAX_PLACES_PER_SEARCH]
+
+            matcher._execute_search = fake_execute_search  # type: ignore[method-assign]
+            candidates, _radius = asyncio.run(
+                matcher._search_nearby_tiered(
+                    cluster["centroid"]["latitude"],
+                    cluster["centroid"]["longitude"],
+                )
+            )
+
+            total += 1
+            call_counts.append(calls)
+            candidate_ids = {p.get("id") for p in candidates}
+            if expected_place_id in candidate_ids:
+                recall_hits += 1
+
+            vision_result = select_vision_for_sample(sample, vision_mode)
+            ranked = matcher._rank_by_distance(
+                places=candidates,
+                cluster=cluster,
+                time_hint=cluster.get("time_hint"),
+                vision_result=vision_result,
+            )
+            if ranked and ranked[0].get("place_id") == expected_place_id:
+                top1_hits += 1
+    finally:
+        matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP = original_threshold
+
+    if total == 0:
+        raise ValueError("No valid labeled samples found in dataset")
+
+    return PipelineMetrics(
+        total=total,
+        candidate_recall=recall_hits / total,
+        e2e_top1=top1_hits / total,
+        avg_nearby_calls=mean(call_counts),
+    )
+
+
 def random_weight_configs(
     base: dict[WeightName, float],
     trials: int,
@@ -290,6 +419,26 @@ def main() -> None:
 
     print("Baseline:", format_metrics(baseline_metrics))
     print("Baseline weights:", json.dumps(baseline_weights, indent=2))
+
+    if args.pipeline:
+        pipeline = evaluate_pipeline(
+            matcher=matcher,
+            samples=samples,
+            vision_mode=args.vision_mode,
+            stop_threshold=args.stop_threshold,
+        )
+        threshold_note = (
+            f"stop_threshold={args.stop_threshold}"
+            if args.stop_threshold is not None
+            else "stop_threshold=current"
+        )
+        print(
+            f"Pipeline ({threshold_note}): "
+            f"candidate_recall={pipeline.candidate_recall:.3f} "
+            f"e2e_top1={pipeline.e2e_top1:.3f} "
+            f"avg_nearby_calls={pipeline.avg_nearby_calls:.2f} "
+            f"n={pipeline.total}"
+        )
 
     if args.no_search:
         return

@@ -150,6 +150,8 @@ poetry run python scripts/eval_place_matcher.py \
 
 The script runs random search over the 7 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
 
+Use `--pipeline` to additionally simulate the tiered Nearby search per sample (treating the sample's places as the world): it reports candidate **recall** (did the visited place get fetched at all), end-to-end top-1, and the average number of paid Nearby calls per cluster. `--stop-threshold 1` reproduces the legacy stop-at-first-hit search for before/after comparison — ranking-only metrics cannot see recall failures, which were the dominant real-world miss mode.
+
 The sample dataset (9 labeled clusters) encodes the observed real-world failure modes: a mega-famous neighbor outranking the signage-matched place actually visited, GPS drift putting the visited place 75m from the centroid, and low-review hidden gems. To grow it into a real tuning corpus, add labeled samples from actual trip imports (cluster centroid + candidate places + the place the user actually picked).
 
 ## Key Files
