@@ -14,9 +14,27 @@ import type { LocationCluster, PhotoWithLocation, TimeHint } from './types';
 // These are fixed values to ensure consistency between cached photos (SQLite)
 // and runtime clustering. Changing these would create data consistency bugs.
 export const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
-const DEFAULT_MERGE_THRESHOLD_M = 80; // Merge clusters whose centroids are within 80m
+// Merge threshold: consolidates a single venue whose photos straddle a cell
+// boundary (the two halves' weighted centroids sit near the venue, well under
+// 40m apart). 40m rather than 80m so two DISTINCT venues 50-150m apart in
+// adjacent cells stay separate clusters — merging them made the smaller venue
+// unrecallable (one blended centroid, one suggestion list for two places).
+const DEFAULT_MERGE_THRESHOLD_M = 40;
 const GEOHASH_PREFIX_LEN = 5; // Clusters not sharing 5-char prefix are >4.9km apart
 const MAX_CLUSTERS_FOR_MERGE = 200; // Safety cap: skip O(N^2) merge above this
+
+// Multi-venue cell splitting: a ~153m geohash-7 cell can hold several distinct
+// venues (restaurant + bar 60m apart), which used to force-merge into one
+// cluster with a centroid at neither. Photos within a cell are sub-grouped at
+// precision 8 (~38m cells) and sub-groups re-merge only when their centroids
+// are within SUBCLUSTER_MERGE_THRESHOLD_M — so one venue's GPS spread stays a
+// single cluster while genuinely separate venues split.
+export const SUBCLUSTER_PRECISION = 8;
+export const SUBCLUSTER_MERGE_THRESHOLD_M = 40;
+// Suffix for automatic venue-split siblings (the largest sub-group keeps the
+// parent ID so processed/hidden state and cached suggestions stay attached).
+// Distinct from the manual-split suffix (`__split_`) in photoClusteringDisplay.
+export const VENUE_SPLIT_ID_SEPARATOR = '__venue_';
 
 /**
  * Calculate distance in meters between two coordinates using Haversine formula.
@@ -31,6 +49,88 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Split one geohash-cell photo group into per-venue sub-groups.
+ *
+ * Photos are sub-grouped by precision-8 geohash, then sub-groups whose
+ * centroids sit within SUBCLUSTER_MERGE_THRESHOLD_M are transitively
+ * re-merged (one venue's GPS spread across sub-cells stays together).
+ * Returns sub-groups largest-first; a single-venue group returns `[photos]`
+ * unchanged, so the common case produces identical clusters to before.
+ */
+export function splitMultiVenueGroup<T>(
+  photos: T[],
+  getPoint: (photo: T) => { latitude: number; longitude: number }
+): T[][] {
+  if (photos.length < 2) return [photos];
+
+  const subGroups = new Map<string, T[]>();
+  for (const photo of photos) {
+    const point = getPoint(photo);
+    const hash = geohash.encode(point.latitude, point.longitude, SUBCLUSTER_PRECISION);
+    const existing = subGroups.get(hash) ?? [];
+    existing.push(photo);
+    subGroups.set(hash, existing);
+  }
+  if (subGroups.size <= 1) return [photos];
+
+  // Deterministic order independent of photo insertion order.
+  const entries = Array.from(subGroups.entries()).sort(([a], [b]) => (a < b ? -1 : 1));
+  const centroids = entries.map(([, group]) => {
+    let lat = 0;
+    let lng = 0;
+    for (const photo of group) {
+      const point = getPoint(photo);
+      lat += point.latitude;
+      lng += point.longitude;
+    }
+    return { latitude: lat / group.length, longitude: lng / group.length };
+  });
+
+  // Transitive merge of nearby sub-cells (tiny N: a geohash-7 cell holds at
+  // most 32 precision-8 sub-cells).
+  const parent = entries.map((_, i) => i);
+  const find = (x: number): number => {
+    let root = x;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[x] !== root) {
+      const next = parent[x];
+      parent[x] = root;
+      x = next;
+    }
+    return root;
+  };
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const dist = haversine(
+        centroids[i].latitude,
+        centroids[i].longitude,
+        centroids[j].latitude,
+        centroids[j].longitude
+      );
+      if (dist <= SUBCLUSTER_MERGE_THRESHOLD_M) {
+        const rootI = find(i);
+        const rootJ = find(j);
+        if (rootI !== rootJ) parent[rootJ] = rootI;
+      }
+    }
+  }
+
+  const groupsByRoot = new Map<number, T[]>();
+  entries.forEach(([, group], i) => {
+    const root = find(i);
+    const existing = groupsByRoot.get(root) ?? [];
+    existing.push(...group);
+    groupsByRoot.set(root, existing);
+  });
+
+  const result = Array.from(groupsByRoot.values());
+  if (result.length === 1) return [photos];
+  // Largest first (stable: equal sizes keep deterministic sub-hash order).
+  result.sort((a, b) => b.length - a.length);
+  return result;
 }
 
 /**
@@ -107,6 +207,9 @@ export function mergeAdjacentClusters(
   // Pairwise distance check with geohash prefix pre-filter
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
+      // Same full geohash = deliberate venue-split siblings from the same
+      // cell (splitMultiVenueGroup); never re-merge them.
+      if (clusters[i].geohash === clusters[j].geohash) continue;
       if (
         clusters[i].geohash.substring(0, GEOHASH_PREFIX_LEN) !==
         clusters[j].geohash.substring(0, GEOHASH_PREFIX_LEN)
@@ -249,30 +352,36 @@ export function clusterByLocation(
     groups.set(hash, existing);
   }
 
-  // Convert to clusters with centroids
-  return Array.from(groups.entries()).map(([hash, clusterPhotos]) => {
-    const avgLat =
-      clusterPhotos.reduce((sum, p) => sum + p.location.latitude, 0) / clusterPhotos.length;
-    const avgLng =
-      clusterPhotos.reduce((sum, p) => sum + p.location.longitude, 0) / clusterPhotos.length;
-    const sorted = clusterPhotos.sort(
-      (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
-    );
+  // Convert to clusters with centroids, splitting multi-venue cells
+  const clusters: LocationCluster[] = [];
+  for (const [hash, cellPhotos] of groups.entries()) {
+    const venueGroups = splitMultiVenueGroup(cellPhotos, (p) => p.location);
+    const baseId = idPrefix ? `${idPrefix}_${hash}` : hash;
 
-    // Use prefixed ID if provided to ensure uniqueness across trips
-    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+    venueGroups.forEach((venuePhotos, index) => {
+      const avgLat =
+        venuePhotos.reduce((sum, p) => sum + p.location.latitude, 0) / venuePhotos.length;
+      const avgLng =
+        venuePhotos.reduce((sum, p) => sum + p.location.longitude, 0) / venuePhotos.length;
+      const sorted = [...venuePhotos].sort(
+        (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
+      );
 
-    return {
-      id: clusterId,
-      geohash: hash,
-      centroid: { latitude: avgLat, longitude: avgLng },
-      photos: clusterPhotos,
-      timeRange: {
-        start: sorted[0].creationTime,
-        end: sorted[sorted.length - 1].creationTime,
-      },
-    };
-  });
+      clusters.push({
+        // Largest venue group keeps the parent ID (cache/processed-state
+        // stability); extra venues get a deterministic suffix.
+        id: index === 0 ? baseId : `${baseId}${VENUE_SPLIT_ID_SEPARATOR}${index + 1}`,
+        geohash: hash,
+        centroid: { latitude: avgLat, longitude: avgLng },
+        photos: sorted,
+        timeRange: {
+          start: sorted[0].creationTime,
+          end: sorted[sorted.length - 1].creationTime,
+        },
+      });
+    });
+  }
+  return clusters;
 }
 
 /**

@@ -114,6 +114,75 @@ describe('photoClustering', () => {
       expect(clusters).toHaveLength(0);
     });
 
+    describe('multi-venue cell splitting', () => {
+      // Derive two points INSIDE one geohash-7 cell, ~76m apart vertically
+      // (25% and 75% of the ~152m cell height) so the test is robust to cell
+      // alignment: same precision-7 hash, different precision-8 sub-cells.
+      const ngeohash = jest.requireActual('ngeohash') as typeof import('ngeohash');
+      const [minLat, minLon, maxLat, maxLon] = ngeohash.decode_bbox(
+        ngeohash.encode(35.6762, 139.6503, 7)
+      );
+      const midLon = (minLon + maxLon) / 2;
+      const lowLat = minLat + (maxLat - minLat) * 0.25;
+      const highLat = minLat + (maxLat - minLat) * 0.75;
+
+      it('splits two venues ~76m apart inside one geohash-7 cell', () => {
+        const photos = [
+          createTestPhoto('venue-a-1', lowLat, midLon),
+          createTestPhoto('venue-a-2', lowLat, midLon),
+          createTestPhoto('venue-a-3', lowLat, midLon),
+          createTestPhoto('venue-b-1', highLat, midLon),
+          createTestPhoto('venue-b-2', highLat, midLon),
+        ];
+
+        const clusters = clusterByLocation(photos, 'trip');
+
+        expect(clusters).toHaveLength(2);
+        // Siblings share the cell geohash; largest keeps the parent ID
+        expect(clusters[0].geohash).toBe(clusters[1].geohash);
+        const ids = clusters.map((c) => c.id).sort();
+        expect(ids[0]).toBe(`trip_${clusters[0].geohash}`);
+        expect(ids[1]).toBe(`trip_${clusters[0].geohash}__venue_2`);
+        const larger = clusters.find((c) => c.id === ids[0]);
+        expect(larger?.photos).toHaveLength(3);
+      });
+
+      it('keeps a single venue with tight GPS spread as one cluster', () => {
+        // ~10m spread around the cell center: even if photos land in
+        // different precision-8 sub-cells, sub-centroids are within 40m and
+        // re-merge.
+        const centerLat = (minLat + maxLat) / 2;
+        const tinyOffset = (maxLat - minLat) * 0.03; // ~4.5m
+        const photos = [
+          createTestPhoto('p1', centerLat - tinyOffset, midLon),
+          createTestPhoto('p2', centerLat + tinyOffset, midLon),
+          createTestPhoto('p3', centerLat, midLon),
+        ];
+
+        const clusters = clusterByLocation(photos);
+
+        expect(clusters).toHaveLength(1);
+        expect(clusters[0].photos).toHaveLength(3);
+        expect(clusters[0].id).toBe(clusters[0].geohash);
+      });
+
+      it('mergeAdjacentClusters never re-merges venue-split siblings', () => {
+        const photos = [
+          createTestPhoto('venue-a-1', lowLat, midLon),
+          createTestPhoto('venue-a-2', lowLat, midLon),
+          createTestPhoto('venue-b-1', highLat, midLon),
+        ];
+
+        const split = clusterByLocation(photos);
+        expect(split).toHaveLength(2);
+
+        // 76m apart would have merged under the old 80m default; siblings
+        // must stay separate even with an explicit generous threshold.
+        const merged = mergeAdjacentClusters(split, 80);
+        expect(merged).toHaveLength(2);
+      });
+    });
+
     it('handles single photo', () => {
       const photos = [createTestPhoto('photo-1', 35.6762, 139.6503)];
 

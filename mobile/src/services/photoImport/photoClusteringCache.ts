@@ -9,7 +9,11 @@ import { iso1A2Code } from '@rapideditor/country-coder';
 import * as geohash from 'ngeohash';
 
 import type { CachedPhoto, LocationCluster, PhotoWithLocation } from './types';
-import { mergeAdjacentClusters } from './photoClustering';
+import {
+  mergeAdjacentClusters,
+  splitMultiVenueGroup,
+  VENUE_SPLIT_ID_SEPARATOR,
+} from './photoClustering';
 import { segmentTripsOptimized, type OptimizedTripData } from './photoClusteringDisplay';
 
 const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
@@ -84,33 +88,42 @@ export function clusterFromCachedPhotos(
     groups.set(photo.geohash, existing);
   }
 
-  // Convert to clusters with centroids, then merge adjacent clusters
-  const rawClusters = Array.from(groups.entries()).map(([hash, clusterPhotos]) => {
-    const avgLat = clusterPhotos.reduce((sum, p) => sum + p.latitude, 0) / clusterPhotos.length;
-    const avgLng = clusterPhotos.reduce((sum, p) => sum + p.longitude, 0) / clusterPhotos.length;
-    const sorted = [...clusterPhotos].sort((a, b) => a.creationTime - b.creationTime);
+  // Convert to clusters with centroids (splitting multi-venue cells the same
+  // way as clusterByLocation), then merge adjacent clusters
+  const rawClusters: LocationCluster[] = [];
+  for (const [hash, cellPhotos] of groups.entries()) {
+    const venueGroups = splitMultiVenueGroup(cellPhotos, (p) => ({
+      latitude: p.latitude,
+      longitude: p.longitude,
+    }));
+    const baseId = idPrefix ? `${idPrefix}_${hash}` : hash;
 
-    // Convert cached photos to PhotoWithLocation for the cluster
-    const photos = clusterPhotos.map(cachedPhotoToPhotoWithLocation);
+    venueGroups.forEach((venuePhotos, index) => {
+      const avgLat = venuePhotos.reduce((sum, p) => sum + p.latitude, 0) / venuePhotos.length;
+      const avgLng = venuePhotos.reduce((sum, p) => sum + p.longitude, 0) / venuePhotos.length;
+      const sorted = [...venuePhotos].sort((a, b) => a.creationTime - b.creationTime);
 
-    // Use the country code from the first photo (all photos in cluster should have same country)
-    const countryCode = clusterPhotos[0].countryCode ?? undefined;
+      // Convert cached photos to PhotoWithLocation for the cluster
+      const photos = sorted.map(cachedPhotoToPhotoWithLocation);
 
-    // Use prefixed ID if provided to ensure uniqueness across trips
-    const clusterId = idPrefix ? `${idPrefix}_${hash}` : hash;
+      // Use the country code from the first photo (all photos in cluster should have same country)
+      const countryCode = venuePhotos[0].countryCode ?? undefined;
 
-    return {
-      id: clusterId,
-      geohash: hash,
-      centroid: { latitude: avgLat, longitude: avgLng },
-      photos,
-      timeRange: {
-        start: new Date(sorted[0].creationTime),
-        end: new Date(sorted[sorted.length - 1].creationTime),
-      },
-      countryCode,
-    };
-  });
+      rawClusters.push({
+        // Largest venue group keeps the parent ID; extra venues get a suffix
+        // (mirrors clusterByLocation).
+        id: index === 0 ? baseId : `${baseId}${VENUE_SPLIT_ID_SEPARATOR}${index + 1}`,
+        geohash: hash,
+        centroid: { latitude: avgLat, longitude: avgLng },
+        photos,
+        timeRange: {
+          start: new Date(sorted[0].creationTime),
+          end: new Date(sorted[sorted.length - 1].creationTime),
+        },
+        countryCode,
+      });
+    });
+  }
   return mergeAdjacentClusters(rawClusters);
 }
 
