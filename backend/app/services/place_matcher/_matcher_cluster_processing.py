@@ -196,6 +196,7 @@ class ClusterProcessingMixin:
         # the top finalists. Only those finalists get enriched with the expensive
         # rating signals — the wide search deliberately omitted them.
         per_cluster_merged: dict[str, list[dict]] = {}
+        per_cluster_first_pass: dict[str, list[dict]] = {}
         per_cluster_finalists: dict[str, list[dict]] = {}
         finalist_ids: set[str] = set()
         name_match_locked_clusters: set[str] = set()
@@ -222,6 +223,7 @@ class ClusterProcessingMixin:
                 time_hint=cluster.get("time_hint"),
                 vision_result=vision_result,
             )
+            per_cluster_first_pass[cluster_id] = first_pass
             finalists = first_pass[:MAX_SUGGESTIONS_PER_CLUSTER]
             per_cluster_finalists[cluster_id] = finalists
 
@@ -276,12 +278,30 @@ class ClusterProcessingMixin:
                     for p in per_cluster_merged.get(cluster_id, [])
                     if p["id"] in finalist_place_ids
                 ]
+                # Re-apply the deferred review-count quality gate now that the
+                # finalists carry live rating counts (the wide pass omitted them,
+                # so junk could reach the finalist set on distance alone). A
+                # dropped finalist is backfilled from the first-pass order so the
+                # user still sees a full suggestion list.
+                gated_places = self._filter_low_quality_places(enriched_places)
                 reranked = self._rank_by_distance(
-                    places=enriched_places,
+                    places=gated_places,
                     cluster=cluster,
                     time_hint=cluster.get("time_hint"),
                     vision_result=vision_result,
                 )
+                if len(reranked) < MAX_SUGGESTIONS_PER_CLUSTER:
+                    surviving_ids = {p["place_id"] for p in reranked}
+                    backfill = [
+                        p
+                        for p in per_cluster_first_pass.get(cluster_id, [])[
+                            MAX_SUGGESTIONS_PER_CLUSTER:
+                        ]
+                        if p["place_id"] not in surviving_ids
+                    ]
+                    reranked.extend(
+                        backfill[: MAX_SUGGESTIONS_PER_CLUSTER - len(reranked)]
+                    )
                 suggestions = reranked or finalists
             else:
                 suggestions = finalists

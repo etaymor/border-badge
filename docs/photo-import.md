@@ -45,7 +45,7 @@ PlaceMatcher uses a mixin pattern for separation of concerns. When modifying mat
 
 - `matcher.py` - PlaceMatcher orchestrator (inherits SearchMixin, RankingMixin, ClusterProcessingMixin)
 - `_matcher_search.py` - Density-adaptive tiered radius search, Text Search API fallback, tourist relevance filter
-- `_matcher_ranking.py` - Vision-integrated scoring with 6 configurable weights (distance, reviews, rating, fame, dwell, vision)
+- `_matcher_ranking.py` - Vision-integrated scoring with 7 configurable weights (distance, reviews, rating, fame, dwell, vision, name-match)
 - `_matcher_cluster_processing.py` - Parallel cluster processing with vision result integration
 - `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
 - `constants.py` - Search radii, density thresholds, place type mappings, quality filters
@@ -91,7 +91,9 @@ The photo import pipeline optionally uses computer vision to improve place match
 ### How Vision Improves Matching
 
 - **Category bonus in ranking**: Places matching the vision category get a score boost (configurable via `PLACES_RANK_VISION_WEIGHT`)
-- **Text detection**: Signage/menu text triggers Google Places Text Search API as fallback when nearby search fails
+- **Signage name-match bonus (dominant)**: When OCR'd signage text matches a candidate's name, that candidate gets a bonus (9.0 base, `PLACES_RANK_NAME_MATCH_WEIGHT`) sized to outweigh any neighbor's combined review/rating/fame advantage — a readable business name in the user's own photo is near-conclusive
+- **Text detection**: Signage/menu text triggers Google Places Text Search API as fallback when nearby search fails (suppressed when the nearby results already contain a name match)
+- **Enrichment skip**: When a cluster's top finalist matches detected signage, the per-finalist Place Details rating enrichment is skipped entirely — the ranking outcome can no longer change, so the calls would be pure cost
 - **Multi-photo aggregation**: Confidence-weighted voting across up to 3 photos per cluster
 - **Request-level cap**: Maximum 50 vision images per request to prevent payload bloat
 
@@ -146,7 +148,9 @@ poetry run python scripts/eval_place_matcher.py \
   --trials 200 --optimize-for top1
 ```
 
-The script runs random search over the 6 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
+The script runs random search over the 7 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
+
+The sample dataset (9 labeled clusters) encodes the observed real-world failure modes: a mega-famous neighbor outranking the signage-matched place actually visited, GPS drift putting the visited place 75m from the centroid, and low-review hidden gems. To grow it into a real tuning corpus, add labeled samples from actual trip imports (cluster centroid + candidate places + the place the user actually picked).
 
 ## Key Files
 

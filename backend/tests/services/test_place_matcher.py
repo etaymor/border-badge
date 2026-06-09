@@ -2721,6 +2721,69 @@ class TestFinalistEnrichment:
         assert results[0]["places"][0]["place_id"] == "close"
 
     @pytest.mark.asyncio
+    async def test_low_review_finalist_dropped_and_backfilled_after_enrichment(
+        self, matcher, monkeypatch
+    ) -> None:
+        """The review-count gate is re-applied once finalists carry live counts.
+
+        The wide pass has no rating data, so a junk place can reach the finalist
+        set on distance alone. After enrichment reveals it has too few reviews,
+        it must be dropped and the next first-pass candidate backfilled.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        # Four wide-pass places (no rating fields), ordered by distance.
+        def wide_place(pid: str, lat: float) -> dict[str, Any]:
+            return {
+                "id": pid,
+                "displayName": {"text": f"Place {pid}"},
+                "formattedAddress": "1 St",
+                "location": {"latitude": lat, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "businessStatus": "OPERATIONAL",
+            }
+
+        wide_places = [
+            wide_place("junk-closest", 35.67624),
+            wide_place("real-b", 35.67627),
+            wide_place("real-c", 35.67629),
+            wide_place("real-d", 35.67632),
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return wide_places, 15
+
+        async def mock_enrich(place_ids):
+            return {
+                "junk-closest": {"rating": 5.0, "userRatingCount": 2},
+                "real-b": {"rating": 4.4, "userRatingCount": 200},
+                "real-c": {"rating": 4.3, "userRatingCount": 150},
+            }
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        # Junk finalist (2 reviews) dropped, 4th-place candidate backfilled.
+        assert "junk-closest" not in place_ids
+        assert set(place_ids) == {"real-b", "real-c", "real-d"}
+
+    @pytest.mark.asyncio
     async def test_signage_match_skips_enrichment_for_that_cluster(
         self, matcher, monkeypatch
     ) -> None:
