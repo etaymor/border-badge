@@ -2256,6 +2256,143 @@ class TestVisionRanking:
         assert text_search_called is True  # not suppressed — genuinely different
 
 
+class TestNameMatchRanking:
+    """Tests for the vision signage name-match bonus in _rank_by_distance."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @pytest.fixture
+    def cluster(self) -> dict[str, Any]:
+        return {"centroid": {"latitude": 48.8574, "longitude": 2.2932}}
+
+    @pytest.fixture
+    def bistro_vs_landmark(self) -> list[dict[str, Any]]:
+        """A small signage-matched bistro vs a closer mega-famous landmark."""
+        return [
+            {
+                "id": "famous-landmark",
+                "displayName": {"text": "Eiffel Tower"},
+                "location": {"latitude": 48.85731, "longitude": 2.2932},
+                "userRatingCount": 425000,
+                "rating": 4.7,
+                "primaryType": "tourist_attraction",
+                "types": ["tourist_attraction", "historical_landmark"],
+            },
+            {
+                "id": "small-bistro",
+                "displayName": {"text": "Chez Louise"},
+                "location": {"latitude": 48.85751, "longitude": 2.2932},
+                "userRatingCount": 320,
+                "rating": 4.5,
+                "primaryType": "restaurant",
+                "types": ["restaurant", "french_restaurant", "food"],
+            },
+        ]
+
+    def test_name_match_beats_famous_neighbor(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """A place matching vision-detected signage outranks a mega-famous neighbor."""
+        vision = VisionResult(
+            category="food",
+            detected_text=["Chez Louise"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        assert ranked[0]["place_id"] == "small-bistro"
+
+    def test_without_name_match_famous_neighbor_wins(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """Sanity: without detected signage, the landmark's fame wins this layout."""
+        vision = VisionResult(category="food", detected_text=[], confidence="high")
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        assert ranked[0]["place_id"] == "famous-landmark"
+
+    def test_partial_ocr_name_still_matches(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """Containment matching: 'CHEZ LOUISE' OCR matches 'Chez Louise'."""
+        vision = VisionResult(
+            category="food",
+            detected_text=["CHEZ LOUISE"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        assert ranked[0]["place_id"] == "small-bistro"
+
+    def test_generic_text_gets_no_bonus(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """Single-word/generic OCR text is not a business-name candidate."""
+        vision = VisionResult(
+            category="food",
+            detected_text=["OPEN", "Menu"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        assert ranked[0]["place_id"] == "famous-landmark"
+
+    def test_zero_weight_disables_name_match(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """Setting places_rank_name_match_weight=0 restores prior behavior."""
+        matcher._settings.places_rank_name_match_weight = 0.0
+        vision = VisionResult(
+            category="food",
+            detected_text=["Chez Louise"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        assert ranked[0]["place_id"] == "famous-landmark"
+
+    def test_internal_name_match_field_not_leaked(
+        self, matcher, cluster, bistro_vs_landmark
+    ) -> None:
+        """The _name_match working field must be stripped from returned suggestions."""
+        vision = VisionResult(
+            category="food",
+            detected_text=["Chez Louise"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(
+            bistro_vs_landmark, cluster, vision_result=vision
+        )
+
+        for place in ranked:
+            assert "_name_match" not in place
+
+
 # ============================================================================
 # Two-Pass Field Mask Tests (U3)
 # ============================================================================
@@ -2582,3 +2719,95 @@ class TestFinalistEnrichment:
         assert failed == 0
         assert len(results) == 1
         assert results[0]["places"][0]["place_id"] == "close"
+
+    @pytest.mark.asyncio
+    async def test_signage_match_skips_enrichment_for_that_cluster(
+        self, matcher, monkeypatch
+    ) -> None:
+        """A cluster whose top finalist matches detected signage is not enriched.
+
+        The name-match bonus already decides the winner, so the Place Details
+        calls would be pure cost. Clusters without a signage match must still be
+        enriched as before.
+        """
+        import asyncio
+
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-signage",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            },
+            {
+                "id": "cluster-plain",
+                "centroid": {"latitude": 48.8584, "longitude": 2.2945},
+                "photos": [{"asset_id": "photo-2"}],
+            },
+        ]
+
+        signage_places = [
+            {
+                "id": "sushi-dai",
+                "displayName": {"text": "Sushi Dai"},
+                "formattedAddress": "1 St",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant", "sushi_restaurant", "food"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+        plain_places = [
+            {
+                "id": "paris-cafe",
+                "displayName": {"text": "Cafe de Mars"},
+                "formattedAddress": "2 St",
+                "location": {"latitude": 48.8584, "longitude": 2.2945},
+                "primaryType": "cafe",
+                "types": ["cafe", "food"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            if abs(latitude - 35.6762) < 0.01:
+                return signage_places, 15
+            return plain_places, 15
+
+        enriched_ids: list[str] = []
+
+        async def mock_enrich(place_ids):
+            enriched_ids.extend(place_ids)
+            return {pid: {"rating": 4.0, "userRatingCount": 100} for pid in place_ids}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision_result = VisionResult(
+            category="food",
+            detected_text=["Sushi Dai"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-signage": vision_result}
+
+        vision_task = asyncio.ensure_future(make_vision_task())
+
+        results, failed = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=vision_task
+        )
+        await places_cache.clear()
+
+        assert failed == 0
+        # Signage cluster's finalist was never sent to enrichment...
+        assert "sushi-dai" not in enriched_ids
+        # ...while the plain cluster still was.
+        assert "paris-cafe" in enriched_ids
+        # Both clusters still return their suggestion.
+        by_cluster = {r["cluster_id"]: r for r in results}
+        assert by_cluster["cluster-signage"]["places"][0]["place_id"] == "sushi-dai"
+        assert by_cluster["cluster-plain"]["places"][0]["place_id"] == "paris-cafe"

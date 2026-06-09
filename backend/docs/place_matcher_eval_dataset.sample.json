@@ -212,5 +212,404 @@
         "userRatingCount": 810
       }
     ]
+  },
+  {
+    "id": "paris-bistro-vs-eiffel",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8574,
+        "longitude": 2.2932
+      },
+      "time_hint": "food",
+      "start_time": "2024-06-21T12:30:00Z",
+      "end_time": "2024-06-21T13:45:00Z"
+    },
+    "expected_place_id": "place-chez-louise",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["Chez Louise"],
+        "confidence": "high"
+      },
+      {
+        "category": "food",
+        "detected_text": [],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-chez-louise",
+        "displayName": {
+          "text": "Chez Louise"
+        },
+        "formattedAddress": "8 Rue de Monttessuy, Paris",
+        "location": {
+          "latitude": 48.85751,
+          "longitude": 2.2932
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "french_restaurant", "food"],
+        "rating": 4.5,
+        "userRatingCount": 320
+      },
+      {
+        "id": "place-eiffel-tower",
+        "displayName": {
+          "text": "Eiffel Tower"
+        },
+        "formattedAddress": "Champ de Mars, 5 Av. Anatole France, Paris",
+        "location": {
+          "latitude": 48.85704,
+          "longitude": 2.2932
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction", "historical_landmark", "monument"],
+        "rating": 4.7,
+        "userRatingCount": 425000
+      },
+      {
+        "id": "place-souvenir-shop",
+        "displayName": {
+          "text": "Paris Souvenirs & Gifts"
+        },
+        "formattedAddress": "12 Av. de la Bourdonnais, Paris",
+        "location": {
+          "latitude": 48.85758,
+          "longitude": 2.2932
+        },
+        "primaryType": "store",
+        "types": ["store", "market"],
+        "rating": 4.0,
+        "userRatingCount": 150
+      }
+    ]
+  },
+  {
+    "id": "rome-gps-drift-trattoria",
+    "cluster": {
+      "centroid": {
+        "latitude": 41.89015,
+        "longitude": 12.4733
+      },
+      "time_hint": "food",
+      "start_time": "2024-05-03T19:40:00Z",
+      "end_time": "2024-05-03T20:50:00Z"
+    },
+    "expected_place_id": "place-trattoria-bella-vita",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["Trattoria Bella Vita"],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-trattoria-bella-vita",
+        "displayName": {
+          "text": "Trattoria Bella Vita"
+        },
+        "formattedAddress": "Via dei Coronari 44, Roma",
+        "location": {
+          "latitude": 41.89083,
+          "longitude": 12.4733
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "italian_restaurant", "food"],
+        "rating": 4.4,
+        "userRatingCount": 600
+      },
+      {
+        "id": "place-gelateria-luna",
+        "displayName": {
+          "text": "Gelateria Luna"
+        },
+        "formattedAddress": "Via dei Coronari 25, Roma",
+        "location": {
+          "latitude": 41.89008,
+          "longitude": 12.4733
+        },
+        "primaryType": "ice_cream_shop",
+        "types": ["ice_cream_shop", "food"],
+        "rating": 4.6,
+        "userRatingCount": 900
+      },
+      {
+        "id": "place-fontana-piazza",
+        "displayName": {
+          "text": "Fontana di Piazza Navona"
+        },
+        "formattedAddress": "Piazza Navona, Roma",
+        "location": {
+          "latitude": 41.8897,
+          "longitude": 12.4733
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction", "monument"],
+        "rating": 4.7,
+        "userRatingCount": 32000
+      }
+    ]
+  },
+  {
+    "id": "kyoto-hidden-gem-tea-house",
+    "cluster": {
+      "centroid": {
+        "latitude": 35.0036,
+        "longitude": 135.7785
+      },
+      "time_hint": "food",
+      "start_time": "2024-11-08T10:10:00Z",
+      "end_time": "2024-11-08T10:50:00Z"
+    },
+    "expected_place_id": "place-koto-tea-house",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["Koto Tea House"],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-koto-tea-house",
+        "displayName": {
+          "text": "Koto Tea House"
+        },
+        "formattedAddress": "Fushimi Ward, Kyoto",
+        "location": {
+          "latitude": 35.00369,
+          "longitude": 135.7785
+        },
+        "primaryType": "tea_house",
+        "types": ["tea_house", "cafe", "food"],
+        "rating": 4.8,
+        "userRatingCount": 30
+      },
+      {
+        "id": "place-fushimi-shrine-gate",
+        "displayName": {
+          "text": "Fushimi Inari Shrine Gate"
+        },
+        "formattedAddress": "68 Fukakusa Yabunouchicho, Kyoto",
+        "location": {
+          "latitude": 35.00311,
+          "longitude": 135.7785
+        },
+        "primaryType": "tourist_attraction",
+        "types": ["tourist_attraction", "historical_landmark"],
+        "rating": 4.6,
+        "userRatingCount": 48000
+      },
+      {
+        "id": "place-matcha-stand",
+        "displayName": {
+          "text": "Matcha Stand Kyoto"
+        },
+        "formattedAddress": "Fushimi Ward, Kyoto",
+        "location": {
+          "latitude": 35.00382,
+          "longitude": 135.7785
+        },
+        "primaryType": "cafe",
+        "types": ["cafe", "coffee_shop", "food"],
+        "rating": 4.3,
+        "userRatingCount": 210
+      }
+    ]
+  },
+  {
+    "id": "sf-park-long-dwell-no-vision",
+    "cluster": {
+      "centroid": {
+        "latitude": 37.7687,
+        "longitude": -122.4829
+      },
+      "time_hint": "attraction",
+      "start_time": "2024-08-17T14:00:00Z",
+      "end_time": "2024-08-17T17:10:00Z"
+    },
+    "expected_place_id": "place-botanical-garden",
+    "places": [
+      {
+        "id": "place-botanical-garden",
+        "displayName": {
+          "text": "San Francisco Botanical Garden"
+        },
+        "formattedAddress": "1199 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76888,
+          "longitude": -122.4829
+        },
+        "primaryType": "botanical_garden",
+        "types": ["botanical_garden", "park", "tourist_attraction"],
+        "rating": 4.7,
+        "userRatingCount": 5200
+      },
+      {
+        "id": "place-garden-gift-shop",
+        "displayName": {
+          "text": "Garden Gift Shop"
+        },
+        "formattedAddress": "1199 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76901,
+          "longitude": -122.4829
+        },
+        "primaryType": "store",
+        "types": ["store"],
+        "rating": 4.2,
+        "userRatingCount": 180
+      },
+      {
+        "id": "place-park-cafe",
+        "displayName": {
+          "text": "Ninth Avenue Cafe"
+        },
+        "formattedAddress": "1265 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76924,
+          "longitude": -122.4829
+        },
+        "primaryType": "cafe",
+        "types": ["cafe", "coffee_shop", "food"],
+        "rating": 4.3,
+        "userRatingCount": 350
+      }
+    ]
+  },
+  {
+    "id": "tokyo-partial-ocr-blue-bottle",
+    "cluster": {
+      "centroid": {
+        "latitude": 35.6654,
+        "longitude": 139.7123
+      },
+      "time_hint": "quick_stop",
+      "start_time": "2024-04-12T09:20:00Z",
+      "end_time": "2024-04-12T09:45:00Z"
+    },
+    "expected_place_id": "place-blue-bottle-omotesando",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["BLUE BOTTLE"],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-blue-bottle-omotesando",
+        "displayName": {
+          "text": "Blue Bottle Coffee Omotesando"
+        },
+        "formattedAddress": "3 Chome-13-14 Minamiaoyama, Tokyo",
+        "location": {
+          "latitude": 35.66556,
+          "longitude": 139.7123
+        },
+        "primaryType": "coffee_shop",
+        "types": ["coffee_shop", "cafe", "food"],
+        "rating": 4.4,
+        "userRatingCount": 800
+      },
+      {
+        "id": "place-omotesando-hills",
+        "displayName": {
+          "text": "Omotesando Hills"
+        },
+        "formattedAddress": "4 Chome-12-10 Jingumae, Tokyo",
+        "location": {
+          "latitude": 35.66567,
+          "longitude": 139.7123
+        },
+        "primaryType": "shopping_mall",
+        "types": ["shopping_mall", "store"],
+        "rating": 4.2,
+        "userRatingCount": 21000
+      },
+      {
+        "id": "place-ramen-corner",
+        "displayName": {
+          "text": "Ramen Corner Aoyama"
+        },
+        "formattedAddress": "5 Chome-1-2 Minamiaoyama, Tokyo",
+        "location": {
+          "latitude": 35.6658,
+          "longitude": 139.7123
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "ramen_restaurant", "food"],
+        "rating": 4.5,
+        "userRatingCount": 1300
+      }
+    ]
+  },
+  {
+    "id": "bangkok-hotel-overnight",
+    "cluster": {
+      "centroid": {
+        "latitude": 13.7499,
+        "longitude": 100.4952
+      },
+      "start_time": "2024-12-02T21:00:00Z",
+      "end_time": "2024-12-03T07:30:00Z"
+    },
+    "expected_place_id": "place-riverside-grand-hotel",
+    "vision_results": [
+      {
+        "category": "stay",
+        "detected_text": ["Riverside Grand Hotel"],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-riverside-grand-hotel",
+        "displayName": {
+          "text": "Riverside Grand Hotel"
+        },
+        "formattedAddress": "123 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.7501,
+          "longitude": 100.4952
+        },
+        "primaryType": "hotel",
+        "types": ["hotel", "lodging"],
+        "rating": 4.6,
+        "userRatingCount": 3800
+      },
+      {
+        "id": "place-rooftop-bar",
+        "displayName": {
+          "text": "Sky Deck Rooftop Bar"
+        },
+        "formattedAddress": "123 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.75015,
+          "longitude": 100.4952
+        },
+        "primaryType": "bar",
+        "types": ["bar", "night_club"],
+        "rating": 4.5,
+        "userRatingCount": 950
+      },
+      {
+        "id": "place-street-noodles",
+        "displayName": {
+          "text": "Charoen Krung Boat Noodles"
+        },
+        "formattedAddress": "145 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.75026,
+          "longitude": 100.4952
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "thai_restaurant", "food"],
+        "rating": 4.4,
+        "userRatingCount": 620
+      }
+    ]
   }
 ]

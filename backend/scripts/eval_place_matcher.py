@@ -59,6 +59,7 @@ WeightName = Literal[
     "places_rank_fame_weight",
     "places_rank_dwell_weight",
     "places_rank_vision_weight",
+    "places_rank_name_match_weight",
 ]
 
 WEIGHT_NAMES: tuple[WeightName, ...] = (
@@ -68,6 +69,7 @@ WEIGHT_NAMES: tuple[WeightName, ...] = (
     "places_rank_fame_weight",
     "places_rank_dwell_weight",
     "places_rank_vision_weight",
+    "places_rank_name_match_weight",
 )
 
 DEFAULT_SEARCH_RANGES: dict[WeightName, tuple[float, float]] = {
@@ -77,6 +79,7 @@ DEFAULT_SEARCH_RANGES: dict[WeightName, tuple[float, float]] = {
     "places_rank_fame_weight": (0.2, 3.0),
     "places_rank_dwell_weight": (0.2, 3.0),
     "places_rank_vision_weight": (0.2, 3.0),
+    "places_rank_name_match_weight": (0.2, 3.0),
 }
 
 

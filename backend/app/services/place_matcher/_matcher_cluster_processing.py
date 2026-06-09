@@ -198,6 +198,7 @@ class ClusterProcessingMixin:
         per_cluster_merged: dict[str, list[dict]] = {}
         per_cluster_finalists: dict[str, list[dict]] = {}
         finalist_ids: set[str] = set()
+        name_match_locked_clusters: set[str] = set()
 
         for cluster, places, _radius_used in search_results:
             cluster_id = cluster["id"]
@@ -223,6 +224,28 @@ class ClusterProcessingMixin:
             )
             finalists = first_pass[:MAX_SUGGESTIONS_PER_CLUSTER]
             per_cluster_finalists[cluster_id] = finalists
+
+            # When the top finalist matches vision-detected signage, the ranking
+            # outcome is already decided: the name-match bonus exceeds the maximum
+            # combined rating/review/fame advantage any neighbor could gain from
+            # enrichment. Skip the (Enterprise-tier) Place Details calls for the
+            # whole cluster — pure cost saving, identical top suggestion. Big trip
+            # imports (hundreds of photos -> many clusters) make this significant.
+            if (
+                finalists
+                and vision_result is not None
+                and any(
+                    name_matches_candidate(finalists[0]["name"], c)
+                    for c in vision_result.business_name_candidates
+                )
+            ):
+                name_match_locked_clusters.add(cluster_id)
+                logger.info(
+                    f"Cluster {cluster_id}: skipping rating enrichment — top "
+                    f"finalist '{finalists[0]['name']}' matches detected signage"
+                )
+                continue
+
             finalist_ids.update(p["place_id"] for p in finalists)
 
         # Enrich only the surfaced finalists with rating/userRatingCount, then
@@ -244,7 +267,7 @@ class ClusterProcessingMixin:
             vision_result = vision_map.get(cluster_id)
             finalists = per_cluster_finalists.get(cluster_id, [])
 
-            if enriched_ratings:
+            if enriched_ratings and cluster_id not in name_match_locked_clusters:
                 # Merge live ratings back onto the original merged place dicts for
                 # just the finalists, then re-rank that small enriched set.
                 finalist_place_ids = {p["place_id"] for p in finalists}

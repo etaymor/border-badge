@@ -150,6 +150,12 @@ class Settings(BaseSettings):
         le=5.0,
         description="Weight for vision category bonus term in place ranking",
     )
+    places_rank_name_match_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Weight for vision signage name-match bonus in place ranking",
+    )
 
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)

@@ -14,11 +14,24 @@ from .constants import (
     TIME_HINT_TYPE_MATCHES,
     TYPE_TO_CATEGORY,
 )
-from .utils import haversine, sanitize_address, sanitize_place_name
+from .utils import (
+    haversine,
+    name_matches_candidate,
+    sanitize_address,
+    sanitize_place_name,
+)
 
 # Vision scoring constants
 VISION_HIGH_CONFIDENCE_BONUS = 1.5
 VISION_MEDIUM_CONFIDENCE_BONUS = 0.75
+
+# Bonus when a candidate's name matches vision-detected signage text. A readable
+# business name in the user's own photo is near-conclusive evidence of the visited
+# place, so this must outweigh the combined review/fame/rating advantage of a
+# mega-famous neighbor (~8 points for a 400k-review landmark). Not gated on vision
+# category confidence: business-name candidates are already filtered to 2+ word
+# non-generic phrases, and the conservative containment match guards OCR noise.
+NAME_MATCH_BONUS = 9.0
 
 
 class RankingMixin:
@@ -109,6 +122,10 @@ class RankingMixin:
         cluster_lat = cluster["centroid"]["latitude"]
         cluster_lng = cluster["centroid"]["longitude"]
 
+        name_candidates: list[str] = (
+            vision_result.business_name_candidates if vision_result is not None else []
+        )
+
         # Compute dwell minutes from cluster time range
         dwell_minutes: float | None = None
         start_time = cluster.get("start_time")
@@ -161,6 +178,9 @@ class RankingMixin:
                     "_rating_count": rating_count,
                     "_rating": rating,
                     "_primary_type": primary_type,
+                    "_name_match": any(
+                        name_matches_candidate(raw_name, c) for c in name_candidates
+                    ),
                 }
             )
 
@@ -201,6 +221,7 @@ class RankingMixin:
             fame_weight = _weight("places_rank_fame_weight")
             dwell_weight = _weight("places_rank_dwell_weight")
             vision_weight = _weight("places_rank_vision_weight")
+            name_match_weight = _weight("places_rank_name_match_weight")
 
             # Distance penalty: 1 point per 20m bucket (unchanged)
             distance_penalty = (distance_m / 20.0) * distance_weight
@@ -226,6 +247,11 @@ class RankingMixin:
             # Vision category bonus
             vision = _vision_bonus(x["types"]) * vision_weight
 
+            # Vision signage name-match bonus (dominant signal when present)
+            name_match = (NAME_MATCH_BONUS if x["_name_match"] else 0.0) * (
+                name_match_weight
+            )
+
             # Lower score = better rank
             return (
                 distance_penalty
@@ -234,6 +260,7 @@ class RankingMixin:
                 - fame
                 - dwell_cat
                 - vision
+                - name_match
             )
 
         ranked.sort(key=sort_key)
@@ -243,5 +270,6 @@ class RankingMixin:
             del r["_rating_count"]
             del r["_rating"]
             del r["_primary_type"]
+            del r["_name_match"]
 
         return ranked
