@@ -44,11 +44,21 @@ DENSITY_THRESHOLD_DENSE = 3  # 3+ results at first radius = dense
 DENSITY_THRESHOLD_MEDIUM = 1  # 1-2 results = medium
 
 # Density-adaptive search radii
+# Sparse drops the 25m tier: it nearly duplicates the 15m probe's coverage and
+# in empty areas it was a guaranteed wasted paid call before the useful radii.
 DENSITY_SEARCH_RADII: dict[str, list[int]] = {
     "dense": [15, 35, 75],
-    "medium": [15, 50, 125],  # Current behavior
-    "sparse": [25, 100, 250],
+    "medium": [15, 50, 125],
+    "sparse": [100, 250],
 }
+
+# Tiered search keeps expanding until it has accumulated at least this many
+# quality candidates (union across tiers, deduped) or runs out of radii. A bare
+# "first radius with any hit" stop created a hard recall ceiling: with 20-80m of
+# indoor GPS drift, the place actually visited often sits one tier out while a
+# single nearer place satisfied the probe — and ranking can never recover a
+# candidate that was never fetched.
+MIN_QUALITY_RESULTS_BEFORE_STOP = 5
 
 
 # ============================================================================

@@ -22,6 +22,7 @@ from .constants import (
     INSTITUTIONAL_TYPES,
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACES_PER_SEARCH,
+    MIN_QUALITY_RESULTS_BEFORE_STOP,
     MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
     NON_TOURIST_TYPES,
@@ -29,6 +30,7 @@ from .constants import (
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
     TEXT_SEARCH_URL,
+    TYPE_TO_CATEGORY,
     WIDE_FIELD_MASK,
     DensityLevel,
 )
@@ -85,15 +87,20 @@ class SearchMixin:
         """
         Density-adaptive tiered radius search.
 
-        First search at smallest radius detects density level, then uses
-        density-appropriate radii for subsequent tiers.
+        First search at smallest radius detects density level, then expands
+        through density-appropriate radii, ACCUMULATING quality candidates
+        (deduped by place id) until MIN_QUALITY_RESULTS_BEFORE_STOP are
+        gathered or the tiers are exhausted. Stopping at the first non-empty
+        tier capped recall: with typical indoor GPS drift the visited place is
+        often one tier further out than the nearest match.
 
         Returns:
-            Tuple of (quality_places, radius_used)
+            Tuple of (quality_places, radius_used) where radius_used is the
+            largest radius that contributed a new candidate.
         """
         # First search at smallest radius (always 15m for density detection).
         # Track every radius we've actually searched so later tiers never re-issue
-        # a call at an already-searched radius (each Nearby call is Enterprise-tier).
+        # a call at an already-searched radius (each Nearby call is a paid call).
         first_radius = SEARCH_RADII_METERS[0]
         searched_radii: set[int] = {first_radius}
         first_places = await self._execute_search(latitude, longitude, first_radius)
@@ -105,35 +112,39 @@ class SearchMixin:
             f"{first_radius}m -> {density.value}"
         )
 
-        # Quality-filter the first tier results
-        if first_places:
-            quality_places = self._filter_low_quality_places(first_places)
-            if quality_places:
-                return quality_places, first_radius
-            logger.debug(
-                f"Radius {first_radius}m: {len(first_places)} places found "
-                f"but 0 passed quality filter, expanding"
-            )
+        quality_places: list[dict] = []
+        seen_place_ids: set[str] = set()
+        radius_used = 0
+
+        def absorb(places: list[dict], radius: int) -> None:
+            nonlocal radius_used
+            for place in self._filter_low_quality_places(places):
+                place_id = place.get("id")
+                if place_id in seen_place_ids:
+                    continue
+                seen_place_ids.add(place_id)
+                quality_places.append(place)
+                radius_used = radius
+
+        absorb(first_places, first_radius)
+        if len(quality_places) >= MIN_QUALITY_RESULTS_BEFORE_STOP:
+            return quality_places, radius_used
 
         # Expand through the density-appropriate radii, skipping any radius we've
         # already searched. (Filtering by value rather than slicing by position
-        # also ensures the sparse profile's smallest tier — which differs from the
-        # 15m probe — is not silently dropped.)
+        # also ensures a profile tier differing from the 15m probe is not
+        # silently dropped.)
         for radius in DENSITY_SEARCH_RADII[density.value]:
             if radius in searched_radii:
                 continue
             searched_radii.add(radius)
             places = await self._execute_search(latitude, longitude, radius)
             if places:
-                quality_places = self._filter_low_quality_places(places)
-                if quality_places:
-                    return quality_places, radius
-                logger.debug(
-                    f"Radius {radius}m: {len(places)} places found but "
-                    f"0 passed quality filter, expanding"
-                )
+                absorb(places, radius)
+                if len(quality_places) >= MIN_QUALITY_RESULTS_BEFORE_STOP:
+                    return quality_places, radius_used
 
-        return [], 0
+        return quality_places, radius_used
 
     @retry(
         stop=stop_after_attempt(3),
@@ -491,8 +502,17 @@ class SearchMixin:
             primary_type = place.get("primaryType", "unknown")
             place_types = set(place.get("types", []))
 
-            # Hard filter: non-tourist types (check primary type AND all types)
-            if primary_type in NON_TOURIST_TYPES or place_types & NON_TOURIST_TYPES:
+            # Hard filter: non-tourist types. Drop on a non-tourist PRIMARY type,
+            # but only drop on a non-tourist SECONDARY type when the primary type
+            # is not itself clearly touristy — a museum housed in a historic bank
+            # carries "bank" in its secondary types and must stay recallable.
+            primary_category = TYPE_TO_CATEGORY.get(primary_type)
+            primary_is_touristy = (
+                primary_category is not None and primary_category != "place"
+            )
+            if primary_type in NON_TOURIST_TYPES or (
+                place_types & NON_TOURIST_TYPES and not primary_is_touristy
+            ):
                 logger.debug(f"Filtered (non-tourist): {name} | type={primary_type}")
                 continue
 

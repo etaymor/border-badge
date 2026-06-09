@@ -1332,17 +1332,37 @@ class TestTieredSearchRadiusReuse:
         return matcher
 
     @pytest.mark.asyncio
-    async def test_dense_returns_on_first_tier_no_extra_calls(self) -> None:
-        # 3+ raw results at 15m -> DENSE, and they pass quality -> stop at 15m.
+    async def test_dense_stops_when_enough_candidates(self) -> None:
+        # 5+ quality results at 15m satisfy MIN_QUALITY_RESULTS_BEFORE_STOP ->
+        # stop after a single call.
         radii_seen: list[int] = []
-        results = {15: [_quality_place(f"p{i}") for i in range(3)]}
+        results = {15: [_quality_place(f"p{i}") for i in range(5)]}
         matcher = self._matcher_recording_radii(radii_seen, results)
 
         places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
 
         assert radius_used == 15
-        assert len(places) == 3
+        assert len(places) == 5
         assert radii_seen == [15]  # no redundant calls
+
+    @pytest.mark.asyncio
+    async def test_dense_accumulates_across_tiers_until_min_candidates(self) -> None:
+        # 3 quality results at 15m used to stop the search cold; with GPS drift
+        # the visited place is often one tier out. Now the search expands and
+        # UNIONS results until it has MIN_QUALITY_RESULTS_BEFORE_STOP candidates.
+        radii_seen: list[int] = []
+        results = {
+            15: [_quality_place(f"p{i}") for i in range(3)],
+            # 35m returns one duplicate of p0 plus two new places
+            35: [_quality_place("p0"), _quality_place("p3"), _quality_place("p4")],
+        }
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert radii_seen == [15, 35]  # stopped once 5 candidates accumulated
+        assert radius_used == 35
+        assert [p["id"] for p in places] == ["p0", "p1", "p2", "p3", "p4"]
 
     @pytest.mark.asyncio
     async def test_no_radius_searched_twice(self) -> None:
@@ -1376,21 +1396,26 @@ class TestTieredSearchRadiusReuse:
         places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
 
         assert radius_used == 50
-        assert radii_seen == [15, 50]  # 15 not repeated
+        # 15 not repeated; 125m tier still attempted (only 1 candidate so far,
+        # below MIN_QUALITY_RESULTS_BEFORE_STOP)
+        assert radii_seen == [15, 50, 125]
+        assert len(places) == 1
 
     @pytest.mark.asyncio
-    async def test_sparse_searches_its_smallest_tier(self) -> None:
-        # 0 results at 15m -> SPARSE ([25, 100, 250]). The 25m tier must be
-        # searched (the old positional `[1:]` slice dropped it).
+    async def test_sparse_skips_redundant_25m_tier(self) -> None:
+        # 0 results at 15m -> SPARSE ([100, 250]). The 25m tier was removed:
+        # it nearly duplicates the 15m probe's coverage and in empty areas it
+        # was a guaranteed wasted paid call.
         radii_seen: list[int] = []
-        results = {25: [_quality_place()]}
+        results = {100: [_quality_place()]}
         matcher = self._matcher_recording_radii(radii_seen, results)
 
         places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
 
-        assert radius_used == 25
-        assert 25 in radii_seen
-        assert radii_seen == [15, 25]
+        assert radius_used == 100
+        assert 25 not in radii_seen
+        assert radii_seen == [15, 100, 250]
+        assert len(places) == 1
 
 
 # ============================================================================
@@ -1452,8 +1477,13 @@ class TestTouristRelevanceFilter:
         filtered = matcher._filter_low_quality_places(places)
         assert len(filtered) == 0
 
-    def test_filters_place_with_non_tourist_secondary_type(self, matcher) -> None:
-        """Place tagged as both restaurant and parking should be filtered."""
+    def test_keeps_touristy_primary_with_non_tourist_secondary(self, matcher) -> None:
+        """A restaurant that also offers parking must stay recallable.
+
+        The secondary-type blocklist only applies when the primary type is not
+        itself clearly touristy — otherwise multi-use places (museum in a
+        historic bank, restaurant with parking) become unrecallable.
+        """
         places = [
             {
                 "id": "place-1",
@@ -1461,6 +1491,27 @@ class TestTouristRelevanceFilter:
                 "userRatingCount": 100,
                 "primaryType": "restaurant",
                 "types": ["restaurant", "parking"],
+            },
+            {
+                "id": "place-2",
+                "displayName": {"text": "Museum in Historic Bank"},
+                "userRatingCount": 800,
+                "primaryType": "museum",
+                "types": ["museum", "bank"],
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert {p["id"] for p in filtered} == {"place-1", "place-2"}
+
+    def test_filters_generic_primary_with_non_tourist_secondary(self, matcher) -> None:
+        """A generic primary type with a non-tourist secondary is still dropped."""
+        places = [
+            {
+                "id": "place-1",
+                "displayName": {"text": "Downtown ATM Kiosk"},
+                "userRatingCount": 40,
+                "primaryType": "point_of_interest",
+                "types": ["point_of_interest", "atm"],
             },
         ]
         filtered = matcher._filter_low_quality_places(places)
@@ -2194,6 +2245,70 @@ class TestVisionRanking:
         assert failed_count == 0
         assert text_search_called is False  # suppressed
         assert results[0]["places"][0]["place_id"] == "place-ramen"
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_text_search_rescues_empty_nearby(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Low vision confidence still triggers text search when Nearby is empty.
+
+        Confidence reflects scene clarity (dark/blurry), not OCR validity — a
+        dark nightlife photo can carry a crisp readable sign. When Nearby found
+        nothing, the text search is the only recall path, so the low-confidence
+        gate must not block it.
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 40.7306, "longitude": -73.9866},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return [], 0  # nothing nearby
+
+        text_queries: list[str] = []
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            text_queries.append(text_query)
+            return [
+                {
+                    "id": "place-neon-cellar",
+                    "displayName": {"text": "Neon Cellar"},
+                    "formattedAddress": "130 2nd Ave",
+                    "location": {"latitude": 40.7306, "longitude": -73.9866},
+                    "primaryType": "bar",
+                    "types": ["bar", "night_club"],
+                    "businessStatus": "OPERATIONAL",
+                }
+            ]
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision_result = VisionResult(
+            category="nightlife",
+            detected_text=["Neon Cellar"],
+            confidence="low",  # dark photo — but the sign text is readable
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert failed_count == 0
+        assert text_queries == ["Neon Cellar"]
+        assert results[0]["places"][0]["place_id"] == "place-neon-cellar"
 
     @pytest.mark.asyncio
     async def test_text_search_runs_when_nearby_does_not_match(

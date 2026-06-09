@@ -26,11 +26,31 @@ class TestVisionResultHasBusinessName:
         )
         assert result.has_business_name is True
 
-    def test_returns_false_for_single_words(self) -> None:
-        """Single words are not considered business names."""
+    def test_returns_true_for_single_word_proper_names(self) -> None:
+        """One-word venue names (Noma, Nobu) count as business names."""
+        for name in ["Noma", "Septime", "Starbucks"]:
+            result = VisionResult(
+                category="food",
+                detected_text=[name],
+                confidence="high",
+            )
+            assert result.has_business_name is True, f"'{name}' should qualify"
+
+    def test_returns_false_for_single_generic_venue_words(self) -> None:
+        """Standalone venue-category nouns (RESTAURANT, CAFE) are not names."""
+        for word in ["Restaurant", "CAFE", "Hotel", "BAR", "Pizza"]:
+            result = VisionResult(
+                category="food",
+                detected_text=[word],
+                confidence="high",
+            )
+            assert result.has_business_name is False, f"'{word}' should not qualify"
+
+    def test_returns_false_for_short_single_words(self) -> None:
+        """Single words under 4 characters are treated as OCR noise."""
         result = VisionResult(
             category="food",
-            detected_text=["Restaurant"],
+            detected_text=["Tea", "123456"],
             confidence="high",
         )
         assert result.has_business_name is False
@@ -79,15 +99,15 @@ class TestVisionResultHasBusinessName:
 class TestVisionResultBusinessNameCandidates:
     """Tests for VisionResult.business_name_candidates property."""
 
-    def test_filters_single_words(self) -> None:
-        """Single words should be excluded from candidates."""
+    def test_single_word_proper_names_are_candidates(self) -> None:
+        """One-word venue names qualify; generic venue nouns do not."""
         result = VisionResult(
             category="food",
-            detected_text=["Starbucks", "Tsukiji Fish Market"],
+            detected_text=["Starbucks", "Restaurant", "Tsukiji Fish Market"],
             confidence="high",
         )
         candidates = result.business_name_candidates
-        assert candidates == ["Tsukiji Fish Market"]
+        assert candidates == ["Starbucks", "Tsukiji Fish Market"]
 
     def test_filters_generic_words(self) -> None:
         """Generic text should be excluded from candidates."""

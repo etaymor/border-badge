@@ -153,9 +153,16 @@ class ClusterProcessingMixin:
         for cluster, nearby_places, _radius_used in search_results:
             cluster_id = cluster["id"]
             vision_result = vision_map.get(cluster_id)
+            # Low vision confidence reflects scene clarity (dark/blurry), not OCR
+            # validity — a dark nightlife photo can still carry a crisp neon sign.
+            # Cost-bounded rescue: let low-confidence text trigger the search only
+            # when Nearby found nothing, where it is the sole recall path.
+            confidence_ok = vision_result is not None and (
+                vision_result.confidence != "low" or not nearby_places
+            )
             if (
                 vision_result is not None
-                and vision_result.confidence != "low"
+                and confidence_ok
                 and vision_result.has_business_name
             ):
                 candidates = vision_result.business_name_candidates

@@ -150,6 +150,8 @@ Categories:
 - unknown: Cannot determine
 
 Also extract ALL visible text (signs, menus, logos, plaques, building names).
+Prioritize the name of the establishment the photo was taken AT (storefront sign, awning, menu header, receipt) over background or ambient text, and list it first.
+If text is in a non-Latin script, include BOTH the original text and its romanized (Latin-alphabet) transliteration as separate entries.
 Report confidence: high (clear scene), medium (somewhat ambiguous), low (dark/blurry/unclear)."""
 
 CLASSIFICATION_USER_PROMPT = (
@@ -176,4 +178,54 @@ GENERIC_TEXT_WORDS: set[str] = {
     "free",
     "sale",
     "hours",
+}
+
+# Venue-category nouns that are generic when they appear ALONE on signage
+# ("RESTAURANT", "CAFE", "BAR" neon signs). They block single-word business-name
+# candidates only — multi-word phrases like "Hotel Okura" must keep qualifying,
+# so these deliberately do NOT live in GENERIC_TEXT_WORDS (whose per-word check
+# rejects whole phrases).
+GENERIC_VENUE_WORDS: set[str] = {
+    "restaurant",
+    "cafe",
+    "café",
+    "coffee",
+    "espresso",
+    "bar",
+    "pub",
+    "hotel",
+    "hostel",
+    "motel",
+    "museum",
+    "gallery",
+    "park",
+    "beach",
+    "market",
+    "shop",
+    "store",
+    "bakery",
+    "grill",
+    "diner",
+    "bistro",
+    "pizzeria",
+    "pizza",
+    "ramen",
+    "sushi",
+    "tacos",
+    "beer",
+    "wine",
+    "cocktails",
+    "drinks",
+    "food",
+    "kitchen",
+    "spa",
+    "casino",
+    "club",
+    "lounge",
+    "temple",
+    "shrine",
+    "church",
+    "breakfast",
+    "lunch",
+    "dinner",
 }
