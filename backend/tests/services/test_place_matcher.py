@@ -731,6 +731,7 @@ class TestFindPlacesForClustersPartialFailures:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1042,6 +1043,7 @@ class TestQualityFiltering:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1342,6 +1344,7 @@ class TestQualityRanking:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1784,6 +1787,7 @@ class TestTouristRelevanceFilter:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1992,6 +1996,7 @@ class TestEnhancedRanking:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2097,6 +2102,7 @@ class TestVisionRanking:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2732,6 +2738,234 @@ class TestVisionRanking:
 
         assert text_search_called is True  # not suppressed — genuinely different
 
+    @pytest.mark.asyncio
+    async def test_broaden_flag_off_no_rescue_without_business_name(
+        self, matcher, monkeypatch
+    ) -> None:
+        """C2/U14: with the broaden flag OFF, empty Nearby + detected text that is
+        NOT a strong business-name candidate does NOT trigger Text Search.
+
+        'Open' is a generic word, so business_name_candidates is empty — the
+        existing has_business_name gate blocks rescue. The assertion (not a
+        comment) is that _execute_text_search is never awaited.
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered([])  # empty Nearby
+
+        text_search_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_search_called
+            text_search_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        # Detected text is generic ('Open') -> no business_name_candidates.
+        vision_result = VisionResult(
+            category="food", detected_text=["Open"], confidence="high"
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        matcher._settings.places_text_rescue_on_empty = False
+        await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert text_search_called is False
+
+    @pytest.mark.asyncio
+    async def test_broaden_flag_gates_rescue_on_sub_threshold_text(
+        self, matcher, monkeypatch
+    ) -> None:
+        """C2/U14 (the load-bearing paired assertion): empty Nearby + detected
+        signage that is NOT a valid business_name_candidate (non-Latin '한식',
+        which the strict OCR-noise filter rejects) — the exact C2 case. Flag OFF:
+        Text Search is NEVER awaited. Flag ON: it is awaited exactly once using
+        the raw detected text, recovering the place. The flag-off arm proves the
+        broadening is real, not a test that passes because text-search was mocked
+        to return a place regardless.
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered([])  # empty Nearby
+
+        text_search_calls: list[str] = []
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            text_search_calls.append(text_query)
+            return [
+                {
+                    "id": "rescued",
+                    "displayName": {"text": "Rescued Spot"},
+                    "formattedAddress": "x",
+                    "location": {"latitude": 35.6762, "longitude": 139.6503},
+                    "primaryType": "restaurant",
+                    "types": ["restaurant"],
+                    "businessStatus": "OPERATIONAL",
+                }
+            ]
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        # '한식' is not a valid business_name_candidate (the strict filter rejects
+        # it), so the existing has_business_name gate would never rescue on it.
+        vision_result = VisionResult(
+            category="food", detected_text=["한식"], confidence="high"
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        # Flag OFF: no rescue (the existing predicate has no business name).
+        matcher._settings.places_text_rescue_on_empty = False
+        await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+        assert text_search_calls == []
+
+        # Flag ON: rescue fires once on the raw detected text and recovers it.
+        matcher._settings.places_text_rescue_on_empty = True
+        results, _ = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+        assert text_search_calls == ["한식"]
+        assert results[0]["places"][0]["place_id"] == "rescued"
+
+    @pytest.mark.asyncio
+    async def test_broaden_flag_on_no_rescue_when_no_vision_at_all(
+        self, matcher, monkeypatch
+    ) -> None:
+        """C2/U14 (vision_result is None): even with the flag ON, a cluster with NO
+        vision result has no text to query, so Text Search must NOT fire. This
+        forces the broadened branch to live where it can short-circuit on the
+        absence of any detected text (the SIGNAL limit U16 covers).
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered([])
+
+        text_search_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_search_called
+            text_search_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        matcher._settings.places_text_rescue_on_empty = True
+        # No vision_results_task -> vision_map empty -> no detected text.
+        await matcher.find_places_for_clusters(clusters)
+
+        assert text_search_called is False
+
+    @pytest.mark.asyncio
+    async def test_broaden_flag_on_still_suppresses_when_nearby_matches(
+        self, matcher, monkeypatch
+    ) -> None:
+        """C2/U14: the broaden flag does not break the cost-discipline suppression
+        — when Nearby already name-matches the signage, rescue stays suppressed.
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        nearby_places = [
+            {
+                "id": "place-ramen",
+                "displayName": {"text": "Tsukiji Ramen Honten"},
+                "formattedAddress": "1 Tsukiji",
+                "location": {"latitude": 35.6762, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "rating": 4.4,
+                "userRatingCount": 420,
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(nearby_places)
+
+        text_search_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_search_called
+            text_search_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision_result = VisionResult(
+            category="food", detected_text=["Tsukiji Ramen"], confidence="high"
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        matcher._settings.places_text_rescue_on_empty = True
+        await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert text_search_called is False  # suppressed despite the flag
+
 
 class TestVisionWeightDefault:
     """C4/U7: the shipped places_rank_vision_weight default must be strong enough
@@ -2855,6 +3089,7 @@ class TestNameMatchRanking:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3001,6 +3236,7 @@ class TestWideSearchFieldMask:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3069,6 +3305,7 @@ class TestQualityFilterRatingGate:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3159,6 +3396,7 @@ class TestFinalistEnrichment:
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3579,6 +3817,7 @@ class TestDiagnosticsTrace:
         settings.places_min_quality_results_before_stop = 5
         settings.places_extra_search_tier_m = None
         settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
         # Diagnostics ON for this group (individual tests flip it off as needed).
         settings.places_diagnostics = True
         monkeypatch.setattr(

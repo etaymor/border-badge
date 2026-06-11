@@ -189,6 +189,16 @@ class Settings(BaseSettings):
             "a finalist on distance aren't demoted below a backfill."
         ),
     )
+    places_text_rescue_on_empty: bool = Field(
+        default=False,
+        description=(
+            "C2/U14: broaden Text Search rescue to fire on an empty Nearby result "
+            "even when vision found no strong business-name candidate, using any "
+            "detected signage text as the query. Text Search is the most "
+            "expensive (Enterprise-tier) lever, so this stays OFF until a "
+            "real-world A/B justifies the per-cluster cost."
+        ),
+    )
     places_extra_search_tier_m: int | None = Field(
         default=None,
         ge=15,

@@ -245,6 +245,7 @@ class ClusterProcessingMixin:
                     )
                     return cluster_id, []
 
+        broaden_rescue = self._settings.places_text_rescue_on_empty
         text_search_tasks = []
         for cluster, nearby_places, _radius_used in search_results:
             cluster_id = cluster["id"]
@@ -256,6 +257,33 @@ class ClusterProcessingMixin:
             confidence_ok = vision_result is not None and (
                 vision_result.confidence != "low" or not nearby_places
             )
+
+            # C2/U14 broadened rescue (opt-in, default OFF — Enterprise-tier cost).
+            # When Nearby returned NOTHING and vision has SOME detected text that
+            # is not a strong business-name candidate (e.g. non-Latin signage the
+            # strict OCR filter rejects), fire a Text Search on the raw text — it
+            # is the only recall path left. Gated to empty Nearby so it can never
+            # add cost on top of a populated result, and skipped when the normal
+            # business-name path below will already handle it. A cluster with no
+            # vision at all has no text to query (the SIGNAL limit, U16).
+            if (
+                broaden_rescue
+                and not nearby_places
+                and vision_result is not None
+                and vision_result.detected_text
+                and not vision_result.has_business_name
+            ):
+                query = vision_result.detected_text[0].strip()
+                if query:
+                    lat = cluster["centroid"]["latitude"]
+                    lng = cluster["centroid"]["longitude"]
+                    text_search_tasks.append(
+                        text_search_for_cluster(cluster_id, query, lat, lng)
+                    )
+                    if diagnostics and cluster_id in traces:
+                        traces[cluster_id]["vision"]["text_search_triggered"] = True
+                    continue
+
             if (
                 vision_result is not None
                 and confidence_ok
