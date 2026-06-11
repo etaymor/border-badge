@@ -1195,6 +1195,133 @@ class TestQualityFiltering:
         assert len(filtered) == 2
         assert {p["id"] for p in filtered} == {"place-1", "place-2"}
 
+    def test_drop_counts_tally_each_reason(self, matcher) -> None:
+        """An optional drop_counts dict is populated with per-reason tallies."""
+        places = [
+            # Non-tourist primary type -> non_tourist
+            {
+                "id": "nt",
+                "displayName": {"text": "Gas Station"},
+                "primaryType": "gas_station",
+                "types": ["gas_station"],
+                "userRatingCount": 100,
+            },
+            # Permanently closed -> closed
+            {
+                "id": "cl",
+                "displayName": {"text": "Closed Cafe"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "businessStatus": "CLOSED_PERMANENTLY",
+                "userRatingCount": 100,
+            },
+            # Empty name -> no_name
+            {
+                "id": "nn",
+                "displayName": {"text": ""},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "userRatingCount": 100,
+            },
+            # Three valid places (carry ratings so the gate doesn't drop them)
+            {
+                "id": "ok-1",
+                "displayName": {"text": "Good One"},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "userRatingCount": 100,
+            },
+            {
+                "id": "ok-2",
+                "displayName": {"text": "Good Two"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "userRatingCount": 50,
+            },
+            {
+                "id": "ok-3",
+                "displayName": {"text": "Good Three"},
+                "primaryType": "museum",
+                "types": ["museum"],
+                "userRatingCount": 25,
+            },
+        ]
+
+        drop_counts: dict[str, int] = {}
+        filtered = matcher._filter_low_quality_places(places, drop_counts=drop_counts)
+
+        assert len(filtered) == 3
+        assert drop_counts == {
+            "non_tourist": 1,
+            "closed": 1,
+            "no_name": 1,
+            "low_reviews": 0,
+        }
+
+    def test_drop_counts_low_reviews_zero_in_search_phase(self, matcher) -> None:
+        """In the wide/search phase (no userRatingCount) low_reviews stays 0.
+
+        Even with a place that WOULD fail the review gate, the gate doesn't fire
+        without a rating count, so the trace must not read "reviews never
+        filter" — it must distinguish search-phase 0 from enrich-phase nonzero.
+        """
+        places = [
+            {
+                "id": "wide",
+                "displayName": {"text": "Wide Pass Place"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                # No userRatingCount -> gate skipped even though it'd fail
+            },
+        ]
+
+        drop_counts: dict[str, int] = {}
+        filtered = matcher._filter_low_quality_places(places, drop_counts=drop_counts)
+
+        assert len(filtered) == 1
+        assert drop_counts["low_reviews"] == 0
+
+    def test_drop_counts_low_reviews_nonzero_in_enrich_phase(self, matcher) -> None:
+        """With ratings present, a sub-threshold non-institutional place tallies."""
+        places = [
+            {
+                "id": "few",
+                "displayName": {"text": "Few Reviews"},
+                "primaryType": "cafe",
+                "types": ["cafe"],
+                "userRatingCount": MIN_REVIEW_COUNT - 1,
+            },
+        ]
+
+        drop_counts: dict[str, int] = {}
+        filtered = matcher._filter_low_quality_places(places, drop_counts=drop_counts)
+
+        assert filtered == []
+        assert drop_counts["low_reviews"] == 1
+
+    def test_drop_counts_optional_no_behavior_change(self, matcher) -> None:
+        """Omitting drop_counts leaves the filtered result identical."""
+        places = [
+            {
+                "id": "ok",
+                "displayName": {"text": "Good"},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "userRatingCount": 100,
+            },
+            {
+                "id": "nt",
+                "displayName": {"text": "Laundry"},
+                "primaryType": "laundry",
+                "types": ["laundry"],
+                "userRatingCount": 100,
+            },
+        ]
+
+        filtered = matcher._filter_low_quality_places(places)
+
+        assert [p["id"] for p in filtered] == ["ok"]
+
 
 class TestQualityRanking:
     """Tests for quality-based tie-breaking in ranking."""

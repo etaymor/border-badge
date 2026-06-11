@@ -529,6 +529,7 @@ class SearchMixin:
     def _filter_low_quality_places(
         self,
         places: list[dict[str, Any]],
+        drop_counts: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Filter out low-quality and non-tourist places.
@@ -548,11 +549,20 @@ class SearchMixin:
 
         Args:
             places: Raw places from API response
+            drop_counts: Optional mutable dict; when provided, per-reason drop
+                tallies (``non_tourist``, ``closed``, ``no_name``,
+                ``low_reviews``) are added in-place. Callers pass a fresh dict
+                per phase so the diagnostic trace (U4) can attribute drops to the
+                search vs. enrich pass. ``low_reviews`` is structurally 0 in the
+                wide/search phase (no ``userRatingCount`` present), so a 0 there
+                means "the gate could not fire", NOT "reviews never filter". The
+                filtered result is identical whether or not this is passed.
 
         Returns:
             Filtered list of quality places
         """
         filtered = []
+        counts = {"non_tourist": 0, "closed": 0, "no_name": 0, "low_reviews": 0}
 
         for place in places:
             display_name = place.get("displayName", {})
@@ -575,16 +585,19 @@ class SearchMixin:
                 place_types & NON_TOURIST_TYPES and not primary_is_touristy
             ):
                 logger.debug(f"Filtered (non-tourist): {name} | type={primary_type}")
+                counts["non_tourist"] += 1
                 continue
 
             # Skip permanently closed
             if business_status == "CLOSED_PERMANENTLY":
                 logger.debug(f"Filtered (closed): {name}")
+                counts["closed"] += 1
                 continue
 
             # Must have a non-empty name
             if not name:
                 logger.debug(f"Filtered (no name): place_id={place.get('id')}")
+                counts["no_name"] += 1
                 continue
 
             # Must have enough reviews OR be an institutional type.
@@ -600,6 +613,7 @@ class SearchMixin:
                     f"Filtered (low reviews): {name} | type={primary_type} | "
                     f"reviews={rating_count} < {MIN_REVIEW_COUNT}"
                 )
+                counts["low_reviews"] += 1
                 continue
 
             filtered.append(place)
@@ -608,4 +622,7 @@ class SearchMixin:
             f"Quality filter: {len(places)} -> {len(filtered)} places "
             f"(filtered {len(places) - len(filtered)})"
         )
+        if drop_counts is not None:
+            for reason, n in counts.items():
+                drop_counts[reason] = drop_counts.get(reason, 0) + n
         return filtered
