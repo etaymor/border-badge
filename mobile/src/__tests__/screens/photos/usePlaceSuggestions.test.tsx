@@ -93,7 +93,10 @@ const createTestQueryClient = () =>
     },
   });
 
-function setup(clusters: LocationCluster[]) {
+function setup(
+  clusters: LocationCluster[],
+  currentCandidateIdRef?: React.RefObject<string | null>
+) {
   const lookup = new Map<string, LocationCluster>();
   for (const c of clusters) lookup.set(c.id, c);
   mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
@@ -102,7 +105,9 @@ function setup(clusters: LocationCluster[]) {
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(() => usePlaceSuggestions({ clusterLookupRef }), { wrapper });
+  return renderHook(() => usePlaceSuggestions({ clusterLookupRef, currentCandidateIdRef }), {
+    wrapper,
+  });
 }
 
 beforeEach(() => {
@@ -456,5 +461,117 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
     });
 
     expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+});
+
+// ---- B3: stale-request discard decision (pinned against the LIVE ref) -------
+
+describe('usePlaceSuggestions.fetchSuggestions — B3 stale-request guard (live ref)', () => {
+  /**
+   * Build a candidate whose clusters are ALL cached, so fetchSuggestions takes
+   * the cache-only path. The discard decision (isStaleRequest) gates whether the
+   * cached results are applied to in-memory state — a direct, non-SQLite-masked
+   * observation of the guard.
+   */
+  const buildCandidate = (clusterIds: string[], id = 'cand-A') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  it('KEEPS the active candidate results when the live ref still equals the request id at resolution', async () => {
+    const c1 = makeCluster('keep-1', 35.1, 139.1);
+    // All clusters cached so we exercise the cached-results stale check.
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['keep-1', [placeFor('keep-1')]]]));
+
+    const ref = { current: 'cand-A' } as React.RefObject<string | null>;
+    const { result } = setup([c1], ref);
+
+    await act(async () => {
+      // Ref stays on cand-A throughout — never switched away.
+      await result.current.fetchSuggestions(buildCandidate(['keep-1'], 'cand-A'));
+    });
+
+    // Live ref === request id at resolution -> results KEPT (applied to state).
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'keep-1');
+    expect(surfaced?.places).toHaveLength(1);
+  });
+
+  it('DISCARDS results when the live ref genuinely differs at resolution (switched away)', async () => {
+    const c1 = makeCluster('drop-1', 35.1, 139.1);
+    const ref = { current: 'cand-A' } as React.RefObject<string | null>;
+
+    // Flip the ref to a DIFFERENT candidate during the async cache lookup — i.e.
+    // the user switched away before the cached results resolve. The stale guard
+    // reads `.current` LIVE, so this must discard.
+    mockedGetCachedSuggestions.mockImplementation(async () => {
+      ref.current = 'cand-OTHER';
+      return new Map([['drop-1', [placeFor('drop-1')]]]);
+    });
+
+    const { result } = setup([c1], ref);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['drop-1'], 'cand-A'));
+    });
+
+    // Live ref !== request id -> results DISCARDED (never applied to state).
+    expect(result.current.cachedSuggestions).toHaveLength(0);
+  });
+
+  it('RECOVERS when the user switches away and BACK to the same candidate before resolution', async () => {
+    // This is the B3 bug the plan pins: a candidate-switch-then-re-entry must NOT
+    // discard the in-flight result, because the LIVE ref equals the request id
+    // again at resolution. A closure that captured the ref's VALUE (not `.current`)
+    // would wrongly discard here — proving the guard reads the live ref.
+    const c1 = makeCluster('back-1', 35.1, 139.1);
+    const ref = { current: 'cand-A' } as React.RefObject<string | null>;
+
+    mockedGetCachedSuggestions.mockImplementation(async () => {
+      // Switch AWAY...
+      ref.current = 'cand-OTHER';
+      // ...then BACK to the original candidate before the result is applied.
+      ref.current = 'cand-A';
+      return new Map([['back-1', [placeFor('back-1')]]]);
+    });
+
+    const { result } = setup([c1], ref);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['back-1'], 'cand-A'));
+    });
+
+    // Ref is back on cand-A at resolution -> results KEPT (recovered), not stuck empty.
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'back-1');
+    expect(surfaced?.places).toHaveLength(1);
+  });
+
+  it('does not discard when no currentCandidateIdRef is provided (guard inert)', async () => {
+    const c1 = makeCluster('noref-1', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['noref-1', [placeFor('noref-1')]]]));
+
+    // No ref passed -> isStaleRequest always false -> always kept.
+    const { result } = setup([c1]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['noref-1'], 'cand-A'));
+    });
+
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'noref-1');
+    expect(surfaced?.places).toHaveLength(1);
   });
 });

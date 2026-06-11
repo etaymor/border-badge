@@ -8,7 +8,7 @@
 import * as geohash from 'ngeohash';
 
 import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
-import { GEOHASH_PRECISION } from './photoClustering';
+import { GEOHASH_PRECISION, haversine } from './photoClustering';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
 const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -118,7 +118,29 @@ export interface CachedPlaceSuggestion {
 export interface ClusterCacheRef {
   id: string;
   locationKey: string;
+  /**
+   * The cluster's raw centroid. Optional — id-only callers omit it. When present,
+   * the Tier-3 neighbor-cell lookup (B2/KTD9) uses it to pick the NEAREST-centroid
+   * cached entry across the 8 neighbor cells (and to enforce a distance ceiling so
+   * a DIFFERENT nearby venue's cache is never served). When absent, Tier 3 falls
+   * back to the newest neighbor entry.
+   */
+  centroid?: { latitude: number; longitude: number };
 }
+
+/**
+ * Max distance (meters) between a requesting cluster's centroid and a neighbor
+ * cell's decoded center for that neighbor's cache to be reused (B2/KTD9 guard).
+ *
+ * A geohash-7 cell is ~153m wide. A same-venue re-import whose centroid drifted
+ * one cell over keeps its centroid near the venue, so the neighbor cell center is
+ * at most ~1.5 cells (~230m) away in the worst geometric case. 300m (~2 cells)
+ * comfortably admits that legitimate drift while rejecting a distinct venue whose
+ * cached cell center sits meaningfully farther — without coarsening the key (which
+ * would risk silently serving the wrong venue's places). decode() returns the
+ * cell CENTER, a good approximation of the cached venue's location.
+ */
+const NEIGHBOR_CELL_MAX_DISTANCE_M = 300;
 
 /**
  * Parse a cached suggestions row, honoring the empty-result TTL.
@@ -241,6 +263,95 @@ export async function getCachedSuggestions(
         if (!result.has(id)) result.set(id, places);
       }
     }
+  }
+
+  // Tier 3 (B2 / KTD9): neighbor-cell fallback for clusters that still missed.
+  // A re-import can drift a split centroid just across a geohash-7 cell boundary,
+  // so the exact-cell key (Tier 2) misses even though the same venue's cache sits
+  // one cell over. Query the 8 neighbor cells and pick the NEAREST-centroid entry
+  // within a distance ceiling — we do NOT coarsen the key (that would risk serving
+  // a different nearby venue's cache).
+  const stillUnresolved = refs.filter((r) => r.locationKey && !result.has(r.id));
+  if (stillUnresolved.length === 0) return result;
+
+  // Collect the neighbor cells to query, mapping each neighbor key back to the
+  // refs that want it (a ref's centroid is needed for the nearest tiebreak).
+  const neighborKeyToRefs = new Map<string, ClusterCacheRef[]>();
+  for (const ref of stillUnresolved) {
+    for (const neighborKey of geohash.neighbors(ref.locationKey)) {
+      const list = neighborKeyToRefs.get(neighborKey) ?? [];
+      list.push(ref);
+      neighborKeyToRefs.set(neighborKey, list);
+    }
+  }
+
+  // Accumulate the best candidate per ref id as neighbor rows arrive.
+  // Without a centroid we tiebreak by recency (newest cached_at).
+  const best = new Map<
+    string,
+    { places: CachedPlaceSuggestion['places']; distanceM: number; cachedAt: number }
+  >();
+
+  const neighborKeys = [...neighborKeyToRefs.keys()];
+  for (let i = 0; i < neighborKeys.length; i += BATCH_SIZE) {
+    const batch = neighborKeys.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      location_key: string;
+      suggestions_json: string;
+      cached_at: number;
+    }>(
+      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+       WHERE location_key IN (${placeholders})
+       ORDER BY cached_at DESC`,
+      batch
+    );
+    for (const row of rows) {
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `neighbor ${row.location_key}`
+      );
+      if (places === null) continue;
+      // The cached row stores a geohash; decode it to the cell center as a stand-in
+      // for the cached venue's location.
+      const cellCenter = geohash.decode(row.location_key);
+      for (const ref of neighborKeyToRefs.get(row.location_key) ?? []) {
+        if (result.has(ref.id)) continue; // already resolved by an earlier tier
+
+        let distanceM = Number.POSITIVE_INFINITY;
+        if (ref.centroid) {
+          distanceM = haversine(
+            ref.centroid.latitude,
+            ref.centroid.longitude,
+            cellCenter.latitude,
+            cellCenter.longitude
+          );
+          // Guard: reject a neighbor cell whose center is too far — this is what
+          // keeps a DIFFERENT venue's cache from being served (KTD9/R3).
+          if (distanceM > NEIGHBOR_CELL_MAX_DISTANCE_M) continue;
+        }
+
+        const current = best.get(ref.id);
+        if (!current) {
+          best.set(ref.id, { places, distanceM, cachedAt: row.cached_at });
+          continue;
+        }
+        // With a centroid: nearest wins. Without one (Infinity distance for both):
+        // newest cached_at wins.
+        const isBetter =
+          distanceM < current.distanceM ||
+          (distanceM === current.distanceM && row.cached_at > current.cachedAt);
+        if (isBetter) {
+          best.set(ref.id, { places, distanceM, cachedAt: row.cached_at });
+        }
+      }
+    }
+  }
+
+  for (const [id, entry] of best) {
+    if (!result.has(id)) result.set(id, entry.places);
   }
 
   return result;

@@ -123,7 +123,20 @@ export function usePlaceSuggestions({
       // Capture the candidate ID at the start to detect stale responses
       const requestCandidateId = candidate.id;
 
-      // Helper to check if this request is still valid (user hasn't switched candidates)
+      // Helper to check if this request is still valid (user hasn't switched candidates).
+      //
+      // B3 (investigation): the discard decision compares the LIVE ref value
+      // (`currentCandidateIdRef.current`, re-read on every call) against the
+      // candidate id captured at request start (`requestCandidateId`). It does NOT
+      // capture the ref's value in the closure. This is the correct behavior the
+      // plan pins: if the user switches AWAY and BACK to the same candidate while
+      // a fetch is in flight, the live ref equals `requestCandidateId` again at
+      // resolution, so the in-flight result is KEPT (recovers) rather than
+      // discarded — clusters don't end up empty until a manual re-entry. A result
+      // is discarded ONLY when the active candidate genuinely differs at
+      // resolution time. The retry path's race guard (`retryInFlightRef`) is
+      // independent of this candidate-stale guard, so the two don't conflict (U10).
+      // See usePlaceSuggestions.test.tsx "B3 stale-request guard (live ref)".
       const isStaleRequest = () => {
         if (!currentCandidateIdRef) return false;
         return currentCandidateIdRef.current !== requestCandidateId;
@@ -154,9 +167,16 @@ export function usePlaceSuggestions({
 
       // Check SQLite cache for existing suggestions. Pass the location key so a
       // re-segmented/split cluster reuses a prior result for the same physical
-      // spot (via the location_key fallback) instead of re-buying it.
+      // spot (via the location_key fallback) instead of re-buying it. Pass the
+      // raw centroid too so the Tier-3 neighbor-cell fallback (B2/KTD9) can pick
+      // the nearest cached entry when a re-import drifts the centroid across a
+      // geohash-7 cell boundary.
       const cachedSuggestionsMap = await getCachedSuggestions(
-        allClusters.map((c) => ({ id: c.id, locationKey: clusterLocationKey(c.centroid) }))
+        allClusters.map((c) => ({
+          id: c.id,
+          locationKey: clusterLocationKey(c.centroid),
+          centroid: c.centroid,
+        }))
       );
 
       // Separate cached and uncached clusters
@@ -503,9 +523,15 @@ export function usePlaceSuggestions({
 
       try {
         // Respect the SQLite cache — a cluster that already got cached (e.g. a
-        // chunk-1 success the caller also passed) is reused, not re-bought.
+        // chunk-1 success the caller also passed) is reused, not re-bought. Pass
+        // the centroid so the Tier-3 neighbor-cell fallback (B2/KTD9) can resolve
+        // a boundary-drifted re-import.
         const cachedMap = await getCachedSuggestions(
-          toRetry.map((c) => ({ id: c.id, locationKey: clusterLocationKey(c.centroid) }))
+          toRetry.map((c) => ({
+            id: c.id,
+            locationKey: clusterLocationKey(c.centroid),
+            centroid: c.centroid,
+          }))
         );
 
         const cachedHits: ClusterSuggestion[] = [];

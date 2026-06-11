@@ -182,6 +182,26 @@ export function useClusterItems({
         );
         if (mergedSuggestion) {
           items.push({ type: 'merged-suggestion', data: mergedSuggestion });
+        } else {
+          // B4: the merged build failed (the primary cluster vanished from the
+          // suggestion map mid-merge — a dismiss race). DEGRADE to individual
+          // `suggestion` cards for every group member that still has its own
+          // entry, instead of pushing NOTHING (which silently dropped the WHOLE
+          // merged card and every cluster in it). The dev console.error inside
+          // createMergedSuggestion is preserved for diagnosis. A group member
+          // that lost its suggestion entirely is skipped here and is already
+          // routed through Phase 1's normal state logic (photos-only /
+          // lookup-failed), so it is never double-emitted.
+          for (const memberId of clusterIdsForPlace) {
+            const memberEntry = clusterSuggestionMap.get(memberId);
+            if (memberEntry) {
+              items.push({
+                type: 'suggestion',
+                data: memberEntry.suggestion,
+                cluster: memberEntry.cluster,
+              });
+            }
+          }
         }
       }
     }
