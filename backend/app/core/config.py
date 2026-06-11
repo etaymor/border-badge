@@ -145,10 +145,19 @@ class Settings(BaseSettings):
         description="Weight for dwell/time-hint bonus term in place ranking",
     )
     places_rank_vision_weight: float = Field(
-        default=1.0,
+        default=2.0,
         ge=0.0,
         le=5.0,
-        description="Weight for vision category bonus term in place ranking",
+        description=(
+            "Weight for vision category bonus term in place ranking. Default "
+            "raised from 1.0 to 2.0 (C4/U7): pre-enrichment the only live "
+            "first-pass signals are distance and vision, so a high-confidence "
+            "category match offsetting only ~30m of distance let a closer "
+            "wrong-category place consume a top-3 finalist slot. At 2.0 it "
+            "offsets ~60m — within typical indoor GPS drift — pulling the "
+            "correct place into the finalists where enrichment can re-rank it, "
+            "while still not erasing a large distance gap."
+        ),
     )
     places_rank_name_match_weight: float = Field(
         default=1.0,

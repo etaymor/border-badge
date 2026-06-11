@@ -2661,6 +2661,115 @@ class TestVisionRanking:
         assert text_search_called is True  # not suppressed — genuinely different
 
 
+class TestVisionWeightDefault:
+    """C4/U7: the shipped places_rank_vision_weight default must be strong enough
+    that a high-confidence vision category match pulls the correct (right
+    category) place into the top finalists over a CLOSER wrong-category place,
+    even with no signage name-match.
+
+    These use a real Settings() so they assert the actual shipped default, not
+    the MagicMock 1.0 fallback. They are the load-bearing guard for U7 (the
+    synthetic --no-search gate is saturated and cannot discriminate weight
+    changes; this can — per the plan's ADV-6 / R5 notes).
+    """
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        from app.core.config import Settings
+
+        settings = Settings(_env_file=None)
+        settings.google_places_api_key = "test-key"
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @pytest.fixture
+    def cluster(self) -> dict[str, Any]:
+        return {"centroid": {"latitude": 35.6762, "longitude": 139.6503}}
+
+    def _closer_wrong_and_farther_food(self) -> list[dict[str, Any]]:
+        """A closer non-food place (~25m) and a farther food place (~70m).
+
+        The ~45m gap exceeds what vision_weight=1.0 can overcome (a high-conf
+        match offsets only 30m of distance there) but is within reach of a
+        modestly raised default. First-pass conditions: no userRatingCount/rating
+        (wide pass), so distance + vision are the only live signals; neither name
+        matches the signage, so NAME_MATCH_BONUS does not pin the result.
+        """
+        return [
+            {
+                "id": "shop-near",
+                "displayName": {"text": "Corner Shop"},
+                # ~25m north of centroid
+                "location": {"latitude": 35.676425, "longitude": 139.6503},
+                "primaryType": "store",
+                "types": ["store", "shopping"],
+            },
+            {
+                "id": "ramen-far",
+                "displayName": {"text": "Backstreet Ramen"},
+                # ~70m north of centroid
+                "location": {"latitude": 35.67683, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+        ]
+
+    def test_vision_pulls_correct_place_over_closer_wrong(
+        self, matcher, cluster
+    ) -> None:
+        """With the shipped default, the farther food place outranks the closer
+        non-food place under a high-confidence food vision signal (no name-match).
+        """
+        vision = VisionResult(category="food", detected_text=[], confidence="high")
+        ranked = matcher._rank_by_distance(
+            self._closer_wrong_and_farther_food(),
+            cluster,
+            vision_result=vision,
+        )
+        assert ranked[0]["place_id"] == "ramen-far"
+
+    def test_old_default_would_fail_this_case(self, matcher, cluster) -> None:
+        """Sanity: at the OLD default (vision_weight=1.0) the closer wrong place
+        wins — proving the new default, not the test geometry, is doing the work.
+        """
+        matcher._settings.places_rank_vision_weight = 1.0
+        vision = VisionResult(category="food", detected_text=[], confidence="high")
+        ranked = matcher._rank_by_distance(
+            self._closer_wrong_and_farther_food(),
+            cluster,
+            vision_result=vision,
+        )
+        assert ranked[0]["place_id"] == "shop-near"
+
+    def test_default_does_not_overpower_distance(self, matcher, cluster) -> None:
+        """The bump stays conservative: a vision match does NOT beat a much
+        closer wrong-category place. A ~25m shop should still outrank a food
+        place ~250m out — vision tilts ties, it does not erase distance.
+        """
+        places = [
+            {
+                "id": "shop-near",
+                "displayName": {"text": "Corner Shop"},
+                "location": {"latitude": 35.676425, "longitude": 139.6503},
+                "primaryType": "store",
+                "types": ["store", "shopping"],
+            },
+            {
+                "id": "ramen-very-far",
+                "displayName": {"text": "Distant Ramen"},
+                # ~250m north of centroid
+                "location": {"latitude": 35.678451, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+            },
+        ]
+        vision = VisionResult(category="food", detected_text=[], confidence="high")
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+        assert ranked[0]["place_id"] == "shop-near"
+
+
 class TestNameMatchRanking:
     """Tests for the vision signage name-match bonus in _rank_by_distance."""
 
