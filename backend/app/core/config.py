@@ -157,6 +157,39 @@ class Settings(BaseSettings):
         description="Weight for vision signage name-match bonus in place ranking",
     )
 
+    # Place-matcher recall tunables (migrated from constants.py; the constant
+    # values remain the defaults, so behavior is unchanged unless overridden).
+    places_min_quality_results_before_stop: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description=(
+            "Tiered Nearby search keeps expanding until it accumulates this many "
+            "quality candidates (deduped across tiers) or runs out of radii. "
+            "Raising it widens recall at the cost of more Nearby calls."
+        ),
+    )
+    places_min_review_count: int = Field(
+        default=5,
+        ge=0,
+        le=50,
+        description=(
+            "Minimum userRatingCount for a non-institutional place to pass the "
+            "quality gate (only enforced once a rating count is present, i.e. on "
+            "enriched finalists). Lowering it keeps small/new real places."
+        ),
+    )
+    places_extra_search_tier_m: int | None = Field(
+        default=None,
+        ge=15,
+        le=1000,
+        description=(
+            "Optional extra outer Nearby radius (meters) appended after the "
+            "density-adaptive tiers when the stop threshold has not been met. "
+            "None preserves the current DENSITY_SEARCH_RADII profiles."
+        ),
+    )
+
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)
     welcome_email_from: str = "hello@atlasi.app"
@@ -168,6 +201,15 @@ class Settings(BaseSettings):
 
     # Feature flags
     enable_social_features: bool = False
+
+    # Per-cluster place-matcher diagnostics. When true, the matcher emits one
+    # structured JSON trace per cluster (full raw candidate world, filter-drop
+    # tallies, vision signals, finalists, outcome). Off by default — retaining
+    # the raw world has a memory cost, so production stays clean.
+    places_diagnostics: bool = Field(
+        default=False,
+        description="Emit per-cluster place-matcher diagnostic traces (verbose)",
+    )
 
     # LLM Place Extraction (reuses existing openrouter_api_key and openrouter_model)
     llm_place_extraction_enabled: bool = Field(
