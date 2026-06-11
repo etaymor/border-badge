@@ -1769,6 +1769,42 @@ class TestTieredSearchRadiusReuse:
         assert len(result.places) == 1
 
 
+class TestSearchableTypesAllowlist:
+    """C5/U15: the includedTypes allowlist swap and its invariants."""
+
+    def test_allowlist_within_api_max(self) -> None:
+        from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
+
+        # Google Places caps includedTypes at 50.
+        assert len(SEARCHABLE_PLACE_TYPES) <= 50
+
+    def test_allowlist_has_no_duplicates(self) -> None:
+        from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
+
+        assert len(SEARCHABLE_PLACE_TYPES) == len(set(SEARCHABLE_PLACE_TYPES))
+
+    def test_higher_value_types_swapped_in(self) -> None:
+        from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
+
+        # Verified Table-A additions that filled clear travel gaps.
+        assert "book_store" in SEARCHABLE_PLACE_TYPES
+        assert "comedy_club" in SEARCHABLE_PLACE_TYPES
+        # The generic/niche types they replaced are gone.
+        assert "store" not in SEARCHABLE_PLACE_TYPES
+        assert "food_court" not in SEARCHABLE_PLACE_TYPES
+
+    def test_type_set_hash_tracks_the_swap(self) -> None:
+        # The cache key hash must change with the allowlist (it is derived from
+        # the set), so swapped-in types don't read stale cache entries.
+        from app.services.place_matcher._matcher_search import _type_set_hash
+        from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
+
+        current = _type_set_hash(SEARCHABLE_PLACE_TYPES)
+        old_list = [t if t != "book_store" else "store" for t in SEARCHABLE_PLACE_TYPES]
+        old_list = [t if t != "comedy_club" else "food_court" for t in old_list]
+        assert _type_set_hash(old_list) != current
+
+
 # ============================================================================
 # Tourist Relevance Filter Tests
 # ============================================================================

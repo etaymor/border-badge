@@ -168,7 +168,10 @@ TIME_HINT_TYPE_MATCHES: dict[str, set[str]] = {
 # to free slots for whole missing categories — religious sites, wineries,
 # plazas, stadiums — each of which was previously unrecallable.
 SEARCHABLE_PLACE_TYPES: list[str] = [
-    # Food & Drink (12) — "restaurant" covers all cuisine subtypes
+    # Food & Drink (11) — "restaurant" covers all cuisine subtypes.
+    # food_court swapped out (C5/U15): a niche type rarely logged as the place
+    # visited; restaurant/market cover its travel-food cases. Its slot funds a
+    # higher-value entertainment/shopping type below.
     "restaurant",
     "cafe",
     "coffee_shop",
@@ -177,7 +180,6 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "ice_cream_shop",
     "wine_bar",
     "pub",
-    "food_court",
     "dessert_shop",
     "tea_house",
     "winery",
@@ -200,7 +202,7 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "hindu_temple",
     "mosque",
     "synagogue",
-    # Entertainment & Recreation (17)
+    # Entertainment & Recreation (18)
     "amusement_park",
     "aquarium",
     "zoo",
@@ -218,13 +220,19 @@ SEARCHABLE_PLACE_TYPES: list[str] = [
     "wildlife_park",
     "water_park",
     "stadium",
+    # comedy_club added (C5/U15): a real nightlife/entertainment venue type with
+    # no prior coverage (Table A verified).
+    "comedy_club",
     # Nightlife & Wellness (3)
     "spa",
     "night_club",
     "casino",
-    # Shopping (3)
+    # Shopping (3) — "store" swapped for "book_store" (C5/U15): "store" is a
+    # generic catch-all that mostly surfaces retail noise (and the quality filter
+    # already drops non-tourist stores), whereas iconic bookstores are genuine
+    # travel destinations previously only reachable via that noisy generic type.
     "market",
-    "store",
+    "book_store",
     "shopping_mall",
 ]  # Total: 50 types (API maximum)
 
@@ -311,6 +319,7 @@ TYPE_TO_CATEGORY: dict[str, str] = {
     # Shopping
     "market": "experience",
     "store": "experience",
+    "book_store": "experience",
     "shopping_mall": "experience",
     # Religious
     "place_of_worship": "experience",
