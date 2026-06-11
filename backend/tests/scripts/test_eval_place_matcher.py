@@ -210,8 +210,24 @@ class TestSimulateTypeFilter:
 
     def test_type_filter_is_cost_invariant(self) -> None:
         # Filtering RESULTS must not change the number of paid Nearby CALLS.
+        # An always-allowed place sits at the 15m density probe so DENSITY (which
+        # keys off the raw first-radius count) is identical in both runs — without
+        # it, filtering the lone probe result flips medium->sparse and the sparse
+        # profile (C6: [50,100,250]) legitimately issues a different call count,
+        # which is a density effect, not a cost-invariance violation.
         excluded = [self._excluded_type()]
         samples = self._sample_with_types(excluded)
+        # Add an allowlisted place right at the centroid (within the 15m probe) so
+        # both runs detect the same density.
+        samples[0]["places"].append(
+            _place(
+                "place-probe-anchor",
+                "Probe Anchor",
+                _lat_offset(2),
+                0.0,
+                [SEARCHABLE_PLACE_TYPES[0], "food"],
+            )
+        )
 
         baseline = evaluate_pipeline(
             matcher=make_matcher(),

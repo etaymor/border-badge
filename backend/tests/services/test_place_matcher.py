@@ -729,6 +729,7 @@ class TestFindPlacesForClustersPartialFailures:
         # a bare MagicMock attribute would break the `>=` comparison / `if`.
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1038,6 +1039,7 @@ class TestQualityFiltering:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1336,6 +1338,7 @@ class TestQualityRanking:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1573,10 +1576,10 @@ class TestTieredSearchRadiusReuse:
         assert result.radii_searched == {15, 50, 125}
 
     @pytest.mark.asyncio
-    async def test_sparse_skips_redundant_25m_tier(self) -> None:
-        # 0 results at 15m -> SPARSE ([100, 250]). The 25m tier was removed:
-        # it nearly duplicates the 15m probe's coverage and in empty areas it
-        # was a guaranteed wasted paid call.
+    async def test_sparse_profile_tiers(self) -> None:
+        # 0 results at 15m -> SPARSE ([50, 100, 250] after C6/U12). The 25m tier
+        # stays removed (it nearly duplicates the 15m probe), but a 50m mid-range
+        # tier is restored so a 30-80m venue in a sparse area is reachable.
         radii_seen: list[int] = []
         results = {100: [_quality_place()]}
         matcher = self._matcher_recording_radii(radii_seen, results)
@@ -1586,7 +1589,7 @@ class TestTieredSearchRadiusReuse:
 
         assert radius_used == 100
         assert 25 not in radii_seen
-        assert radii_seen == [15, 100, 250]
+        assert radii_seen == [15, 50, 100, 250]
         assert len(places) == 1
 
     @pytest.mark.asyncio
@@ -1699,6 +1702,66 @@ class TestTieredSearchRadiusReuse:
         # 0 results at 15m -> SPARSE.
         assert result.density == DensityLevel.SPARSE
 
+    @pytest.mark.asyncio
+    async def test_extra_search_tier_appended_when_threshold_unmet(self) -> None:
+        # C1/U12 config wiring: places_extra_search_tier_m appends an outer radius
+        # after the density profile when the stop threshold has not been met. The
+        # visited venue at 400m (one tier past the sparse profile's 250m) is now
+        # reachable. Proves the knob is wired (not just an unused Field).
+        radii_seen: list[int] = []
+        results = {400: [_quality_place("far")]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+        matcher._settings.places_extra_search_tier_m = 400
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        # Sparse profile is [50, 100, 250] (C6); the extra tier extends it to 400.
+        assert 400 in result.radii_searched
+        assert result.radius_used == 400
+        assert len(result.places) == 1
+
+    @pytest.mark.asyncio
+    async def test_extra_search_tier_default_none_unchanged(self) -> None:
+        # Default (None) preserves current behavior: no extra outer radius.
+        radii_seen: list[int] = []
+        matcher = self._matcher_recording_radii(radii_seen, {})
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        # No radius beyond the sparse profile's max (250) is ever searched.
+        assert max(result.radii_searched) <= 250
+
+    @pytest.mark.asyncio
+    async def test_extra_search_tier_skipped_when_threshold_met(self) -> None:
+        # Cost discipline: the extra tier is NOT searched once the threshold is
+        # already satisfied by the profile tiers.
+        radii_seen: list[int] = []
+        results = {15: [_quality_place(f"p{i}") for i in range(5)]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+        matcher._settings.places_extra_search_tier_m = 400
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert 400 not in result.radii_searched
+        assert result.stopped_early is True
+
+    @pytest.mark.asyncio
+    async def test_sparse_profile_reaches_midrange_venue(self) -> None:
+        # C6: the sparse profile is [50, 100, 250] (the old [100, 250] skipped the
+        # 30-80m band, missing a venue at 60m in a sparse area). 0 results at the
+        # 15m probe -> SPARSE; a venue at 60m is now reachable via the 50m... no,
+        # 60m needs the 100m tier — but the point is the profile no longer jumps
+        # straight from the 15m probe to 100m. Assert the 50m tier IS searched.
+        radii_seen: list[int] = []
+        results = {50: [_quality_place("midrange")]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert 50 in result.radii_searched
+        assert result.radius_used == 50
+        assert len(result.places) == 1
+
 
 # ============================================================================
 # Tourist Relevance Filter Tests
@@ -1716,6 +1779,7 @@ class TestTouristRelevanceFilter:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1922,6 +1986,7 @@ class TestEnhancedRanking:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2025,6 +2090,7 @@ class TestVisionRanking:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2781,6 +2847,7 @@ class TestNameMatchRanking:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2925,6 +2992,7 @@ class TestWideSearchFieldMask:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2991,6 +3059,7 @@ class TestQualityFilterRatingGate:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3079,6 +3148,7 @@ class TestFinalistEnrichment:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3413,6 +3483,7 @@ class TestDiagnosticsTrace:
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
+        settings.places_extra_search_tier_m = None
         # Diagnostics ON for this group (individual tests flip it off as needed).
         settings.places_diagnostics = True
         monkeypatch.setattr(

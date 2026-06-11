@@ -190,8 +190,15 @@ class SearchMixin:
         # Expand through the density-appropriate radii, skipping any radius we've
         # already searched. (Filtering by value rather than slicing by position
         # also ensures a profile tier differing from the 15m probe is not
-        # silently dropped.)
-        for radius in DENSITY_SEARCH_RADII[density.value]:
+        # silently dropped.) An optional extra outer tier (C1/U12,
+        # places_extra_search_tier_m) is appended last so a venue one tier past
+        # the profile — pushed out by GPS drift — is still reachable when the
+        # threshold has not been met. None preserves the current profiles.
+        radii = list(DENSITY_SEARCH_RADII[density.value])
+        extra_tier = self._settings.places_extra_search_tier_m
+        if extra_tier is not None:
+            radii.append(extra_tier)
+        for radius in radii:
             if radius in searched_radii:
                 continue
             searched_radii.add(radius)

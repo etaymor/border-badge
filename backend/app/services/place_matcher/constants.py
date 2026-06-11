@@ -43,13 +43,16 @@ class DensityLevel(Enum):
 DENSITY_THRESHOLD_DENSE = 3  # 3+ results at first radius = dense
 DENSITY_THRESHOLD_MEDIUM = 1  # 1-2 results = medium
 
-# Density-adaptive search radii
-# Sparse drops the 25m tier: it nearly duplicates the 15m probe's coverage and
-# in empty areas it was a guaranteed wasted paid call before the useful radii.
+# Density-adaptive search radii.
+# Sparse restores a 50m mid-range tier (C6/U12): the old [100, 250] jumped
+# straight from the 15m density probe to 100m, missing a venue at 30-80m in a
+# sparse area — a real recall gap with only ~20-80m of typical indoor GPS drift.
+# The 50m tier costs one extra Nearby call only in sparse areas where the 15m
+# probe already found nothing, so the worst case is a few cents per such cluster.
 DENSITY_SEARCH_RADII: dict[str, list[int]] = {
     "dense": [15, 35, 75],
     "medium": [15, 50, 125],
-    "sparse": [100, 250],
+    "sparse": [50, 100, 250],
 }
 
 # Tiered search keeps expanding until it has accumulated at least this many
