@@ -31,7 +31,25 @@ const CHUNK_SIZE = 15;
 export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
   /** Per-chunk API response times in milliseconds (client-side only) */
   chunkResponseTimes: number[];
+  /**
+   * Clusters whose chunk failed (non-fatal path), mirrored onto the resolved
+   * result so the caller can make a synchronous cache-write decision without
+   * waiting for the `failedClusterIds` state to re-render. Empty on full success.
+   */
+  failedClusterIds: FailedClusterIds;
 }
+
+/** Metadata for a cluster whose place lookup failed (chunk-level failure). */
+export interface FailedClusterInfo {
+  /**
+   * True for quota/rate-limit (503/429) failures where an immediate retry is
+   * pointless — the three-state UI disables the retry affordance for these.
+   */
+  retryDisabled: boolean;
+}
+
+/** Map of cluster id → failure metadata for clusters whose chunk failed. */
+export type FailedClusterIds = Map<string, FailedClusterInfo>;
 
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {
@@ -106,11 +124,20 @@ function chunkArray<T>(array: T[], size: number): T[][] {
 export function useSuggestPlacesChunked() {
   const [progress, setProgress] = useState<PlaceSuggestionProgress | null>(null);
   const [partialResults, setPartialResults] = useState<ClusterSuggestion[]>([]);
+  // Tracks which clusters belonged to a chunk that failed (KTD6). Stored in a
+  // dedicated state alongside `partialResults` — NOT on `progress` and NOT on the
+  // resolved result — because `onError` clears `progress` and a thrown
+  // `mutateAsync` has no resolved result, either of which would wipe the failed
+  // ids before the UI can read them (re-introducing the B1 drop for the fatal
+  // 429/503 case). `partialResults` is the existing state not reset by `onError`,
+  // so this mirrors it.
+  const [failedClusterIds, setFailedClusterIds] = useState<FailedClusterIds>(() => new Map());
   const abortRef = useRef(false);
 
   const reset = useCallback(() => {
     setProgress(null);
     setPartialResults([]);
+    setFailedClusterIds(new Map());
     abortRef.current = false;
   }, []);
 
@@ -127,6 +154,16 @@ export function useSuggestPlacesChunked() {
       // Reset state for new request
       abortRef.current = false;
       setPartialResults([]);
+      setFailedClusterIds(new Map());
+      // Local accumulator mirrored into state — avoids losing entries to React
+      // state-batching across the chunk loop and the fatal re-throw path.
+      const failedIds: FailedClusterIds = new Map();
+      const recordFailedClusters = (clusterChunks: typeof clusters, retryDisabled: boolean) => {
+        for (const cluster of clusterChunks) {
+          failedIds.set(cluster.id, { retryDisabled });
+        }
+        setFailedClusterIds(new Map(failedIds));
+      };
       setProgress({
         clustersTotal: totalClusters,
         clustersCompleted: 0,
@@ -178,18 +215,28 @@ export function useSuggestPlacesChunked() {
         } catch (error) {
           const chunkDurationMs = Date.now() - chunkStartTime;
           chunkResponseTimes.push(chunkDurationMs);
-          // Re-throw fatal errors (quota exhausted, rate limited)
+          // Re-throw fatal errors (quota exhausted, rate limited). Before
+          // re-throwing, record every still-un-responded cluster — the current
+          // chunk plus every chunk not yet processed — as lookup-failed with
+          // retry DISABLED (KTD10). Without this the rejected mutation would drop
+          // those clusters entirely, re-introducing B1 for exactly the quota case.
           if (error instanceof AxiosError) {
             if (error.response?.status === 503) {
+              recordFailedClusters(chunks.slice(i).flat(), true);
               throw new QuotaExhaustedError();
             }
             if (error.response?.status === 429) {
+              recordFailedClusters(chunks.slice(i).flat(), true);
               const retryAfter = error.response.headers['retry-after'];
               const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
               throw new RateLimitError(isNaN(retrySeconds) ? 60 : retrySeconds);
             }
           }
-          // Track non-fatal errors and continue with remaining chunks
+          // Track non-fatal errors and continue with remaining chunks. Record
+          // this chunk's clusters as lookup-failed with retry ENABLED so the
+          // three-state model can surface + retry them (KTD6) instead of
+          // silently rendering them as photos-only "No place found" (B1).
+          recordFailedClusters(chunk, false);
           failedChunkCount++;
           if (__DEV__) {
             console.warn(`[PhotoImport] Chunk ${i + 1} failed, continuing...`, error);
@@ -212,6 +259,7 @@ export function useSuggestPlacesChunked() {
         suggestions: allSuggestions,
         failed_cluster_count: failedClusterCount,
         chunkResponseTimes,
+        failedClusterIds: new Map(failedIds),
       };
     },
     onError: () => {
@@ -231,6 +279,12 @@ export function useSuggestPlacesChunked() {
     ...mutation,
     progress,
     partialResults,
+    /**
+     * Clusters whose chunk failed (KTD6). Drives the client three-state model so
+     * a transient lookup-failure is distinguishable from a genuine no-place-found.
+     * Each entry carries `retryDisabled` (true for 429/503 quota/rate-limit).
+     */
+    failedClusterIds,
     reset: fullReset,
   };
 }

@@ -254,10 +254,19 @@ export function usePlaceSuggestions({
         // Only cache clusters that have a corresponding suggestion in the response.
         // When failed_cluster_count > 0, missing clusters failed transiently —
         // caching [] for them would prevent re-querying on the next attempt.
+        // Additionally exclude any cluster whose CHUNK failed (failedClusterIds):
+        // the failed_cluster_count guard only covers per-cluster timeouts, so a
+        // failed chunk's clusters would otherwise be cached as [] for 24h (KTD8).
         const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        // Read the failed ids from the resolved result (fresh, synchronous) — the
+        // mutation's `failedClusterIds` state is captured stale in this closure
+        // because it is set during the awaited mutateAsync we just resolved.
+        const failedClusterIds = result.failedClusterIds;
         const suggestionsToCache = uncachedClusters
           .filter(
-            (cluster) => respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0
+            (cluster) =>
+              !failedClusterIds.has(cluster.id) &&
+              (respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0)
           )
           .map((cluster) => {
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
@@ -369,7 +378,12 @@ export function usePlaceSuggestions({
       });
       const result = response.data as PlaceSuggestionResponse;
 
-      // Cache results to SQLite — skip clusters missing due to transient failures
+      // Cache results to SQLite — skip clusters missing due to transient failures.
+      // Unlike fetchSuggestions there is no chunk concept here (a single raw
+      // api.post), so the only lookup-failure signals are (a) a thrown error for
+      // the whole call — handled by the catch below, which caches nothing — and
+      // (b) failed_cluster_count for per-cluster timeouts, excluded here. A
+      // transiently-failed split cluster must never be written as [] (KTD8/B1).
       const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
       const toCache = clusters
         .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)

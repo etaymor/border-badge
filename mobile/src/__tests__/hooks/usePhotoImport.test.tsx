@@ -2,8 +2,9 @@ import { renderHook, act } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-import { useSuggestPlaces } from '../../hooks/usePhotoImport';
+import { useSuggestPlaces, useSuggestPlacesChunked } from '../../hooks/usePhotoImport';
 import { api } from '../../services/api';
+import { AxiosError } from 'axios';
 
 // Mock the API module
 jest.mock('../../services/api', () => ({
@@ -164,6 +165,212 @@ describe('usePhotoImport', () => {
 
       expect(caughtError).not.toBeNull();
       expect(caughtError!.message).toBe('Rate limit exceeded');
+    });
+  });
+
+  describe('useSuggestPlacesChunked - failedClusterIds (KTD6/KTD8/KTD10)', () => {
+    // CHUNK_SIZE is 15; build enough clusters to span two chunks.
+    const buildClusters = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `cluster-${i}`,
+        centroid: { latitude: 35 + i * 0.001, longitude: 139 + i * 0.001 },
+        photos: [{ asset_id: `photo-${i}`, latitude: 35, longitude: 139 }],
+      }));
+
+    const suggestionsFor = (ids: string[]) =>
+      ids.map((id) => ({ cluster_id: id, photo_ids: [`photo-${id}`], places: [] }));
+
+    const makeAxiosError = (status: number, headers: Record<string, string> = {}) => {
+      const err = new AxiosError('request failed');
+      // @ts-expect-error - minimal AxiosError response shape for the test
+      err.response = { status, headers };
+      return err;
+    };
+
+    it('records exactly chunk-2 cluster IDs in failedClusterIds when chunk-2 throws (non-fatal)', async () => {
+      const clusters = buildClusters(20); // chunk-1: 0-14, chunk-2: 15-19
+      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
+      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: { suggestions: suggestionsFor(chunk1Ids), failed_cluster_count: 0 },
+        })
+        // chunk-2 throws a non-fatal (generic) error
+        .mockRejectedValueOnce(new Error('network blip'));
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({ clusters });
+      });
+
+      const failed = result.current.failedClusterIds;
+      expect(failed).toBeInstanceOf(Map);
+      expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
+      // chunk-1 ids must NOT be marked failed
+      for (const id of chunk1Ids) {
+        expect(failed.has(id)).toBe(false);
+      }
+      // non-fatal failures are retry-enabled
+      for (const id of chunk2Ids) {
+        expect(failed.get(id)).toEqual({ retryDisabled: false });
+      }
+    });
+
+    it('records remaining clusters with retryDisabled=true when a chunk throws 503 (quota)', async () => {
+      const clusters = buildClusters(20);
+      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
+      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: { suggestions: suggestionsFor(chunk1Ids), failed_cluster_count: 0 },
+        })
+        .mockRejectedValueOnce(makeAxiosError(503));
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      let caught: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ clusters });
+        } catch (e) {
+          caught = e as Error;
+        }
+      });
+
+      // Fatal error still surfaces...
+      expect(caught).not.toBeNull();
+      expect(caught!.name).toBe('QuotaExhaustedError');
+      // ...but the un-responded clusters are NOT silently dropped.
+      const failed = result.current.failedClusterIds;
+      expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
+      for (const id of chunk2Ids) {
+        expect(failed.get(id)).toEqual({ retryDisabled: true });
+      }
+    });
+
+    it('records remaining clusters with retryDisabled=true when a chunk throws 429 (rate limit)', async () => {
+      const clusters = buildClusters(20);
+      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
+      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: { suggestions: suggestionsFor(chunk1Ids), failed_cluster_count: 0 },
+        })
+        .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '30' }));
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      let caught: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ clusters });
+        } catch (e) {
+          caught = e as Error;
+        }
+      });
+
+      expect(caught).not.toBeNull();
+      expect(caught!.name).toBe('RateLimitError');
+      const failed = result.current.failedClusterIds;
+      expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
+      for (const id of chunk2Ids) {
+        expect(failed.get(id)).toEqual({ retryDisabled: true });
+      }
+    });
+
+    it('records ALL remaining clusters (current + later chunks) on a fatal error in an early chunk', async () => {
+      const clusters = buildClusters(35); // 3 chunks: 0-14, 15-29, 30-34
+      const chunk2Ids = clusters.slice(15, 30).map((c) => c.id);
+      const chunk3Ids = clusters.slice(30).map((c) => c.id);
+
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: {
+            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            failed_cluster_count: 0,
+          },
+        })
+        // chunk-2 throws fatal — chunk-3 never runs
+        .mockRejectedValueOnce(makeAxiosError(503));
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ clusters });
+        } catch {
+          // expected
+        }
+      });
+
+      const failed = result.current.failedClusterIds;
+      const expected = [...chunk2Ids, ...chunk3Ids].sort();
+      expect([...failed.keys()].sort()).toEqual(expected);
+    });
+
+    it('leaves failedClusterIds empty when all chunks succeed', async () => {
+      const clusters = buildClusters(20);
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: {
+            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            failed_cluster_count: 0,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            suggestions: suggestionsFor(clusters.slice(15).map((c) => c.id)),
+            failed_cluster_count: 0,
+          },
+        });
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({ clusters });
+      });
+
+      expect(result.current.failedClusterIds.size).toBe(0);
+    });
+
+    it('clears failedClusterIds on reset', async () => {
+      const clusters = buildClusters(20);
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: {
+            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            failed_cluster_count: 0,
+          },
+        })
+        .mockRejectedValueOnce(new Error('network blip'));
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({ clusters });
+      });
+      expect(result.current.failedClusterIds.size).toBeGreaterThan(0);
+
+      act(() => {
+        result.current.reset();
+      });
+      expect(result.current.failedClusterIds.size).toBe(0);
     });
   });
 });
