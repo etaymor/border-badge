@@ -89,13 +89,17 @@ export function SuggestionsPhase({
         data={clusterItems}
         renderItem={renderClusterItem}
         contentContainerStyle={styles.listContent}
-        keyExtractor={(item) =>
-          item.type === 'merged-suggestion'
-            ? item.data.primaryClusterId
-            : item.type === 'suggestion'
-              ? item.data.cluster_id
-              : item.cluster.id
-        }
+        keyExtractor={(item) => {
+          switch (item.type) {
+            case 'merged-suggestion':
+              return item.data.primaryClusterId;
+            case 'suggestion':
+              return item.data.cluster_id;
+            case 'lookup-failed':
+            case 'photos-only':
+              return item.cluster.id;
+          }
+        }}
         getItemType={(item) => item.type}
         ListEmptyComponent={
           fetchingSuggestions ? (

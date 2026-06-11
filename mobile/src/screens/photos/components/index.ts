@@ -2,6 +2,7 @@ export { ManualPlaceSearch, type ManualPlaceSearchProps } from './ManualPlaceSea
 export { PhotoTripCard, type PhotoTripCardProps } from './PhotoTripCard';
 export { PlaceSuggestionCard, type PlaceSuggestionCardProps } from './PlaceSuggestionCard';
 export { PhotoClusterCard, type PhotoClusterCardProps } from './PhotoClusterCard';
+export { LookupFailedCard, type LookupFailedCardProps } from './LookupFailedCard';
 export { PhotoTripSwitcherSheet, type PhotoTripSwitcherSheetProps } from './PhotoTripSwitcherSheet';
 export { PhotoGalleryModal, type PhotoGalleryModalProps } from './PhotoGalleryModal';
 export { ClusterListItem, type ClusterListItemProps } from './ClusterListItem';

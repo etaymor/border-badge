@@ -149,6 +149,16 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     [handleConfirmPlace]
   );
 
+  // Retry the place lookup for a single lookup-failed cluster. Placeholder for
+  // U9 — U10 wires the real scoped re-fetch (per-cluster guard, SQLite-cache
+  // respecting). The prop must exist now so U10 only supplies the body.
+  const handleRetryCluster = useCallback((clusterId: string) => {
+    // U10: invoke the scoped retry path for this cluster.
+    if (__DEV__) {
+      console.log('[PhotoImport] Retry requested for cluster (U10 wires the fetch):', clusterId);
+    }
+  }, []);
+
   // Wrap handleManualSelect so the override (pencil) path honors the photos
   // the user deselected in the gallery before opening manual search.
   const handleManualSelectWithExclusions = useCallback(
@@ -342,6 +352,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         onHideCluster={handleHideCluster}
         onHideMultipleClusters={handleHideMultipleClusters}
         onAddEntryForCluster={handleAddEntryForCluster}
+        onRetryCluster={handleRetryCluster}
         onCancelUpload={cancelUpload}
         onOpenGalleryForCluster={openGalleryForCluster}
         onOpenGalleryForMerged={openGalleryForMerged}
@@ -351,6 +362,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       handleConfirmPlaceWithTracking,
       handleRejectPlace,
       handleAddEntryForCluster,
+      handleRetryCluster,
       handleHideCluster,
       handleHideMultipleClusters,
       uploadingClusterIds,

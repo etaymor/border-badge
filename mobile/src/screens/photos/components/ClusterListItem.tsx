@@ -15,7 +15,7 @@ import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { ClusterDisplayItem } from '../photoImportHelpers';
 import { buildSuggestionFromMerged } from '../photoImportHelpers';
 import type { MergedSuggestion } from '../photoImportTypes';
-import { PlaceSuggestionCard, PhotoClusterCard } from './index';
+import { PlaceSuggestionCard, PhotoClusterCard, LookupFailedCard } from './index';
 import type { SuggestionDecisionMeta } from './PlaceSuggestionCard';
 
 export interface ClusterListItemProps {
@@ -35,6 +35,8 @@ export interface ClusterListItemProps {
   onHideCluster: (clusterId: string) => Promise<void>;
   onHideMultipleClusters: (clusterIds: string[]) => Promise<void>;
   onAddEntryForCluster: (clusterId: string) => void;
+  /** Retry the place lookup for a failed cluster (U10 supplies the real fetch). */
+  onRetryCluster: (clusterId: string) => void;
   onCancelUpload: (clusterId: string) => void;
   onOpenGalleryForCluster: (
     uri: string,
@@ -54,6 +56,7 @@ export function ClusterListItem({
   onHideCluster,
   onHideMultipleClusters,
   onAddEntryForCluster,
+  onRetryCluster,
   onCancelUpload,
   onOpenGalleryForCluster,
   onOpenGalleryForMerged,
@@ -122,13 +125,33 @@ export function ClusterListItem({
     );
   }
 
-  // photos-only type
-  return (
-    <PhotoClusterCard
-      cluster={item.cluster}
-      onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
-      onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
-      onDismiss={onHideCluster}
-    />
-  );
+  if (item.type === 'lookup-failed') {
+    return (
+      <LookupFailedCard
+        cluster={item.cluster}
+        retryDisabled={item.retryDisabled}
+        onRetry={onRetryCluster}
+        onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
+        onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
+        onDismiss={onHideCluster}
+      />
+    );
+  }
+
+  if (item.type === 'photos-only') {
+    return (
+      <PhotoClusterCard
+        cluster={item.cluster}
+        onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
+        onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
+        onDismiss={onHideCluster}
+      />
+    );
+  }
+
+  // Exhaustiveness: a new union member must be handled, not silently fall
+  // through to PhotoClusterCard. Adding a ClusterDisplayItem variant without a
+  // branch above fails compile here instead of mis-rendering at runtime.
+  const _exhaustive: never = item;
+  return _exhaustive;
 }
