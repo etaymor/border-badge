@@ -1,6 +1,7 @@
 """Tests for the place_matcher service."""
 
 import asyncio
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -3286,3 +3287,557 @@ class TestFinalistEnrichment:
         by_cluster = {r["cluster_id"]: r for r in results}
         assert by_cluster["cluster-signage"]["places"][0]["place_id"] == "sushi-dai"
         assert by_cluster["cluster-plain"]["places"][0]["place_id"] == "paris-cafe"
+
+
+# ============================================================================
+# Diagnostic Trace Tests (U4)
+# ============================================================================
+
+
+class TestDiagnosticsTrace:
+    """Per-cluster diagnostic trace emitted behind PLACES_DIAGNOSTICS (U4)."""
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        # Diagnostics ON for this group (individual tests flip it off as needed).
+        settings.places_diagnostics = True
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @staticmethod
+    def _capture_traces(caplog) -> list[dict[str, Any]]:
+        """Parse the single-line JSON traces out of captured INFO logs."""
+        from app.services.place_matcher._matcher_cluster_processing import (
+            DIAGNOSTIC_TRACE_EVENT,
+        )
+
+        traces: list[dict[str, Any]] = []
+        for record in caplog.records:
+            msg = record.getMessage()
+            if not msg.startswith("{"):
+                continue
+            try:
+                payload = json.loads(msg)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if DIAGNOSTIC_TRACE_EVENT in payload:
+                traces.append(payload[DIAGNOSTIC_TRACE_EVENT])
+        return traces
+
+    @staticmethod
+    def _vision_task(vision_map: dict[str, VisionResult]):
+        async def _make():
+            return vision_map
+
+        return asyncio.ensure_future(_make())
+
+    @staticmethod
+    def _tiered_diag(
+        raw_per_radius: dict[int, list[dict]],
+        *,
+        radius_used: int,
+        stopped_early: bool = True,
+    ) -> TieredSearchResult:
+        """Build a diagnostics-populated TieredSearchResult.
+
+        Mirrors the real search: quality places are the filtered raw world, and
+        raw_places_per_radius is retained (diagnostics on).
+        """
+        all_raw: list[dict] = []
+        for places in raw_per_radius.values():
+            all_raw.extend(places)
+        return TieredSearchResult(
+            places=list(all_raw),
+            radius_used=radius_used,
+            radii_searched=set(raw_per_radius.keys()),
+            raw_count_per_radius={r: len(p) for r, p in raw_per_radius.items()},
+            raw_places_per_radius={r: list(p) for r, p in raw_per_radius.items()},
+            stopped_early=stopped_early,
+            density=DensityLevel.DENSE,
+        )
+
+    @pytest.fixture
+    async def clean_cache(self):
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+        yield
+        await places_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_emits_one_trace_for_empty_cluster(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """Failing-test-first: a single empty cluster emits exactly one trace
+        classified empty_no_candidates."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_execute_search(latitude, longitude, radius):
+            return []
+
+        monkeypatch.setattr(matcher, "_execute_search", mock_execute_search)
+
+        with caplog.at_level("INFO"):
+            results, failed = await matcher.find_places_for_clusters(clusters)
+
+        assert failed == 0
+        traces = self._capture_traces(caplog)
+        assert len(traces) == 1
+        t = traces[0]
+        assert t["cluster_id"] == "cluster-1"
+        assert t["raw_candidates"] == []
+        assert t["outcome"] == "empty_no_candidates"
+        assert results[0]["places"] == []
+
+    @pytest.mark.asyncio
+    async def test_happy_path_matched_trace(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}, {"asset_id": "photo-2"}],
+            }
+        ]
+        place = {
+            "id": "place-123",
+            "displayName": {"text": "Test Restaurant"},
+            "formattedAddress": "123 Test St",
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: [place]}, radius_used=15)
+
+        async def mock_enrich(place_ids):
+            return {"place-123": {"rating": 4.5, "userRatingCount": 100}}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            results, failed = await matcher.find_places_for_clusters(clusters)
+
+        assert failed == 0
+        traces = self._capture_traces(caplog)
+        assert len(traces) == 1
+        t = traces[0]
+        assert t["outcome"] == "matched"
+        assert t["raw_candidates"]
+        assert t["final_suggestion_count"] > 0
+        assert t["photo_count"] == 2
+        assert t["density"] == "dense"
+        assert t["radii_searched"] == [15]
+        assert t["raw_count_per_radius"] == {"15": 1}
+        assert t["quality_count_after_filter"] == 1
+        assert t["centroid"] == {"latitude": 35.6762, "longitude": 139.6503}
+
+    @pytest.mark.asyncio
+    async def test_empty_after_filter(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """All raw candidates are non-tourist (gas stations) -> empty_after_filter
+        with a nonzero search-phase non_tourist drop count."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        gas = {
+            "id": "gas-1",
+            "displayName": {"text": "Shell"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "gas_station",
+            "types": ["gas_station"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_execute_search(latitude, longitude, radius):
+            # Raw at the 15m probe; nothing survives the quality filter.
+            return [gas] if radius == 15 else []
+
+        monkeypatch.setattr(matcher, "_execute_search", mock_execute_search)
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(clusters)
+
+        traces = self._capture_traces(caplog)
+        assert len(traces) == 1
+        t = traces[0]
+        assert t["outcome"] == "empty_after_filter"
+        assert t["raw_candidates"]  # fetched but filtered
+        assert t["drop_counts"]["search"]["non_tourist"] > 0
+        assert t["quality_count_after_filter"] == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_after_text_search(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """Empty Nearby + a vision business name fires text search; text returns
+        empty too -> empty_after_text_search, text_search_triggered True."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 40.7306, "longitude": -73.9866},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: []}, radius_used=0, stopped_early=False)
+
+        async def mock_text_search(text_query, latitude, longitude, radius=200.0):
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision = VisionResult(
+            category="nightlife",
+            detected_text=["Neon Cellar"],
+            confidence="high",
+        )
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(
+                clusters, vision_results_task=self._vision_task({"cluster-1": vision})
+            )
+
+        traces = self._capture_traces(caplog)
+        assert len(traces) == 1
+        t = traces[0]
+        assert t["outcome"] == "empty_after_text_search"
+        assert t["vision"]["text_search_triggered"] is True
+        assert t["vision"]["text_search_hit"] is False
+        assert t["vision"]["had_images"] is True
+        assert t["vision"]["category"] == "nightlife"
+
+    @pytest.mark.asyncio
+    async def test_name_match_locked_matched_null_rating(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """Name-match-locked cluster: matched, finalist rating is None (enrichment
+        skipped), top_finalist_name_matched_vision True."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        place = {
+            "id": "sushi-dai",
+            "displayName": {"text": "Sushi Dai"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: [place]}, radius_used=15)
+
+        enrich_called = False
+
+        async def mock_enrich(place_ids):
+            nonlocal enrich_called
+            enrich_called = True
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision = VisionResult(
+            category="food", detected_text=["Sushi Dai"], confidence="high"
+        )
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(
+                clusters, vision_results_task=self._vision_task({"cluster-1": vision})
+            )
+
+        assert enrich_called is False  # name-match lock skipped enrichment
+        traces = self._capture_traces(caplog)
+        t = traces[0]
+        assert t["outcome"] == "matched"
+        assert t["top_finalist_name_matched_vision"] is True
+        assert t["finalists"][0]["rating"] is None
+        assert t["finalists"][0]["review_count"] is None
+
+    @pytest.mark.asyncio
+    async def test_matched_top_does_not_match_vision(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """Matched but the top finalist does NOT match the vision name ->
+        top_finalist_name_matched_vision False (proves the bool discriminates)."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        place = {
+            "id": "other-cafe",
+            "displayName": {"text": "Some Other Cafe"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "cafe",
+            "types": ["cafe"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: [place]}, radius_used=15)
+
+        async def mock_text_search(text_query, latitude, longitude, radius=200.0):
+            # vision name not present in nearby -> text search runs, returns empty
+            return []
+
+        async def mock_enrich(place_ids):
+            return {"other-cafe": {"rating": 4.0, "userRatingCount": 80}}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision = VisionResult(
+            category="food",
+            detected_text=["Tsukiji Ramen Honten"],
+            confidence="high",
+        )
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(
+                clusters, vision_results_task=self._vision_task({"cluster-1": vision})
+            )
+
+        traces = self._capture_traces(caplog)
+        t = traces[0]
+        assert t["outcome"] == "matched"
+        assert t["top_finalist_name_matched_vision"] is False
+
+    @pytest.mark.asyncio
+    async def test_ktd1_rating_backfill_onto_raw_candidates(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """A matched cluster's finalist appears in raw_candidates with non-null
+        rating/userRatingCount after the enrichment merge (KTD1)."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        place = {
+            "id": "place-123",
+            "displayName": {"text": "Test Restaurant"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: [place]}, radius_used=15)
+
+        async def mock_enrich(place_ids):
+            return {"place-123": {"rating": 4.7, "userRatingCount": 250}}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(clusters)
+
+        traces = self._capture_traces(caplog)
+        t = traces[0]
+        backfilled = next(c for c in t["raw_candidates"] if c["id"] == "place-123")
+        assert backfilled["rating"] == 4.7
+        assert backfilled["userRatingCount"] == 250
+        # The finalist trace also carries the live rating.
+        assert t["finalists"][0]["rating"] == 4.7
+        assert t["finalists"][0]["review_count"] == 250
+
+    @pytest.mark.asyncio
+    async def test_phase_attribution_low_reviews(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """Search-phase low_reviews == 0 (raw places lack userRatingCount) while
+        enrich-phase low_reviews > 0 once live counts arrive."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        # A wide-pass place: NO userRatingCount, so the search-phase gate cannot
+        # fire. Enrichment then reveals it has only 1 review -> enrich drop.
+        place = {
+            "id": "tiny-spot",
+            "displayName": {"text": "Tiny New Spot"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag({15: [place]}, radius_used=15)
+
+        async def mock_enrich(place_ids):
+            return {"tiny-spot": {"rating": 4.9, "userRatingCount": 1}}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(clusters)
+
+        traces = self._capture_traces(caplog)
+        t = traces[0]
+        assert t["drop_counts"]["search"]["low_reviews"] == 0
+        assert t["drop_counts"]["enrich"]["low_reviews"] == 1
+
+    @pytest.mark.asyncio
+    async def test_radii_and_stopped_early_consistency(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """raw_count_per_radius keys match radii_searched; stopped_early honored."""
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        p15 = {
+            "id": "p15",
+            "displayName": {"text": "Near Place"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+        p100 = {
+            "id": "p100",
+            "displayName": {"text": "Far Place"},
+            "location": {"latitude": 35.6772, "longitude": 139.6503},
+            "primaryType": "cafe",
+            "types": ["cafe"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return self._tiered_diag(
+                {15: [p15], 100: [p100]}, radius_used=100, stopped_early=False
+            )
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(clusters)
+
+        traces = self._capture_traces(caplog)
+        t = traces[0]
+        # JSON serialization turns int keys into strings; compare on the str set.
+        assert set(t["raw_count_per_radius"].keys()) == {
+            str(r) for r in t["radii_searched"]
+        }
+        assert t["stopped_early"] is False
+        assert t["largest_radius_used"] == 100
+
+    @pytest.mark.asyncio
+    async def test_flag_off_emits_no_trace(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        """PLACES_DIAGNOSTICS off -> no trace emitted, behavior unchanged."""
+        matcher._settings.places_diagnostics = False
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        place = {
+            "id": "place-123",
+            "displayName": {"text": "Test Restaurant"},
+            "location": {"latitude": 35.6762, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant", "food"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+        async def mock_search(latitude, longitude):
+            return _tiered([place])
+
+        async def mock_enrich(place_ids):
+            return {"place-123": {"rating": 4.5, "userRatingCount": 100}}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            results, failed = await matcher.find_places_for_clusters(clusters)
+
+        assert self._capture_traces(caplog) == []
+        # Behavior identical: cluster still matched.
+        assert results[0]["places"][0]["place_id"] == "place-123"
+
+    @pytest.mark.asyncio
+    async def test_two_clusters_emit_two_traces(
+        self, matcher, monkeypatch, caplog, clean_cache
+    ) -> None:
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            },
+            {
+                "id": "cluster-2",
+                "centroid": {"latitude": 48.8574, "longitude": 2.2932},
+                "photos": [{"asset_id": "photo-2"}],
+            },
+        ]
+
+        async def mock_execute_search(latitude, longitude, radius):
+            return []
+
+        monkeypatch.setattr(matcher, "_execute_search", mock_execute_search)
+
+        with caplog.at_level("INFO"):
+            await matcher.find_places_for_clusters(clusters)
+
+        traces = self._capture_traces(caplog)
+        assert len(traces) == 2
+        assert {t["cluster_id"] for t in traces} == {"cluster-1", "cluster-2"}
