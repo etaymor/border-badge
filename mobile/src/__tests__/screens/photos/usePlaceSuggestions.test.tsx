@@ -462,6 +462,70 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
 
     expect(mockedApi.post).not.toHaveBeenCalled();
   });
+
+  it('CANDIDATE-STALE: a candidate switch mid-retry does NOT write the old cluster into the new candidate', async () => {
+    // Reproduces the cross-guard seam (correctness/adversarial/frontend-races):
+    // retryFailedClusters resolving AFTER the active candidate changed must not
+    // strand the old cluster's success into the new candidate's in-memory state.
+    const c = makeCluster('stale-1', 35.1, 139.1);
+    const candidateRef = { current: 'cand-A' } as React.RefObject<string | null>;
+
+    // Gate the API so we can flip the active candidate while the retry is in flight.
+    let resolveApi: ((v: unknown) => void) | undefined;
+    const apiGate = new Promise((resolve) => {
+      resolveApi = resolve;
+    });
+    mockedApi.post.mockReturnValueOnce(apiGate as never);
+
+    const { result } = setup([c], candidateRef);
+
+    await act(async () => {
+      const p = result.current.retryFailedClusters(['stale-1']);
+      await Promise.resolve();
+      await Promise.resolve();
+      // User switches candidates while the retry is in flight.
+      candidateRef.current = 'cand-B';
+      resolveApi?.(respondWith([{ id: 'stale-1', places: [placeFor('stale-1')] }]));
+      await p;
+    });
+
+    // SQLite cache write still happens (location-keyed, useful on return)...
+    expect(mockedCacheSuggestions).toHaveBeenCalledTimes(1);
+    // ...but the resolved place is NOT written into the now-active candidate's
+    // in-memory state, and the cluster is not re-added to failedClusterIds.
+    expect(
+      result.current.cachedSuggestions.find((s) => s.cluster_id === 'stale-1')
+    ).toBeUndefined();
+    expect(result.current.suggestPlacesMutation.failedClusterIds.has('stale-1')).toBe(false);
+  });
+
+  it('CANDIDATE-STALE: switch-away-then-back to the SAME candidate keeps the result (live-ref check)', async () => {
+    const c = makeCluster('return-1', 35.1, 139.1);
+    const candidateRef = { current: 'cand-A' } as React.RefObject<string | null>;
+
+    let resolveApi: ((v: unknown) => void) | undefined;
+    const apiGate = new Promise((resolve) => {
+      resolveApi = resolve;
+    });
+    mockedApi.post.mockReturnValueOnce(apiGate as never);
+
+    const { result } = setup([c], candidateRef);
+
+    await act(async () => {
+      const p = result.current.retryFailedClusters(['return-1']);
+      await Promise.resolve();
+      await Promise.resolve();
+      // Switch away and back to the same candidate before the retry resolves.
+      candidateRef.current = 'cand-B';
+      candidateRef.current = 'cand-A';
+      resolveApi?.(respondWith([{ id: 'return-1', places: [placeFor('return-1')] }]));
+      await p;
+    });
+
+    // Live-ref equals the request candidate again -> NOT stale -> result kept.
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'return-1');
+    expect(surfaced?.places).toHaveLength(1);
+  });
 });
 
 // ---- B3: stale-request discard decision (pinned against the LIVE ref) -------

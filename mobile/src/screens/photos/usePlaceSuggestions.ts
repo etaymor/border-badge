@@ -473,7 +473,13 @@ export function usePlaceSuggestions({
    *    (429/503) are filtered out BEFORE fetching — no API call fires for them.
    *  - Own in-flight guard (KTD7): `retryInFlightRef` prevents a double-tap from
    *    double-firing and a retry-vs-active-fetch race (I5) from double-caching.
-   *    Distinct from the candidate-stale guard, which is left intact.
+   *    Separate from the candidate-stale guard below.
+   *  - Candidate-stale guard: if the user switches candidates while a retry is in
+   *    flight, the resolved result must NOT write the old cluster's state into the
+   *    new candidate (switchCandidate resets failedClusterIds/cachedSuggestions).
+   *    The in-memory writes (setCachedSuggestions / clear/addFailedClusterIds) are
+   *    short-circuited when the active candidate changed; the SQLite cache write
+   *    still happens (it's location-keyed and useful if the user returns).
    *  - Per-cluster retrying state: `retryingClusterIds` drives the card spinner.
    *  - Partial results: of the retried set, succeeded clusters are cached +
    *    cleared from `failedClusterIds` (-> matched / no-place-found); clusters
@@ -488,6 +494,16 @@ export function usePlaceSuggestions({
 
       const currentClusterLookup = clusterLookupRef.current;
       const failedInfo = suggestPlacesMutation.failedClusterIds ?? new Map();
+
+      // Candidate-stale guard: capture the active candidate at entry and compare
+      // against the LIVE ref at each resolution point. If the user switched
+      // candidates mid-retry, the new candidate's state was reset — writing the
+      // old cluster's result into it would re-introduce stale failure/cache
+      // entries. Reads `.current` live (not a captured value) so a switch-away-
+      // then-back to the same candidate is correctly treated as NOT stale.
+      const retryCandidateId = currentCandidateIdRef?.current ?? null;
+      const isStaleRetry = () =>
+        currentCandidateIdRef != null && currentCandidateIdRef.current !== retryCandidateId;
 
       // Resolve ids -> clusters, skipping: (a) ids already retrying (own
       // in-flight guard, KTD7), (b) retryDisabled (429/503) failures (KTD10), and
@@ -551,8 +567,10 @@ export function usePlaceSuggestions({
         }
 
         // A cache hit means the cluster already resolved — surface it and clear
-        // it from the failed set without an API call.
-        if (cachedHits.length > 0) {
+        // it from the failed set without an API call. Skip the in-memory writes
+        // if the user switched candidates (the cache hit is harmless to drop;
+        // the SQLite row already exists for a later return).
+        if (cachedHits.length > 0 && !isStaleRetry()) {
           setCachedSuggestions((prev) => [...prev, ...cachedHits]);
           suggestPlacesMutation.clearFailedClusterIds(cachedHits.map((s) => s.cluster_id));
           for (const s of cachedHits) pendingIds.delete(s.cluster_id);
@@ -581,6 +599,9 @@ export function usePlaceSuggestions({
         }
 
         // Cache + surface succeeded clusters (KTD8: only responded ones written).
+        // The SQLite cache write always happens (location-keyed, useful on
+        // return); the in-memory state writes are skipped when the candidate
+        // changed so we never strand the old cluster's state into the new one.
         if (succeeded.length > 0) {
           const toCache = succeeded.map((cluster) => {
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
@@ -592,24 +613,27 @@ export function usePlaceSuggestions({
           });
           await cacheSuggestions(toCache);
 
-          const newSuggestions: ClusterSuggestion[] = succeeded.map((cluster) => {
-            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-            return {
-              cluster_id: cluster.id,
-              photo_ids: cluster.photos.map((p) => p.id),
-              places: suggestion?.places ?? [],
-            };
-          });
-          setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+          if (!isStaleRetry()) {
+            const newSuggestions: ClusterSuggestion[] = succeeded.map((cluster) => {
+              const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+              return {
+                cluster_id: cluster.id,
+                photo_ids: cluster.photos.map((p) => p.id),
+                places: suggestion?.places ?? [],
+              };
+            });
+            setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
 
-          // Resolved -> remove from failedClusterIds so useClusterItems
-          // reclassifies them as matched / no-place-found.
-          suggestPlacesMutation.clearFailedClusterIds(succeeded.map((c) => c.id));
-          for (const c of succeeded) pendingIds.delete(c.id);
+            // Resolved -> remove from failedClusterIds so useClusterItems
+            // reclassifies them as matched / no-place-found.
+            suggestPlacesMutation.clearFailedClusterIds(succeeded.map((c) => c.id));
+            for (const c of succeeded) pendingIds.delete(c.id);
+          }
         }
 
-        // Re-failed clusters stay lookup-failed (retry still enabled, no cap).
-        if (reFailed.length > 0) {
+        // Re-failed clusters stay lookup-failed (retry still enabled, no cap) —
+        // but not if the candidate changed (don't pollute the new candidate).
+        if (reFailed.length > 0 && !isStaleRetry()) {
           suggestPlacesMutation.addFailedClusterIds(
             reFailed.map((c) => ({ id: c.id, retryDisabled: false }))
           );
@@ -621,13 +645,15 @@ export function usePlaceSuggestions({
         // resolved cache hits are excluded (they left `pendingIds`), so a later
         // api.post throw can't wrongly re-fail a resolved cluster.
         if (__DEV__) console.error('[PhotoImport] retryFailedClusters error:', error);
-        if (pendingIds.size > 0) {
+        if (pendingIds.size > 0 && !isStaleRetry()) {
           suggestPlacesMutation.addFailedClusterIds(
             [...pendingIds].map((id) => ({ id, retryDisabled: false }))
           );
         }
       } finally {
-        // Release the in-flight + retrying state for these ids.
+        // Release the in-flight + retrying state for these ids. (Always release,
+        // even on a stale retry — the spinner/guard for the claimed ids must
+        // clear regardless of whether the candidate changed.)
         for (const id of claimedIds) retryInFlightRef.current.delete(id);
         setRetryingClusterIds((prev) => {
           const next = new Set(prev);
@@ -636,7 +662,7 @@ export function usePlaceSuggestions({
         });
       }
     },
-    [clusterLookupRef, suggestPlacesMutation]
+    [clusterLookupRef, suggestPlacesMutation, currentCandidateIdRef]
   );
 
   /**

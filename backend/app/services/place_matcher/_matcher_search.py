@@ -23,7 +23,6 @@ from .constants import (
     INSTITUTIONAL_TYPES,
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACES_PER_SEARCH,
-    MIN_QUALITY_RESULTS_BEFORE_STOP,
     NEARBY_SEARCH_URL,
     NON_TOURIST_TYPES,
     PLACE_DETAILS_URL,
@@ -60,12 +59,6 @@ def _type_set_hash(types: list[str]) -> str:
 # Precomputed once: every Nearby/Text search currently uses the full type set, so
 # there is no need to re-hash it on each (hot-path) search call.
 _SEARCHABLE_TYPE_SET_HASH = _type_set_hash(SEARCHABLE_PLACE_TYPES)
-
-# Kept importable for the eval harness, which still monkeypatches this module
-# attribute for its --stop-threshold override (U5 migrates that to Settings).
-# _search_nearby_tiered now reads the threshold from self._settings instead; the
-# config default equals this constant, so default behavior is unchanged.
-_DEFAULT_STOP_THRESHOLD = MIN_QUALITY_RESULTS_BEFORE_STOP
 
 
 @dataclass
