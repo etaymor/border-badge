@@ -50,10 +50,10 @@ from unittest.mock import AsyncMock
 # Add backend root to import path.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import app.services.place_matcher._matcher_search as matcher_search_module
 from app.services.photo_vision import PhotoClassifier, VisionResult
 from app.services.place_matcher import MAX_PLACES_PER_SEARCH, PlaceMatcher
-from app.services.place_matcher.utils import haversine
+from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
+from app.services.place_matcher.utils import haversine, name_matches_candidate
 
 WeightName = Literal[
     "places_rank_distance_weight",
@@ -150,6 +150,25 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Override MIN_QUALITY_RESULTS_BEFORE_STOP for --pipeline (1 "
             "reproduces the legacy stop-at-first-hit behavior)"
+        ),
+    )
+    parser.add_argument(
+        "--simulate-type-filter",
+        action="store_true",
+        help=(
+            "C5 sim: filter the simulated Nearby RESULTS to places whose types "
+            "intersect SEARCHABLE_PLACE_TYPES (the includedTypes allowlist). "
+            "Filters results, not calls — avg_nearby_calls is unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--simulate-text-rescue",
+        action="store_true",
+        help=(
+            "C2 sim: when Nearby misses a place matching the vision detected "
+            "text, simulate a Text Search that recovers world places whose "
+            "displayName matches the vision business_name_candidates. Reports "
+            "avg_text_search_calls."
         ),
     )
     return parser.parse_args()
@@ -270,6 +289,66 @@ class PipelineMetrics:
     candidate_recall: float
     e2e_top1: float
     avg_nearby_calls: float
+    # Average simulated text-search calls per cluster. Only populated when the
+    # text-rescue sim is on; None otherwise so existing runs are unaffected.
+    avg_text_search_calls: float | None = None
+
+
+def _simulate_text_rescue(
+    *,
+    world: list[dict[str, Any]],
+    nearby_places: list[dict[str, Any]],
+    vision_result: VisionResult | None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Simulate the production Text-Search rescue against the sample world.
+
+    Rescue rule (mirrors ``_matcher_cluster_processing`` rescue triggering):
+
+    1. Vision must carry at least one ``business_name_candidate`` (the same
+       gate the production matcher uses; low-confidence text only rescues when
+       Nearby is empty, matching ``confidence_ok``).
+    2. Suppress the rescue when a Nearby place already name-matches the first
+       candidate — the production matcher skips the (Enterprise-tier) Text
+       Search in that case because it would only re-find what we already have.
+    3. Otherwise simulate ONE Text Search: return every world place whose
+       ``displayName.text`` name-matches any business-name candidate. This is a
+       name-match against the whole world (NOT a radius filter, NOT a real API
+       call), so it can recover a place Nearby missed because it sat outside
+       every search radius.
+
+    Returns ``(rescued_places, text_search_calls)`` where ``text_search_calls``
+    is 0 (rescue suppressed / not eligible) or 1 (one simulated call).
+    """
+    if vision_result is None or not vision_result.has_business_name:
+        return [], 0
+
+    candidates = vision_result.business_name_candidates
+    if not candidates:
+        return [], 0
+
+    # Cost-bounded gate: low-confidence text only rescues when Nearby is empty.
+    if vision_result.confidence == "low" and nearby_places:
+        return [], 0
+
+    # Suppress if a Nearby result already name-matches the first candidate.
+    already_found = any(
+        name_matches_candidate(p.get("displayName", {}).get("text", ""), candidates[0])
+        for p in nearby_places
+    )
+    if already_found:
+        return [], 0
+
+    rescued = [
+        place
+        for place in world
+        if any(
+            name_matches_candidate(
+                place.get("displayName", {}).get("text", ""), candidate
+            )
+            for candidate in candidates
+        )
+    ]
+    return rescued, 1
 
 
 def evaluate_pipeline(
@@ -277,6 +356,9 @@ def evaluate_pipeline(
     samples: list[dict[str, Any]],
     vision_mode: Literal["none", "single", "aggregate"],
     stop_threshold: int | None,
+    *,
+    simulate_type_filter: bool = False,
+    simulate_text_rescue: bool = False,
 ) -> PipelineMetrics:
     """Simulate the tiered Nearby search per sample to measure recall + cost.
 
@@ -286,15 +368,32 @@ def evaluate_pipeline(
     rankPreference=DISTANCE). This exposes failures the ranking-only eval
     cannot see — the visited place never being fetched at all — and counts
     the paid Nearby calls each policy makes.
+
+    Args:
+        simulate_type_filter: C5 sim. Filter the in-radius candidate set to
+            places whose ``types`` intersect ``SEARCHABLE_PLACE_TYPES`` (the
+            ``includedTypes`` allowlist). Filters RESULTS, not CALLS, so
+            ``avg_nearby_calls`` is unchanged vs baseline.
+        simulate_text_rescue: C2 sim. After the Nearby search, run a simulated
+            name-match Text Search (see :func:`_simulate_text_rescue`) so a
+            place that sits outside every search radius can be recovered. When
+            on, ``avg_text_search_calls`` is reported.
+
+    The ``--stop-threshold`` override targets ``matcher._settings`` (U2 made
+    ``_search_nearby_tiered`` read the Settings value; the old module-global
+    override is an inert no-op), restored in ``finally``.
     """
-    original_threshold = matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP
+    original_threshold = matcher._settings.places_min_quality_results_before_stop
     if stop_threshold is not None:
-        matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP = stop_threshold
+        matcher._settings.places_min_quality_results_before_stop = stop_threshold
 
     total = 0
     recall_hits = 0
     top1_hits = 0
     call_counts: list[int] = []
+    text_search_counts: list[int] = []
+
+    allowlist = set(SEARCHABLE_PLACE_TYPES)
 
     try:
         for sample in samples:
@@ -325,6 +424,15 @@ def evaluate_pipeline(
                     )
                     <= radius
                 ]
+                if simulate_type_filter:
+                    # C5: a place whose types miss the allowlist is never
+                    # returned by Nearby (includedTypes gate). Filters results,
+                    # not calls.
+                    in_radius = [
+                        p
+                        for p in in_radius
+                        if allowlist.intersection(p.get("types", []))
+                    ]
                 in_radius.sort(
                     key=lambda p: haversine(
                         latitude,
@@ -344,13 +452,27 @@ def evaluate_pipeline(
             )
             candidates = search_result.places
 
+            vision_result = select_vision_for_sample(sample, vision_mode)
+
+            if simulate_text_rescue:
+                rescued, text_calls = _simulate_text_rescue(
+                    world=world,
+                    nearby_places=candidates,
+                    vision_result=vision_result,
+                )
+                text_search_counts.append(text_calls)
+                if rescued:
+                    seen = {p.get("id") for p in candidates}
+                    candidates = candidates + [
+                        p for p in rescued if p.get("id") not in seen
+                    ]
+
             total += 1
             call_counts.append(calls)
             candidate_ids = {p.get("id") for p in candidates}
             if expected_place_id in candidate_ids:
                 recall_hits += 1
 
-            vision_result = select_vision_for_sample(sample, vision_mode)
             ranked = matcher._rank_by_distance(
                 places=candidates,
                 cluster=cluster,
@@ -360,7 +482,7 @@ def evaluate_pipeline(
             if ranked and ranked[0].get("place_id") == expected_place_id:
                 top1_hits += 1
     finally:
-        matcher_search_module.MIN_QUALITY_RESULTS_BEFORE_STOP = original_threshold
+        matcher._settings.places_min_quality_results_before_stop = original_threshold
 
     if total == 0:
         raise ValueError("No valid labeled samples found in dataset")
@@ -370,6 +492,9 @@ def evaluate_pipeline(
         candidate_recall=recall_hits / total,
         e2e_top1=top1_hits / total,
         avg_nearby_calls=mean(call_counts),
+        avg_text_search_calls=(
+            mean(text_search_counts) if simulate_text_rescue else None
+        ),
     )
 
 
@@ -427,17 +552,31 @@ def main() -> None:
             samples=samples,
             vision_mode=args.vision_mode,
             stop_threshold=args.stop_threshold,
+            simulate_type_filter=args.simulate_type_filter,
+            simulate_text_rescue=args.simulate_text_rescue,
         )
-        threshold_note = (
-            f"stop_threshold={args.stop_threshold}"
-            if args.stop_threshold is not None
-            else "stop_threshold=current"
+        notes = [
+            (
+                f"stop_threshold={args.stop_threshold}"
+                if args.stop_threshold is not None
+                else "stop_threshold=current"
+            )
+        ]
+        if args.simulate_type_filter:
+            notes.append("type_filter=on")
+        if args.simulate_text_rescue:
+            notes.append("text_rescue=on")
+        text_calls_note = (
+            f"avg_text_search_calls={pipeline.avg_text_search_calls:.2f} "
+            if pipeline.avg_text_search_calls is not None
+            else ""
         )
         print(
-            f"Pipeline ({threshold_note}): "
+            f"Pipeline ({', '.join(notes)}): "
             f"candidate_recall={pipeline.candidate_recall:.3f} "
             f"e2e_top1={pipeline.e2e_top1:.3f} "
             f"avg_nearby_calls={pipeline.avg_nearby_calls:.2f} "
+            f"{text_calls_note}"
             f"n={pipeline.total}"
         )
 

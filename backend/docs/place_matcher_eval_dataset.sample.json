@@ -611,5 +611,146 @@
         "userRatingCount": 620
       }
     ]
+  },
+  {
+    "id": "berlin-gym-type-excluded",
+    "_note": "C5 lever (type-filter sim). Expected place is a gym; 'gym'/'fitness_center' are NOT in SEARCHABLE_PLACE_TYPES, so --simulate-type-filter drops it from Nearby (candidate_recall falls). The vision name-match keeps it ranked #1 in the ranking-only (--no-search) eval. Compare against an allowlisted type to show recovery.",
+    "cluster": {
+      "centroid": {
+        "latitude": 52.52006,
+        "longitude": 13.40495
+      },
+      "time_hint": "quick_stop",
+      "start_time": "2024-07-14T08:05:00Z",
+      "end_time": "2024-07-14T09:10:00Z"
+    },
+    "expected_place_id": "place-mitte-fitness",
+    "vision_results": [
+      {
+        "category": "unknown",
+        "detected_text": ["Mitte Fitness Studio"],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-mitte-fitness",
+        "displayName": {
+          "text": "Mitte Fitness Studio"
+        },
+        "formattedAddress": "Rosenthaler Str. 40, Berlin",
+        "location": {
+          "latitude": 52.52011,
+          "longitude": 13.40495
+        },
+        "primaryType": "gym",
+        "types": ["gym", "fitness_center"],
+        "rating": 4.5,
+        "userRatingCount": 240
+      },
+      {
+        "id": "place-mitte-cafe",
+        "displayName": {
+          "text": "Rosenthaler Kaffee"
+        },
+        "formattedAddress": "Rosenthaler Str. 42, Berlin",
+        "location": {
+          "latitude": 52.52017,
+          "longitude": 13.40495
+        },
+        "primaryType": "cafe",
+        "types": ["cafe", "coffee_shop", "food"],
+        "rating": 4.3,
+        "userRatingCount": 410
+      },
+      {
+        "id": "place-mitte-bakery",
+        "displayName": {
+          "text": "Hackescher Backhaus"
+        },
+        "formattedAddress": "Hackescher Markt 1, Berlin",
+        "location": {
+          "latitude": 52.51995,
+          "longitude": 13.40495
+        },
+        "primaryType": "bakery",
+        "types": ["bakery", "store", "food"],
+        "rating": 4.4,
+        "userRatingCount": 530
+      }
+    ]
+  },
+  {
+    "id": "lisbon-text-rescue-far",
+    "_note": "C2 lever (text-rescue sim). Two near decoys (~10m) make this a MEDIUM-density cluster, so the Nearby sim searches radii [15, 50, 125]m. The expected place sits ~140m from the centroid, just beyond the 125m max, so geometric Nearby never returns it (candidate_recall=0 without rescue). Its displayName matches the vision detected_text, so --simulate-text-rescue recovers it via a name-match Text Search (recall lifts, avg_text_search_calls increments). At 140m the distance penalty (~7) stays below NAME_MATCH_BONUS (9.0), so the strong name-match keeps it ranked #1 in the ranking-only (--no-search) eval, which uses the full places[] set with no geometric filter.",
+    "cluster": {
+      "centroid": {
+        "latitude": 38.71,
+        "longitude": -9.14
+      },
+      "time_hint": "food",
+      "start_time": "2024-10-05T13:15:00Z",
+      "end_time": "2024-10-05T14:30:00Z"
+    },
+    "expected_place_id": "place-alfama-tasca",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": ["Tasca do Alfama"],
+        "confidence": "high"
+      },
+      {
+        "category": "food",
+        "detected_text": ["Tasca do Alfama", "Aberto"],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-alfama-tasca",
+        "displayName": {
+          "text": "Tasca do Alfama"
+        },
+        "formattedAddress": "Rua de Sao Joao da Praca 8, Lisboa",
+        "location": {
+          "latitude": 38.711258,
+          "longitude": -9.14
+        },
+        "primaryType": "restaurant",
+        "types": ["restaurant", "portuguese_restaurant", "food"],
+        "rating": 4.6,
+        "userRatingCount": 480
+      },
+      {
+        "id": "place-baixa-pasteis",
+        "displayName": {
+          "text": "Pasteis da Baixa"
+        },
+        "formattedAddress": "Rua Augusta 120, Lisboa",
+        "location": {
+          "latitude": 38.7101,
+          "longitude": -9.14
+        },
+        "primaryType": "bakery",
+        "types": ["bakery", "cafe", "food"],
+        "rating": 4.4,
+        "userRatingCount": 1900
+      },
+      {
+        "id": "place-se-cathedral",
+        "displayName": {
+          "text": "Se de Lisboa"
+        },
+        "formattedAddress": "Largo da Se, Lisboa",
+        "location": {
+          "latitude": 38.70989,
+          "longitude": -9.14
+        },
+        "primaryType": "church",
+        "types": ["church", "tourist_attraction"],
+        "rating": 4.6,
+        "userRatingCount": 14000
+      }
+    ]
   }
 ]
