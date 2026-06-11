@@ -24,7 +24,6 @@ from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_PLACES_PER_SEARCH,
     MIN_QUALITY_RESULTS_BEFORE_STOP,
-    MIN_REVIEW_COUNT,
     NEARBY_SEARCH_URL,
     NON_TOURIST_TYPES,
     PLACE_DETAILS_URL,
@@ -545,7 +544,7 @@ class SearchMixin:
         - Not a non-tourist type (laundromats, gas stations, etc.)
         - Not permanently closed
         - Has a non-empty display name
-        - Has at least MIN_REVIEW_COUNT reviews (or is institutional)
+        - Has at least ``places_min_review_count`` reviews (or is institutional)
 
         The review-count gate only applies when ``userRatingCount`` is present.
         The WIDE search pass omits rating fields (cost: they would force the
@@ -609,16 +608,20 @@ class SearchMixin:
 
             # Must have enough reviews OR be an institutional type.
             # Skipped when the rating count is absent (wide pass) — deferred until
-            # the finalist is enriched with live rating signals.
+            # the finalist is enriched with live rating signals. The threshold is
+            # config-driven (C3/U13, places_min_review_count); the constant is the
+            # default. This gate re-applies to enriched finalists, so lowering it
+            # keeps small/new real places that distance alone surfaced.
+            min_review_count = self._settings.places_min_review_count
             is_institutional = primary_type in INSTITUTIONAL_TYPES
             if (
                 has_rating_count
-                and rating_count < MIN_REVIEW_COUNT
+                and rating_count < min_review_count
                 and not is_institutional
             ):
                 logger.debug(
                     f"Filtered (low reviews): {name} | type={primary_type} | "
-                    f"reviews={rating_count} < {MIN_REVIEW_COUNT}"
+                    f"reviews={rating_count} < {min_review_count}"
                 )
                 counts["low_reviews"] += 1
                 continue

@@ -730,6 +730,7 @@ class TestFindPlacesForClustersPartialFailures:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1040,6 +1041,7 @@ class TestQualityFiltering:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1339,6 +1341,7 @@ class TestQualityRanking:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1780,6 +1783,7 @@ class TestTouristRelevanceFilter:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1987,6 +1991,7 @@ class TestEnhancedRanking:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2091,6 +2096,7 @@ class TestVisionRanking:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2848,6 +2854,7 @@ class TestNameMatchRanking:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2993,6 +3000,7 @@ class TestWideSearchFieldMask:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3060,6 +3068,7 @@ class TestQualityFilterRatingGate:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3149,6 +3158,7 @@ class TestFinalistEnrichment:
         settings.places_min_quality_results_before_stop = 5
         settings.places_diagnostics = False
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -3467,6 +3477,90 @@ class TestFinalistEnrichment:
         assert by_cluster["cluster-signage"]["places"][0]["place_id"] == "sushi-dai"
         assert by_cluster["cluster-plain"]["places"][0]["place_id"] == "paris-cafe"
 
+    @pytest.mark.asyncio
+    async def test_review_gate_config_drives_enrich_regate_backfill(
+        self, matcher, monkeypatch
+    ) -> None:
+        """C3/U13: places_min_review_count drives the POST-ENRICHMENT re-gate +
+        backfill, not just the search filter.
+
+        Setup: 3 finalists by distance — a nearest 3-review hidden gem, plus two
+        farther well-reviewed places — and a 4th (backfill) place farther still.
+        The wide pass carries no rating, so all reach the finalist set on distance.
+        After enrichment the re-gate fires:
+          - min_review_count=3 -> the 3-review gem SURVIVES the re-gate and stays
+            in the suggestion list; the backfill is NOT pulled in.
+          - min_review_count=5 -> the gem is DROPPED by the re-gate, and the
+            backfill (4th place) is pulled in to keep 3 suggestions.
+        This exercises _matcher_cluster_processing's enrich -> re-gate -> backfill
+        path, not _filter_low_quality_places in isolation. (It asserts survival +
+        backfill, not rank order — post-enrichment a 3-review/4.9 gem can rank
+        below a 500-review/4.0 neighbor on the review/fame terms; the C3 point is
+        that the gem is KEPT at all rather than demoted out of the list.)
+        """
+        from app.services.place_matcher import places_cache
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+        def _wp(pid: str, lat_off: float) -> dict:
+            return {
+                "id": pid,
+                "displayName": {"text": pid},
+                "formattedAddress": "x",
+                "location": {"latitude": 35.6762 + lat_off, "longitude": 139.6503},
+                "primaryType": "restaurant",
+                "types": ["restaurant"],
+                "businessStatus": "OPERATIONAL",
+            }
+
+        # gem nearest; two mid; backfill farthest. (~1 m per 1e-5 lat.)
+        wide_places = [
+            _wp("gem", 0.0),
+            _wp("mid-a", 0.0003),
+            _wp("mid-b", 0.0006),
+            _wp("backfill", 0.0009),
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(wide_places)
+
+        # gem has 3 reviews; the others are well-reviewed.
+        async def mock_enrich(place_ids):
+            return {
+                "gem": {"rating": 4.9, "userRatingCount": 3},
+                "mid-a": {"rating": 4.0, "userRatingCount": 500},
+                "mid-b": {"rating": 4.0, "userRatingCount": 500},
+                "backfill": {"rating": 4.0, "userRatingCount": 500},
+            }
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        # min_review_count=3: the 3-review gem survives the re-gate and stays in
+        # the suggestion list; the backfill is never needed.
+        matcher._settings.places_min_review_count = 3
+        await places_cache.clear()
+        results_lo, _ = await matcher.find_places_for_clusters(clusters)
+        ids_lo = [p["place_id"] for p in results_lo[0]["places"]]
+        assert "gem" in ids_lo
+        assert "backfill" not in ids_lo
+
+        # min_review_count=5: the gem is dropped by the re-gate; the backfill is
+        # pulled in to keep three suggestions.
+        matcher._settings.places_min_review_count = 5
+        await places_cache.clear()
+        results_hi, _ = await matcher.find_places_for_clusters(clusters)
+        ids_hi = [p["place_id"] for p in results_hi[0]["places"]]
+        await places_cache.clear()
+        assert "gem" not in ids_hi
+        assert "backfill" in ids_hi
+
 
 # ============================================================================
 # Diagnostic Trace Tests (U4)
@@ -3484,6 +3578,7 @@ class TestDiagnosticsTrace:
         settings.places_cluster_timeout_seconds = 15.0
         settings.places_min_quality_results_before_stop = 5
         settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
         # Diagnostics ON for this group (individual tests flip it off as needed).
         settings.places_diagnostics = True
         monkeypatch.setattr(

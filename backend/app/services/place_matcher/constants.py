@@ -325,9 +325,14 @@ TYPE_TO_CATEGORY: dict[str, str] = {
     "establishment": "place",
 }
 
-# Minimum review count for quality filtering
-# Places must have at least this many reviews OR be an institutional type
-MIN_REVIEW_COUNT = 5
+# Minimum review count for quality filtering (default for
+# places_min_review_count; the gate is config-driven, C3/U13).
+# Places must have at least this many reviews OR be an institutional type.
+# Lowered 5 -> 3: the gate only re-applies to enriched finalists (the wide pass
+# omits userRatingCount), then a dropped finalist is backfilled — so the worst
+# case at 5 was a small/new real place demoted below a backfill. 3 keeps those
+# hidden gems while still rejecting near-zero-review noise.
+MIN_REVIEW_COUNT = 3
 
 # Well-known/institutional place types that pass quality filter even without reviews
 # These are typically legitimate landmarks, parks, hotels that may have few Google reviews

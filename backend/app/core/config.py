@@ -179,13 +179,14 @@ class Settings(BaseSettings):
         ),
     )
     places_min_review_count: int = Field(
-        default=5,
+        default=3,
         ge=0,
         le=50,
         description=(
             "Minimum userRatingCount for a non-institutional place to pass the "
             "quality gate (only enforced once a rating count is present, i.e. on "
-            "enriched finalists). Lowering it keeps small/new real places."
+            "enriched finalists). Lowered 5->3 (C3/U13) so small/new real places "
+            "a finalist on distance aren't demoted below a backfill."
         ),
     )
     places_extra_search_tier_m: int | None = Field(
