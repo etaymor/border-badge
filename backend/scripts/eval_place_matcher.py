@@ -336,12 +336,13 @@ def evaluate_pipeline(
                 return in_radius[:MAX_PLACES_PER_SEARCH]
 
             matcher._execute_search = fake_execute_search  # type: ignore[method-assign]
-            candidates, _radius = asyncio.run(
+            search_result = asyncio.run(
                 matcher._search_nearby_tiered(
                     cluster["centroid"]["latitude"],
                     cluster["centroid"]["longitude"],
                 )
             )
+            candidates = search_result.places
 
             total += 1
             call_counts.append(calls)

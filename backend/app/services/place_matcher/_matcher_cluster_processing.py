@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.photo_vision import VisionResult
 
+from ._matcher_search import TieredSearchResult
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
@@ -67,7 +68,7 @@ class ClusterProcessingMixin:
             Ranking is deferred until vision results are available.
             """
 
-            async def inner() -> tuple[list[dict], int]:
+            async def inner() -> TieredSearchResult:
                 """Acquire semaphore and run search, releasing in finally."""
                 await semaphore.acquire()
                 try:
@@ -79,10 +80,14 @@ class ClusterProcessingMixin:
                     semaphore.release()
 
             try:
-                places, radius_used = await asyncio.wait_for(
+                search_result = await asyncio.wait_for(
                     inner(),
                     timeout=cluster_timeout,
                 )
+                # U4 will consume the richer per-radius diagnostic fields; for
+                # now keep the downstream (cluster, places, radius_used) shape.
+                places = search_result.places
+                radius_used = search_result.radius_used
             except TimeoutError:
                 logger.warning(
                     f"Cluster search timed out after {cluster_timeout}s",

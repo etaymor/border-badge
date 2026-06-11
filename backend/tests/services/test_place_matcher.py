@@ -23,7 +23,26 @@ from app.services.place_matcher._matcher_ranking import (
     VISION_HIGH_CONFIDENCE_BONUS,
     VISION_MEDIUM_CONFIDENCE_BONUS,
 )
+from app.services.place_matcher._matcher_search import TieredSearchResult
 from app.services.place_matcher.utils import name_matches_candidate
+
+
+def _tiered(places: list[dict], radius_used: int = 15) -> TieredSearchResult:
+    """Build a TieredSearchResult for cluster-processing mocks.
+
+    Mirrors the cheap-scalar fields the real search would populate so the
+    cluster-processing flow gets a faithful shape: radii_searched and
+    raw_count_per_radius are keyed on the (single) returned radius.
+    """
+    return TieredSearchResult(
+        places=places,
+        radius_used=radius_used,
+        radii_searched={radius_used},
+        raw_count_per_radius={radius_used: len(places)},
+        raw_places_per_radius={},
+        stopped_early=bool(places),
+        density=DensityLevel.DENSE,
+    )
 
 
 class TestHaversineDistance:
@@ -705,6 +724,10 @@ class TestFindPlacesForClustersPartialFailures:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        # Real values for the recall tunables read by _search_nearby_tiered;
+        # a bare MagicMock attribute would break the `>=` comparison / `if`.
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1012,6 +1035,8 @@ class TestQualityFiltering:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1181,6 +1206,8 @@ class TestQualityRanking:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1323,6 +1350,10 @@ class TestTieredSearchRadiusReuse:
         self, radii_seen: list[int], results_by_radius: dict[int, list[dict]]
     ) -> PlaceMatcher:
         matcher = PlaceMatcher(http_client=MagicMock())
+        # get_settings() is lru_cached, so the matcher shares one global Settings
+        # instance. Give each test matcher its own copy so per-test overrides
+        # (stop threshold, diagnostics) don't leak across tests.
+        matcher._settings = matcher._settings.model_copy()
 
         async def fake_execute_search(latitude, longitude, radius):
             radii_seen.append(int(radius))
@@ -1339,11 +1370,14 @@ class TestTieredSearchRadiusReuse:
         results = {15: [_quality_place(f"p{i}") for i in range(5)]}
         matcher = self._matcher_recording_radii(radii_seen, results)
 
-        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+        places, radius_used = result.places, result.radius_used
 
         assert radius_used == 15
         assert len(places) == 5
         assert radii_seen == [15]  # no redundant calls
+        assert result.radii_searched == {15}
+        assert result.stopped_early is True
 
     @pytest.mark.asyncio
     async def test_dense_accumulates_across_tiers_until_min_candidates(self) -> None:
@@ -1358,11 +1392,13 @@ class TestTieredSearchRadiusReuse:
         }
         matcher = self._matcher_recording_radii(radii_seen, results)
 
-        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+        places, radius_used = result.places, result.radius_used
 
         assert radii_seen == [15, 35]  # stopped once 5 candidates accumulated
         assert radius_used == 35
         assert [p["id"] for p in places] == ["p0", "p1", "p2", "p3", "p4"]
+        assert result.radii_searched == {15, 35}
 
     @pytest.mark.asyncio
     async def test_no_radius_searched_twice(self) -> None:
@@ -1371,9 +1407,12 @@ class TestTieredSearchRadiusReuse:
         radii_seen: list[int] = []
         matcher = self._matcher_recording_radii(radii_seen, {})
 
-        await matcher._search_nearby_tiered(0.0, 0.0)
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
 
         assert len(radii_seen) == len(set(radii_seen))  # no duplicates
+        # Exhausted all configured radii without reaching the threshold.
+        assert result.stopped_early is False
+        assert result.radii_searched == set(radii_seen)
 
     @pytest.mark.asyncio
     async def test_medium_does_not_repeat_15m_probe(self) -> None:
@@ -1393,13 +1432,17 @@ class TestTieredSearchRadiusReuse:
         results = {15: [low_quality], 50: [_quality_place()]}
         matcher = self._matcher_recording_radii(radii_seen, results)
 
-        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+        places, radius_used = result.places, result.radius_used
 
         assert radius_used == 50
         # 15 not repeated; 125m tier still attempted (only 1 candidate so far,
         # below MIN_QUALITY_RESULTS_BEFORE_STOP)
         assert radii_seen == [15, 50, 125]
         assert len(places) == 1
+        # Only 1 quality candidate < threshold, so the radii were exhausted.
+        assert result.stopped_early is False
+        assert result.radii_searched == {15, 50, 125}
 
     @pytest.mark.asyncio
     async def test_sparse_skips_redundant_25m_tier(self) -> None:
@@ -1410,12 +1453,123 @@ class TestTieredSearchRadiusReuse:
         results = {100: [_quality_place()]}
         matcher = self._matcher_recording_radii(radii_seen, results)
 
-        places, radius_used = await matcher._search_nearby_tiered(0.0, 0.0)
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+        places, radius_used = result.places, result.radius_used
 
         assert radius_used == 100
         assert 25 not in radii_seen
         assert radii_seen == [15, 100, 250]
         assert len(places) == 1
+
+    @pytest.mark.asyncio
+    async def test_result_carries_raw_count_per_radius(self) -> None:
+        # Happy path: stop at tier 1 -> result.raw_count_per_radius[15] equals
+        # the mock's raw count (BEFORE filtering), keys match radii_searched.
+        radii_seen: list[int] = []
+        raw = [_quality_place(f"p{i}") for i in range(6)]
+        results = {15: raw}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert result.stopped_early is True
+        assert result.radii_searched == {15}
+        assert result.raw_count_per_radius == {15: 6}
+        # raw_count keys are exactly the radii searched.
+        assert set(result.raw_count_per_radius.keys()) == result.radii_searched
+
+    @pytest.mark.asyncio
+    async def test_raised_threshold_reaches_outer_radius(self) -> None:
+        # Edge: raising the stop threshold via config makes the search reach an
+        # outer radius it would otherwise have skipped (proves the config wiring).
+        # 5 quality results at 15m would normally stop at tier 1; raise the
+        # threshold to 6 so the search must expand to the 35m dense tier.
+        radii_seen: list[int] = []
+        results = {
+            15: [_quality_place(f"p{i}") for i in range(5)],
+            35: [_quality_place("p5")],
+        }
+        matcher = self._matcher_recording_radii(radii_seen, results)
+        matcher._settings.places_min_quality_results_before_stop = 6
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        # With the default threshold (5) this would have stopped at {15}.
+        assert 35 in result.radii_searched
+        assert result.radii_searched == {15, 35}
+        assert result.radius_used == 35
+        assert len(result.places) == 6
+
+    @pytest.mark.asyncio
+    async def test_radius_used_consistent_with_stopped_early(self) -> None:
+        # Edge: when the threshold is NOT met, stopped_early is False and every
+        # configured radius is searched; radius_used reflects the last
+        # contributing tier. 0 results at 15m -> SPARSE profile ([100, 250]);
+        # the only contributing tier is 100.
+        radii_seen: list[int] = []
+        results = {100: [_quality_place()]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert result.stopped_early is False
+        assert result.radius_used == 100
+        assert set(result.raw_count_per_radius.keys()) == result.radii_searched
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_off_omits_raw_places(self) -> None:
+        # Edge: diagnostics off (default) -> raw_places_per_radius is empty {},
+        # but the cheap scalar fields are still populated.
+        radii_seen: list[int] = []
+        results = {15: [_quality_place(f"p{i}") for i in range(5)]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+        assert matcher._settings.places_diagnostics is False
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        assert result.raw_places_per_radius == {}
+        # Scalars still present.
+        assert result.radii_searched == {15}
+        assert result.raw_count_per_radius == {15: 5}
+        assert result.stopped_early is True
+        assert result.density == DensityLevel.DENSE
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_on_populates_raw_places(self) -> None:
+        # Diagnostics on -> raw_places_per_radius carries the full per-radius
+        # world (every place, pre-filter), keyed by searched radius.
+        radii_seen: list[int] = []
+        low_quality = {
+            "id": "lq",
+            "displayName": {"text": "Laundro"},
+            "primaryType": "laundry",
+            "types": ["laundry"],
+            "userRatingCount": 0,
+            "businessStatus": "OPERATIONAL",
+            "location": {"latitude": 0.0, "longitude": 0.0},
+        }
+        # 15m: one low-quality (MEDIUM density), 50m: one quality place.
+        results = {15: [low_quality], 50: [_quality_place()]}
+        matcher = self._matcher_recording_radii(radii_seen, results)
+        matcher._settings.places_diagnostics = True
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        # Raw world retained per radius, INCLUDING the filtered-out place.
+        assert set(result.raw_places_per_radius.keys()) == result.radii_searched
+        assert [p["id"] for p in result.raw_places_per_radius[15]] == ["lq"]
+        assert result.raw_places_per_radius[50][0]["id"] == "p1"
+
+    @pytest.mark.asyncio
+    async def test_result_carries_density(self) -> None:
+        # Density is surfaced on the result.
+        radii_seen: list[int] = []
+        matcher = self._matcher_recording_radii(radii_seen, {})
+
+        result = await matcher._search_nearby_tiered(0.0, 0.0)
+
+        # 0 results at 15m -> SPARSE.
+        assert result.density == DensityLevel.SPARSE
 
 
 # ============================================================================
@@ -1432,6 +1586,8 @@ class TestTouristRelevanceFilter:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1636,6 +1792,8 @@ class TestEnhancedRanking:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -1737,6 +1895,8 @@ class TestVisionRanking:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2049,8 +2209,8 @@ class TestVisionRanking:
 
         async def mock_search_nearby_tiered(
             latitude: float, longitude: float
-        ) -> tuple[list[dict], int]:
-            return nearby_places, 15
+        ) -> TieredSearchResult:
+            return _tiered(nearby_places)
 
         async def mock_execute_text_search(
             text_query: str, latitude: float, longitude: float, radius: float = 200.0
@@ -2112,15 +2272,17 @@ class TestVisionRanking:
 
         async def mock_search_nearby_tiered(
             latitude: float, longitude: float
-        ) -> tuple[list[dict], int]:
-            return [
-                {
-                    **nearby_place_template,
-                    "id": f"nearby-{latitude:.4f}",
-                    "displayName": {"text": "Nearby Place"},
-                    "location": {"latitude": latitude, "longitude": longitude},
-                }
-            ], 15
+        ) -> TieredSearchResult:
+            return _tiered(
+                [
+                    {
+                        **nearby_place_template,
+                        "id": f"nearby-{latitude:.4f}",
+                        "displayName": {"text": "Nearby Place"},
+                        "location": {"latitude": latitude, "longitude": longitude},
+                    }
+                ]
+            )
 
         # Track peak concurrency of text searches
         concurrent_text_searches = 0
@@ -2209,7 +2371,7 @@ class TestVisionRanking:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return nearby_places, 15
+            return _tiered(nearby_places)
 
         text_search_called = False
 
@@ -2266,7 +2428,7 @@ class TestVisionRanking:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return [], 0  # nothing nearby
+            return _tiered([], radius_used=0)  # nothing nearby
 
         text_queries: list[str] = []
 
@@ -2337,7 +2499,7 @@ class TestVisionRanking:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return nearby_places, 15
+            return _tiered(nearby_places)
 
         text_search_called = False
 
@@ -2380,6 +2542,8 @@ class TestNameMatchRanking:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2522,6 +2686,8 @@ class TestWideSearchFieldMask:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2586,6 +2752,8 @@ class TestQualityFilterRatingGate:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2672,6 +2840,8 @@ class TestFinalistEnrichment:
         settings.google_places_api_key = "test-key"
         settings.places_api_timeout_seconds = 5.0
         settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
         monkeypatch.setattr(
             "app.services.place_matcher.matcher.get_settings", lambda: settings
         )
@@ -2771,7 +2941,7 @@ class TestFinalistEnrichment:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return wide_places, 15
+            return _tiered(wide_places)
 
         async def mock_enrich(place_ids):
             return {
@@ -2819,7 +2989,7 @@ class TestFinalistEnrichment:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return wide_places, 15
+            return _tiered(wide_places)
 
         async def boom(place_ids):
             raise RuntimeError("enrichment down")
@@ -2877,7 +3047,7 @@ class TestFinalistEnrichment:
         ]
 
         async def mock_search_nearby_tiered(latitude, longitude):
-            return wide_places, 15
+            return _tiered(wide_places)
 
         async def mock_enrich(place_ids):
             return {
@@ -2952,8 +3122,8 @@ class TestFinalistEnrichment:
 
         async def mock_search_nearby_tiered(latitude, longitude):
             if abs(latitude - 35.6762) < 0.01:
-                return signage_places, 15
-            return plain_places, 15
+                return _tiered(signage_places)
+            return _tiered(plain_places)
 
         enriched_ids: list[str] = []
 

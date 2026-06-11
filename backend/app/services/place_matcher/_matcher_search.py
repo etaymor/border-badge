@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -61,6 +62,40 @@ def _type_set_hash(types: list[str]) -> str:
 # there is no need to re-hash it on each (hot-path) search call.
 _SEARCHABLE_TYPE_SET_HASH = _type_set_hash(SEARCHABLE_PLACE_TYPES)
 
+# Kept importable for the eval harness, which still monkeypatches this module
+# attribute for its --stop-threshold override (U5 migrates that to Settings).
+# _search_nearby_tiered now reads the threshold from self._settings instead; the
+# config default equals this constant, so default behavior is unchanged.
+_DEFAULT_STOP_THRESHOLD = MIN_QUALITY_RESULTS_BEFORE_STOP
+
+
+@dataclass
+class TieredSearchResult:
+    """Result of a density-adaptive tiered Nearby search.
+
+    Surfaces enough per-radius metadata for the diagnostic trace (U4) to dump
+    the full pre-filter candidate world. The scalar fields are always populated
+    (cheap); ``raw_places_per_radius`` is only retained when diagnostics is on,
+    since holding the full raw world has a hot-path memory cost.
+    """
+
+    # Quality (filtered, deduped) places — the production search result.
+    places: list[dict]
+    # Largest radius that contributed a new quality candidate.
+    radius_used: int
+    # Every radius an _execute_search call was actually issued at.
+    radii_searched: set[int] = field(default_factory=set)
+    # Count of RAW (pre-filter) _execute_search results per radius.
+    raw_count_per_radius: dict[int, int] = field(default_factory=dict)
+    # Full raw places per radius (the diagnostic full-world dump). Empty unless
+    # diagnostics is enabled, to avoid retaining the world on the hot path.
+    raw_places_per_radius: dict[int, list[dict]] = field(default_factory=dict)
+    # True when the search stopped on hitting the quality-result threshold
+    # before exhausting the configured radii.
+    stopped_early: bool = False
+    # Detected area density (from the first-tier raw result count).
+    density: DensityLevel = DensityLevel.SPARSE
+
 
 class SearchMixin:
     """Search and filtering behaviors for PlaceMatcher."""
@@ -83,27 +118,38 @@ class SearchMixin:
         self,
         latitude: float,
         longitude: float,
-    ) -> tuple[list[dict], int]:
+    ) -> TieredSearchResult:
         """
         Density-adaptive tiered radius search.
 
         First search at smallest radius detects density level, then expands
         through density-appropriate radii, ACCUMULATING quality candidates
-        (deduped by place id) until MIN_QUALITY_RESULTS_BEFORE_STOP are
-        gathered or the tiers are exhausted. Stopping at the first non-empty
-        tier capped recall: with typical indoor GPS drift the visited place is
-        often one tier further out than the nearest match.
+        (deduped by place id) until the configured stop threshold
+        (``places_min_quality_results_before_stop``) is reached or the tiers are
+        exhausted. Stopping at the first non-empty tier capped recall: with
+        typical indoor GPS drift the visited place is often one tier further out
+        than the nearest match.
 
         Returns:
-            Tuple of (quality_places, radius_used) where radius_used is the
-            largest radius that contributed a new candidate.
+            A :class:`TieredSearchResult` carrying the quality places and
+            per-radius metadata. The scalar fields are always populated; the
+            full raw per-radius world (``raw_places_per_radius``) is only
+            retained when ``places_diagnostics`` is enabled.
         """
+        stop_threshold = self._settings.places_min_quality_results_before_stop
+        diagnostics = self._settings.places_diagnostics
+
         # First search at smallest radius (always 15m for density detection).
         # Track every radius we've actually searched so later tiers never re-issue
         # a call at an already-searched radius (each Nearby call is a paid call).
         first_radius = SEARCH_RADII_METERS[0]
         searched_radii: set[int] = {first_radius}
+        raw_count_per_radius: dict[int, int] = {}
+        raw_places_per_radius: dict[int, list[dict]] = {}
         first_places = await self._execute_search(latitude, longitude, first_radius)
+        raw_count_per_radius[first_radius] = len(first_places)
+        if diagnostics:
+            raw_places_per_radius[first_radius] = first_places
 
         # Detect density from raw result count (BEFORE quality filtering)
         density = self._detect_density(len(first_places))
@@ -126,9 +172,20 @@ class SearchMixin:
                 quality_places.append(place)
                 radius_used = radius
 
+        def build(stopped_early: bool) -> TieredSearchResult:
+            return TieredSearchResult(
+                places=quality_places,
+                radius_used=radius_used,
+                radii_searched=searched_radii,
+                raw_count_per_radius=raw_count_per_radius,
+                raw_places_per_radius=raw_places_per_radius,
+                stopped_early=stopped_early,
+                density=density,
+            )
+
         absorb(first_places, first_radius)
-        if len(quality_places) >= MIN_QUALITY_RESULTS_BEFORE_STOP:
-            return quality_places, radius_used
+        if len(quality_places) >= stop_threshold:
+            return build(stopped_early=True)
 
         # Expand through the density-appropriate radii, skipping any radius we've
         # already searched. (Filtering by value rather than slicing by position
@@ -139,12 +196,16 @@ class SearchMixin:
                 continue
             searched_radii.add(radius)
             places = await self._execute_search(latitude, longitude, radius)
+            raw_count_per_radius[radius] = len(places)
+            if diagnostics:
+                raw_places_per_radius[radius] = places
             if places:
                 absorb(places, radius)
-                if len(quality_places) >= MIN_QUALITY_RESULTS_BEFORE_STOP:
-                    return quality_places, radius_used
+                if len(quality_places) >= stop_threshold:
+                    return build(stopped_early=True)
 
-        return quality_places, radius_used
+        # Radii exhausted without reaching the threshold.
+        return build(stopped_early=False)
 
     @retry(
         stop=stop_after_attempt(3),
