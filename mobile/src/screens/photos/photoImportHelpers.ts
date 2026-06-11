@@ -13,15 +13,22 @@ import type { MergedSuggestion } from './photoImportTypes';
  * lookup-failed cluster (place lookup errored — distinct from a real empty), or
  * a photo-only cluster (place lookup succeeded but found nothing).
  *
- * `lookup-failed` carries the cluster (so its photos render) and `retryDisabled`
+ * `lookup-failed` carries the cluster (so its photos render), `retryDisabled`
  * (true for 429/503 quota/rate-limit, where an immediate retry is pointless —
- * KTD10). It must NEVER collapse into `photos-only`: that would re-introduce B1
- * (a transient failure rendered as a confident "No place found").
+ * KTD10), and `isRetrying` (true while U10's scoped re-fetch is in flight for
+ * this cluster — drives the card spinner). It must NEVER collapse into
+ * `photos-only`: that would re-introduce B1 (a transient failure rendered as a
+ * confident "No place found").
  */
 export type ClusterDisplayItem =
   | { type: 'merged-suggestion'; data: MergedSuggestion }
   | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
-  | { type: 'lookup-failed'; cluster: LocationClusterDisplay; retryDisabled: boolean }
+  | {
+      type: 'lookup-failed';
+      cluster: LocationClusterDisplay;
+      retryDisabled: boolean;
+      isRetrying: boolean;
+    }
   | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
 /**

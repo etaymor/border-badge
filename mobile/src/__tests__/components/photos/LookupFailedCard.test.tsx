@@ -139,4 +139,26 @@ describe('LookupFailedCard', () => {
 
     expect(getByText(/Couldn't check this location/i)).toBeTruthy();
   });
+
+  it('disables the Retry button and does NOT call onRetry while isRetrying (U10 spinner)', () => {
+    const onRetry = jest.fn();
+    const { getByLabelText, getByText } = render(
+      <LookupFailedCard
+        cluster={buildCluster()}
+        retryDisabled={false}
+        isRetrying={true}
+        onRetry={onRetry}
+        onAddEntry={jest.fn()}
+        onPhotoPress={jest.fn()}
+        onDismiss={jest.fn()}
+      />
+    );
+
+    // The retry affordance is present but disabled; pressing it is a no-op.
+    const retryButton = getByLabelText('Retry place lookup');
+    fireEvent.press(retryButton);
+    expect(onRetry).not.toHaveBeenCalled();
+    // The in-flight subtitle is shown.
+    expect(getByText(/Checking this location/i)).toBeTruthy();
+  });
 });

@@ -130,6 +130,7 @@ export function ClusterListItem({
       <LookupFailedCard
         cluster={item.cluster}
         retryDisabled={item.retryDisabled}
+        isRetrying={item.isRetrying}
         onRetry={onRetryCluster}
         onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
         onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}

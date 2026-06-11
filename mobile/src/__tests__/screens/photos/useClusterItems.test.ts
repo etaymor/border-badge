@@ -94,6 +94,7 @@ const renderItems = (params: {
   cachedSuggestions?: ClusterSuggestion[];
   dismissed?: Set<string>;
   fetching?: boolean;
+  retryingClusterIds?: Set<string>;
 }) => {
   const clusterDisplays = new Map<string, LocationClusterDisplay>();
   for (const c of params.clusters) clusterDisplays.set(c.id, c);
@@ -106,6 +107,7 @@ const renderItems = (params: {
       cachedSuggestions: params.cachedSuggestions ?? [],
       dismissedClusterIdsInternal: params.dismissed ?? new Set(),
       fetchingSuggestions: params.fetching ?? false,
+      retryingClusterIds: params.retryingClusterIds,
     })
   );
   return result.current;
@@ -182,6 +184,43 @@ describe('useClusterItems three-state model', () => {
     });
 
     expect(items).toHaveLength(0);
+  });
+
+  it('threads isRetrying onto the lookup-failed item from retryingClusterIds (U10)', () => {
+    const cluster = buildCluster('c-retrying');
+    const failedClusterIds: FailedClusterIds = new Map([['c-retrying', { retryDisabled: false }]]);
+
+    const items = renderItems({
+      clusterIds: ['c-retrying'],
+      clusters: [cluster],
+      mutation: buildMutation({ failedClusterIds }),
+      retryingClusterIds: new Set(['c-retrying']),
+    });
+
+    expect(items).toHaveLength(1);
+    const item = items[0];
+    expect(item.type).toBe('lookup-failed');
+    if (item.type === 'lookup-failed') {
+      expect(item.isRetrying).toBe(true);
+    }
+  });
+
+  it('lookup-failed isRetrying is false when the cluster is not in retryingClusterIds', () => {
+    const cluster = buildCluster('c-idle');
+    const failedClusterIds: FailedClusterIds = new Map([['c-idle', { retryDisabled: false }]]);
+
+    const items = renderItems({
+      clusterIds: ['c-idle'],
+      clusters: [cluster],
+      mutation: buildMutation({ failedClusterIds }),
+      retryingClusterIds: new Set(),
+    });
+
+    const item = items[0];
+    expect(item.type).toBe('lookup-failed');
+    if (item.type === 'lookup-failed') {
+      expect(item.isRetrying).toBe(false);
+    }
   });
 
   it('carries retryDisabled=true for a 429/503 failure (KTD10)', () => {

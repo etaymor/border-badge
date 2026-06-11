@@ -94,6 +94,20 @@ export function usePlaceSuggestions({
   // Cached suggestions loaded from SQLite - merged with API results in the UI
   const [cachedSuggestions, setCachedSuggestions] = useState<ClusterSuggestion[]>([]);
 
+  // Clusters currently being retried (U10). Drives the per-cluster spinner on the
+  // LookupFailedCard. Set at retry start, cleared at end (success or fail). This
+  // is intentionally NOT the global `fetchingSuggestions` flag — that flag gates
+  // `useClusterItems` rendering and would re-hide every healthy photos-only /
+  // no-place-found card during a retry (KTD7 / C4).
+  const [retryingClusterIds, setRetryingClusterIds] = useState<Set<string>>(() => new Set());
+
+  // Own in-flight guard for the retry path (KTD7), distinct from the
+  // candidate-stale guard (`currentCandidateIdRef`/`isStaleRequest`). Holds the
+  // cluster ids whose retry API call is currently in flight so a double-tap
+  // doesn't double-fire and a retry-vs-active-fetch race (I5) can't cause a
+  // double `cacheSuggestions` write.
+  const retryInFlightRef = useRef<Set<string>>(new Set());
+
   /**
    * Fetch place suggestions for a candidate.
    * Checks SQLite cache first, only fetching uncached clusters from API.
@@ -328,24 +342,19 @@ export function usePlaceSuggestions({
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
 
+        // M1: no Alert here. The chunked mutation records every un-responded
+        // cluster into `failedClusterIds` (KTD6/KTD10) before a fatal 429/503
+        // re-throws, and non-fatal chunk failures populate it too — so
+        // `useClusterItems` already surfaces each failure as a `lookup-failed`
+        // card (with a Retry affordance, or the time-gated message for 429/503).
+        // An Alert on top would double-surface the same failure. Keep the
+        // per-error-type analytics; drop the modal.
         if (error instanceof QuotaExhaustedError) {
           Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
-          Alert.alert(
-            'Service Temporarily Unavailable',
-            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
-          );
         } else if (error instanceof RateLimitError) {
           Analytics.photoImportApiError({ errorType: 'rate_limited' });
-          Alert.alert(
-            'Too Many Requests',
-            `Please wait ${error.retryAfterSeconds} seconds before trying again.`
-          );
         } else {
           Analytics.photoImportApiError({ errorType: 'unknown' });
-          Alert.alert(
-            'Failed to Get Suggestions',
-            'Unable to find place suggestions. Please try again.'
-          );
         }
       }
 
@@ -429,6 +438,182 @@ export function usePlaceSuggestions({
   }, []);
 
   /**
+   * Retry the place lookup for an EXPLICIT list of previously-failed clusters
+   * (U10 / KTD7, KTD8, KTD10, M1). Modeled on `fetchForClusters` (raw api.post,
+   * bypasses candidate-level caching), but:
+   *
+   *  - Scope: re-fetches ONLY the passed ids — chunk-1 successes are never
+   *    re-requested. ids are resolved to LocationClusters via `clusterLookupRef`.
+   *  - Cache discipline (KTD7): bypasses the candidate-level cache
+   *    (`fetchedCandidatesRef`) so the cluster actually re-fetches, but still
+   *    respects the SQLite cache via `getCachedSuggestions` (a cluster that DID
+   *    get cached isn't re-bought). U8 excluded failed clusters from the SQLite
+   *    cache, so they normally miss and re-fetch — which is correct.
+   *  - retryDisabled no-op (KTD10): clusters whose failure is `retryDisabled`
+   *    (429/503) are filtered out BEFORE fetching — no API call fires for them.
+   *  - Own in-flight guard (KTD7): `retryInFlightRef` prevents a double-tap from
+   *    double-firing and a retry-vs-active-fetch race (I5) from double-caching.
+   *    Distinct from the candidate-stale guard, which is left intact.
+   *  - Per-cluster retrying state: `retryingClusterIds` drives the card spinner.
+   *  - Partial results: of the retried set, succeeded clusters are cached +
+   *    cleared from `failedClusterIds` (-> matched / no-place-found); clusters
+   *    that fail again are re-added to `failedClusterIds` (-> stay lookup-failed,
+   *    retry again allowed — no cap). Other clusters' failure state is untouched.
+   *  - No Alert (M1): the lookup-failed card already surfaces the failure; an
+   *    Alert on top would double-surface, so the retry path shows none.
+   */
+  const retryFailedClusters = useCallback(
+    async (clusterIds: string[]) => {
+      if (clusterIds.length === 0) return;
+
+      const currentClusterLookup = clusterLookupRef.current;
+      const failedInfo = suggestPlacesMutation.failedClusterIds ?? new Map();
+
+      // Resolve ids -> clusters, skipping: (a) ids already retrying (own
+      // in-flight guard, KTD7), (b) retryDisabled (429/503) failures (KTD10), and
+      // (c) ids that don't resolve to a known cluster. The guard check + claim
+      // happens SYNCHRONOUSLY here (before any await) so a double-tap / a
+      // retry-vs-retry race (I5) can't slip two calls past the check and
+      // double-fire / double-cache.
+      const toRetry: LocationCluster[] = [];
+      for (const id of clusterIds) {
+        if (retryInFlightRef.current.has(id)) continue;
+        if (failedInfo.get(id)?.retryDisabled) continue;
+        const cluster = getFullCluster(id, currentClusterLookup);
+        if (cluster) toRetry.push(cluster);
+      }
+
+      if (toRetry.length === 0) return;
+
+      // Claim the ids synchronously (in-flight guard) + flag as retrying
+      // (spinner) before any await. The `finally` releases them.
+      const claimedIds = toRetry.map((c) => c.id);
+      for (const id of claimedIds) retryInFlightRef.current.add(id);
+      setRetryingClusterIds((prev) => {
+        const next = new Set(prev);
+        for (const id of claimedIds) next.add(id);
+        return next;
+      });
+
+      // Ids not yet resolved. As clusters resolve (cache hit or API success)
+      // they're removed; on a thrown error only the still-pending ids are
+      // re-asserted as lookup-failed, so an already-resolved cache hit isn't
+      // wrongly re-failed by a later api.post throw.
+      const pendingIds = new Set(claimedIds);
+
+      try {
+        // Respect the SQLite cache — a cluster that already got cached (e.g. a
+        // chunk-1 success the caller also passed) is reused, not re-bought.
+        const cachedMap = await getCachedSuggestions(
+          toRetry.map((c) => ({ id: c.id, locationKey: clusterLocationKey(c.centroid) }))
+        );
+
+        const cachedHits: ClusterSuggestion[] = [];
+        const uncached: LocationCluster[] = [];
+        for (const cluster of toRetry) {
+          const cached = cachedMap.get(cluster.id);
+          if (cached !== undefined) {
+            const validPlaces = cached.filter(isPlaceSuggestion);
+            cachedHits.push({
+              cluster_id: cluster.id,
+              photo_ids: cluster.photos.map((p) => p.id),
+              places: validPlaces,
+            });
+          } else {
+            uncached.push(cluster);
+          }
+        }
+
+        // A cache hit means the cluster already resolved — surface it and clear
+        // it from the failed set without an API call.
+        if (cachedHits.length > 0) {
+          setCachedSuggestions((prev) => [...prev, ...cachedHits]);
+          suggestPlacesMutation.clearFailedClusterIds(cachedHits.map((s) => s.cluster_id));
+          for (const s of cachedHits) pendingIds.delete(s.cluster_id);
+        }
+
+        if (uncached.length === 0) return;
+
+        const visionImages = await prepareVisionImagesBounded(uncached);
+        const response = await api.post('/photos/suggest-places', {
+          clusters: uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        });
+        const result = response.data as PlaceSuggestionResponse;
+
+        const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
+
+        // Per-cluster partition: succeeded (responded) vs re-failed (no
+        // response — e.g. a per-cluster timeout in failed_cluster_count).
+        const succeeded: LocationCluster[] = [];
+        const reFailed: LocationCluster[] = [];
+        for (const cluster of uncached) {
+          if (respondedIds.has(cluster.id)) {
+            succeeded.push(cluster);
+          } else {
+            reFailed.push(cluster);
+          }
+        }
+
+        // Cache + surface succeeded clusters (KTD8: only responded ones written).
+        if (succeeded.length > 0) {
+          const toCache = succeeded.map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              location_key: clusterLocationKey(cluster.centroid),
+              places: suggestion?.places ?? [],
+            };
+          });
+          await cacheSuggestions(toCache);
+
+          const newSuggestions: ClusterSuggestion[] = succeeded.map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              photo_ids: cluster.photos.map((p) => p.id),
+              places: suggestion?.places ?? [],
+            };
+          });
+          setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+
+          // Resolved -> remove from failedClusterIds so useClusterItems
+          // reclassifies them as matched / no-place-found.
+          suggestPlacesMutation.clearFailedClusterIds(succeeded.map((c) => c.id));
+          for (const c of succeeded) pendingIds.delete(c.id);
+        }
+
+        // Re-failed clusters stay lookup-failed (retry still enabled, no cap).
+        if (reFailed.length > 0) {
+          suggestPlacesMutation.addFailedClusterIds(
+            reFailed.map((c) => ({ id: c.id, retryDisabled: false }))
+          );
+        }
+      } catch (error) {
+        // M1: no Alert here — the lookup-failed card already surfaces the
+        // failure. Re-assert only the STILL-PENDING ids as lookup-failed (retry
+        // enabled, no cap) so the card stays/returns to lookup-failed. Already-
+        // resolved cache hits are excluded (they left `pendingIds`), so a later
+        // api.post throw can't wrongly re-fail a resolved cluster.
+        if (__DEV__) console.error('[PhotoImport] retryFailedClusters error:', error);
+        if (pendingIds.size > 0) {
+          suggestPlacesMutation.addFailedClusterIds(
+            [...pendingIds].map((id) => ({ id, retryDisabled: false }))
+          );
+        }
+      } finally {
+        // Release the in-flight + retrying state for these ids.
+        for (const id of claimedIds) retryInFlightRef.current.delete(id);
+        setRetryingClusterIds((prev) => {
+          const next = new Set(prev);
+          for (const id of claimedIds) next.delete(id);
+          return next;
+        });
+      }
+    },
+    [clusterLookupRef, suggestPlacesMutation]
+  );
+
+  /**
    * Clear the session cache and cached suggestions.
    * Called when navigating away or on unmount.
    */
@@ -442,6 +627,8 @@ export function usePlaceSuggestions({
     cachedSuggestions,
     fetchSuggestions,
     fetchForClusters,
+    retryFailedClusters,
+    retryingClusterIds,
     clearFetchedCache,
     fetchedCandidatesRef,
     // Premium gating state

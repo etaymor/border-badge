@@ -686,10 +686,11 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'quota_exhausted' });
-      expect(global.__mockAlert.alert).toHaveBeenCalledWith(
-        'Service Temporarily Unavailable',
-        expect.stringContaining('daily limit')
-      );
+      // M1 (U10): no Alert on the fetch error path. The chunked mutation records
+      // the un-responded clusters into `failedClusterIds` (retryDisabled for
+      // 429/503), so useClusterItems surfaces each as a `lookup-failed` card with
+      // the time-gated message — an Alert on top would double-surface.
+      expect(global.__mockAlert.alert).not.toHaveBeenCalled();
     });
 
     it('handles rate limit error', async () => {
@@ -714,10 +715,9 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'rate_limited' });
-      expect(global.__mockAlert.alert).toHaveBeenCalledWith(
-        'Too Many Requests',
-        expect.stringContaining('30 seconds')
-      );
+      // M1 (U10): no Alert on the fetch error path — the lookup-failed card (with
+      // the time-gated message for 429/503) already surfaces it.
+      expect(global.__mockAlert.alert).not.toHaveBeenCalled();
     });
   });
 

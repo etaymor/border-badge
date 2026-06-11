@@ -12,12 +12,20 @@
  * true (429/503 quota/rate-limit, KTD10) the active Retry button is replaced with
  * a time-gated message, since an immediate retry would just fail again.
  *
- * `onRetry` is wired here but the actual scoped re-fetch logic lands in U10; this
- * component only needs the prop to exist so U10 can supply the implementation.
+ * `onRetry` invokes U10's scoped re-fetch (`retryFailedClusters`). While that
+ * re-fetch is in flight for this cluster, `isRetrying` is true: the Retry button
+ * shows a spinner and is disabled so a double-tap can't double-fire.
  */
 
 import { useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +40,8 @@ export interface LookupFailedCardProps {
   cluster: LocationClusterDisplay;
   /** True for 429/503 quota/rate-limit — show the time-gated message, hide retry. */
   retryDisabled: boolean;
+  /** True while U10's scoped re-fetch is in flight for this cluster (U10). */
+  isRetrying?: boolean;
   onRetry: (clusterId: string) => void;
   onAddEntry: (cluster: LocationClusterDisplay) => void;
   onPhotoPress: (uri: string) => void;
@@ -41,6 +51,7 @@ export interface LookupFailedCardProps {
 export function LookupFailedCard({
   cluster,
   retryDisabled,
+  isRetrying = false,
   onRetry,
   onAddEntry,
   onPhotoPress,
@@ -125,6 +136,8 @@ export function LookupFailedCard({
             >
               Daily limit reached — try again later
             </Text>
+          ) : isRetrying ? (
+            <Text style={localStyles.subtitle}>Checking this location…</Text>
           ) : (
             <Text style={localStyles.subtitle}>Tap to retry the place lookup</Text>
           )}
@@ -134,11 +147,19 @@ export function LookupFailedCard({
               <TouchableOpacity
                 style={localStyles.retryButton}
                 onPress={() => onRetry(cluster.id)}
+                disabled={isRetrying}
                 accessibilityRole="button"
+                accessibilityState={{ disabled: isRetrying }}
                 accessibilityLabel="Retry place lookup"
               >
-                <Ionicons name="refresh-outline" size={18} color={colors.midnightNavy} />
-                <Text style={localStyles.retryText}>Retry</Text>
+                {isRetrying ? (
+                  <ActivityIndicator size="small" color={colors.midnightNavy} />
+                ) : (
+                  <>
+                    <Ionicons name="refresh-outline" size={18} color={colors.midnightNavy} />
+                    <Text style={localStyles.retryText}>Retry</Text>
+                  </>
+                )}
               </TouchableOpacity>
             )}
 

@@ -98,6 +98,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     suggestPlacesMutation,
     cachedSuggestions,
     fetchingSuggestions,
+    retryingClusterIds,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -118,6 +119,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleHideMultipleClusters,
     handleSplitCluster,
     handleAddEntryForCluster,
+    retryFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
@@ -149,15 +151,16 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     [handleConfirmPlace]
   );
 
-  // Retry the place lookup for a single lookup-failed cluster. Placeholder for
-  // U9 — U10 wires the real scoped re-fetch (per-cluster guard, SQLite-cache
-  // respecting). The prop must exist now so U10 only supplies the body.
-  const handleRetryCluster = useCallback((clusterId: string) => {
-    // U10: invoke the scoped retry path for this cluster.
-    if (__DEV__) {
-      console.log('[PhotoImport] Retry requested for cluster (U10 wires the fetch):', clusterId);
-    }
-  }, []);
+  // Retry the place lookup for a single lookup-failed cluster (U10). Invokes the
+  // scoped re-fetch (per-cluster in-flight guard + retrying spinner, SQLite-cache
+  // respecting). Does NOT toggle the global `fetchingSuggestions` flag, so healthy
+  // photos-only / no-place-found cards stay visible during retry (KTD7 / C4).
+  const handleRetryCluster = useCallback(
+    (clusterId: string) => {
+      void retryFailedClusters([clusterId]);
+    },
+    [retryFailedClusters]
+  );
 
   // Wrap handleManualSelect so the override (pencil) path honors the photos
   // the user deselected in the gallery before opening manual search.
@@ -290,6 +293,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     cachedSuggestions,
     dismissedClusterIdsInternal,
     fetchingSuggestions,
+    retryingClusterIds,
   });
 
   // Toggle a photo's inclusion/exclusion for upload

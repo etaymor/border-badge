@@ -10,6 +10,8 @@
 
 import { renderHook, act } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Alert } from 'react-native';
+import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
@@ -52,6 +54,8 @@ jest.mock('@stores/subscriptionStore', () => ({
   useIsPremium: jest.fn(() => true),
   useCanImportPhotos: jest.fn(() => true),
 }));
+
+const mockedAlert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
 
 const mockedApi = api as jest.Mocked<typeof api>;
 const mockedGetCachedSuggestions = getCachedSuggestions as jest.MockedFunction<
@@ -251,4 +255,206 @@ describe('usePlaceSuggestions.fetchSuggestions - chunk-failure empty-cache guard
 
   // referenced to satisfy the linter for the import used in jsdoc/typing
   void clusterLocationKey;
+});
+
+// ---- retryFailedClusters (U10) ---------------------------------------------
+
+describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
+  /** Build a backend response for an explicit set of cluster ids with places. */
+  const respondWith = (entries: { id: string; places?: unknown[] }[], failedCount = 0) => ({
+    data: {
+      suggestions: entries.map((e) => ({
+        cluster_id: e.id,
+        photo_ids: [`photo-${e.id}`],
+        places: e.places ?? [],
+      })),
+      failed_cluster_count: failedCount,
+    },
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  it('SCOPE: re-fetches ONLY the explicit failed subset — chunk-1 successes are NOT re-requested', async () => {
+    // c1 = a chunk-1 success the user is NOT retrying; c2 = the failed cluster.
+    // The naive-reentry bug would re-request both; the scoped path requests only c2.
+    const c1 = makeCluster('ok-1', 35.1, 139.1);
+    const c2 = makeCluster('failed-2', 35.2, 139.2);
+
+    mockedApi.post.mockResolvedValueOnce(respondWith([{ id: 'failed-2', places: [] }]));
+
+    const { result } = setup([c1, c2]);
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['failed-2']);
+    });
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    const payload = mockedApi.post.mock.calls[0][1] as { clusters: { id: string }[] };
+    const requestedIds = payload.clusters.map((c) => c.id);
+    expect(requestedIds).toEqual(['failed-2']);
+    expect(requestedIds).not.toContain('ok-1');
+  });
+
+  it('PARTIAL: one cluster matches (cached + surfaced), one fails again (not cached)', async () => {
+    const a = makeCluster('retry-a', 35.1, 139.1);
+    const b = makeCluster('retry-b', 35.2, 139.2);
+
+    // Backend responds for retry-a (with a place) only; retry-b timed out.
+    mockedApi.post.mockResolvedValueOnce(
+      respondWith([{ id: 'retry-a', places: [placeFor('retry-a')] }], 1)
+    );
+
+    const { result } = setup([a, b]);
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['retry-a', 'retry-b']);
+    });
+
+    // retry-a cached (responded); retry-b NOT cached (re-failed) — KTD8.
+    expect(mockedCacheSuggestions).toHaveBeenCalledTimes(1);
+    const cachedIds = mockedCacheSuggestions.mock.calls[0][0].map((c) => c.cluster_id);
+    expect(cachedIds).toEqual(['retry-a']);
+    expect(cachedIds).not.toContain('retry-b');
+
+    // retry-a surfaced in cachedSuggestions with its place.
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'retry-a');
+    expect(surfaced?.places).toHaveLength(1);
+  });
+
+  it('RETRY-AGAIN: a re-failed cluster can be retried once more (no cap, fresh request)', async () => {
+    const c = makeCluster('retry-again', 35.1, 139.1);
+
+    // First retry: backend throws (re-fails). Second retry: succeeds with a place.
+    mockedApi.post
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce(
+        respondWith([{ id: 'retry-again', places: [placeFor('retry-again')] }])
+      );
+
+    const { result } = setup([c]);
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['retry-again']);
+    });
+    // Re-failed: nothing cached on the throw.
+    expect(mockedCacheSuggestions).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['retry-again']);
+    });
+    // Second attempt fired a fresh request and succeeded -> cached.
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    expect(mockedCacheSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it('RACE (I5): a second retry for the same in-flight cluster does NOT double-fire / double-cache', async () => {
+    const c = makeCluster('race-1', 35.1, 139.1);
+
+    // Gate the API response so the second invocation overlaps the first while it
+    // is in flight. The in-flight guard (claimed synchronously at entry) must
+    // drop the second call so only ONE request + ONE cache write happen.
+    let resolveApi: ((v: unknown) => void) | undefined;
+    const apiGate = new Promise((resolve) => {
+      resolveApi = resolve;
+    });
+    mockedApi.post.mockReturnValueOnce(apiGate as never);
+
+    const { result } = setup([c]);
+
+    await act(async () => {
+      // First call: claims race-1 synchronously, then proceeds toward api.post.
+      const p1 = result.current.retryFailedClusters(['race-1']);
+      // Let p1 advance past its synchronous guard-claim + awaits up to api.post.
+      await Promise.resolve();
+      await Promise.resolve();
+      // Second call while the first is in flight — guard must drop it (no-op).
+      const p2 = result.current.retryFailedClusters(['race-1']);
+      // Now release the (single) in-flight API request.
+      resolveApi?.(respondWith([{ id: 'race-1', places: [placeFor('race-1')] }]));
+      await Promise.all([p1, p2]);
+    });
+
+    // Only ONE API call (guard dropped the second), and one cache write.
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    expect(mockedCacheSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it('CACHE: respects the SQLite cache — a cached cluster is reused, NOT re-bought', async () => {
+    const cached = makeCluster('was-cached', 35.1, 139.1);
+
+    mockedGetCachedSuggestions.mockResolvedValueOnce(
+      new Map([['was-cached', [placeFor('was-cached')]]])
+    );
+
+    const { result } = setup([cached]);
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['was-cached']);
+    });
+
+    // SQLite cache hit -> no API call, surfaced from cache.
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'was-cached');
+    expect(surfaced?.places).toHaveLength(1);
+  });
+
+  it('M1: no Alert is shown when the retry fails', async () => {
+    const c = makeCluster('m1-fail', 35.1, 139.1);
+    mockedApi.post.mockRejectedValueOnce(new Error('boom'));
+
+    const { result } = setup([c]);
+
+    await act(async () => {
+      await result.current.retryFailedClusters(['m1-fail']);
+    });
+
+    expect(mockedAlert).not.toHaveBeenCalled();
+  });
+
+  it('KTD10: retry on a 429/503-disabled cluster does NOT fire a suggest-places API call', async () => {
+    // First, make the chunked mutation record the cluster as lookup-failed with
+    // retryDisabled=true by throwing a fatal 429 through fetchSuggestions.
+    const quota = makeCluster('quota-1', 35.1, 139.1);
+    const err = new AxiosError('rate limited');
+    err.response = { status: 429, headers: {}, data: {}, statusText: '', config: {} as never };
+    mockedApi.post.mockRejectedValueOnce(err);
+
+    const candidate = {
+      id: 'cand-quota',
+      countryCode: 'JP',
+      dateRange: { start: new Date(), end: new Date() },
+      photoIds: [],
+      photoCount: 1,
+      previewUris: [],
+      locationClusterIds: ['quota-1'],
+    };
+
+    const { result } = setup([quota]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+
+    // The fatal 429 recorded quota-1 with retryDisabled=true.
+    expect(
+      result.current.suggestPlacesMutation.failedClusterIds.get('quota-1')?.retryDisabled
+    ).toBe(true);
+
+    mockedApi.post.mockClear();
+
+    // Retrying a retryDisabled cluster must be a no-op (no API call).
+    await act(async () => {
+      await result.current.retryFailedClusters(['quota-1']);
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+  });
 });

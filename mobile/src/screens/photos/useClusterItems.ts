@@ -20,6 +20,9 @@ import { createMergedSuggestion } from './photoImportHelpers';
 /** Stable empty Map so an undefined `failedClusterIds` doesn't churn the memo. */
 const EMPTY_FAILED_CLUSTER_IDS: FailedClusterIds = new Map();
 
+/** Stable empty Set so an undefined `retryingClusterIds` doesn't churn the memo. */
+const EMPTY_RETRYING_CLUSTER_IDS: Set<string> = new Set();
+
 interface UseClusterItemsOptions {
   selectedCandidate: TripCandidateDisplay | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
@@ -27,6 +30,12 @@ interface UseClusterItemsOptions {
   cachedSuggestions: ClusterSuggestion[];
   dismissedClusterIdsInternal: Set<string>;
   fetchingSuggestions: boolean;
+  /**
+   * Cluster ids whose U10 scoped retry is currently in flight (per-cluster
+   * spinner). NOT the global `fetchingSuggestions` flag — retry must not re-hide
+   * healthy photos-only / no-place-found cards (KTD7 / C4).
+   */
+  retryingClusterIds?: Set<string>;
 }
 
 export function useClusterItems({
@@ -36,6 +45,7 @@ export function useClusterItems({
   cachedSuggestions,
   dismissedClusterIdsInternal,
   fetchingSuggestions,
+  retryingClusterIds = EMPTY_RETRYING_CLUSTER_IDS,
 }: UseClusterItemsOptions): ClusterDisplayItem[] {
   // Extract stable values from mutation to avoid re-renders when mutation object reference changes
   const suggestionsIsPending = suggestPlacesMutation.isPending;
@@ -183,7 +193,12 @@ export function useClusterItems({
     // fetch is in flight), a failed cluster has no pending resolution to wait
     // for, and hiding it would make it silently vanish again (B1). Emit them.
     for (const { cluster, retryDisabled } of lookupFailedClusters) {
-      items.push({ type: 'lookup-failed', cluster, retryDisabled });
+      items.push({
+        type: 'lookup-failed',
+        cluster,
+        retryDisabled,
+        isRetrying: retryingClusterIds.has(cluster.id),
+      });
     }
 
     // Add photos-only (genuine no-place-found) clusters at the end — but only
@@ -206,5 +221,6 @@ export function useClusterItems({
     dismissedClusterIdsInternal,
     fetchingSuggestions,
     failedClusterIds,
+    retryingClusterIds,
   ]);
 }

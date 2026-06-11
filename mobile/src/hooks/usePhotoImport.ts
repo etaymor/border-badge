@@ -275,6 +275,37 @@ export function useSuggestPlacesChunked() {
     reset();
   }, [mutation, reset]);
 
+  // Remove specific cluster ids from `failedClusterIds` (U10). Used by the retry
+  // path when a previously-failed cluster now resolves (matched / no-place-found)
+  // so `useClusterItems` reclassifies it out of `lookup-failed`. Only the passed
+  // ids are touched — every other cluster's failure state is preserved.
+  const clearFailedClusterIds = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setFailedClusterIds((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const id of ids) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // Add (or re-add) cluster ids to `failedClusterIds` (U10). Used by the retry
+  // path when a retried cluster fails AGAIN — it must stay/return to
+  // `lookup-failed` (retry still allowed; no cap). Additive: leaves other
+  // clusters' failure state untouched.
+  const addFailedClusterIds = useCallback((entries: { id: string; retryDisabled: boolean }[]) => {
+    if (entries.length === 0) return;
+    setFailedClusterIds((prev) => {
+      const next = new Map(prev);
+      for (const { id, retryDisabled } of entries) {
+        next.set(id, { retryDisabled });
+      }
+      return next;
+    });
+  }, []);
+
   return {
     ...mutation,
     progress,
@@ -285,6 +316,10 @@ export function useSuggestPlacesChunked() {
      * Each entry carries `retryDisabled` (true for 429/503 quota/rate-limit).
      */
     failedClusterIds,
+    /** Remove resolved cluster ids from `failedClusterIds` (U10 retry success). */
+    clearFailedClusterIds,
+    /** Re-add cluster ids to `failedClusterIds` (U10 retry re-failure). */
+    addFailedClusterIds,
     reset: fullReset,
   };
 }
