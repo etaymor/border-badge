@@ -3,7 +3,7 @@ title: "fix: Photo match quality — diagnostics, ranking, recall levers, and mi
 type: fix
 date: 2026-06-10
 origin: docs/photo-match-quality-diagnostic.md
-status: active
+status: completed
 deepened: 2026-06-11
 ---
 
