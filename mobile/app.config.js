@@ -12,6 +12,13 @@ export default {
     // Used by: magic link auth, OAuth callbacks, share extension
     scheme: 'atlasi',
     newArchEnabled: true,
+    // React Compiler auto-memoization (U14). Babel-only transform → OTA-safe
+    // (no native change). RC-quality on SDK 54; healthcheck passed clean
+    // (198/198 components compile, no incompatible libraries). Requires the new
+    // architecture (newArchEnabled above). Revert = delete this one line.
+    experiments: {
+      reactCompiler: true,
+    },
     splash: {
       image: './assets/splash-atlantis.png',
       resizeMode: 'cover',
