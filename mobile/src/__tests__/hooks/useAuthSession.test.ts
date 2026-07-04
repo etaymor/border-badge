@@ -440,4 +440,145 @@ describe('useAuthSession', () => {
       });
     });
   });
+
+  describe('TOKEN_REFRESHED minimal path (hourly background rotation)', () => {
+    // A fresh session carrying rotated tokens, as Supabase emits on refresh.
+    const refreshedSession = {
+      user: {
+        id: 'test-user-123',
+        email: 'test@example.com',
+        user_metadata: { display_name: 'Test User' },
+      },
+      access_token: 'rotated-access-token',
+      refresh_token: 'rotated-refresh-token',
+    };
+
+    async function fireTokenRefreshed(): Promise<void> {
+      mockGetSession.mockResolvedValue({ data: { session: null } });
+
+      let authChangeCallback: (event: string, session: typeof mockSession | null) => void;
+      mockOnAuthStateChange.mockImplementation((callback) => {
+        authChangeCallback = callback;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      });
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockOnAuthStateChange).toHaveBeenCalled();
+      });
+
+      authChangeCallback!('TOKEN_REFRESHED', refreshedSession);
+    }
+
+    it('stores the rotated tokens', async () => {
+      await fireTokenRefreshed();
+
+      await waitFor(() => {
+        expect(mockStoreTokens).toHaveBeenCalledWith(
+          'rotated-access-token',
+          'rotated-refresh-token'
+        );
+      });
+    });
+
+    it('does NOT re-identify the RevenueCat user', async () => {
+      await fireTokenRefreshed();
+
+      // Give any (incorrectly triggered) async cascade a chance to run.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockRevenueCat.identifyUser).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call /subscriptions/verify or /subscriptions/usage', async () => {
+      const mockApiPost = apiModule.api.post as jest.Mock;
+      const mockApiGet = apiModule.api.get as jest.Mock;
+
+      await fireTokenRefreshed();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockApiPost).not.toHaveBeenCalled();
+      expect(mockApiGet).not.toHaveBeenCalled();
+    });
+
+    it('does NOT re-identify analytics or set the ad-SDK user id', async () => {
+      await fireTokenRefreshed();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockAnalytics.identifyUser).not.toHaveBeenCalled();
+    });
+
+    it('does NOT re-read onboarding completion', async () => {
+      const mockGetOnboardingComplete = apiModule.getOnboardingComplete as jest.Mock;
+
+      await fireTokenRefreshed();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockGetOnboardingComplete).not.toHaveBeenCalled();
+    });
+
+    it('does NOT flip subscription status to loading (no premium-gate flicker)', async () => {
+      // Seed a settled premium status as if from a previous validated session.
+      useSubscriptionStore.setState({ status: 'premium', sdkAvailable: true });
+
+      await fireTokenRefreshed();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // syncRevenueCat would flip this to 'loading' first; the minimal path must
+      // leave the settled status untouched.
+      expect(useSubscriptionStore.getState().status).toBe('premium');
+    });
+  });
+
+  describe('SIGNED_IN still runs the full cascade', () => {
+    it('stores tokens, identifies RevenueCat, and fetches usage on sign-in', async () => {
+      const mockApiGet = apiModule.api.get as jest.Mock;
+      const mockGetOnboardingComplete = apiModule.getOnboardingComplete as jest.Mock;
+      mockApiGet.mockResolvedValue({
+        data: {
+          share_extension_count: 0,
+          share_extension_period_start: null,
+          photo_import_count: 0,
+        },
+      });
+
+      mockGetSession.mockResolvedValue({ data: { session: null } });
+
+      let authChangeCallback: (event: string, session: typeof mockSession | null) => void;
+      mockOnAuthStateChange.mockImplementation((callback) => {
+        authChangeCallback = callback;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      });
+
+      renderHook(() => useAuthSession());
+
+      await waitFor(() => {
+        expect(mockOnAuthStateChange).toHaveBeenCalled();
+      });
+
+      authChangeCallback!('SIGNED_IN', mockSession);
+
+      // Full cascade: token store + RevenueCat identify + usage fetch + onboarding read.
+      await waitFor(() => {
+        expect(mockStoreTokens).toHaveBeenCalledWith('test-token', 'test-refresh');
+      });
+      await waitFor(() => {
+        expect(mockRevenueCat.identifyUser).toHaveBeenCalledWith('test-user-123', {
+          email: 'test@example.com',
+          displayName: 'Test User',
+        });
+      });
+      await waitFor(() => {
+        expect(mockApiGet).toHaveBeenCalledWith('/subscriptions/usage');
+      });
+      await waitFor(() => {
+        expect(mockGetOnboardingComplete).toHaveBeenCalled();
+      });
+    });
+  });
 });

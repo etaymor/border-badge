@@ -170,6 +170,23 @@ export function useAuthSession(): { isAppReady: boolean } {
         // Guard against updates after unmount
         if (!isMounted) return;
 
+        // Hourly background token rotation. Only the access/refresh tokens
+        // change here — the user identity, onboarding state, and subscription
+        // status are all unchanged. Take a minimal path: refresh the stored
+        // tokens so API calls use the rotated JWT, and update the store session
+        // so it stays current, but skip the full sign-in cascade (RevenueCat
+        // re-identify + its 'loading' status flip, PostHog/ad-SDK identify,
+        // onboarding-completion re-read, usage-limits refetch). Do NOT abort the
+        // in-flight sync controller — a refresh must not interrupt a legitimate
+        // sign-in sync, and there is no new sync to protect here.
+        if (event === 'TOKEN_REFRESHED') {
+          if (session) {
+            setSession(session);
+            await storeTokens(session.access_token, session.refresh_token ?? '');
+          }
+          return;
+        }
+
         // Cancel any in-flight RevenueCat sync from a previous session
         syncAbortController?.abort();
         syncAbortController = null;
