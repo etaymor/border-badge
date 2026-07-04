@@ -33,10 +33,12 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     Analytics.viewOnboardingWelcome();
   }, []);
 
-  // Pause video when screen loses focus to free GPU resources
+  // Release video source on blur to free the native decoder, restore on focus.
+  // Mirrors ContinentIntroScreen so at most one video decoder is active at a time.
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {
+        player.replace(welcomeVideo);
         player.play();
       } catch {
         // Native player may be released
@@ -44,7 +46,7 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     });
     const unsubscribeBlur = navigation.addListener('blur', () => {
       try {
-        player.pause();
+        player.replace(null);
       } catch {
         // Native player may be released
       }
