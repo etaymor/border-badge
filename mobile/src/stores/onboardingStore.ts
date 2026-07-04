@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, type AppStateStatus } from 'react-native';
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 
 import type { TrackingPreset } from '@constants/trackingPreferences';
 import {
@@ -11,6 +12,16 @@ import {
   clearHomeCountry,
   type LocalUserCountry,
 } from '@services/countriesDb';
+
+/**
+ * Trailing debounce window (ms) for coalescing persistence side effects.
+ *
+ * Rapid country taps through onboarding grids collapse into a single trailing
+ * AsyncStorage write AND a single batched SQLite sync, instead of one full-store
+ * JSON write + one SQLite write per tap. UI state updates stay synchronous — only
+ * the persistence side effects are debounced.
+ */
+export const ONBOARDING_PERSIST_DEBOUNCE_MS = 500;
 
 interface OnboardingState {
   // Existing fields
@@ -47,6 +58,9 @@ interface OnboardingState {
   setDisplayName: (name: string | null) => void;
   setTrackingPreference: (preference: TrackingPreset) => void;
   setCountryGridTooltipShown: (shown: boolean) => void;
+
+  // Persistence control
+  flushPersistence: () => Promise<void>;
 }
 
 const initialState = {
@@ -79,14 +93,199 @@ function createLocalUserCountry(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Debounced AsyncStorage adapter
+// ---------------------------------------------------------------------------
+
 /**
- * Sync a country selection to SQLite (fire and forget - don't block UI).
+ * Wraps a StateStorage so that `setItem` writes are coalesced onto a single
+ * trailing timer. Rapid writes within the debounce window collapse into one
+ * final write. `getItem` (rehydration) and `removeItem` are NOT debounced —
+ * rehydration reads must be immediate.
+ *
+ * `flush()` writes any pending value immediately (used on app backgrounding
+ * and on onboarding-flow completion to guarantee no data loss).
  */
-function syncToSQLite(
-  countryCode: string,
-  status: 'visited' | 'wishlist',
-  isAdding: boolean
-): void {
+interface DebouncedStorage extends StateStorage {
+  flush: () => Promise<void>;
+  __pending: () => boolean;
+}
+
+function createDebouncedStorage(base: StateStorage, waitMs: number): DebouncedStorage {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingName: string | null = null;
+  let pendingValue: string | null = null;
+  // In-flight write promise so flush() can await a coalesced write.
+  let inFlight: Promise<void> | null = null;
+
+  const writeNow = (): Promise<void> => {
+    if (pendingName === null || pendingValue === null) {
+      return Promise.resolve();
+    }
+    const name = pendingName;
+    const value = pendingValue;
+    pendingName = null;
+    pendingValue = null;
+    const write: Promise<void> = Promise.resolve(base.setItem(name, value)).then(
+      () => undefined,
+      (err) => {
+        console.warn('Failed to persist onboarding state:', err);
+      }
+    );
+    inFlight = write.finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  };
+
+  const flush = async (): Promise<void> => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    await writeNow();
+    if (inFlight) {
+      await inFlight;
+    }
+  };
+
+  return {
+    getItem: (name) => base.getItem(name),
+    setItem: (name, value) => {
+      // Coalesce: remember only the latest value; reset the trailing timer.
+      pendingName = name;
+      pendingValue = value;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        void writeNow();
+      }, waitMs);
+    },
+    removeItem: (name) => {
+      // Drop any pending write for this key, then remove immediately.
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pendingName = null;
+      pendingValue = null;
+      return base.removeItem(name);
+    },
+    flush,
+    __pending: () => timer !== null || inFlight !== null,
+  };
+}
+
+/**
+ * The debounced AsyncStorage adapter backing the onboarding persist middleware.
+ * Exported so tests (and any explicit flush points) can invoke `flush()`.
+ */
+export const onboardingPersistStorage = createDebouncedStorage(
+  AsyncStorage as StateStorage,
+  ONBOARDING_PERSIST_DEBOUNCE_MS
+);
+
+// ---------------------------------------------------------------------------
+// Batched SQLite sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Pending, net country changes awaiting a batched SQLite flush.
+ *
+ * Keyed by `${status}:${countryCode}`. Value is the FINAL desired state:
+ * `true`  → country should be saved (added),
+ * `false` → country should be removed.
+ *
+ * Toggling a country on then off within the window nets to a no-op: the second
+ * toggle either overwrites the pending entry or (if the country was already
+ * persisted) leaves an explicit `false` remove. See `queueSQLiteChange`.
+ */
+type SqliteKey = `visited:${string}` | `wishlist:${string}`;
+
+const pendingSqlite = new Map<
+  SqliteKey,
+  { countryCode: string; status: SqliteStatus; add: boolean }
+>();
+
+type SqliteStatus = 'visited' | 'wishlist';
+
+let sqliteTimer: ReturnType<typeof setTimeout> | null = null;
+let sqliteInFlight: Promise<void> | null = null;
+
+function sqliteKey(countryCode: string, status: SqliteStatus): SqliteKey {
+  return `${status}:${countryCode}` as SqliteKey;
+}
+
+/**
+ * Queue a net country change for the next batched SQLite flush.
+ *
+ * `isAdding` reflects the toggle direction. If a country is toggled on then off
+ * (or vice versa) within the debounce window, the LATEST direction wins — the
+ * map holds only the final desired state, so an add-then-remove collapses to a
+ * single remove (and add-then-remove of a never-persisted country still issues
+ * a harmless remove, which `removeLocalUserCountry` treats as a no-op).
+ */
+function queueSQLiteChange(countryCode: string, status: SqliteStatus, isAdding: boolean): void {
+  pendingSqlite.set(sqliteKey(countryCode, status), {
+    countryCode,
+    status,
+    add: isAdding,
+  });
+  scheduleSQLiteFlush();
+}
+
+function scheduleSQLiteFlush(): void {
+  if (sqliteTimer) {
+    clearTimeout(sqliteTimer);
+  }
+  sqliteTimer = setTimeout(() => {
+    sqliteTimer = null;
+    void flushSQLite();
+  }, ONBOARDING_PERSIST_DEBOUNCE_MS);
+}
+
+/**
+ * Apply all pending net country changes to SQLite in one batch, in insertion
+ * order. Returns a promise that resolves when every write settles.
+ */
+function flushSQLite(): Promise<void> {
+  if (sqliteTimer) {
+    clearTimeout(sqliteTimer);
+    sqliteTimer = null;
+  }
+  if (pendingSqlite.size === 0) {
+    return sqliteInFlight ?? Promise.resolve();
+  }
+  const changes = Array.from(pendingSqlite.values());
+  pendingSqlite.clear();
+
+  const work = Promise.all(
+    changes.map((change) => {
+      if (change.add) {
+        return Promise.resolve(
+          saveLocalUserCountry(createLocalUserCountry(change.countryCode, change.status))
+        ).catch((err) => console.warn('Failed to save country to SQLite:', err));
+      }
+      return Promise.resolve(removeLocalUserCountry(change.countryCode)).catch((err) =>
+        console.warn('Failed to remove country from SQLite:', err)
+      );
+    })
+  ).then(() => undefined);
+
+  sqliteInFlight = work.finally(() => {
+    sqliteInFlight = null;
+  });
+  return sqliteInFlight;
+}
+
+/**
+ * Immediate, non-batched SQLite sync for single, deliberate country changes
+ * (home country / dream destination). These are one-off selections, not grid
+ * spamming, so batching them buys nothing.
+ */
+function syncToSQLiteNow(countryCode: string, status: SqliteStatus, isAdding: boolean): void {
   if (isAdding) {
     saveLocalUserCountry(createLocalUserCountry(countryCode, status)).catch((err) =>
       console.warn('Failed to save country to SQLite:', err)
@@ -97,6 +296,64 @@ function syncToSQLite(
     );
   }
 }
+
+/**
+ * Test-only: drop all pending batched SQLite changes and cancel the pending
+ * flush timer without writing. Lets tests isolate the module-level singletons
+ * that persist across cases within a file. Not for production use.
+ */
+export function __resetOnboardingSQLiteQueueForTests(): void {
+  pendingSqlite.clear();
+  if (sqliteTimer) {
+    clearTimeout(sqliteTimer);
+    sqliteTimer = null;
+  }
+  sqliteInFlight = null;
+}
+
+/**
+ * Flush ALL pending onboarding persistence side effects immediately:
+ * the debounced AsyncStorage write and the batched SQLite sync.
+ *
+ * Call this at onboarding-flow completion and on app backgrounding to
+ * guarantee no data loss. Safe to call when nothing is pending.
+ */
+export async function flushOnboardingPersistence(): Promise<void> {
+  await Promise.all([onboardingPersistStorage.flush(), flushSQLite()]);
+}
+
+// Flush on app backgrounding so a pending write is never lost when the OS
+// suspends or kills the app. Registered once at module scope. The subscription
+// is intentionally never removed (module lives for the app's lifetime); the
+// handler is a cheap no-op when nothing is pending, so it is safe in tests.
+let appStateSubscription: { remove: () => void } | null = null;
+
+function handleAppStateChange(nextState: AppStateStatus): void {
+  if (nextState === 'background' || nextState === 'inactive') {
+    void flushOnboardingPersistence();
+  }
+}
+
+/**
+ * Register the AppState listener that flushes pending persistence on
+ * background/inactive. Idempotent — safe to call more than once. Exported so
+ * tests can control/reset it and assert it does not leak.
+ */
+export function registerOnboardingPersistenceAppStateListener(): void {
+  if (appStateSubscription) return;
+  appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+}
+
+/**
+ * Tear down the AppState listener. Primarily for tests to avoid leaking the
+ * subscription across the suite.
+ */
+export function unregisterOnboardingPersistenceAppStateListener(): void {
+  appStateSubscription?.remove();
+  appStateSubscription = null;
+}
+
+registerOnboardingPersistenceAppStateListener();
 
 export const useOnboardingStore = create<OnboardingState>()(
   persist(
@@ -121,9 +378,9 @@ export const useOnboardingStore = create<OnboardingState>()(
         const updated = isAdding
           ? [...current, countryCode]
           : current.filter((c) => c !== countryCode);
+        // UI state updates synchronously; persistence side effects are batched.
         set({ selectedCountries: updated });
-        // Sync to SQLite for immediate display on passport screen
-        syncToSQLite(countryCode, 'visited', isAdding);
+        queueSQLiteChange(countryCode, 'visited', isAdding);
       },
 
       setCurrentStep: (step) => set({ currentStep: step }),
@@ -142,13 +399,13 @@ export const useOnboardingStore = create<OnboardingState>()(
       setHomeCountry: (code) => {
         const prev = get().homeCountry;
         set({ homeCountry: code });
-        // Sync to SQLite - home country is also a visited country
+        // Home country is a single, deliberate selection — sync immediately.
         if (prev && prev !== code) {
           // Remove old home country if it was set
-          syncToSQLite(prev, 'visited', false);
+          syncToSQLiteNow(prev, 'visited', false);
         }
         if (code) {
-          syncToSQLite(code, 'visited', true);
+          syncToSQLiteNow(code, 'visited', true);
           // Persist homeCountry to SQLite as backup for migration reliability
           // (Zustand persist rehydration can lose in-memory state)
           saveHomeCountry(code).catch((err) =>
@@ -160,12 +417,12 @@ export const useOnboardingStore = create<OnboardingState>()(
       setDreamDestination: (code) => {
         const prev = get().dreamDestination;
         set({ dreamDestination: code });
-        // Sync to SQLite - dream destination is a wishlist country
+        // Dream destination is a single, deliberate selection — sync immediately.
         if (prev && prev !== code) {
-          syncToSQLite(prev, 'wishlist', false);
+          syncToSQLiteNow(prev, 'wishlist', false);
         }
         if (code) {
-          syncToSQLite(code, 'wishlist', true);
+          syncToSQLiteNow(code, 'wishlist', true);
         }
       },
 
@@ -175,9 +432,9 @@ export const useOnboardingStore = create<OnboardingState>()(
         const updated = isAdding
           ? [...current, countryCode]
           : current.filter((c) => c !== countryCode);
+        // UI state updates synchronously; persistence side effects are batched.
         set({ bucketListCountries: updated });
-        // Sync to SQLite for immediate display on passport screen
-        syncToSQLite(countryCode, 'wishlist', isAdding);
+        queueSQLiteChange(countryCode, 'wishlist', isAdding);
       },
 
       addVisitedContinent: (region) => {
@@ -198,7 +455,16 @@ export const useOnboardingStore = create<OnboardingState>()(
 
       setCountryGridTooltipShown: (shown) => set({ countryGridTooltipShown: shown }),
 
+      flushPersistence: () => flushOnboardingPersistence(),
+
       reset: () => {
+        // Drop any pending batched grid changes so a stale add/remove cannot
+        // resurrect cleared state after the reset.
+        pendingSqlite.clear();
+        if (sqliteTimer) {
+          clearTimeout(sqliteTimer);
+          sqliteTimer = null;
+        }
         set(initialState);
         // Clear SQLite user countries when resetting onboarding
         clearLocalUserCountries().catch((err) =>
@@ -211,7 +477,7 @@ export const useOnboardingStore = create<OnboardingState>()(
     }),
     {
       name: 'onboarding-storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => onboardingPersistStorage),
     }
   )
 );
