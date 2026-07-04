@@ -9,8 +9,6 @@ import * as MediaLibrary from 'expo-media-library';
 
 import { logger } from '@utils/logger';
 
-import { resizeImageForUpload } from '@services/mediaUpload';
-
 import { useUploadMedia, MAX_PHOTOS_PER_ENTRY } from './useMedia';
 import type { LocalFile } from './useMedia';
 import type { PhotoWithLocation } from '@services/photoImport';
@@ -305,13 +303,10 @@ export function useClusterPhotoUpload() {
               continue;
             }
 
-            // Resize/compress before upload so we don't ship full-resolution originals.
-            const uploadFile = await resizeImageForUpload(localFile);
-
-            // Upload the file
+            // Upload the file (resize happens centrally in useUploadMedia).
             const result = await uploadMedia.mutateAsync({
               tripId,
-              file: uploadFile,
+              file: localFile,
               onProgress: (progress) => {
                 if (!signal.aborted) {
                   const overallProgress =

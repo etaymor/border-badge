@@ -77,6 +77,20 @@ describe('resizeImageForUpload', () => {
     // The resized URI is what gets returned (and thus uploaded).
     expect(result.uri).toBe('file:///cache/resized.jpg');
     expect(result.type).toBe('image/jpeg');
+    // The name's extension is rewritten to .jpg so it matches the JPEG bytes —
+    // a stale .heic/.png name with image/jpeg content breaks storage/thumbnailing.
+    expect(result.name).toBe('original.jpg');
+  });
+
+  it('rewrites the filename extension to .jpg when a source is re-encoded', async () => {
+    setSourceDimensions(4000, 3000);
+    mockManipulate.mockResolvedValue({ uri: 'file:///cache/r.jpg', width: 2048, height: 1536 });
+
+    const png = await resizeImageForUpload(makeFile({ name: 'IMG_1234.PNG', type: 'image/png' }));
+    expect(png.name).toBe('IMG_1234.jpg');
+
+    const noExt = await resizeImageForUpload(makeFile({ name: 'photo', type: 'image/heic' }));
+    expect(noExt.name).toBe('photo.jpg');
   });
 
   it('constrains the HEIGHT for a portrait source taller than it is wide', async () => {

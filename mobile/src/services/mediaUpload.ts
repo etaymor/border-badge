@@ -106,6 +106,15 @@ export function validateFile(file: LocalFile): { valid: boolean; error?: string 
 }
 
 /**
+ * Rewrite a filename's extension to `.jpg` (the manipulator always outputs
+ * JPEG). Preserves the base name; appends `.jpg` if there was no extension.
+ */
+function toJpegName(name: string): string {
+  const withoutExt = name.replace(/\.[^./\\]+$/, '');
+  return `${withoutExt}.jpg`;
+}
+
+/**
  * Read the pixel dimensions of an image URI.
  */
 function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
@@ -171,6 +180,11 @@ export async function resizeImageForUpload<
     return {
       ...file,
       uri: result.uri,
+      // The manipulator re-encoded to JPEG, so the name must carry a .jpg
+      // extension — otherwise the signed-URL request sends a stale .heic/.png
+      // filename with image/jpeg bytes, storing the object under the wrong
+      // extension for downstream (thumbnailing, content-type) consumers.
+      name: toJpegName(file.name),
       type: 'image/jpeg',
       size,
     };

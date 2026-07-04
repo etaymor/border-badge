@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api, getStoredToken } from '@services/api';
+import { resizeImageForUpload } from '@services/mediaUpload';
 import { supabase } from '@services/supabase';
 
 // Media status enum matching backend
@@ -288,7 +289,14 @@ export function useUploadMedia() {
       entryId?: string;
       onProgress?: (progress: UploadProgress) => void;
     }): Promise<MediaFile> => {
-      // Validate file
+      // Resize/compress before upload so no upload path ships full-resolution
+      // originals. This is the single chokepoint every real upload path funnels
+      // through (manual picker via EntryMediaGallery, cluster import, and
+      // multi-cluster import all use useUploadMedia), so the resize lives here
+      // rather than at each call site. Falls back to the original on failure.
+      file = await resizeImageForUpload(file);
+
+      // Validate file (after resize, so the 10MB backstop sees the final bytes)
       const validationError = validateFile(file);
       if (validationError) {
         throw new Error(validationError);
