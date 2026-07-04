@@ -46,6 +46,14 @@ export function RootNavigator() {
       <Stack.Navigator
         screenOptions={{
           ...SlideWithScalePreset,
+          // Freeze + detach buried root screens (Main tab tree with the heavy
+          // ~200-card passport grid) when a full-screen route (Auth/Paywall) is
+          // pushed on top. detachPreviousScreen caps the active-screens window so
+          // the buried screen reaches activityState 0 and react-freeze engages.
+          // Same mechanism proven for OnboardingNavigator (U2). Requires
+          // enableFreeze() at app root (see App.tsx).
+          freezeOnBlur: true,
+          detachPreviousScreen: true,
         }}
       >
         {shouldShowOnboarding ? (

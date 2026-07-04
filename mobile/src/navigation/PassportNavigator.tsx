@@ -38,6 +38,15 @@ function PassportNavigatorContent() {
       <Stack.Navigator
         screenOptions={{
           ...SlideWithScalePreset,
+          // PassportHome renders the heavy passport grid (~200 image cards).
+          // Freeze + detach it when CountryDetail / ShareCapture / PhotoImport /
+          // PhotoTrips / Trips is pushed on top: detachPreviousScreen caps the
+          // active-screens window so the buried grid reaches activityState 0 and
+          // react-freeze suspends its re-renders. It stays mounted (not unmounted),
+          // so back-navigation restores it. Same mechanism proven for the
+          // OnboardingNavigator (U2). Requires enableFreeze() at app root (App.tsx).
+          freezeOnBlur: true,
+          detachPreviousScreen: true,
         }}
       >
         <Stack.Screen name="PassportHome" component={PassportScreen} />
