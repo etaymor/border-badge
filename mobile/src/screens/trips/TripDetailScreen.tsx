@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -260,9 +261,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
         // WITH COVER PHOTO - Hero Section
         <View style={styles.heroContainer}>
           <SharedTripImage tripId={tripId} style={styles.sharedImageContainer}>
-            <Image
+            <ExpoImage
+              testID="trip-detail-cover-image"
               source={{ uri: trip.cover_image_url! }}
               style={styles.coverImage}
+              contentFit="cover"
+              recyclingKey={tripId}
+              cachePolicy="memory-disk"
               onError={() => setCoverImageError(true)}
             />
           </SharedTripImage>

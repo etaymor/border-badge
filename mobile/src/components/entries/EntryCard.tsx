@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 
 import type { EntryWithPlace } from '@hooks/useEntries';
 import { colors } from '@constants/colors';
@@ -101,12 +102,16 @@ function EntryCardComponent({ entry, onPress, onLongPress }: EntryCardProps) {
       {shouldShowImage && firstMediaUrl ? (
         <View style={styles.mediaContainer}>
           <Image
+            testID="entry-card-image"
             source={{ uri: firstMediaUrl }}
             style={styles.mediaThumbnail}
+            contentFit="cover"
+            recyclingKey={entry.id}
+            cachePolicy="memory-disk"
             onError={(e) => {
               logger.warn('[EntryCard] Image load error', {
                 url: firstMediaUrl.substring(0, 100),
-                error: e.nativeEvent?.error,
+                error: e?.error,
               });
               setImageError(true);
             }}

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -343,7 +344,14 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                           },
                         ]}
                       >
-                        <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+                        <ExpoImage
+                          testID={`progress-stamp-${code}`}
+                          source={stampImage}
+                          style={styles.stampImage}
+                          contentFit="contain"
+                          recyclingKey={code}
+                          cachePolicy="memory-disk"
+                        />
                       </Animated.View>
                     );
                   })}

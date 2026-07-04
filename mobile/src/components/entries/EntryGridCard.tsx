@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
@@ -57,8 +58,12 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
       <View style={[styles.imageContainer, { aspectRatio: 1 }]}>
         {hasValidImage ? (
           <Image
+            testID="entry-grid-card-image"
             source={{ uri: firstMediaUrl }}
             style={styles.image}
+            contentFit="cover"
+            recyclingKey={entry.id}
+            cachePolicy="memory-disk"
             onError={() => setImageError(true)}
           />
         ) : (

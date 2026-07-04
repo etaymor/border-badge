@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Animated, Image, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors } from '@constants/colors';
@@ -44,7 +45,12 @@ function CountryHeroComponent({
       ]}
     >
       {countryImage ? (
-        <Image source={countryImage} style={styles.heroImage} resizeMode="cover" />
+        <Image
+          testID="country-hero-image"
+          source={countryImage}
+          style={styles.heroImage}
+          contentFit="cover"
+        />
       ) : (
         <View style={[styles.heroImage, { backgroundColor: colors.mossGreen }]} />
       )}
