@@ -5,9 +5,9 @@
  * Trip segmentation logic lives in photoClusteringTrips.ts.
  */
 
-import { iso1A2Code } from '@rapideditor/country-coder';
 import * as geohash from 'ngeohash';
 
+import { iso1A2Code } from './countryCoder';
 import type { LocationCluster, PhotoWithLocation, TimeHint } from './types';
 
 // Clustering configuration constants

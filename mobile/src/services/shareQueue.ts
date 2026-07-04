@@ -46,6 +46,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
+import { logger } from '../utils/logger';
 import type { EntryType } from '../types/shared';
 
 export type { EntryType };
@@ -302,7 +303,7 @@ export async function markRetryAttempt(id: string, error?: string): Promise<bool
       if (newRetryCount >= MAX_RETRIES) {
         queue.splice(index, 1);
         await writeQueue(queue);
-        console.log(`Share ${id} abandoned after ${MAX_RETRIES} retries`);
+        logger.log(`Share ${id} abandoned after ${MAX_RETRIES} retries`);
         return true;
       }
 

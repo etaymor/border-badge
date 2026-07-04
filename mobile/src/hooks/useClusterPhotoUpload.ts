@@ -7,6 +7,8 @@ import { useState, useRef, useCallback } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 
+import { logger } from '@utils/logger';
+
 import { useUploadMedia, MAX_PHOTOS_PER_ENTRY } from './useMedia';
 import type { LocalFile } from './useMedia';
 import type { PhotoWithLocation } from '@services/photoImport';
@@ -109,7 +111,7 @@ async function convertPhotoUri(
       return null;
     }
 
-    console.log('[ClusterUpload] 📷 Requesting photo from library (may download from iCloud)...');
+    logger.log('[ClusterUpload] 📷 Requesting photo from library (may download from iCloud)...');
 
     // Use MediaLibrary to get the photo, allowing iCloud download
     // This is the key fix: shouldDownloadFromNetwork: true will download iCloud photos
@@ -129,7 +131,7 @@ async function convertPhotoUri(
       return null;
     }
 
-    console.log('[ClusterUpload] 📂 Got source URI:', sourceUri.substring(0, 60));
+    logger.log('[ClusterUpload] 📂 Got source URI:', sourceUri.substring(0, 60));
 
     // If we got a file:// URI directly, copy it to cache
     if (sourceUri.startsWith('file://')) {
@@ -155,7 +157,7 @@ async function convertPhotoUri(
       return null;
     }
 
-    console.log('[ClusterUpload] ✅ Photo ready for upload, size:', info.size);
+    logger.log('[ClusterUpload] ✅ Photo ready for upload, size:', info.size);
 
     return {
       uri: targetUri,
@@ -182,18 +184,13 @@ export function useClusterPhotoUpload() {
    */
   const uploadPhotos = useCallback(
     async (photos: PhotoWithLocation[], tripId: string): Promise<UploadPhotosResult> => {
-      console.log(
-        '[ClusterUpload] 🚀 Starting upload for',
-        photos.length,
-        'photos to trip',
-        tripId
-      );
+      logger.log('[ClusterUpload] 🚀 Starting upload for', photos.length, 'photos to trip', tripId);
 
       // Limit to max photos per entry
       const photosToUpload = photos.slice(0, MAX_PHOTOS_PER_ENTRY);
 
       if (photosToUpload.length === 0) {
-        console.log('[ClusterUpload] No photos to upload');
+        logger.log('[ClusterUpload] No photos to upload');
         return { mediaIds: [], failedCount: 0 };
       }
 
@@ -250,7 +247,7 @@ export function useClusterPhotoUpload() {
             const photo = photosToUpload[i];
 
             if (__DEV__) {
-              console.log('[ClusterUpload] Processing photo', i, {
+              logger.log('[ClusterUpload] Processing photo', i, {
                 originalUri: photo.uri,
                 filename: photo.filename,
               });
@@ -277,7 +274,7 @@ export function useClusterPhotoUpload() {
             }
 
             if (__DEV__) {
-              console.log('[ClusterUpload] Converted URI:', {
+              logger.log('[ClusterUpload] Converted URI:', {
                 original: photo.uri,
                 converted: localFile.uri,
                 name: localFile.name,

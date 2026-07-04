@@ -32,6 +32,7 @@ import {
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
+import { logger } from '@utils/logger';
 import { mapClusterToApiPayload } from './photoImportUtils';
 
 const VISION_PREP_CONCURRENCY = 3;
@@ -145,7 +146,7 @@ export function usePlaceSuggestions({
       // Skip if we've already processed this candidate in this session
       if (fetchedCandidatesRef.current.has(candidate.id)) {
         if (__DEV__) {
-          console.log('[PhotoImport] Skipping fetch - already processed:', candidate.id);
+          logger.log('[PhotoImport] Skipping fetch - already processed:', candidate.id);
         }
         return undefined;
       }
@@ -159,7 +160,7 @@ export function usePlaceSuggestions({
 
       if (allClusters.length === 0) {
         if (__DEV__) {
-          console.log('[PhotoImport] No clusters found for candidate:', candidate.id);
+          logger.log('[PhotoImport] No clusters found for candidate:', candidate.id);
         }
         fetchedCandidatesRef.current.add(candidate.id);
         return undefined;
@@ -184,7 +185,7 @@ export function usePlaceSuggestions({
       const uncachedClusters = allClusters.filter((c) => !cachedClusterIds.has(c.id));
 
       if (__DEV__) {
-        console.log('[PhotoImport] Cache check:', {
+        logger.log('[PhotoImport] Cache check:', {
           candidateId: candidate.id,
           totalClusters: allClusters.length,
           cachedClusters: cachedClusterIds.size,
@@ -209,7 +210,7 @@ export function usePlaceSuggestions({
       // Check for stale request before applying cached results
       if (isStaleRequest()) {
         if (__DEV__) {
-          console.log('[PhotoImport] Discarding stale cached results for:', requestCandidateId);
+          logger.log('[PhotoImport] Discarding stale cached results for:', requestCandidateId);
         }
         return undefined;
       }
@@ -230,7 +231,7 @@ export function usePlaceSuggestions({
         // User has exhausted their free photo trip import
         // Return the cached results only - they need to upgrade for API calls
         if (__DEV__) {
-          console.log('[PhotoImport] Premium gate: User has used free photo trip import');
+          logger.log('[PhotoImport] Premium gate: User has used free photo trip import');
         }
         // Mark candidate as processed to prevent re-fetching
         fetchedCandidatesRef.current.add(candidate.id);
@@ -241,7 +242,7 @@ export function usePlaceSuggestions({
       // If all clusters are cached, we're done - no API call needed
       if (uncachedClusters.length === 0) {
         if (__DEV__) {
-          console.log('[PhotoImport] All clusters cached - no API call needed');
+          logger.log('[PhotoImport] All clusters cached - no API call needed');
         }
         // Reset mutation state and mark as fetched (only if still current)
         if (!isStaleRequest()) {
@@ -262,7 +263,7 @@ export function usePlaceSuggestions({
 
       // Fetch uncached clusters from API
       if (__DEV__) {
-        console.log('[PhotoImport] Fetching uncached clusters from API:', {
+        logger.log('[PhotoImport] Fetching uncached clusters from API:', {
           candidateId: candidate.id,
           clusterIds: uncachedClusters.map((c) => c.id),
           clusterCount: uncachedClusters.length,
@@ -278,7 +279,7 @@ export function usePlaceSuggestions({
         });
 
         if (__DEV__) {
-          console.log('[PhotoImport] API result:', {
+          logger.log('[PhotoImport] API result:', {
             suggestionCount: result.suggestions.length,
             suggestionClusterIds: result.suggestions.map((s) => s.cluster_id),
           });
@@ -314,7 +315,7 @@ export function usePlaceSuggestions({
         await cacheSuggestions(suggestionsToCache);
 
         if (__DEV__) {
-          console.log('[PhotoImport] Cached suggestions to SQLite:', {
+          logger.log('[PhotoImport] Cached suggestions to SQLite:', {
             cachedCount: suggestionsToCache.length,
             withPlaces: suggestionsToCache.filter((s) => s.places.length > 0).length,
             empty: suggestionsToCache.filter((s) => s.places.length === 0).length,
@@ -324,7 +325,7 @@ export function usePlaceSuggestions({
         // Check for stale request before applying API results
         if (isStaleRequest()) {
           if (__DEV__) {
-            console.log('[PhotoImport] Discarding stale API results for:', requestCandidateId);
+            logger.log('[PhotoImport] Discarding stale API results for:', requestCandidateId);
           }
           // Note: We still cached the results above, which is fine - they'll be used
           // if the user switches back to this candidate
@@ -339,7 +340,7 @@ export function usePlaceSuggestions({
           incrementPhotoImportUsage();
           hasCountedUsageRef.current = true;
           if (__DEV__) {
-            console.log('[PhotoImport] Incremented photo import usage for free user');
+            logger.log('[PhotoImport] Incremented photo import usage for free user');
           }
         }
 
