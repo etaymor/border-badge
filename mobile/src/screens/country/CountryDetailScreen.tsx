@@ -135,14 +135,29 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   }, [isVisited, hasInitialImport, hasPhotos]);
 
   const handleTripPress = useCallback(
-    (trip: Trip) => {
+    (tripId: string) => {
       navigation.navigate('Trips', {
         screen: 'TripDetail',
-        params: { tripId: trip.id },
+        params: { tripId },
       });
     },
     [navigation]
   );
+
+  // Keep the latest handler in a ref so per-id press callbacks stay stable.
+  const handleTripPressRef = useRef(handleTripPress);
+  handleTripPressRef.current = handleTripPress;
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders (this screen re-renders on scroll via Animated.Value).
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback((tripId: string) => {
+    const existing = tripPressCallbacksRef.current.get(tripId);
+    if (existing) return existing;
+    const handler = () => handleTripPressRef.current(tripId);
+    tripPressCallbacksRef.current.set(tripId, handler);
+    return handler;
+  }, []);
 
   const handleMarkVisited = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -335,12 +350,12 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         <TripCard
           trip={item}
           flagEmoji={flagEmoji}
-          onPress={() => handleTripPress(item)}
+          onPress={getTripPressHandler(item.id)}
           testID={`trip-card-${item.id}`}
         />
       </View>
     ),
-    [flagEmoji, handleTripPress]
+    [flagEmoji, getTripPressHandler]
   );
 
   const ListHeader = useMemo(

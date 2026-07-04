@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -173,16 +173,31 @@ export function TripsListScreen({ navigation }: Props) {
     [navigation]
   );
 
+  // Keep the latest handler in a ref so per-id press callbacks stay stable.
+  const handleTripPressRef = useRef(handleTripPress);
+  handleTripPressRef.current = handleTripPress;
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback((tripId: string) => {
+    const existing = tripPressCallbacksRef.current.get(tripId);
+    if (existing) return existing;
+    const handler = () => handleTripPressRef.current(tripId);
+    tripPressCallbacksRef.current.set(tripId, handler);
+    return handler;
+  }, []);
+
   const renderItem = useCallback(
     ({ item }: { item: Trip }) => {
       const flagEmoji = item.country_code ? getFlagEmoji(item.country_code) : '';
       return (
         <View style={styles.tripCardWrapper}>
-          <TripCard trip={item} flagEmoji={flagEmoji} onPress={() => handleTripPress(item.id)} />
+          <TripCard trip={item} flagEmoji={flagEmoji} onPress={getTripPressHandler(item.id)} />
         </View>
       );
     },
-    [handleTripPress]
+    [getTripPressHandler]
   );
 
   const renderSectionHeader = useCallback(

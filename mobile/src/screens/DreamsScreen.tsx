@@ -104,8 +104,10 @@ export function DreamsScreen({ navigation }: Props) {
     };
   }, []);
 
-  // Animation state (per-card to prevent shared interference)
-  const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
+  // Per-card exit-animation values. The Animated.Values sit at rest (scale=1,
+  // opacity=1, translateY=0), so the wrapper can ALWAYS apply the transform
+  // without any visual change — which lets us drive the exit animation purely
+  // through the native driver without a React re-render of the card.
   const animationValuesRef = useRef(
     new Map<
       string,
@@ -123,6 +125,12 @@ export function DreamsScreen({ navigation }: Props) {
     }
     return animationValuesRef.current.get(code)!;
   }, []);
+
+  // Set of codes currently mid-exit-animation. Kept in a ref (NOT state) so
+  // toggling it does not change `renderItem`'s identity and therefore does not
+  // re-render every visible card. It's only read/written inside handlers to
+  // dedupe rapid taps on the same card.
+  const animatingCardsRef = useRef<Set<string>>(new Set());
 
   // Snackbar state
   const [snackbar, setSnackbar] = useState<SnackbarState>({ visible: false, message: '' });
@@ -240,11 +248,11 @@ export function DreamsScreen({ navigation }: Props) {
   }, [filteredCountries, wishlistCountries, visitedCountries, trips, searchQuery]);
 
   const handleCountryPress = useCallback(
-    (country: DreamCountry) => {
+    (countryCode: string, countryName: string) => {
       navigation.navigate('CountryDetail', {
-        countryId: country.code,
-        countryName: country.name,
-        countryCode: country.code,
+        countryId: countryCode,
+        countryName: countryName,
+        countryCode: countryCode,
       });
     },
     [navigation]
@@ -301,15 +309,11 @@ export function DreamsScreen({ navigation }: Props) {
         });
       } else {
         // Prevent duplicate animation if already animating
-        if (animatingCards.has(countryCode)) return;
+        if (animatingCardsRef.current.has(countryCode)) return;
 
         // Adding to wishlist - animate card exit then add
         const { scale, opacity, translateY } = getAnimationValues(countryCode);
-        setAnimatingCards((prev) => {
-          const next = new Set(prev);
-          next.add(countryCode);
-          return next;
-        });
+        animatingCardsRef.current.add(countryCode);
 
         // Short delay to let the airplane pulse animation start first
         const timeoutId = setTimeout(() => {
@@ -352,11 +356,7 @@ export function DreamsScreen({ navigation }: Props) {
             scale.setValue(1);
             opacity.setValue(1);
             translateY.setValue(0);
-            setAnimatingCards((prev) => {
-              const next = new Set(prev);
-              next.delete(countryCode);
-              return next;
-            });
+            animatingCardsRef.current.delete(countryCode);
           });
         }, AIRPLANE_PULSE_DELAY_MS);
         pendingTimeoutsRef.current.add(timeoutId);
@@ -369,8 +369,39 @@ export function DreamsScreen({ navigation }: Props) {
         });
       }
     },
-    [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues, animatingCards]
+    [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues]
   );
+
+  // Keep the latest handler implementations in refs so the per-card callbacks
+  // below can stay referentially STABLE (never changing identity) while still
+  // invoking the current logic. Stable callbacks are what let CountryCard's
+  // React.memo hold across parent re-renders.
+  const handleCountryPressRef = useRef(handleCountryPress);
+  const handleAddVisitedRef = useRef(handleAddVisited);
+  const handleToggleWishlistRef = useRef(handleToggleWishlist);
+  handleCountryPressRef.current = handleCountryPress;
+  handleAddVisitedRef.current = handleAddVisited;
+  handleToggleWishlistRef.current = handleToggleWishlist;
+
+  // Per-code, stable, zero-arg callbacks for CountryCard. Created once per code
+  // and cached, so a given card receives the SAME onPress/onAddVisited/
+  // onToggleWishlist function identities on every render — tapping one card no
+  // longer re-renders its siblings.
+  const cardCallbacksRef = useRef<
+    Map<string, { onPress: () => void; onAddVisited: () => void; onToggleWishlist: () => void }>
+  >(new Map());
+
+  const getCardCallbacks = useCallback((code: string, name: string) => {
+    const existing = cardCallbacksRef.current.get(code);
+    if (existing) return existing;
+    const callbacks = {
+      onPress: () => handleCountryPressRef.current(code, name),
+      onAddVisited: () => handleAddVisitedRef.current(code, name),
+      onToggleWishlist: () => handleToggleWishlistRef.current(code, name),
+    };
+    cardCallbacksRef.current.set(code, callbacks);
+    return callbacks;
+  }, []);
 
   const renderItem = useCallback(
     ({ item }: { item: ListItem }) => {
@@ -394,17 +425,16 @@ export function DreamsScreen({ navigation }: Props) {
       }
 
       const { scale, opacity, translateY } = getAnimationValues(item.code);
-      const isAnimating = animatingCards.has(item.code);
+      const callbacks = getCardCallbacks(item.code, item.name);
 
+      // Always apply the transform: the Animated.Values rest at scale=1,
+      // opacity=1, translateY=0, so an idle card looks identical while the exit
+      // animation drives the native driver on the one card being wishlisted.
+      // (Previously gated on `animatingCards` state, which re-rendered ALL cards
+      // on every toggle.)
       return (
         <Animated.View
-          style={[
-            styles.countryCardWrapper,
-            isAnimating && {
-              transform: [{ scale }, { translateY }],
-              opacity,
-            },
-          ]}
+          style={[styles.countryCardWrapper, { transform: [{ scale }, { translateY }], opacity }]}
         >
           <CountryCard
             code={item.code}
@@ -412,14 +442,14 @@ export function DreamsScreen({ navigation }: Props) {
             isVisited={false}
             isWishlisted={item.isWishlisted}
             hasTrips={item.hasTrips}
-            onPress={() => handleCountryPress(item)}
-            onAddVisited={() => handleAddVisited(item.code, item.name)}
-            onToggleWishlist={() => handleToggleWishlist(item.code, item.name)}
+            onPress={callbacks.onPress}
+            onAddVisited={callbacks.onAddVisited}
+            onToggleWishlist={callbacks.onToggleWishlist}
           />
         </Animated.View>
       );
     },
-    [handleCountryPress, handleAddVisited, handleToggleWishlist, animatingCards, getAnimationValues]
+    [getAnimationValues, getCardCallbacks]
   );
 
   const getItemKey = useCallback(

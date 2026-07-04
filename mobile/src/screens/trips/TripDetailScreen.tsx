@@ -149,6 +149,21 @@ export function TripDetailScreen({ route, navigation }: Props) {
     [navigation, tripId]
   );
 
+  // Keep the latest handler in a ref so per-id press callbacks stay stable.
+  const handleEntryPressRef = useRef(handleEntryPress);
+  handleEntryPressRef.current = handleEntryPress;
+
+  // Per-id, stable onPress callbacks so EntryGridCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const entryPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getEntryPressHandler = useCallback((entryId: string) => {
+    const existing = entryPressCallbacksRef.current.get(entryId);
+    if (existing) return existing;
+    const handler = () => handleEntryPressRef.current(entryId);
+    entryPressCallbacksRef.current.set(entryId, handler);
+    return handler;
+  }, []);
+
   const handleConfirmDelete = useCallback(async () => {
     setShowDeleteConfirm(false);
     try {
@@ -184,9 +199,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const renderEntry = useCallback(
     ({ item }: { item: EntryWithPlace }) => (
-      <EntryGridCard entry={item} onPress={() => handleEntryPress(item.id)} />
+      <EntryGridCard entry={item} onPress={getEntryPressHandler(item.id)} />
     ),
-    [handleEntryPress]
+    [getEntryPressHandler]
   );
 
   const renderHeader = useCallback(

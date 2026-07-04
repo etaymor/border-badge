@@ -60,6 +60,17 @@ function makeSession(userId: string) {
   return { user: { id: userId } } as unknown as import('@supabase/supabase-js').Session;
 }
 
+/**
+ * Flush the staggered foreground burst. Foreground jobs are now spread across
+ * successive animation frames (scheduleStaggered) so a single resume doesn't
+ * spike one frame; drain enough frames to let every job run.
+ */
+async function flushStagger() {
+  for (let i = 0; i < 20; i++) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
 function fireForeground() {
   // Match the pattern: previous state inactive/background → active.
   // The hook reads appStateRef.current; we have to first send a background
@@ -70,20 +81,22 @@ function fireForeground() {
 }
 
 describe('useAppStateTracking foreground resume', () => {
-  it('calls tryResumeScan and detectStuckScan on foreground when authenticated', () => {
+  it('calls tryResumeScan and detectStuckScan on foreground when authenticated', async () => {
     renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
 
     fireForeground();
+    await flushStagger();
 
     expect(photoImportMock.tryResumeScan).toHaveBeenCalled();
     expect(photoImportMock.detectStuckScan).toHaveBeenCalled();
     expect(photoImportMock.performBackgroundPhotoSync).toHaveBeenCalledWith('US');
   });
 
-  it('does not call tryResumeScan when unauthenticated', () => {
+  it('does not call tryResumeScan when unauthenticated', async () => {
     renderHook(() => useAppStateTracking(null, jest.fn(), 'US'));
 
     fireForeground();
+    await flushStagger();
 
     expect(photoImportMock.tryResumeScan).not.toHaveBeenCalled();
     expect(photoImportMock.performBackgroundPhotoSync).not.toHaveBeenCalled();

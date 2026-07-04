@@ -21,6 +21,41 @@ function generateSessionId(): string {
 }
 
 /**
+ * Spread a burst of jobs across successive animation frames so a foreground
+ * resume doesn't run 6+ jobs on a single frame (which spikes the UI thread the
+ * moment the user returns to the app). WHAT runs is unchanged — only WHEN: each
+ * job runs on its own frame, in order. Returns a canceller so an unmount /
+ * re-run mid-burst drops any not-yet-run jobs.
+ */
+function scheduleStaggered(jobs: Array<() => void>): () => void {
+  let index = 0;
+  let rafHandle: number | null = null;
+  let cancelled = false;
+
+  const runNext = () => {
+    if (cancelled) return;
+    if (index >= jobs.length) {
+      rafHandle = null;
+      return;
+    }
+    const job = jobs[index];
+    index += 1;
+    job();
+    rafHandle = requestAnimationFrame(runNext);
+  };
+
+  rafHandle = requestAnimationFrame(runNext);
+
+  return () => {
+    cancelled = true;
+    if (rafHandle != null) {
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+  };
+}
+
+/**
  * Tracks app foreground/background state changes.
  * On foreground: syncs offline queue, analytics, share extension usage,
  * tracks app_opened events, runs background photo sync, and checks
@@ -55,49 +90,75 @@ export function useAppStateTracking(
     }
   }, [userId]);
 
+  // Canceller for the most recent staggered foreground burst, so an unmount or
+  // a re-run mid-burst drops any not-yet-executed jobs.
+  const cancelStaggerRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       // When app comes to foreground
       if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-        // Sync offline queue from Share Extension (runs regardless of auth state)
-        syncOfflineQueueFromExtension().catch((error) => {
-          console.error('Failed to sync offline queue from extension:', error);
-        });
+        // Cancel any prior in-flight burst before starting a new one.
+        cancelStaggerRef.current?.();
 
-        // Sync analytics events queued by Share Extension
-        syncAnalyticsFromExtension().catch((error) => {
-          console.error('Failed to sync analytics from extension:', error);
-        });
-
-        // Check if user has used share extension (for tutorial dismissal)
-        syncShareExtensionUsageFromAppGroup().catch((error) => {
-          console.error('Failed to sync share extension usage:', error);
-        });
+        // Build the foreground job list. WHAT runs is unchanged from before —
+        // these jobs are only spread across successive frames (see
+        // scheduleStaggered) so resume doesn't spike a single frame.
+        const jobs: Array<() => void> = [
+          // Sync offline queue from Share Extension (runs regardless of auth state)
+          () => {
+            syncOfflineQueueFromExtension().catch((error) => {
+              console.error('Failed to sync offline queue from extension:', error);
+            });
+          },
+          // Sync analytics events queued by Share Extension
+          () => {
+            syncAnalyticsFromExtension().catch((error) => {
+              console.error('Failed to sync analytics from extension:', error);
+            });
+          },
+          // Check if user has used share extension (for tutorial dismissal)
+          () => {
+            syncShareExtensionUsageFromAppGroup().catch((error) => {
+              console.error('Failed to sync share extension usage:', error);
+            });
+          },
+        ];
 
         // Track analytics and check for immediate shares (only if authenticated)
         if (userId) {
-          // Generate new session ID for this foreground event
-          sessionIdRef.current = generateSessionId();
-          Analytics.appOpened(sessionIdRef.current);
-
-          // Check for URLs shared via Share Extension while app was in background
-          void checkAppGroupForSharedURL();
-
-          // First, check whether a prior scan was suspended mid-run. tryResumeScan
-          // runs the seven-gate check, transitions the store to `failed` when a
-          // gate trips, and otherwise calls photoScanService.start({ resumed: true }).
-          // If a scan is currently running, also surface a stuck-detection check.
-          tryResumeScan().catch((err) => {
-            if (__DEV__) console.warn('[AppStateTracking] tryResumeScan failed:', err);
-          });
-          detectStuckScan();
-
-          // Background photo sync - silently cache new photos for faster photo import.
-          // No-ops when the scan service is running (early-return inside).
-          performBackgroundPhotoSync(homeCountry).catch(() => {
-            // Errors already handled internally
-          });
+          jobs.push(
+            // Generate new session ID for this foreground event, then track open.
+            () => {
+              sessionIdRef.current = generateSessionId();
+              Analytics.appOpened(sessionIdRef.current);
+            },
+            // Check for URLs shared via Share Extension while app was in background
+            () => {
+              void checkAppGroupForSharedURL();
+            },
+            // First, check whether a prior scan was suspended mid-run.
+            // tryResumeScan runs the seven-gate check, transitions the store to
+            // `failed` when a gate trips, and otherwise calls
+            // photoScanService.start({ resumed: true }). If a scan is currently
+            // running, also surface a stuck-detection check.
+            () => {
+              tryResumeScan().catch((err) => {
+                if (__DEV__) console.warn('[AppStateTracking] tryResumeScan failed:', err);
+              });
+              detectStuckScan();
+            },
+            // Background photo sync - silently cache new photos for faster photo
+            // import. No-ops when the scan service is running (early-return inside).
+            () => {
+              performBackgroundPhotoSync(homeCountry).catch(() => {
+                // Errors already handled internally
+              });
+            }
+          );
         }
+
+        cancelStaggerRef.current = scheduleStaggered(jobs);
       }
       appStateRef.current = nextAppState;
     };
@@ -112,6 +173,8 @@ export function useAppStateTracking(
 
     return () => {
       subscription.remove();
+      cancelStaggerRef.current?.();
+      cancelStaggerRef.current = null;
     };
   }, [userId, checkAppGroupForSharedURL, homeCountry]);
 }

@@ -11,7 +11,12 @@ import {
   StampRow,
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
-import { ClipboardPasteModal, OnboardingShareOverlay, ShareCardOverlay } from '@components/share';
+import {
+  ClipboardPasteModal,
+  OnboardingShareOverlay,
+  ShareCardOverlay,
+  type OnboardingShareContext,
+} from '@components/share';
 import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
@@ -31,7 +36,8 @@ export function PassportScreen({ navigation }: Props) {
   const {
     isLoading,
     stats,
-    passportShareContext,
+    hasPassportShareContext,
+    getPassportShareContext,
     flatListData,
     searchQuery,
     setSearchQuery,
@@ -67,6 +73,10 @@ export function PassportScreen({ navigation }: Props) {
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
   const [passportShareVisible, setPassportShareVisible] = useState(false);
+  // Resolved share context, built lazily only when the overlay is opened.
+  const [passportShareContext, setPassportShareContext] = useState<OnboardingShareContext | null>(
+    null
+  );
 
   // Paste modal state
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
@@ -130,8 +140,11 @@ export function PassportScreen({ navigation }: Props) {
 
   const handlePassportShare = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Build the (expensive) share context lazily, only now that the user is
+    // actually opening the share overlay.
+    setPassportShareContext(getPassportShareContext());
     setPassportShareVisible(true);
-  }, []);
+  }, [getPassportShareContext]);
 
   const handlePassportShareDismiss = useCallback(() => {
     setPassportShareVisible(false);
@@ -274,7 +287,7 @@ export function PassportScreen({ navigation }: Props) {
           return (
             <PassportSectionHeader
               title={item.title}
-              showShareButton={item.key === 'header-visited' && !!passportShareContext}
+              showShareButton={item.key === 'header-visited' && hasPassportShareContext}
               onSharePress={handlePassportShare}
               variant={
                 item.key === 'header-visited'
@@ -295,7 +308,7 @@ export function PassportScreen({ navigation }: Props) {
           return null;
       }
     },
-    [renderStampRow, renderUnvisitedRow, passportShareContext, handlePassportShare]
+    [renderStampRow, renderUnvisitedRow, hasPassportShareContext, handlePassportShare]
   );
 
   // Show paste button when clipboard detection is disabled (iOS only)
