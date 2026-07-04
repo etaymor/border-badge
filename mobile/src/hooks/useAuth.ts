@@ -36,8 +36,10 @@ interface PasswordAuthInput {
  * dashboard for immediate sign-in without email verification.
  */
 export function useSignUpWithPassword() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating, setNeedsPostSignupFlow } =
-    useAuthStore();
+  const setSession = useAuthStore((s) => s.setSession);
+  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
+  const setIsMigrating = useAuthStore((s) => s.setIsMigrating);
+  const setNeedsPostSignupFlow = useAuthStore((s) => s.setNeedsPostSignupFlow);
 
   return useMutation({
     mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
@@ -145,7 +147,9 @@ export function useSignUpWithPassword() {
  * Authenticates an existing account.
  */
 export function useSignInWithPassword() {
-  const { setSession, setHasCompletedOnboarding, setIsMigrating } = useAuthStore();
+  const setSession = useAuthStore((s) => s.setSession);
+  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
+  const setIsMigrating = useAuthStore((s) => s.setIsMigrating);
 
   return useMutation({
     mutationFn: async ({ email, password }: PasswordAuthInput) => {
@@ -212,8 +216,8 @@ export function useSignInWithPassword() {
 // ============================================================================
 
 export function useSignOut() {
-  const { signOut } = useAuthStore();
-  const { reset: resetOnboarding } = useOnboardingStore();
+  const signOut = useAuthStore((s) => s.signOut);
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
 
   return useMutation({
     mutationFn: async () => {
@@ -252,8 +256,8 @@ export function useSignOut() {
  * This is irreversible and will delete all user data.
  */
 export function useDeleteAccount() {
-  const { signOut } = useAuthStore();
-  const { reset: resetOnboarding } = useOnboardingStore();
+  const signOut = useAuthStore((s) => s.signOut);
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
 
   return useMutation({
     mutationFn: async () => {

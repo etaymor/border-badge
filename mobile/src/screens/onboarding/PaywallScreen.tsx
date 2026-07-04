@@ -28,7 +28,8 @@ export function PaywallScreen(_props: Props) {
   const hasPresented = useRef(false);
   const queryClient = useQueryClient();
   const { presentPaywall } = usePaywallPresentation('onboarding');
-  const { setHasCompletedOnboarding, setNeedsPostSignupFlow } = useAuthStore();
+  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
+  const setNeedsPostSignupFlow = useAuthStore((s) => s.setNeedsPostSignupFlow);
 
   const finishOnboarding = useCallback(async () => {
     try {

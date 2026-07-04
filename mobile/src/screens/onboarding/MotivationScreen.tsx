@@ -11,7 +11,11 @@ import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectMotivationTags,
+  selectPersonaTags,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'Motivation'>;
 
@@ -76,8 +80,10 @@ function FloatingChip({ tag, selected, onPress, delay }: FloatingChipProps) {
 }
 
 export function MotivationScreen({ navigation }: Props) {
-  const { motivationTags, toggleMotivationTag, personaTags, togglePersonaTag } =
-    useOnboardingStore();
+  const motivationTags = useOnboardingStore(selectMotivationTags);
+  const personaTags = useOnboardingStore(selectPersonaTags);
+  const toggleMotivationTag = useOnboardingStore((s) => s.toggleMotivationTag);
+  const togglePersonaTag = useOnboardingStore((s) => s.togglePersonaTag);
 
   // Premium entrance animation for screen structure
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });

@@ -35,8 +35,13 @@ interface PurchaseResult {
 }
 
 export function useSubscription() {
-  const { status, plan, expirationDate, sdkAvailable, setCustomerInfo, setUsageLimits, setStatus } =
-    useSubscriptionStore();
+  const status = useSubscriptionStore((s) => s.status);
+  const plan = useSubscriptionStore((s) => s.plan);
+  const expirationDate = useSubscriptionStore((s) => s.expirationDate);
+  const sdkAvailable = useSubscriptionStore((s) => s.sdkAvailable);
+  const setCustomerInfo = useSubscriptionStore((s) => s.setCustomerInfo);
+  const setUsageLimits = useSubscriptionStore((s) => s.setUsageLimits);
+  const setStatus = useSubscriptionStore((s) => s.setStatus);
 
   // Track mount state to prevent state updates after unmount
   const isMountedRef = useRef(true);

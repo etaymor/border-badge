@@ -49,7 +49,7 @@ import {
   syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { env } from '@config/env';
-import { useAuthStore } from '@stores/authStore';
+import { useAuthStore, selectSession } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useFrameMetrics, PerfOverlay } from '@utils/perf';
 
@@ -103,7 +103,7 @@ function useAppInitialization() {
 }
 
 export default function App() {
-  const { session } = useAuthStore();
+  const session = useAuthStore(selectSession);
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const [showSplash, setShowSplash] = useState(true);
   const nativeSplashHiddenRef = useRef(false);

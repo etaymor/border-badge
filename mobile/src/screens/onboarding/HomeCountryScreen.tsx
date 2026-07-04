@@ -5,12 +5,19 @@ import { colors } from '@constants/colors';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectHomeCountry,
+  selectSelectedCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'HomeCountry'>;
 
 export function HomeCountryScreen({ navigation }: Props) {
-  const { homeCountry, setHomeCountry, toggleCountry, selectedCountries } = useOnboardingStore();
+  const homeCountry = useOnboardingStore(selectHomeCountry);
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const setHomeCountry = useOnboardingStore((s) => s.setHomeCountry);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
 
   // Track screen view
   useEffect(() => {

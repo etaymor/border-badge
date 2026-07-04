@@ -14,7 +14,7 @@ import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
-import { useAuthStore } from '@stores/authStore';
+import { useAuthStore, selectSession } from '@stores/authStore';
 import type { SocialProvider } from '../types/shared';
 
 export type { SocialProvider };
@@ -103,7 +103,7 @@ export function useClipboardListener(): ClipboardListenerResult {
   const [detectedUrl, setDetectedUrl] = useState<DetectedClipboardUrl | null>(null);
   const [hasPermissionError, setHasPermissionError] = useState(false);
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
-  const { session } = useAuthStore();
+  const session = useAuthStore(selectSession);
   const lastCheckedUrlRef = useRef<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
   // Track if user dismissed the permission banner this session

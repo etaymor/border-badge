@@ -35,7 +35,7 @@ const DEFAULT_BACKGROUND = colors.warmCream;
 
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
-  const { addVisitedContinent } = useOnboardingStore();
+  const addVisitedContinent = useOnboardingStore((s) => s.addVisitedContinent);
   const { isSmallScreen, isLargeScreen } = useResponsive();
   const reduceMotion = useReducedMotion();
 

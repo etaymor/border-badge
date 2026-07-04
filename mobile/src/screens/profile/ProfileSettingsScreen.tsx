@@ -34,7 +34,7 @@ import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
-import { useAuthStore } from '@stores/authStore';
+import { useAuthStore, selectSession } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
@@ -87,7 +87,7 @@ function getInitials(name: string | undefined): string {
 
 export function ProfileSettingsScreen({ navigation }: Props) {
   const { isSmallScreen } = useResponsive();
-  const { session } = useAuthStore();
+  const session = useAuthStore(selectSession);
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
   const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
   const subscriptionExpirationDate = useSubscriptionStore((s) => s.expirationDate);

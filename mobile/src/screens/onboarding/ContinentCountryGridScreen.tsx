@@ -37,7 +37,12 @@ import { useCountriesByRegion } from '@hooks/useCountries';
 import { useStaggeredEntrance } from '@hooks/useStaggeredEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore, selectCountryGridTooltipShown } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectCountryGridTooltipShown,
+  selectSelectedCountries,
+  selectBucketListCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
 
@@ -213,8 +218,10 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
   // Use region-specific hook for better performance (queries SQLite directly)
   const { data: regionCountries, isLoading } = useCountriesByRegion(region);
-  const { selectedCountries, toggleCountry, bucketListCountries, toggleBucketListCountry } =
-    useOnboardingStore();
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const bucketListCountries = useOnboardingStore(selectBucketListCountries);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
+  const toggleBucketListCountry = useOnboardingStore((s) => s.toggleBucketListCountry);
 
   // Tooltip state
   const countryGridTooltipShown = useOnboardingStore(selectCountryGridTooltipShown);

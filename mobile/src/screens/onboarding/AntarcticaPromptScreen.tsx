@@ -32,7 +32,8 @@ const ANTARCTICA_CODE = 'AQ';
 const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
-  const { addVisitedContinent, toggleCountry } = useOnboardingStore();
+  const addVisitedContinent = useOnboardingStore((s) => s.addVisitedContinent);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
   const { isSmallScreen, isLargeScreen } = useResponsive();
   const reduceMotion = useReducedMotion();
 

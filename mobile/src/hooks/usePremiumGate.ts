@@ -39,7 +39,7 @@ export function usePremiumGate() {
   const canUseShare = useCanUseShareExtension();
   const canImportPhotos = useCanImportPhotos();
   const shareExtensionRemaining = useShareExtensionRemaining();
-  const { photoImportUsage } = useSubscriptionStore();
+  const photoImportUsage = useSubscriptionStore((s) => s.photoImportUsage);
 
   /**
    * Check if user can access a feature

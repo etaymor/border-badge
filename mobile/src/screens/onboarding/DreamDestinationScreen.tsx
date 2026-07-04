@@ -6,13 +6,19 @@ import { REGIONS } from '@constants/regions';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectDreamDestination,
+  selectBucketListCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'DreamDestination'>;
 
 export function DreamDestinationScreen({ navigation }: Props) {
-  const { dreamDestination, setDreamDestination, toggleBucketListCountry, bucketListCountries } =
-    useOnboardingStore();
+  const dreamDestination = useOnboardingStore(selectDreamDestination);
+  const bucketListCountries = useOnboardingStore(selectBucketListCountries);
+  const setDreamDestination = useOnboardingStore((s) => s.setDreamDestination);
+  const toggleBucketListCountry = useOnboardingStore((s) => s.toggleBucketListCountry);
 
   // Track screen view
   useEffect(() => {

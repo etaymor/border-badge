@@ -2,7 +2,12 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
 import ErrorBoundary from '@components/ui/ErrorBoundary';
-import { useAuthStore } from '@stores/authStore';
+import {
+  useAuthStore,
+  selectSession,
+  selectHasCompletedOnboarding,
+  selectIsLoading,
+} from '@stores/authStore';
 
 import { PaywallModalScreen } from '@screens/paywall';
 
@@ -23,7 +28,9 @@ function LoadingScreen() {
 }
 
 export function RootNavigator() {
-  const { session, hasCompletedOnboarding, isLoading } = useAuthStore();
+  const session = useAuthStore(selectSession);
+  const hasCompletedOnboarding = useAuthStore(selectHasCompletedOnboarding);
+  const isLoading = useAuthStore(selectIsLoading);
   const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
 
   if (isLoading) {

@@ -27,7 +27,13 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectSelectedCountries,
+  selectHomeCountry,
+  selectMotivationTags,
+  selectPersonaTags,
+} from '@stores/onboardingStore';
 import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
@@ -73,7 +79,10 @@ function calculateStampPositions(count: number, containerWidth: number) {
 
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
-  const { selectedCountries, homeCountry, motivationTags, personaTags } = useOnboardingStore();
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const homeCountry = useOnboardingStore(selectHomeCountry);
+  const motivationTags = useOnboardingStore(selectMotivationTags);
+  const personaTags = useOnboardingStore(selectPersonaTags);
   const { data: allCountriesData } = useCountries();
   const reduceMotion = useReducedMotion();
 

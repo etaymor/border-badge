@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
 import { getLocalUserCountries, type LocalUserCountry } from '@services/countriesDb';
-import { useAuthStore } from '@stores/authStore';
+import { useAuthStore, selectSession, selectIsMigrating } from '@stores/authStore';
 
 export interface UserCountry {
   id: string;
@@ -35,7 +35,8 @@ function localToUserCountry(local: LocalUserCountry, userId: string): UserCountr
 }
 
 export function useUserCountries(): UseQueryResult<UserCountry[], Error> {
-  const { session, isMigrating } = useAuthStore();
+  const session = useAuthStore(selectSession);
+  const isMigrating = useAuthStore(selectIsMigrating);
   const queryKey = getUserCountriesKey(session?.user?.id ?? null);
   const userId = session?.user?.id ?? 'temp';
 
