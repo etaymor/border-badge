@@ -51,6 +51,7 @@ import {
 import { env } from '@config/env';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
+import { useFrameMetrics, PerfOverlay } from '@utils/perf';
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -145,6 +146,9 @@ export default function App() {
   // App foreground/background tracking
   useAppStateTracking(session, checkAppGroupForSharedURL, homeCountry);
 
+  // Dev-gated frame-drop instrumentation (U1). No-op unless the harness is armed.
+  useFrameMetrics();
+
   // Handle splash animation complete
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -180,6 +184,7 @@ export default function App() {
               <RootNavigator />
               <StatusBar style="auto" />
             </NavigationContainer>
+            <PerfOverlay />
             {showSplash && (
               <AnimatedSplash
                 isAppReady={isAppReady}
