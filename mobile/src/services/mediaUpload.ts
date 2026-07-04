@@ -8,6 +8,8 @@
 
 import * as ImagePicker from 'expo-image-picker';
 import { File as ExpoFile } from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { Image } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 
 import { api } from './api';
@@ -16,6 +18,16 @@ import { api } from './api';
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export const MAX_PHOTOS_PER_ENTRY = 10;
 export const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/heic', 'image/heif'];
+
+/**
+ * Maximum long-edge dimension (px) for uploaded images. Sources larger than this
+ * are downscaled client-side before upload; sources at or below pass through
+ * untouched to avoid a wasteful, lossy re-encode.
+ */
+export const RESIZE_MAX_DIMENSION = 2048;
+
+/** JPEG compression quality applied when resizing (matches the picker's quality: 0.8). */
+const RESIZE_JPEG_QUALITY = 0.8;
 
 // Types
 export interface LocalFile {
@@ -91,6 +103,85 @@ export function validateFile(file: LocalFile): { valid: boolean; error?: string 
   }
 
   return { valid: true };
+}
+
+/**
+ * Read the pixel dimensions of an image URI.
+ */
+function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(
+      uri,
+      (width, height) => resolve({ width, height }),
+      () => reject(new Error('Failed to get image size'))
+    );
+  });
+}
+
+/**
+ * Resize/compress an image before upload so we never ship a full-resolution
+ * original when a bounded size suffices.
+ *
+ * Behavior:
+ * - Downscales so the long edge is at most `RESIZE_MAX_DIMENSION` (2048px).
+ * - Sources already within the bound PASS THROUGH untouched (no re-encode).
+ * - Orientation is preserved: the manipulator bakes EXIF orientation into
+ *   pixels, so the output is upright.
+ * - On any failure (dimension probe or manipulation), falls back to the
+ *   original file so a transient hiccup never blocks the upload.
+ *
+ * The returned file carries the resized `uri`, a recomputed `size`, and an
+ * `image/jpeg` type. The 10MB `validateFile` backstop still applies afterward.
+ *
+ * Generic over the file shape so both upload paths (manual picker `LocalFile`
+ * with a required `size`, and the cluster path's `LocalFile` with an optional
+ * `size`) can call it without type friction.
+ */
+export async function resizeImageForUpload<
+  T extends { uri: string; name: string; type: string; size?: number },
+>(file: T): Promise<T> {
+  try {
+    const { width, height } = await getImageDimensions(file.uri);
+    const longEdge = Math.max(width, height);
+
+    // Pass through untouched when already within the bound.
+    if (longEdge <= RESIZE_MAX_DIMENSION) {
+      return file;
+    }
+
+    // Constrain the long edge only; the manipulator preserves aspect ratio.
+    const resizeAction =
+      width >= height
+        ? { resize: { width: RESIZE_MAX_DIMENSION } }
+        : { resize: { height: RESIZE_MAX_DIMENSION } };
+
+    const result = await manipulateAsync(file.uri, [resizeAction], {
+      format: SaveFormat.JPEG,
+      compress: RESIZE_JPEG_QUALITY,
+    });
+
+    // Recompute size from the resized file; fall back to the original size if unavailable.
+    let size = file.size;
+    try {
+      size = new ExpoFile(result.uri).size ?? file.size;
+    } catch {
+      // Keep the original size estimate if the resized file can't be stat'd.
+    }
+
+    return {
+      ...file,
+      uri: result.uri,
+      type: 'image/jpeg',
+      size,
+    };
+  } catch (error) {
+    // Fall back to the original so a manipulator hiccup doesn't block uploads.
+    console.warn(
+      '[mediaUpload] Resize failed, uploading original:',
+      error instanceof Error ? error.message : error
+    );
+    return file;
+  }
 }
 
 /**
@@ -272,22 +363,25 @@ export async function uploadMediaFile(
   file: LocalFile,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadResult> {
-  // Validate file
-  const validation = validateFile(file);
+  // Resize/compress before upload so we don't ship full-resolution originals.
+  const resizedFile = await resizeImageForUpload(file);
+
+  // Validate file (10MB backstop still applies after resize)
+  const validation = validateFile(resizedFile);
   if (!validation.valid) {
     throw new MediaUploadError(validation.error!, 'VALIDATION');
   }
 
   // Get signed URL
-  const signedUrlResponse = await getSignedUploadUrl(entryId, file.name, file.type);
+  const signedUrlResponse = await getSignedUploadUrl(entryId, resizedFile.name, resizedFile.type);
 
   // Report initial progress
   if (onProgress) {
-    onProgress({ loaded: 0, total: file.size, percentage: 0 });
+    onProgress({ loaded: 0, total: resizedFile.size, percentage: 0 });
   }
 
   // Upload to storage
-  await uploadToStorage(signedUrlResponse.upload_url, file, onProgress);
+  await uploadToStorage(signedUrlResponse.upload_url, resizedFile, onProgress);
 
   // Mark complete
   await markUploadComplete(signedUrlResponse.media_id);
