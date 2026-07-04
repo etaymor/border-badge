@@ -1,4 +1,16 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { fireEvent, render, screen } from '../utils/testUtils';
+
+// Introspection mock: make every rendered expo-blur BlurView leave a queryable
+// marker so we can assert the perf pass removed all live blur stacks (U5).
+// The component no longer imports BlurView, so zero markers === zero BlurViews.
+jest.mock('expo-blur', () => {
+  const mockReact = require('react');
+  return {
+    BlurView: ({ children, style }: { children?: React.ReactNode; style?: unknown }) =>
+      mockReact.createElement('View', { testID: 'blur-view-instance', style }, children),
+  };
+});
 
 import { CountryCard } from '@components/ui/CountryCard';
 
@@ -84,5 +96,14 @@ describe('CountryCard', () => {
     render(<CountryCard {...defaultProps} hasTrips={false} />);
 
     expect(screen.queryByTestId('country-card-trips-JP')).toBeNull();
+  });
+
+  // U5 perf pass: repeated grid cells must not composite live blur stacks.
+  // All four decorative BlurViews (name pane, flag badge, visited/wishlist
+  // buttons) were replaced with translucent solid fills.
+  it('renders zero live BlurView instances', () => {
+    render(<CountryCard {...defaultProps} hasTrips isVisited isWishlisted />);
+
+    expect(screen.queryAllByTestId('blur-view-instance')).toHaveLength(0);
   });
 });

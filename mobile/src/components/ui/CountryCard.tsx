@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 
 import { colors } from '@constants/colors';
@@ -205,8 +204,8 @@ export const CountryCard = React.memo(function CountryCard({
           </View>
         )}
 
-        {/* Top Liquid Glass Pane - Country Name */}
-        <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
+        {/* Top Glass Pane - Country Name (frosted translucent fill, no live blur) */}
+        <View style={styles.topGlassPane}>
           <View style={styles.textContainer}>
             <Text
               style={[styles.countryName, isSmallScreen && styles.countryNameSmall]}
@@ -220,15 +219,15 @@ export const CountryCard = React.memo(function CountryCard({
               </Text>
             )}
           </View>
-        </BlurView>
+        </View>
 
         {/* Bottom Row - Flag Badge Left, Action Buttons Right */}
         <View style={styles.bottomRow}>
           {/* Flag Badge - Bottom Left */}
           <View style={styles.flagContainer}>
-            <BlurView intensity={30} tint="light" style={styles.glassBadge}>
+            <View style={styles.glassBadge}>
               <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-            </BlurView>
+            </View>
             {/* Trips Indicator - Badge next to flag */}
             {hasTrips && (
               <View style={styles.tripsIndicator} testID={`country-card-trips-${code}`}>
@@ -252,17 +251,13 @@ export const CountryCard = React.memo(function CountryCard({
               }
               testID={`country-card-visited-${code}`}
             >
-              <BlurView
-                intensity={30}
-                tint="light"
-                style={[styles.actionButton, isVisited && styles.actionButtonVisited]}
-              >
+              <View style={[styles.actionButton, isVisited && styles.actionButtonVisited]}>
                 <Ionicons
                   name={isVisited ? 'checkmark' : 'add'}
                   size={22}
                   color={isVisited ? colors.white : colors.successDark}
                 />
-              </BlurView>
+              </View>
             </TouchableOpacity>
 
             {/* Wishlist Button */}
@@ -279,11 +274,7 @@ export const CountryCard = React.memo(function CountryCard({
                 }
                 testID={`country-card-wishlist-${code}`}
               >
-                <BlurView
-                  intensity={30}
-                  tint="light"
-                  style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}
-                >
+                <View style={[styles.actionButton, isWishlisted && styles.actionButtonWishlisted]}>
                   <View style={styles.airplaneIconRotated}>
                     <Ionicons
                       name={isWishlisted ? 'airplane' : 'airplane-outline'}
@@ -291,7 +282,7 @@ export const CountryCard = React.memo(function CountryCard({
                       color={isWishlisted ? colors.wishlistBrown : colors.textTertiary}
                     />
                   </View>
-                </BlurView>
+                </View>
               </TouchableOpacity>
             </Animated.View>
           </View>
@@ -316,9 +307,11 @@ const styles = StyleSheet.create({
     aspectRatio: 3 / 4,
     position: 'relative',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
+    // Cheaper static lift: smaller blur radius, slightly higher opacity so the
+    // card still reads as elevated without compositing a wide shadow every frame.
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
     elevation: 8,
   },
   countryImage: {
@@ -340,7 +333,9 @@ const styles = StyleSheet.create({
     right: 0,
     paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm tint + Blur
+    // Frosted cream fill (was 0.75 over a live blur); higher opacity reads as
+    // frosted glass over the photo without compositing a UIVisualEffectView.
+    backgroundColor: 'rgba(253, 246, 237, 0.86)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.6)',
   },
@@ -364,7 +359,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)', // Fallback / Boost
+    // Frosted white fill (was 0.25 over a live blur); higher opacity so the
+    // badge reads as frosted glass without the per-cell blur.
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
   },
@@ -396,7 +393,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    // Frosted white fill (was 0.25 over a live blur); higher opacity so the
+    // action button reads as frosted glass without the per-cell blur.
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
   },
