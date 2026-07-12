@@ -1,20 +1,27 @@
 /**
- * U12 — Heavy main-screen detach/freeze.
+ * Main-navigator freeze config — `detachPreviousScreen` must NOT be set.
  *
- * The passport grid (PassportHome, ~200 image cards) and the Main tab tree must
- * stop staying attached + unfrozen underneath pushed screens. We reuse the same
- * mechanism U2 proved for the OnboardingNavigator: on a blank-stack navigator,
- * `detachPreviousScreen: true` (alongside `freezeOnBlur: true`) caps the
- * active-screens window so buried screens reach `activityState: 0` and
- * react-freeze suspends their re-renders. See
- * react-native-screen-transitions active-screens-limit helper:
- *   options?.detachPreviousScreen !== true  -> keeps previous screen active.
+ * TRIPWIRE: this file exists to keep `detachPreviousScreen` OFF the two main
+ * blank-stack navigators (Passport, Root). It was briefly enabled there for a
+ * freeze win and broke pop animations:
+ * `react-native-screen-transitions` derives `activeScreensLimit` from the TOP
+ * route's `detachPreviousScreen`; with it set, the limit collapses from 2 to 1,
+ * so the screen directly beneath the animating pop goes `activityState: 0` and
+ * (with global `enableFreeze`) freezes. On these 2-deep stacks
+ * (PassportHome → CountryDetail, Main → PaywallModal/Auth) that screen is the
+ * one that must co-animate, so the top slides away over a dead layer. There are
+ * no "buried" screens below it either, so the flag buys nothing here. Do not
+ * re-add it.
  *
- * react-freeze / native activityState is not observable under jest, so — exactly
- * like the U2 onboarding test — we assert the CONFIG: we introspect the
- * `screenOptions` handed to each blank-stack `Navigator` via a local blank-stack
- * mock that captures it. We also smoke-render each navigator and verify the
- * Trips stack is registered exactly once inside the Passport blank-stack.
+ * `freezeOnBlur: true` is retained on both (harmless without detach) and
+ * OnboardingNavigator — a forward-mostly, ~14-screen flow — KEEPS its detach
+ * config; a guard test below pins that so the removal can't creep.
+ *
+ * react-freeze / native activityState is not observable under jest, so we assert
+ * the CONFIG: we introspect the `screenOptions` handed to each blank-stack
+ * `Navigator` via a local blank-stack mock that captures it. We also smoke-render
+ * each navigator and verify the Trips stack is registered exactly once inside the
+ * Passport blank-stack.
  */
 import { render } from '@testing-library/react-native';
 import React from 'react';
@@ -87,8 +94,38 @@ jest.mock('@components/share', () => ({ ClipboardBannerOverlay: () => null }));
 // Nested navigators referenced by Root/Passport — stub to keep the tree shallow.
 jest.mock('@navigation/TripsNavigator', () => ({ TripsNavigator: () => null }));
 jest.mock('@navigation/MainTabNavigator', () => ({ MainTabNavigator: () => null }));
-jest.mock('@navigation/OnboardingNavigator', () => ({ OnboardingNavigator: () => null }));
 jest.mock('@navigation/AuthNavigator', () => ({ AuthNavigator: () => null }));
+
+// OnboardingNavigator is NOT stubbed — the guard test below needs its REAL
+// screenOptions. Stub ITS child screens instead so the import stays cheap.
+jest.mock('@screens/onboarding/AccountCreationScreen', () => ({
+  AccountCreationScreen: () => null,
+}));
+jest.mock('@screens/onboarding/AntarcticaPromptScreen', () => ({
+  AntarcticaPromptScreen: () => null,
+}));
+jest.mock('@screens/onboarding/ContinentCountryGridScreen', () => ({
+  ContinentCountryGridScreen: () => null,
+}));
+jest.mock('@screens/onboarding/ContinentIntroScreen', () => ({ ContinentIntroScreen: () => null }));
+jest.mock('@screens/onboarding/DreamDestinationScreen', () => ({
+  DreamDestinationScreen: () => null,
+}));
+jest.mock('@screens/onboarding/HomeCountryScreen', () => ({ HomeCountryScreen: () => null }));
+jest.mock('@screens/onboarding/MotivationScreen', () => ({ MotivationScreen: () => null }));
+jest.mock('@screens/onboarding/EmotionalHookScreen', () => ({ EmotionalHookScreen: () => null }));
+jest.mock('@screens/onboarding/FunctionalHookScreen', () => ({ FunctionalHookScreen: () => null }));
+jest.mock('@screens/onboarding/NameEntryScreen', () => ({ NameEntryScreen: () => null }));
+jest.mock('@screens/onboarding/OnboardingSliderScreen', () => ({
+  OnboardingSliderScreen: () => null,
+}));
+jest.mock('@screens/onboarding/PaywallScreen', () => ({ PaywallScreen: () => null }));
+jest.mock('@screens/onboarding/ProgressSummaryScreen', () => ({
+  ProgressSummaryScreen: () => null,
+}));
+jest.mock('@screens/onboarding/WelcomeCarouselScreen', () => ({
+  WelcomeCarouselScreen: () => null,
+}));
 
 // ErrorBoundary just renders children.
 jest.mock('@components/ui/ErrorBoundary', () => ({
@@ -98,6 +135,7 @@ jest.mock('@components/ui/ErrorBoundary', () => ({
 
 import { useAuthStore } from '@stores/authStore';
 
+import { OnboardingNavigator } from '@navigation/OnboardingNavigator';
 import { PassportNavigator } from '@navigation/PassportNavigator';
 import { RootNavigator } from '@navigation/RootNavigator';
 
@@ -131,20 +169,27 @@ beforeEach(() => {
   }
 });
 
-describe('U12 main-navigator detach/freeze config', () => {
+describe('main-navigator freeze config (detachPreviousScreen must stay off)', () => {
   describe('PassportNavigator (blank-stack)', () => {
-    it('sets detachPreviousScreen + freezeOnBlur on screenOptions so PassportHome freezes under pushed screens', () => {
+    it('does NOT set detachPreviousScreen, so PassportHome co-animates under the CountryDetail pop', () => {
       render(<PassportNavigator />);
 
       const record = findNavigatorWithScreen('PassportHome');
       expect(record.screenOptions).toBeDefined();
-      expect(record.screenOptions?.detachPreviousScreen).toBe(true);
+      expect(record.screenOptions?.detachPreviousScreen).toBeFalsy();
+      expect(record.screenOptions).not.toHaveProperty('detachPreviousScreen');
+    });
+
+    it('keeps freezeOnBlur on screenOptions', () => {
+      render(<PassportNavigator />);
+
+      const record = findNavigatorWithScreen('PassportHome');
       expect(record.screenOptions?.freezeOnBlur).toBe(true);
     });
 
     it('renders (smoke) and registers PassportHome as the initial screen', () => {
-      const { getByTestId } = render(<PassportNavigator />);
-      expect(getByTestId('blank-stack-navigator')).toBeTruthy();
+      const { getAllByTestId } = render(<PassportNavigator />);
+      expect(getAllByTestId('blank-stack-navigator').length).toBeGreaterThan(0);
 
       const record = findNavigatorWithScreen('PassportHome');
       expect(record.screens[0]).toBe('PassportHome');
@@ -168,23 +213,42 @@ describe('U12 main-navigator detach/freeze config', () => {
         needsPostSignupFlow: false,
       });
 
-    it('sets detachPreviousScreen + freezeOnBlur on screenOptions so the Main tab tree freezes under Auth/Paywall', () => {
+    it('does NOT set detachPreviousScreen, so the Main tab tree co-animates under Auth/Paywall', () => {
       authenticate();
       render(<RootNavigator />);
 
       const record = findNavigatorWithScreen('Main');
       expect(record.screenOptions).toBeDefined();
-      expect(record.screenOptions?.detachPreviousScreen).toBe(true);
+      expect(record.screenOptions?.detachPreviousScreen).toBeFalsy();
+      expect(record.screenOptions).not.toHaveProperty('detachPreviousScreen');
+    });
+
+    it('keeps freezeOnBlur on screenOptions', () => {
+      authenticate();
+      render(<RootNavigator />);
+
+      const record = findNavigatorWithScreen('Main');
       expect(record.screenOptions?.freezeOnBlur).toBe(true);
     });
 
     it('renders (smoke) with the Main stack when authenticated', () => {
       authenticate();
-      const { getByTestId } = render(<RootNavigator />);
-      expect(getByTestId('blank-stack-navigator')).toBeTruthy();
+      const { getAllByTestId } = render(<RootNavigator />);
+      expect(getAllByTestId('blank-stack-navigator').length).toBeGreaterThan(0);
 
       const record = findNavigatorWithScreen('Main');
       expect(record.screens).toContain('Main');
+    });
+  });
+
+  describe('OnboardingNavigator (guard: detach stays)', () => {
+    it('RETAINS detachPreviousScreen + freezeOnBlur (forward-mostly flow, no pop co-animation to protect)', () => {
+      render(<OnboardingNavigator />);
+
+      const record = findNavigatorWithScreen('WelcomeCarousel');
+      expect(record.screenOptions).toBeDefined();
+      expect(record.screenOptions?.detachPreviousScreen).toBe(true);
+      expect(record.screenOptions?.freezeOnBlur).toBe(true);
     });
   });
 });

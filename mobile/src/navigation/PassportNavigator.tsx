@@ -38,15 +38,17 @@ function PassportNavigatorContent() {
       <Stack.Navigator
         screenOptions={{
           ...SlideWithScalePreset,
-          // PassportHome renders the heavy passport grid (~200 image cards).
-          // Freeze + detach it when CountryDetail / ShareCapture / PhotoImport /
-          // PhotoTrips / Trips is pushed on top: detachPreviousScreen caps the
-          // active-screens window so the buried grid reaches activityState 0 and
-          // react-freeze suspends its re-renders. It stays mounted (not unmounted),
-          // so back-navigation restores it. Same mechanism proven for the
-          // OnboardingNavigator (U2). Requires enableFreeze() at app root (App.tsx).
+          // Suspend off-screen screens' re-renders (requires enableFreeze() in App.tsx).
+          //
+          // Do NOT add `detachPreviousScreen` here. react-native-screen-transitions
+          // derives activeScreensLimit from the top route's descriptor; setting the
+          // flag collapses the limit from 2 to 1, which drives the screen directly
+          // beneath the top route to activityState 0 and freezes it. On this 2-deep
+          // hot path (PassportHome → CountryDetail) that screen is the one that must
+          // co-animate during the pop (scale 0.95→1 + translateX), so detaching kills
+          // the pop animation and flashes on return. There are no screens buried
+          // deeper than that here, so the flag has nothing to win.
           freezeOnBlur: true,
-          detachPreviousScreen: true,
         }}
       >
         <Stack.Screen name="PassportHome" component={PassportScreen} />
