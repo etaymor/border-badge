@@ -14,6 +14,10 @@ jest.mock('expo-blur', () => {
 
 import { CountryCard } from '@components/ui/CountryCard';
 
+// expo-image renders a native host component ("ViewManagerAdapter_ExpoImage"),
+// so expo-image-only props (cachePolicy / recyclingKey) are introspectable.
+const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
+
 describe('CountryCard', () => {
   const defaultProps = {
     code: 'JP',
@@ -96,6 +100,17 @@ describe('CountryCard', () => {
     render(<CountryCard {...defaultProps} hasTrips={false} />);
 
     expect(screen.queryByTestId('country-card-trips-JP')).toBeNull();
+  });
+
+  // U3 nav-regression fix: country cards must repaint from the memory cache on
+  // remount (back-nav / tab reset) instead of re-decoding asynchronously.
+  it('renders the country image as an expo-image with cachePolicy memory-disk', () => {
+    render(<CountryCard {...defaultProps} />);
+
+    const image = screen.getByTestId('country-image-JP');
+    expect(image.type).toBe(EXPO_IMAGE_HOST);
+    expect(image.props.cachePolicy).toBe('memory-disk');
+    expect(image.props.recyclingKey).toBe('JP');
   });
 
   // U5 perf pass: repeated grid cells must not composite live blur stacks.

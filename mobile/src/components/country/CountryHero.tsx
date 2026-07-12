@@ -8,6 +8,8 @@ import { fonts } from '@constants/typography';
 import { useResponsive } from '@hooks/useResponsive';
 
 interface CountryHeroProps {
+  /** ISO 3166-1 alpha-2 country code — stable recycling identity for the hero image */
+  countryCode: string;
   displayName: string;
   subregion: string;
   flagEmoji: string;
@@ -21,6 +23,7 @@ interface CountryHeroProps {
 }
 
 function CountryHeroComponent({
+  countryCode,
   displayName,
   subregion,
   flagEmoji,
@@ -50,6 +53,8 @@ function CountryHeroComponent({
           source={countryImage}
           style={styles.heroImage}
           contentFit="cover"
+          recyclingKey={countryCode}
+          cachePolicy="memory-disk"
         />
       ) : (
         <View style={[styles.heroImage, { backgroundColor: colors.mossGreen }]} />

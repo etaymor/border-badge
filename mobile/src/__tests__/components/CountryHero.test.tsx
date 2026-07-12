@@ -12,6 +12,7 @@ function makeInterpolation() {
 }
 
 const baseProps = {
+  countryCode: 'JP',
   displayName: 'Japan',
   subregion: 'Eastern Asia',
   flagEmoji: '🇯🇵',
@@ -31,6 +32,17 @@ describe('CountryHero', () => {
     expect(image.type).toBe(EXPO_IMAGE_HOST);
     expect(image.props.contentFit).toBe('cover');
     expect(image.props.style).toEqual(expect.objectContaining({ width: '100%', height: '100%' }));
+  });
+
+  // U3 nav-regression fix: the hero must repaint from the memory cache on
+  // remount (back-nav) instead of re-decoding, and keep a stable identity
+  // across recycles keyed by the country code.
+  it('renders the hero image with cachePolicy memory-disk and a country-code recyclingKey', () => {
+    render(<CountryHero {...baseProps} countryCode="FR" countryImage={getCountryImage('FR')} />);
+
+    const image = screen.getByTestId('country-hero-image');
+    expect(image.props.cachePolicy).toBe('memory-disk');
+    expect(image.props.recyclingKey).toBe('FR');
   });
 
   it('renders a solid fallback (no image) when countryImage is null', () => {

@@ -193,10 +193,12 @@ export const CountryCard = React.memo(function CountryCard({
         {/* Background Image */}
         {countryImage ? (
           <Image
+            testID={`country-image-${code}`}
             source={countryImage}
             style={styles.countryImage}
             contentFit="cover"
             recyclingKey={code}
+            cachePolicy="memory-disk"
           />
         ) : (
           <View style={styles.imagePlaceholder}>

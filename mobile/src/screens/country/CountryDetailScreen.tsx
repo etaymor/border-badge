@@ -479,6 +479,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       <StatusBar barStyle="light-content" />
 
       <CountryHero
+        countryCode={code}
         displayName={displayName}
         subregion={subregion}
         flagEmoji={flagEmoji}
