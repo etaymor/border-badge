@@ -31,6 +31,7 @@ import { fonts } from '@constants/typography';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
 import { EntryWithPlace, useInfiniteEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import type { TripsStackScreenProps } from '@navigation/types';
@@ -149,20 +150,23 @@ export function TripDetailScreen({ route, navigation }: Props) {
     [navigation, tripId]
   );
 
-  // Keep the latest handler in a ref so per-id press callbacks stay stable.
-  const handleEntryPressRef = useRef(handleEntryPress);
-  handleEntryPressRef.current = handleEntryPress;
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableEntryPress = useStableCallback(handleEntryPress);
 
   // Per-id, stable onPress callbacks so EntryGridCard's React.memo holds across
   // parent re-renders instead of being defeated by a fresh inline closure.
   const entryPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
-  const getEntryPressHandler = useCallback((entryId: string) => {
-    const existing = entryPressCallbacksRef.current.get(entryId);
-    if (existing) return existing;
-    const handler = () => handleEntryPressRef.current(entryId);
-    entryPressCallbacksRef.current.set(entryId, handler);
-    return handler;
-  }, []);
+  const getEntryPressHandler = useCallback(
+    (entryId: string) => {
+      const existing = entryPressCallbacksRef.current.get(entryId);
+      if (existing) return existing;
+      const handler = () => stableEntryPress(entryId);
+      entryPressCallbacksRef.current.set(entryId, handler);
+      return handler;
+    },
+    [stableEntryPress]
+  );
 
   const handleConfirmDelete = useCallback(async () => {
     setShowDeleteConfirm(false);

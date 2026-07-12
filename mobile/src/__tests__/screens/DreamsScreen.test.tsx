@@ -348,6 +348,53 @@ describe('DreamsScreen', () => {
         expect.objectContaining({ onError: expect.any(Function) })
       );
     });
+
+    it('uses the LATEST toggle handler after wishlist data changes (no stale closure)', () => {
+      // The per-card onToggleWishlist callbacks are cached by country code so the
+      // CountryCard memo holds. They must nonetheless dispatch to the CURRENT
+      // handler, whose closure reads `wishlistCountries` - otherwise a card
+      // pressed after the data refreshes would still take the "add" branch.
+      const mockAddMutate = jest.fn();
+      const mockRemoveMutate = jest.fn();
+      const countries = [createMockCountry({ code: 'JP', name: 'Japan' })];
+
+      mockHooksWithData({
+        countries,
+        userCountries: [],
+        addMutate: mockAddMutate,
+        removeMutate: mockRemoveMutate,
+      });
+
+      const { rerender } = render(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      // JP is now wishlisted server-side; re-render with the fresh data.
+      mockHooksWithData({
+        countries,
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'wishlist' })],
+        addMutate: mockAddMutate,
+        removeMutate: mockRemoveMutate,
+      });
+
+      act(() => {
+        rerender(<DreamsScreen navigation={mockNavigation} route={mockRoute} />);
+      });
+
+      fireEvent.press(screen.getByTestId('country-card-wishlist-JP'));
+
+      // Latest handler => remove branch, immediately. A stale (mount-time)
+      // closure would take the add branch and fire addUserCountry after the
+      // exit animation instead.
+      expect(mockRemoveMutate).toHaveBeenCalledWith(
+        'JP',
+        expect.objectContaining({ onError: expect.any(Function) })
+      );
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(mockAddMutate).not.toHaveBeenCalled();
+    });
   });
 
   // ============ Snackbar Undo Tests ============

@@ -96,6 +96,8 @@ export type {
 
 export { useReducedMotion } from './useReducedMotion';
 
+export { useStableCallback } from './useStableCallback';
+
 export { useScreenEntrance } from './useScreenEntrance';
 export type { UseScreenEntranceOptions, UseScreenEntranceResult } from './useScreenEntrance';
 

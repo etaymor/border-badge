@@ -20,6 +20,7 @@ import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
@@ -372,16 +373,14 @@ export function DreamsScreen({ navigation }: Props) {
     [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues]
   );
 
-  // Keep the latest handler implementations in refs so the per-card callbacks
-  // below can stay referentially STABLE (never changing identity) while still
-  // invoking the current logic. Stable callbacks are what let CountryCard's
-  // React.memo hold across parent re-renders.
-  const handleCountryPressRef = useRef(handleCountryPress);
-  const handleAddVisitedRef = useRef(handleAddVisited);
-  const handleToggleWishlistRef = useRef(handleToggleWishlist);
-  handleCountryPressRef.current = handleCountryPress;
-  handleAddVisitedRef.current = handleAddVisited;
-  handleToggleWishlistRef.current = handleToggleWishlist;
+  // Identity-stable wrappers around the handlers above. Each keeps a permanently
+  // stable identity while always dispatching to the CURRENT implementation (the
+  // wishlist toggle, for instance, closes over `wishlistCountries`). That lets
+  // the per-card callbacks below be created once and cached, which is what keeps
+  // CountryCard's React.memo holding across parent re-renders.
+  const stableCountryPress = useStableCallback(handleCountryPress);
+  const stableAddVisited = useStableCallback(handleAddVisited);
+  const stableToggleWishlist = useStableCallback(handleToggleWishlist);
 
   // Per-code, stable, zero-arg callbacks for CountryCard. Created once per code
   // and cached, so a given card receives the SAME onPress/onAddVisited/
@@ -391,17 +390,20 @@ export function DreamsScreen({ navigation }: Props) {
     Map<string, { onPress: () => void; onAddVisited: () => void; onToggleWishlist: () => void }>
   >(new Map());
 
-  const getCardCallbacks = useCallback((code: string, name: string) => {
-    const existing = cardCallbacksRef.current.get(code);
-    if (existing) return existing;
-    const callbacks = {
-      onPress: () => handleCountryPressRef.current(code, name),
-      onAddVisited: () => handleAddVisitedRef.current(code, name),
-      onToggleWishlist: () => handleToggleWishlistRef.current(code, name),
-    };
-    cardCallbacksRef.current.set(code, callbacks);
-    return callbacks;
-  }, []);
+  const getCardCallbacks = useCallback(
+    (code: string, name: string) => {
+      const existing = cardCallbacksRef.current.get(code);
+      if (existing) return existing;
+      const callbacks = {
+        onPress: () => stableCountryPress(code, name),
+        onAddVisited: () => stableAddVisited(code, name),
+        onToggleWishlist: () => stableToggleWishlist(code, name),
+      };
+      cardCallbacksRef.current.set(code, callbacks);
+      return callbacks;
+    },
+    [stableCountryPress, stableAddVisited, stableToggleWishlist]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: ListItem }) => {
