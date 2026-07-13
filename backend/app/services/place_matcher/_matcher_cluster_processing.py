@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from app.services.photo_vision import VisionResult
+from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
 from ._matcher_search import TieredSearchResult
 from .constants import (
@@ -15,7 +16,7 @@ from .constants import (
     MAX_SUGGESTIONS_PER_CLUSTER,
 )
 from .exceptions import QuotaExhaustedError, RateLimitError
-from .utils import name_matches_candidate
+from .utils import name_match_strength, name_matches_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,11 @@ class ClusterProcessingMixin:
         Uses parallel execution with bounded concurrency to respect rate limits
         while improving performance for multiple clusters.
 
-        Each cluster has a per-cluster timeout to prevent long-running requests
-        from blocking when the semaphore queue is deep (e.g., 50 clusters with
-        semaphore=5 means 45 waiting tasks).
+        Each cluster has a per-cluster timeout bounding its own search work. The
+        timeout deliberately does NOT cover the wait for a semaphore slot: with
+        many clusters (e.g. 50 clusters against a semaphore of 5) every task is
+        created up front, so a budget that included the queue wait would expire on
+        the clusters at the back of the line before they ever called Google.
 
         Args:
             clusters: List of cluster dicts with centroid and photos
@@ -76,32 +79,32 @@ class ClusterProcessingMixin:
             trace (U4) can read its rich per-radius fields; the downstream
             unpacking loops only consume (cluster, places, radius_used).
             Ranking is deferred until vision results are available.
+
+            The semaphore is acquired OUTSIDE the timeout on purpose. asyncio.gather
+            starts a task per cluster immediately, so a timeout that also covered the
+            queue wait would start every cluster's clock at once: with concurrency of
+            N, everything past the first N burns its budget waiting rather than
+            working, and a tiered search that legitimately needs most of the budget
+            leaves no slack to absorb that. The timeout is meant to bound a slow
+            *search*, not to punish a cluster for its position in the queue.
             """
-
-            async def inner() -> TieredSearchResult:
-                """Acquire semaphore and run search, releasing in finally."""
-                await semaphore.acquire()
+            async with semaphore:
                 try:
-                    return await self._search_nearby_tiered(
-                        latitude=cluster["centroid"]["latitude"],
-                        longitude=cluster["centroid"]["longitude"],
+                    search_result = await asyncio.wait_for(
+                        self._search_nearby_tiered(
+                            latitude=cluster["centroid"]["latitude"],
+                            longitude=cluster["centroid"]["longitude"],
+                        ),
+                        timeout=cluster_timeout,
                     )
-                finally:
-                    semaphore.release()
-
-            try:
-                search_result = await asyncio.wait_for(
-                    inner(),
-                    timeout=cluster_timeout,
-                )
-                places = search_result.places
-                radius_used = search_result.radius_used
-            except TimeoutError:
-                logger.warning(
-                    f"Cluster search timed out after {cluster_timeout}s",
-                    extra={"cluster_id": cluster.get("id")},
-                )
-                return None
+                    places = search_result.places
+                    radius_used = search_result.radius_used
+                except TimeoutError:
+                    logger.warning(
+                        f"Cluster search timed out after {cluster_timeout}s",
+                        extra={"cluster_id": cluster.get("id")},
+                    )
+                    return None
 
             lat = cluster["centroid"]["latitude"]
             lng = cluster["centroid"]["longitude"]
@@ -227,10 +230,13 @@ class ClusterProcessingMixin:
             text_query: str,
             lat: float,
             lng: float,
+            radius: float = 200.0,
         ) -> tuple[str, list[dict]]:
             async with semaphore:
                 try:
-                    places = await self._execute_text_search(text_query, lat, lng)
+                    places = await self._execute_text_search(
+                        text_query, lat, lng, radius=radius
+                    )
                     if places:
                         places = self._filter_low_quality_places(places)
                         logger.info(
@@ -246,6 +252,18 @@ class ClusterProcessingMixin:
                     return cluster_id, []
 
         broaden_rescue = self._settings.places_text_rescue_on_empty
+        raw_landmark_rescue = getattr(
+            self._settings, "places_landmark_text_rescue", True
+        )
+        landmark_rescue = (
+            raw_landmark_rescue if isinstance(raw_landmark_rescue, bool) else True
+        )
+        raw_landmark_radius = getattr(
+            self._settings, "places_landmark_rescue_bias_radius_m", 500
+        )
+        landmark_bias_radius = float(
+            raw_landmark_radius if isinstance(raw_landmark_radius, int | float) else 500
+        )
         text_search_tasks = []
         for cluster, nearby_places, _radius_used in search_results:
             cluster_id = cluster["id"]
@@ -284,6 +302,40 @@ class ClusterProcessingMixin:
                         traces[cluster_id]["vision"]["text_search_triggered"] = True
                     continue
 
+            # U5 landmark rescue: monument photos usually carry no readable
+            # signage, so the business-name path below never fires — yet the
+            # venue's Google point often sits beyond the dense-city Nearby
+            # radii and is simply never fetched. When vision RECOGNIZES the
+            # landmark visually, its name is a free Text Search query. The
+            # bias center is quantized to ~110m so every cluster inside the
+            # same big venue (Champ de Mars, the Louvre...) shares ONE cached
+            # paid search; the wider bias radius reflects large footprints.
+            if (
+                landmark_rescue
+                and vision_result is not None
+                and vision_result.category == "landmark"
+                and vision_result.confidence != "low"
+                and not vision_result.has_business_name
+                and getattr(vision_result, "landmark_name", None)
+            ):
+                query = vision_result.landmark_name.strip()
+                already_present = any(
+                    name_match_strength(p.get("displayName", {}).get("text", ""), query)
+                    == "strong"
+                    for p in nearby_places
+                )
+                if query and not already_present:
+                    lat = round(cluster["centroid"]["latitude"], 3)
+                    lng = round(cluster["centroid"]["longitude"], 3)
+                    text_search_tasks.append(
+                        text_search_for_cluster(
+                            cluster_id, query, lat, lng, radius=landmark_bias_radius
+                        )
+                    )
+                    if diagnostics and cluster_id in traces:
+                        traces[cluster_id]["vision"]["text_search_triggered"] = True
+                    continue
+
             if (
                 vision_result is not None
                 and confidence_ok
@@ -292,14 +344,17 @@ class ClusterProcessingMixin:
                 candidates = vision_result.business_name_candidates
                 if candidates:
                     # LLM-gating: suppress the (Enterprise-tier) Text Search when the
-                    # Nearby result already contains a place whose name matches the
-                    # vision-detected signage. The Text Search would only re-find
-                    # what we already have, so skipping it is a pure cost saving with
-                    # no quality loss.
+                    # Nearby result already contains a place whose name STRONG-matches
+                    # the vision-detected signage — same venue, so the Text Search
+                    # would only re-find it. A weak (containment) match must NOT
+                    # suppress: in a real Paris import, 'Eiffel Tower' containment-
+                    # matched a nearby Airbnb's marketing name and the search that
+                    # would have fetched the actual tower never fired.
                     already_found = any(
-                        name_matches_candidate(
+                        name_match_strength(
                             p.get("displayName", {}).get("text", ""), candidates[0]
                         )
+                        == "strong"
                         for p in nearby_places
                     )
                     if already_found:
@@ -308,10 +363,26 @@ class ClusterProcessingMixin:
                             f"'{candidates[0]}' — already in nearby results"
                         )
                         continue
-                    lat = cluster["centroid"]["latitude"]
-                    lng = cluster["centroid"]["longitude"]
+                    if (
+                        landmark_rescue
+                        and vision_result.category == "landmark"
+                        and vision_result.confidence != "low"
+                    ):
+                        # Landmark signage ("EIFFEL TOWER" on a plaque): use the
+                        # same coarse-center/wide-radius treatment as the
+                        # visual-recognition rescue so big-venue clusters share
+                        # one cached search that can actually reach the venue.
+                        lat = round(cluster["centroid"]["latitude"], 3)
+                        lng = round(cluster["centroid"]["longitude"], 3)
+                        radius = landmark_bias_radius
+                    else:
+                        lat = cluster["centroid"]["latitude"]
+                        lng = cluster["centroid"]["longitude"]
+                        radius = 200.0
                     text_search_tasks.append(
-                        text_search_for_cluster(cluster_id, candidates[0], lat, lng)
+                        text_search_for_cluster(
+                            cluster_id, candidates[0], lat, lng, radius=radius
+                        )
                     )
                     if diagnostics and cluster_id in traces:
                         traces[cluster_id]["vision"]["text_search_triggered"] = True
@@ -325,6 +396,64 @@ class ClusterProcessingMixin:
                     text_search_map[tr[0]] = tr[1]
                     if diagnostics and tr[0] in traces:
                         traces[tr[0]]["vision"]["text_search_hit"] = bool(tr[1])
+
+        # U6 POPULARITY probe (flag-gated, default OFF): last resort for
+        # landmark clusters with NO text signal at all — nothing for the U5
+        # rescue to query — whose candidate world contains no landmark-family
+        # place. One extra Nearby ranked by POPULARITY surfaces the prominent
+        # venue the distance-ranked tiers structurally cannot reach.
+        probe_map: dict[str, list[dict]] = {}
+        raw_probe_flag = getattr(self._settings, "places_popularity_probe", False)
+        popularity_probe = raw_probe_flag if isinstance(raw_probe_flag, bool) else False
+        if popularity_probe:
+            landmark_family = VISION_TO_PLACE_TYPES["landmark"]
+
+            async def probe_for_cluster(
+                cluster_id: str, lat: float, lng: float
+            ) -> tuple[str, list[dict]]:
+                async with semaphore:
+                    try:
+                        places = await self._execute_popularity_probe(lat, lng)
+                        if places:
+                            places = self._filter_low_quality_places(places)
+                        return cluster_id, places
+                    except (RateLimitError, QuotaExhaustedError) as e:
+                        logger.warning(
+                            f"Cluster {cluster_id}: popularity probe unavailable "
+                            f"({type(e).__name__})"
+                        )
+                        return cluster_id, []
+
+            probe_tasks = []
+            for cluster, nearby_places, _radius_used in search_results:
+                cluster_id = cluster["id"]
+                vision_result = vision_map.get(cluster_id)
+                if (
+                    vision_result is None
+                    or vision_result.category != "landmark"
+                    or vision_result.confidence == "low"
+                    or vision_result.has_business_name
+                    or getattr(vision_result, "landmark_name", None)
+                ):
+                    continue
+                world = text_search_map.get(cluster_id, []) + nearby_places
+                if any(landmark_family & set(p.get("types", [])) for p in world):
+                    continue
+                probe_tasks.append(
+                    probe_for_cluster(
+                        cluster_id,
+                        cluster["centroid"]["latitude"],
+                        cluster["centroid"]["longitude"],
+                    )
+                )
+
+            if probe_tasks:
+                probe_results = await asyncio.gather(
+                    *probe_tasks, return_exceptions=True
+                )
+                for pr in probe_results:
+                    if isinstance(pr, tuple):
+                        probe_map[pr[0]] = pr[1]
 
         # First pass: rank each cluster on signals that don't need a live rating
         # (distance + vision + dwell/time-hint + closed/type filtering), then take
@@ -350,6 +479,13 @@ class ClusterProcessingMixin:
                 ]
             else:
                 merged = places
+            # Popularity-probe results are appended: they compete through
+            # ranking (the U3 landmark boost lifts the right ones), with no
+            # text-result-style priority.
+            probe_places = probe_map.get(cluster_id, [])
+            if probe_places:
+                seen_ids = {p["id"] for p in merged}
+                merged = merged + [p for p in probe_places if p["id"] not in seen_ids]
             per_cluster_merged[cluster_id] = merged
 
             first_pass = self._rank_by_distance(
@@ -362,17 +498,19 @@ class ClusterProcessingMixin:
             finalists = first_pass[:MAX_SUGGESTIONS_PER_CLUSTER]
             per_cluster_finalists[cluster_id] = finalists
 
-            # When the top finalist matches vision-detected signage, the ranking
-            # outcome is already decided: the name-match bonus exceeds the maximum
-            # combined rating/review/fame advantage any neighbor could gain from
-            # enrichment. Skip the (Enterprise-tier) Place Details calls for the
-            # whole cluster — pure cost saving, identical top suggestion. Big trip
-            # imports (hundreds of photos -> many clusters) make this significant.
+            # When the top finalist STRONG-matches vision-detected signage, the
+            # ranking outcome is already decided: the full name-match bonus exceeds
+            # the maximum combined rating/review/fame advantage any neighbor could
+            # gain from enrichment. Skip the (Enterprise-tier) Place Details calls
+            # for the whole cluster — pure cost saving, identical top suggestion.
+            # A weak (containment) match must NOT lock: its bonus is small enough
+            # for enrichment to overturn, and locking would also skip the review
+            # re-gate that filters zero-review listings.
             if (
                 finalists
                 and vision_result is not None
                 and any(
-                    name_matches_candidate(finalists[0]["name"], c)
+                    name_match_strength(finalists[0]["name"], c) == "strong"
                     for c in vision_result.business_name_candidates
                 )
             ):
@@ -396,55 +534,172 @@ class ClusterProcessingMixin:
                 logger.warning(f"Rating enrichment unavailable: {e}")
                 enriched_ratings = {}
 
-        # Rank and build suggestions with vision data + text search
-        successful = []
+        # Rank and build suggestions with vision data + text search.
+        #
+        # Two passes (U4). Pass A re-applies the deferred review-count gate to
+        # the enriched finalists per cluster and collects the shortfall's
+        # backfill candidates; ONE additional global enrichment batch prices
+        # those; Pass B gates the enriched backfill and only then tops up with
+        # un-gated candidates, so a gate-passing tail place always outranks
+        # junk the gate would reject.
+
+        def _with_live_ratings(
+            raw: dict[str, Any], ratings_map: dict[str, dict[str, Any]]
+        ) -> dict[str, Any]:
+            """Merge enriched rating fields onto a raw place dict.
+
+            A resolved Details response with the count field absent means the
+            place has NO reviews (Google omits zeros) — normalize to 0 so the
+            review gate can evaluate it instead of re-skipping on the absent
+            field. Places whose enrichment failed stay untouched (uncertain,
+            keep-recallable).
+            """
+            ratings = ratings_map.get(raw["id"])
+            if ratings is None:
+                return raw
+            merged = {**raw, **ratings}
+            if merged.get("userRatingCount") is None:
+                merged["userRatingCount"] = 0
+            if merged.get("rating") is None:
+                merged["rating"] = 0
+            return merged
+
+        raw_backfill_limit = getattr(self._settings, "places_enrich_backfill_limit", 3)
+        backfill_limit = (
+            raw_backfill_limit if isinstance(raw_backfill_limit, int) else 3
+        )
+
+        # None = this cluster skips the enriched path (locked / enrichment down).
+        per_cluster_reranked: dict[str, list[dict[str, Any]] | None] = {}
+        per_cluster_backfill: dict[str, list[dict[str, Any]]] = {}
+        backfill_ids: set[str] = set()
 
         for cluster, _places, _radius_used in search_results:
             cluster_id = cluster["id"]
             vision_result = vision_map.get(cluster_id)
             finalists = per_cluster_finalists.get(cluster_id, [])
 
-            if enriched_ratings and cluster_id not in name_match_locked_clusters:
-                # Merge live ratings back onto the original merged place dicts for
-                # just the finalists, then re-rank that small enriched set.
-                finalist_place_ids = {p["place_id"] for p in finalists}
-                enriched_places = [
-                    {**p, **enriched_ratings.get(p["id"], {})}
-                    for p in per_cluster_merged.get(cluster_id, [])
-                    if p["id"] in finalist_place_ids
-                ]
-                # Re-apply the deferred review-count quality gate now that the
-                # finalists carry live rating counts (the wide pass omitted them,
-                # so junk could reach the finalist set on distance alone). A
-                # dropped finalist is backfilled from the first-pass order so the
-                # user still sees a full suggestion list.
-                enrich_drops: dict[str, int] | None = {} if diagnostics else None
-                gated_places = self._filter_low_quality_places(
-                    enriched_places, drop_counts=enrich_drops
-                )
-                if diagnostics and cluster_id in traces and enrich_drops is not None:
-                    traces[cluster_id]["drop_counts"]["enrich"] = enrich_drops
-                reranked = self._rank_by_distance(
-                    places=gated_places,
-                    cluster=cluster,
-                    time_hint=cluster.get("time_hint"),
-                    vision_result=vision_result,
-                )
-                if len(reranked) < MAX_SUGGESTIONS_PER_CLUSTER:
-                    surviving_ids = {p["place_id"] for p in reranked}
-                    backfill = [
-                        p
-                        for p in per_cluster_first_pass.get(cluster_id, [])[
-                            MAX_SUGGESTIONS_PER_CLUSTER:
-                        ]
-                        if p["place_id"] not in surviving_ids
+            if not enriched_ratings or cluster_id in name_match_locked_clusters:
+                per_cluster_reranked[cluster_id] = None
+                continue
+
+            # Merge live ratings back onto the original merged place dicts for
+            # just the finalists, then re-rank that small enriched set.
+            finalist_place_ids = {p["place_id"] for p in finalists}
+            enriched_places = [
+                _with_live_ratings(p, enriched_ratings)
+                for p in per_cluster_merged.get(cluster_id, [])
+                if p["id"] in finalist_place_ids
+            ]
+            enrich_drops: dict[str, int] | None = {} if diagnostics else None
+            gated_places = self._filter_low_quality_places(
+                enriched_places, drop_counts=enrich_drops
+            )
+            if diagnostics and cluster_id in traces and enrich_drops is not None:
+                traces[cluster_id]["drop_counts"]["enrich"] = enrich_drops
+            reranked = self._rank_by_distance(
+                places=gated_places,
+                cluster=cluster,
+                time_hint=cluster.get("time_hint"),
+                vision_result=vision_result,
+            )
+            per_cluster_reranked[cluster_id] = reranked
+
+            if len(reranked) < MAX_SUGGESTIONS_PER_CLUSTER and backfill_limit > 0:
+                surviving_ids = {p["place_id"] for p in reranked}
+                tail = [
+                    p
+                    for p in per_cluster_first_pass.get(cluster_id, [])[
+                        MAX_SUGGESTIONS_PER_CLUSTER:
                     ]
-                    reranked.extend(
-                        backfill[: MAX_SUGGESTIONS_PER_CLUSTER - len(reranked)]
+                    if p["place_id"] not in surviving_ids
+                ][:backfill_limit]
+                if tail:
+                    per_cluster_backfill[cluster_id] = tail
+                    backfill_ids.update(p["place_id"] for p in tail)
+
+        # One bounded global batch for every cluster's backfill candidates —
+        # only finalists were enriched, and gating tail places blind would
+        # re-open the absent-count bypass this unit closes.
+        backfill_ratings: dict[str, dict[str, Any]] = {}
+        if backfill_ids:
+            try:
+                backfill_ratings = await self._enrich_place_ratings(list(backfill_ids))
+            except Exception as e:  # never crash the request on enrichment
+                logger.warning(f"Backfill rating enrichment unavailable: {e}")
+                backfill_ratings = {}
+
+        successful = []
+
+        for cluster, _places, _radius_used in search_results:
+            cluster_id = cluster["id"]
+            vision_result = vision_map.get(cluster_id)
+            finalists = per_cluster_finalists.get(cluster_id, [])
+            reranked = per_cluster_reranked.get(cluster_id)
+
+            if reranked is None:
+                suggestions = finalists
+            else:
+                if len(reranked) < MAX_SUGGESTIONS_PER_CLUSTER:
+                    used_ids = {p["place_id"] for p in reranked}
+                    backfill_candidates = per_cluster_backfill.get(cluster_id, [])
+                    if backfill_candidates and backfill_ratings:
+                        # Gate-approved backfill first, in first-pass order.
+                        raw_by_id = {
+                            p["id"]: p for p in per_cluster_merged.get(cluster_id, [])
+                        }
+                        backfill_drops: dict[str, int] | None = (
+                            {} if diagnostics else None
+                        )
+                        gated_backfill = self._filter_low_quality_places(
+                            [
+                                _with_live_ratings(
+                                    raw_by_id[p["place_id"]], backfill_ratings
+                                )
+                                for p in backfill_candidates
+                                if p["place_id"] in raw_by_id
+                            ],
+                            drop_counts=backfill_drops,
+                        )
+                        if diagnostics and cluster_id in traces and backfill_drops:
+                            enrich_counts = traces[cluster_id][
+                                "drop_counts"
+                            ].setdefault("enrich", {})
+                            for reason, count in backfill_drops.items():
+                                enrich_counts[reason] = (
+                                    enrich_counts.get(reason, 0) + count
+                                )
+                        gated_ids = {p["id"] for p in gated_backfill}
+                        for candidate in backfill_candidates:
+                            if len(reranked) >= MAX_SUGGESTIONS_PER_CLUSTER:
+                                break
+                            if (
+                                candidate["place_id"] in gated_ids
+                                and candidate["place_id"] not in used_ids
+                            ):
+                                reranked.append(candidate)
+                                used_ids.add(candidate["place_id"])
+                    if len(reranked) < MAX_SUGGESTIONS_PER_CLUSTER:
+                        # Un-gated top-up keeps the list full; it can never
+                        # displace a gate-approved place above it.
+                        filler = [
+                            p
+                            for p in per_cluster_first_pass.get(cluster_id, [])[
+                                MAX_SUGGESTIONS_PER_CLUSTER:
+                            ]
+                            if p["place_id"] not in used_ids
+                        ]
+                        reranked.extend(
+                            filler[: MAX_SUGGESTIONS_PER_CLUSTER - len(reranked)]
+                        )
+                if not reranked and finalists:
+                    # Terminal guarantee: a cluster non-empty before the gate
+                    # is never emptied by it.
+                    logger.info(
+                        f"Cluster {cluster_id}: all candidates failed review "
+                        "gate; returning un-gated finalists"
                     )
                 suggestions = reranked or finalists
-            else:
-                suggestions = finalists
 
             logger.info(
                 f"Cluster {cluster_id}: returning {len(suggestions)} suggestions"

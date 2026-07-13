@@ -381,8 +381,10 @@ class TestPipelineRegressionAndComposition:
         assert metrics.candidate_recall < 1.0
 
     def test_sample_dataset_text_rescue_lifts_to_full_recall(self) -> None:
-        # The C2 row in the sample dataset is recovered by the rescue sim,
-        # lifting recall to 1.0 and counting exactly one text-search call.
+        # Three rows need the rescue: the C2 lisbon-text-rescue-far row plus
+        # the two Paris Eiffel rows (the tower's point sits beyond the search
+        # radii). The rescue sim recovers all of them, lifting recall to 1.0
+        # with exactly one text-search call each.
         samples = load_dataset(SAMPLE_DATASET)
         baseline = evaluate_pipeline(
             matcher=make_matcher(),
@@ -400,12 +402,14 @@ class TestPipelineRegressionAndComposition:
         assert rescued.candidate_recall > baseline.candidate_recall
         assert rescued.candidate_recall == 1.0
         assert rescued.avg_text_search_calls is not None
-        # Exactly one rescue call across the dataset.
-        assert rescued.avg_text_search_calls * rescued.total == 1.0
+        assert round(rescued.avg_text_search_calls * rescued.total) == 3
 
     def test_sample_dataset_type_filter_drops_recall(self) -> None:
-        # The C5 row's gym type is excluded by the allowlist, so type-filter
-        # drops recall below baseline while leaving call cost unchanged.
+        # The C5 row's gym type (and the Louvre row's association type) are
+        # excluded by the allowlist, so type-filter drops recall below
+        # baseline. Call cost can only stay equal or RISE: each Nearby call is
+        # unchanged, but dropping results can leave the tiered search short of
+        # its stop threshold so it widens to another tier.
         samples = load_dataset(SAMPLE_DATASET)
         baseline = evaluate_pipeline(
             matcher=make_matcher(),
@@ -421,7 +425,7 @@ class TestPipelineRegressionAndComposition:
             simulate_type_filter=True,
         )
         assert filtered.candidate_recall < baseline.candidate_recall
-        assert filtered.avg_nearby_calls == baseline.avg_nearby_calls
+        assert filtered.avg_nearby_calls >= baseline.avg_nearby_calls
 
     def test_both_sims_additive_not_double_counted(self) -> None:
         # Type-filter excludes the near decoy's nothing here; the far place is

@@ -2,8 +2,18 @@
 
 import math
 import re
+import unicodedata
+from typing import Literal
 
-from .constants import MAX_ADDRESS_LENGTH, MAX_PLACE_NAME_LENGTH
+from .constants import (
+    LODGING_MARKETING_TOKENS,
+    MAX_ADDRESS_LENGTH,
+    MAX_PLACE_NAME_LENGTH,
+    NAME_MATCH_MAX_EXTRA_TOKENS,
+    NAME_MATCH_STOPWORDS,
+)
+
+NameMatchStrength = Literal["strong", "weak", "none"]
 
 
 def sanitize_place_text(text: str, max_length: int) -> str:
@@ -46,31 +56,103 @@ def sanitize_address(text: str) -> str:
 
 
 def _normalize_name(text: str) -> str:
-    """Lowercase, strip punctuation, and collapse whitespace for name matching."""
-    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+    """Lowercase, fold accents, strip punctuation, and collapse whitespace.
+
+    Accent folding (NFKD + drop combining marks) lets unaccented OCR match
+    accented display names ("Pantheon" vs "Panthéon") and vice versa.
+    """
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    folded = "".join(c for c in decomposed if not unicodedata.combining(c))
+    cleaned = re.sub(r"[^\w\s]", " ", folded)
     return " ".join(cleaned.split())
 
 
-def name_matches_candidate(place_name: str, candidate: str) -> bool:
-    """Whether a place's display name confidently matches a detected business name.
+def _significant_tokens(normalized: str) -> list[str]:
+    """Tokenize a normalized name, dropping article/particle stopwords."""
+    return [t for t in normalized.split() if t not in NAME_MATCH_STOPWORDS]
 
-    Used to suppress a redundant Text Search: if the Nearby result already
-    contains a place whose name matches the vision-detected signage text, the
-    (Enterprise-tier) Text Search adds nothing. Matching is intentionally
-    conservative — substring containment after normalization — so suppression
-    only fires on a strong match and never hides a genuinely different place.
+
+def _contains_token_run(haystack: list[str], needle: list[str]) -> bool:
+    """Whether ``needle`` appears as a contiguous token run inside ``haystack``."""
+    if not needle or len(needle) > len(haystack):
+        return False
+    return any(
+        haystack[i : i + len(needle)] == needle
+        for i in range(len(haystack) - len(needle) + 1)
+    )
+
+
+def name_match_strength(place_name: str, candidate: str) -> NameMatchStrength:
+    """Tiered match between a place's display name and a detected signage name.
+
+    - ``strong``: the two names denote the SAME venue — token-sequence equality,
+      or a brand-prefix match where one token sequence starts the other with at
+      most ``NAME_MATCH_MAX_EXTRA_TOKENS`` extra trailing tokens, none of which
+      is short-term-rental marketing vocabulary or contains a digit
+      ("Blue Bottle" ⊑ "Blue Bottle Coffee Omotesando").
+    - ``weak``: the detected name appears inside a longer, DIFFERENT name as a
+      whole-token run ("Eiffel Tower" inside "Gorgeous 3 Bedroom Flat at Eiffel
+      Tower - Apartment", "Musée d'Orsay" inside "Batobus- Musée d'Orsay").
+      Suggestive, but not evidence the place IS the detected venue.
+    - ``none``: no whole-token relationship. Partial-word coincidences
+      ("Roma" ⊂ "Trattoria Romano") land here by construction.
+
+    Only ``strong`` may drive high-stakes decisions (the dominant ranking
+    bonus, the enrichment-skip lock, Text-Search suppression); the Paris
+    import showed containment alone misawards all three to lodging listings
+    named after nearby landmarks.
     """
     if not place_name or not candidate:
-        return False
+        return "none"
     name = _normalize_name(place_name)
     cand = _normalize_name(candidate)
-    if not name or not cand:
-        return False
-    # Require the shorter normalized string to be contained in the longer, and the
-    # candidate to be substantial (>= 3 chars) to avoid trivial coincidences.
-    if len(cand) < 3:
-        return False
-    return cand in name or name in cand
+    if not name or not cand or len(cand) < 3:
+        return "none"
+
+    name_tokens = _significant_tokens(name)
+    cand_tokens = _significant_tokens(cand)
+    if not name_tokens or not cand_tokens:
+        # All-stopword name(s): fall back to whole-string equality.
+        return "strong" if name == cand else "none"
+
+    if name_tokens == cand_tokens:
+        return "strong"
+
+    shorter, longer = sorted([name_tokens, cand_tokens], key=len)
+    if longer[: len(shorter)] == shorter:
+        extra = longer[len(shorter) :]
+        extra_is_venue_suffix = len(extra) <= NAME_MATCH_MAX_EXTRA_TOKENS and not any(
+            t in LODGING_MARKETING_TOKENS or any(c.isdigit() for c in t) for t in extra
+        )
+        if extra_is_venue_suffix:
+            return "strong"
+        return "weak"
+
+    if _contains_token_run(longer, shorter):
+        return "weak"
+
+    # Space-less scripts (CJK) never tokenize; fall back to raw containment,
+    # capped at weak — token evidence is unavailable. Latin text must NOT take
+    # this path or partial-word coincidences ("Roma" ⊂ "Romano") would match.
+    def _is_spaceless_script(s: str) -> bool:
+        return " " not in s and not any(c.isascii() and c.isalpha() for c in s)
+
+    if (_is_spaceless_script(name) or _is_spaceless_script(cand)) and (
+        cand in name or name in cand
+    ):
+        return "weak"
+
+    return "none"
+
+
+def name_matches_candidate(place_name: str, candidate: str) -> bool:
+    """Boolean view of :func:`name_match_strength` (weak or strong).
+
+    Kept for callers where any whole-token relationship is signal enough
+    (diagnostic traces, eval tooling). Decision points that must not fire on
+    containment coincidences use :func:`name_match_strength` directly.
+    """
+    return name_match_strength(place_name, candidate) != "none"
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

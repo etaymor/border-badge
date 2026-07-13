@@ -98,6 +98,57 @@ NON_TOURIST_TYPES: set[str] = {
 
 
 # ============================================================================
+# Name-Match Tiering (U2)
+# ============================================================================
+
+# Articles/particles ignored when tokenizing names for matching. Deliberately
+# small: only glue words that Google prepends/drops freely ("Le Musée d'Orsay"
+# vs "Musée d'Orsay"). Content words must keep distinguishing names.
+NAME_MATCH_STOPWORDS: set[str] = {
+    "the",
+    "le",
+    "la",
+    "les",
+    "l",
+    "du",
+    "de",
+    "des",
+    "d",
+    "da",
+    "el",
+    "il",
+}
+
+# Short-term-rental marketing vocabulary. A brand-prefix match whose extra
+# tokens include any of these is a listing NAMED AFTER the detected venue
+# ("Eiffel Tower Apartment"), not the venue itself — cap it at weak.
+LODGING_MARKETING_TOKENS: set[str] = {
+    "apartment",
+    "apartments",
+    "appartement",
+    "apt",
+    "flat",
+    "studio",
+    "bedroom",
+    "bedrooms",
+    "br",
+    "loft",
+    "suite",
+    "penthouse",
+    "chambre",
+    "logement",
+    "airbnb",
+    "condo",
+    "entire",
+}
+
+# A brand-prefix match ("Blue Bottle" ⊑ "Blue Bottle Coffee Omotesando") stays
+# strong only up to this many extra trailing tokens; beyond that the longer
+# name is treated as a different (merely related) venue.
+NAME_MATCH_MAX_EXTRA_TOKENS = 2
+
+
+# ============================================================================
 # Enhanced Ranking Constants
 # ============================================================================
 

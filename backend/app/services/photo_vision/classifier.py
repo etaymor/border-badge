@@ -33,6 +33,10 @@ class VisionResult:
     )
     detected_text: list[str] = field(default_factory=list)
     confidence: str = "low"  # high, medium, low
+    # Common name of a visually recognized famous landmark ("Eiffel Tower"),
+    # independent of readable signage — monument photos usually have none.
+    # Costs nothing extra (same LLM call); powers the landmark text-rescue.
+    landmark_name: str | None = None
 
     @staticmethod
     def _is_business_name_text(text: str) -> bool:
@@ -190,10 +194,17 @@ class PhotoClassifier:
         # Ensure all items are strings
         detected_text = [str(t) for t in detected_text if t]
 
+        landmark_name = data.get("landmark_name")
+        if not isinstance(landmark_name, str) or not landmark_name.strip():
+            landmark_name = None
+        else:
+            landmark_name = landmark_name.strip()
+
         return VisionResult(
             category=category,
             detected_text=detected_text,
             confidence=confidence,
+            landmark_name=landmark_name,
         )
 
     @staticmethod
@@ -248,10 +259,23 @@ class PhotoClassifier:
                 seen_text.add(key)
                 detected_text.append(normalized)
 
+        # Keep the most confident photo's recognized landmark name (ties by
+        # first seen — same rule as the category vote).
+        landmark_name: str | None = None
+        best_weight = 0.0
+        for result in valid_results:
+            if not result.landmark_name:
+                continue
+            weight = confidence_weights.get(result.confidence, 1.0)
+            if weight > best_weight:
+                best_weight = weight
+                landmark_name = result.landmark_name
+
         return VisionResult(
             category=best_category,
             detected_text=detected_text,
             confidence=aggregate_confidence,
+            landmark_name=landmark_name,
         )
 
 

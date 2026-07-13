@@ -31,7 +31,13 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
-@limiter.limit("10/minute")  # Vision-enabled endpoint: limit API cost exposure
+# Vision-enabled endpoint: the limit caps API cost exposure, but it has to clear
+# one legitimate import. A big trip is 50-100 clusters and the client chunks them
+# 5 at a time, so a single honest import spends 10-20 requests -- at 10/minute it
+# rate-limited itself partway through and the remaining clusters surfaced as
+# "Couldn't check this location" with retry disabled. Cost is bounded per cluster
+# (not per request), so a higher request ceiling does not raise the ceiling on spend.
+@limiter.limit("40/minute")
 async def suggest_places(
     request: Request,  # Required for rate limiter
     data: PlaceSuggestionRequest,

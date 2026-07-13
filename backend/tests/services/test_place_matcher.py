@@ -25,7 +25,7 @@ from app.services.place_matcher._matcher_ranking import (
     VISION_MEDIUM_CONFIDENCE_BONUS,
 )
 from app.services.place_matcher._matcher_search import TieredSearchResult
-from app.services.place_matcher.utils import name_matches_candidate
+from app.services.place_matcher.utils import name_match_strength, name_matches_candidate
 
 
 def _tiered(places: list[dict], radius_used: int = 15) -> TieredSearchResult:
@@ -113,6 +113,100 @@ class TestNameMatchesCandidate:
     def test_too_short_candidate_does_not_match(self) -> None:
         # A 1-2 char candidate must not trivially match via containment.
         assert not name_matches_candidate("A Big Restaurant", "a")
+
+
+class TestNameMatchStrength:
+    """Tiered name matching (U2): strong / weak / none.
+
+    Strong = the names are the same venue (token equality or brand-prefix).
+    Weak = the detected name merely appears inside a longer, different name —
+    the pattern behind every Paris false positive ("Gorgeous 3 Bedroom Flat at
+    Eiffel Tower - Apartment" containing "Eiffel Tower").
+    """
+
+    # --- strong: same venue ---
+
+    def test_exact_match_is_strong(self) -> None:
+        assert name_match_strength("Musée d'Orsay", "Musée d'Orsay") == "strong"
+
+    def test_case_and_punctuation_insensitive_strong(self) -> None:
+        assert (
+            name_match_strength("Blue Bottle Coffee!", "blue bottle coffee") == "strong"
+        )
+
+    def test_brand_prefix_with_venue_suffix_is_strong(self) -> None:
+        # OCR reads the brand; Google appends the branch name.
+        assert (
+            name_match_strength("Blue Bottle Coffee Omotesando", "BLUE BOTTLE")
+            == "strong"
+        )
+
+    def test_accent_folding_matches_unaccented_ocr(self) -> None:
+        assert name_match_strength("Panthéon", "Pantheon") == "strong"
+
+    def test_leading_article_stopwords_ignored(self) -> None:
+        assert name_match_strength("Le Musée d'Orsay", "Musée d'Orsay") == "strong"
+
+    # --- weak: detected name contained in a longer, different name ---
+
+    def test_marketing_name_containing_landmark_is_weak(self) -> None:
+        assert (
+            name_match_strength(
+                "Gorgeous 3 Bedroom Flat at Eiffel Tower - Apartment", "Eiffel Tower"
+            )
+            == "weak"
+        )
+
+    def test_accented_landmark_inside_marketing_name_is_weak(self) -> None:
+        assert (
+            name_match_strength(
+                "Appartement à deux pas du Panthéon avec balcon - One-Bedroom Apartment",
+                "Panthéon",
+            )
+            == "weak"
+        )
+
+    def test_non_prefix_containment_is_weak(self) -> None:
+        # The venue name appears mid-string: a different business referencing it.
+        assert name_match_strength("Batobus- Musée d'Orsay", "Musée d'Orsay") == "weak"
+
+    def test_association_containing_landmark_word_is_weak(self) -> None:
+        assert name_match_strength("Société des Amis du Louvre", "Louvre") == "weak"
+
+    def test_prefix_with_lodging_marketing_suffix_is_weak_not_strong(self) -> None:
+        # Prefix rule must not grant strong when the extra tokens are
+        # short-term-rental marketing words.
+        assert name_match_strength("Eiffel Tower Apartment", "Eiffel Tower") == "weak"
+
+    def test_prefix_with_too_many_extra_tokens_is_weak(self) -> None:
+        assert (
+            name_match_strength(
+                "Tsukiji Ramen Honten Tokyo Main Branch", "Tsukiji Ramen"
+            )
+            == "weak"
+        )
+
+    # --- none: different names ---
+
+    def test_partial_word_containment_is_none(self) -> None:
+        # "Roma" inside "Trattoria Romano" is a partial-word coincidence —
+        # the residual false positive from the substring matcher (870ecb20).
+        assert name_match_strength("Trattoria Romano", "Roma") == "none"
+
+    def test_unrelated_names_are_none(self) -> None:
+        assert name_match_strength("Nearby Cafe", "Signboard Ramen House") == "none"
+
+    def test_empty_or_tiny_inputs_are_none(self) -> None:
+        assert name_match_strength("", "Ramen") == "none"
+        assert name_match_strength("Ramen", "") == "none"
+        assert name_match_strength("A Big Restaurant", "a") == "none"
+
+    # --- wrapper compatibility ---
+
+    def test_wrapper_treats_weak_and_strong_as_match(self) -> None:
+        assert name_matches_candidate("Batobus- Musée d'Orsay", "Musée d'Orsay")
+        assert name_matches_candidate("Musée d'Orsay", "Musée d'Orsay")
+        assert not name_matches_candidate("Trattoria Romano", "Roma")
 
 
 class TestTypeToCategoryMapping:
@@ -1023,6 +1117,69 @@ class TestFindPlacesForClustersPartialFailures:
         assert empty_cluster is not None
         assert empty_cluster["places"] == []
 
+    @pytest.mark.asyncio
+    async def test_semaphore_queue_wait_does_not_consume_cluster_timeout(
+        self,
+        mock_places_response,
+        mock_settings,
+        clean_cache,
+        monkeypatch,
+    ) -> None:
+        """Waiting in the semaphore queue must not burn a cluster's timeout.
+
+        Regression guard: `asyncio.gather` starts every cluster task at once, so
+        if the per-cluster `wait_for` wraps the semaphore acquisition, a cluster
+        queued behind a full semaphore burns its entire budget *waiting* and
+        times out having made zero API calls. With bounded concurrency and many
+        clusters, that fails almost every cluster in the tail of the batch --
+        surfacing in the app as "Couldn't check this location" on nearly every
+        location.
+
+        Setup makes the bug unambiguous: concurrency of 1 and a search that takes
+        well under the per-cluster timeout, so *no* cluster's own work can exceed
+        the budget. Any failure here is queue-wait accounting, nothing else.
+        """
+        search_duration = 0.02
+        cluster_count = 10
+
+        # Each cluster's own work (0.02s) is far below the 0.05s budget, but the
+        # serialized queue means the last cluster waits ~0.18s to even start.
+        mock_settings.places_cluster_timeout_seconds = 0.05
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_cluster_processing"
+            ".MAX_CONCURRENT_PLACES_REQUESTS",
+            1,
+        )
+
+        clusters = [
+            {
+                "id": f"cluster-{i}",
+                "centroid": {"latitude": 35.6762 + i * 0.01, "longitude": 139.6503},
+                "photos": [{"asset_id": f"photo-{i}-1"}],
+            }
+            for i in range(cluster_count)
+        ]
+
+        searched_cluster_ids: list[float] = []
+
+        async def slow_search(latitude: float, longitude: float, **kwargs):
+            searched_cluster_ids.append(latitude)
+            await asyncio.sleep(search_duration)
+            return _tiered(mock_places_response["places"])
+
+        mock_client = AsyncMock()
+        matcher = PlaceMatcher(http_client=mock_client)
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", slow_search)
+
+        results, failed_count = await matcher.find_places_for_clusters(clusters)
+
+        # Every cluster did work that fit inside its own budget, so none may fail.
+        assert failed_count == 0
+        assert len(results) == cluster_count
+        # And every cluster must actually have reached the search -- a cluster that
+        # timed out in the queue never calls through at all.
+        assert len(searched_cluster_ids) == cluster_count
+
 
 # ============================================================================
 # Quality Filtering Tests
@@ -1160,13 +1317,19 @@ class TestQualityFiltering:
         assert {p["id"] for p in filtered} == {"place-1", "place-2"}
 
     def test_all_institutional_types_are_recognized(self, matcher) -> None:
-        """Test that all defined institutional types pass the filter."""
+        """All institutional types pass the filter with few reviews.
+
+        Exception (U4): hotel/resort_hotel with ZERO reviews are rental
+        inventory (aparthotels/OYO), not small legitimate venues — they lose
+        the exemption at exactly 0. One review restores it.
+        """
         for inst_type in INSTITUTIONAL_TYPES:
+            count = 1 if inst_type in ("hotel", "resort_hotel") else 0
             places = [
                 {
                     "id": f"place-{inst_type}",
                     "displayName": {"text": f"Test {inst_type}"},
-                    "userRatingCount": 0,  # No reviews
+                    "userRatingCount": count,
                     "primaryType": inst_type,
                 }
             ]
@@ -2651,6 +2814,70 @@ class TestVisionRanking:
         assert results[0]["places"][0]["place_id"] == "place-ramen"
 
     @pytest.mark.asyncio
+    async def test_weak_nearby_match_does_not_suppress_text_search(
+        self, matcher, monkeypatch
+    ) -> None:
+        """A marketing name CONTAINING the detected landmark must not suppress
+        the Text Search — this suppression is exactly how the real Eiffel Tower
+        was never fetched ('Eiffel Tower' matched a nearby Airbnb's name).
+        Suppression requires a strong (same-venue) match.
+        """
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 48.8556, "longitude": 2.2986},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        nearby_places = [
+            {
+                "id": "place-flat",
+                "displayName": {
+                    "text": "Gorgeous 3 Bedroom Flat at Eiffel Tower - Apartment"
+                },
+                "formattedAddress": "Champ de Mars",
+                "location": {"latitude": 48.8556, "longitude": 2.2986},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(nearby_places)
+
+        text_search_queries: list[str] = []
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            text_search_queries.append(text_query)
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        vision_result = VisionResult(
+            category="landmark",
+            detected_text=["Eiffel Tower"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-1": vision_result}
+
+        results, failed_count = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+
+        assert failed_count == 0
+        assert text_search_queries == ["Eiffel Tower"]  # NOT suppressed
+
+    @pytest.mark.asyncio
     async def test_low_confidence_text_search_rescues_empty_nearby(
         self, matcher, monkeypatch
     ) -> None:
@@ -3236,6 +3463,168 @@ class TestNameMatchRanking:
 
         assert ranked[0]["place_id"] == "famous-landmark"
 
+    def test_marketing_substring_does_not_steal_bonus_from_landmark(
+        self, matcher, cluster
+    ) -> None:
+        """The Paris failure: 'Eiffel Tower' detected, and the full 9.0 bonus
+        landed on the closer Airbnb whose marketing name CONTAINS it (rating-blind
+        wide pass), so distance decided. The weak-tier match on a lodging place
+        under a landmark vision must earn nothing.
+        """
+        places = [
+            {
+                "id": "flat-at-eiffel",
+                "displayName": {
+                    "text": "Gorgeous 3 Bedroom Flat at Eiffel Tower - Apartment"
+                },
+                "location": {"latitude": 48.85751, "longitude": 2.2932},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+            },
+            {
+                "id": "eiffel-tower",
+                "displayName": {"text": "Eiffel Tower"},
+                "location": {"latitude": 48.85857, "longitude": 2.2932},
+                "primaryType": "tourist_attraction",
+                "types": ["tourist_attraction", "historical_landmark", "monument"],
+            },
+        ]
+        vision = VisionResult(
+            category="landmark",
+            detected_text=["Eiffel Tower"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "eiffel-tower"
+
+    def test_weak_match_beats_no_match_for_non_lodging(self, matcher, cluster) -> None:
+        """A weak (containment) match still earns a small bonus on non-lodging
+        places — enough to beat an otherwise-identical neighbor with no match.
+        """
+        places = [
+            {
+                "id": "no-match-agency",
+                "displayName": {"text": "Vedettes de Paris"},
+                "location": {"latitude": 48.85749, "longitude": 2.2932},
+                "primaryType": "tour_agency",
+                "types": ["tour_agency"],
+            },
+            {
+                "id": "batobus-dorsay",
+                "displayName": {"text": "Batobus- Musée d'Orsay"},
+                "location": {"latitude": 48.85751, "longitude": 2.2932},
+                "primaryType": "tour_agency",
+                "types": ["tour_agency"],
+            },
+        ]
+        vision = VisionResult(
+            category="landmark",
+            detected_text=["Musée d'Orsay"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "batobus-dorsay"
+
+    def test_weak_match_loses_to_strong_match(self, matcher, cluster) -> None:
+        """Strong (same-venue) match must dominate a closer weak (containment)
+        match: the museum beats its Batobus stop and its restaurant.
+        """
+        places = [
+            {
+                "id": "batobus-dorsay",
+                "displayName": {"text": "Batobus- Musée d'Orsay"},
+                "location": {"latitude": 48.85747, "longitude": 2.2932},
+                "primaryType": "tour_agency",
+                "types": ["tour_agency"],
+            },
+            {
+                "id": "musee-dorsay",
+                "displayName": {"text": "Musée d'Orsay"},
+                "location": {"latitude": 48.85838, "longitude": 2.2932},
+                "primaryType": "art_museum",
+                "types": ["art_museum", "museum", "tourist_attraction"],
+            },
+        ]
+        vision = VisionResult(
+            category="landmark",
+            detected_text=["Musée d'Orsay"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "musee-dorsay"
+
+    def test_weak_match_on_lodging_zeroed_under_non_stay_vision(
+        self, matcher, cluster
+    ) -> None:
+        """Isolation test for the lodging-zero rule: two lodging places, the
+        farther one weak-matches the detected landmark name. If the weak bonus
+        paid out on lodging it would win; with the zero rule the nearer plain
+        hostel stays first.
+        """
+        places = [
+            {
+                "id": "plain-hostel",
+                "displayName": {"text": "Generator Paris"},
+                "location": {"latitude": 48.85749, "longitude": 2.2932},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+            },
+            {
+                "id": "flat-at-eiffel",
+                "displayName": {"text": "Riverside Flat at Eiffel Tower"},
+                "location": {"latitude": 48.85776, "longitude": 2.2932},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+            },
+        ]
+        vision = VisionResult(
+            category="landmark",
+            detected_text=["Eiffel Tower"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "plain-hostel"
+
+    def test_weak_match_on_lodging_kept_under_stay_vision(
+        self, matcher, cluster
+    ) -> None:
+        """When the photo itself is of accommodation (vision 'stay'), a weak
+        name match on a lodging place keeps its small bonus.
+        """
+        places = [
+            {
+                "id": "plain-hostel",
+                "displayName": {"text": "Generator Paris"},
+                "location": {"latitude": 48.85749, "longitude": 2.2932},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+            },
+            {
+                "id": "flat-at-eiffel",
+                "displayName": {"text": "Riverside Flat at Eiffel Tower"},
+                "location": {"latitude": 48.85776, "longitude": 2.2932},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+            },
+        ]
+        vision = VisionResult(
+            category="stay",
+            detected_text=["Eiffel Tower"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "flat-at-eiffel"
+
     def test_internal_name_match_field_not_leaked(
         self, matcher, cluster, bistro_vs_landmark
     ) -> None:
@@ -3252,6 +3641,211 @@ class TestNameMatchRanking:
 
         for place in ranked:
             assert "_name_match" not in place
+
+
+class TestTypePriorRanking:
+    """U3 type prior: lodging demotion + landmark-family boost.
+
+    The rating-blind wide pass has only distance and vision to rank on, so in
+    dense residential cells zero-review Airbnb `lodging` listings won clusters
+    on distance alone, and museum sub-POIs beat the museum itself.
+    """
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
+        settings.places_rank_lodging_penalty = 2.5
+        settings.places_rank_landmark_boost = 1.5
+        # Production default (2.0) — the type-prior magnitudes were calibrated
+        # against it, so the fixture must not fall back to the 1.0 stub.
+        settings.places_rank_vision_weight = 2.0
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @pytest.fixture
+    def cluster(self) -> dict[str, Any]:
+        return {"centroid": {"latitude": 48.8905, "longitude": 2.344}}
+
+    @staticmethod
+    def _airbnb(pid: str, lat: float) -> dict[str, Any]:
+        return {
+            "id": pid,
+            "displayName": {"text": f"Cosy Apartment {pid}"},
+            "location": {"latitude": lat, "longitude": 2.344},
+            "primaryType": "lodging",
+            "types": ["lodging"],
+        }
+
+    def test_lodging_demoted_without_usable_vision(self, matcher, cluster) -> None:
+        """No usable vision signal: the half demotion still outranks a nearer
+        zero-review Airbnb below a slightly farther restaurant (the Montmartre
+        lodging-flood failure).
+        """
+        places = [
+            self._airbnb("airbnb-near", 48.8905449),  # ~5m
+            {
+                "id": "restaurant",
+                "displayName": {"text": "Le Sourire de Saïgon"},
+                "location": {"latitude": 48.8907246, "longitude": 2.344},  # ~25m
+                "primaryType": "vietnamese_restaurant",
+                "types": ["vietnamese_restaurant", "restaurant", "food"],
+            },
+        ]
+        vision = VisionResult(category="unknown", detected_text=[], confidence="low")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "restaurant"
+
+    def test_lodging_fully_demoted_under_confident_non_stay_vision(
+        self, matcher, cluster
+    ) -> None:
+        """Confident non-stay vision applies the FULL penalty: a restaurant 95m
+        out (beyond what the half penalty + vision bonus would recover) still
+        beats the 5m Airbnb.
+        """
+        places = [
+            self._airbnb("airbnb-near", 48.8905449),  # ~5m
+            {
+                "id": "restaurant",
+                "displayName": {"text": "Le Sourire de Saïgon"},
+                "location": {"latitude": 48.8913533, "longitude": 2.344},  # ~95m
+                "primaryType": "vietnamese_restaurant",
+                "types": ["vietnamese_restaurant", "restaurant", "food"],
+            },
+        ]
+        vision = VisionResult(category="food", detected_text=[], confidence="high")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "restaurant"
+
+    def test_landmark_boost_flips_micro_poi_to_museum(self, matcher, cluster) -> None:
+        """Vision says landmark but reads no text: the museum 85m out must beat
+        the association micro-POI 10m out (the Louvre sub-POI failure).
+        """
+        places = [
+            {
+                "id": "amis-louvre",
+                "displayName": {"text": "Société des Amis du Louvre"},
+                "location": {"latitude": 48.8905898, "longitude": 2.344},  # ~10m
+                "primaryType": "association_or_organization",
+                "types": ["association_or_organization", "point_of_interest"],
+            },
+            {
+                "id": "musee-louvre",
+                "displayName": {"text": "Musée du Louvre"},
+                "location": {"latitude": 48.8912635, "longitude": 2.344},  # ~85m
+                "primaryType": "museum",
+                "types": ["museum", "art_museum", "tourist_attraction"],
+            },
+        ]
+        vision = VisionResult(category="landmark", detected_text=[], confidence="high")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "musee-louvre"
+
+    def test_vision_stay_disables_lodging_demotion(self, matcher, cluster) -> None:
+        """Photos of the user's own hotel (vision 'stay') must not demote it."""
+        places = [
+            {
+                "id": "brasserie",
+                "displayName": {"text": "Brasserie du Coin"},
+                "location": {"latitude": 48.8906078, "longitude": 2.344},  # ~12m
+                "primaryType": "restaurant",
+                "types": ["restaurant", "french_restaurant", "food"],
+            },
+            {
+                "id": "hotel",
+                "displayName": {"text": "Riverside Grand Hotel"},
+                "location": {"latitude": 48.8906348, "longitude": 2.344},  # ~15m
+                "primaryType": "hotel",
+                "types": ["hotel", "lodging"],
+            },
+        ]
+        vision = VisionResult(category="stay", detected_text=[], confidence="high")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "hotel"
+
+    def test_lodging_only_world_still_returns_lodging(self, matcher, cluster) -> None:
+        """Demotion is relative: an all-lodging world still returns lodging,
+        nearest first — a cluster can never be emptied by the penalty.
+        """
+        places = [
+            self._airbnb("airbnb-b", 48.8905719),  # ~8m
+            self._airbnb("airbnb-a", 48.8905449),  # ~5m
+            self._airbnb("airbnb-c", 48.8905898),  # ~10m
+        ]
+        vision = VisionResult(category="unknown", detected_text=[], confidence="low")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert [p["place_id"] for p in ranked] == ["airbnb-a", "airbnb-b", "airbnb-c"]
+
+    def test_strong_name_match_on_lodging_survives_demotion(
+        self, matcher, cluster
+    ) -> None:
+        """A strong signage match (9.0) must dominate the full lodging penalty:
+        scores compose, no special case needed.
+        """
+        places = [
+            {
+                "id": "restaurant",
+                "displayName": {"text": "Le Sourire de Saïgon"},
+                "location": {"latitude": 48.8905449, "longitude": 2.344},  # ~5m
+                "primaryType": "vietnamese_restaurant",
+                "types": ["vietnamese_restaurant", "restaurant", "food"],
+            },
+            {
+                "id": "hotel",
+                "displayName": {"text": "Riverside Grand Hotel"},
+                "location": {"latitude": 48.8907246, "longitude": 2.344},  # ~25m
+                "primaryType": "hotel",
+                "types": ["hotel", "lodging"],
+            },
+        ]
+        vision = VisionResult(
+            category="food",
+            detected_text=["Riverside Grand Hotel"],
+            confidence="high",
+        )
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "hotel"
+
+    def test_zero_knobs_restore_legacy_ordering(self, matcher, cluster) -> None:
+        """Setting both knobs to 0 is the runtime rollback: distance rules again."""
+        matcher._settings.places_rank_lodging_penalty = 0.0
+        matcher._settings.places_rank_landmark_boost = 0.0
+        places = [
+            self._airbnb("airbnb-near", 48.8905449),  # ~5m
+            {
+                "id": "restaurant",
+                "displayName": {"text": "Le Sourire de Saïgon"},
+                "location": {"latitude": 48.8907246, "longitude": 2.344},  # ~25m
+                "primaryType": "vietnamese_restaurant",
+                "types": ["vietnamese_restaurant", "restaurant", "food"],
+            },
+        ]
+        vision = VisionResult(category="unknown", detected_text=[], confidence="low")
+
+        ranked = matcher._rank_by_distance(places, cluster, vision_result=vision)
+
+        assert ranked[0]["place_id"] == "airbnb-near"
 
 
 # ============================================================================
@@ -3417,6 +4011,31 @@ class TestQualityFilterRatingGate:
         ]
         filtered = matcher._filter_low_quality_places(places)
         assert {p["id"] for p in filtered} == {"good"}
+
+    def test_zero_review_hotel_loses_institutional_exemption(self, matcher) -> None:
+        """Aparthotel/OYO-style listings surface with primaryType=hotel and ZERO
+        reviews; the institutional exemption exists for legitimate small venues,
+        not review-less rental inventory. A hotel with at least one review keeps
+        the exemption.
+        """
+        places = [
+            {
+                "id": "oyo-aparthotel",
+                "displayName": {"text": "Charming studio - Belvilla by Oyo"},
+                "primaryType": "hotel",
+                "types": ["hotel", "lodging"],
+                "userRatingCount": 0,
+            },
+            {
+                "id": "small-real-hotel",
+                "displayName": {"text": "Pension Chez Marie"},
+                "primaryType": "hotel",
+                "types": ["hotel", "lodging"],
+                "userRatingCount": 2,
+            },
+        ]
+        filtered = matcher._filter_low_quality_places(places)
+        assert {p["id"] for p in filtered} == {"small-real-hotel"}
 
 
 class TestFinalistEnrichment:
@@ -3752,6 +4371,78 @@ class TestFinalistEnrichment:
         assert by_cluster["cluster-plain"]["places"][0]["place_id"] == "paris-cafe"
 
     @pytest.mark.asyncio
+    async def test_weak_signage_match_does_not_skip_enrichment(
+        self, matcher, monkeypatch
+    ) -> None:
+        """The enrichment-skip lock requires a STRONG name match.
+
+        In the Paris import, 'Eiffel Tower' weak-matched a nearby Airbnb's
+        marketing name, which locked the cluster: enrichment was skipped, so the
+        review re-gate never saw the listing's zero reviews. A weak match must
+        leave enrichment (and the gate) running.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-weak",
+                "centroid": {"latitude": 48.8556, "longitude": 2.2986},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        places = [
+            {
+                "id": "flat-at-eiffel",
+                "displayName": {
+                    "text": "Gorgeous 3 Bedroom Flat at Eiffel Tower - Apartment"
+                },
+                "formattedAddress": "Champ de Mars",
+                "location": {"latitude": 48.8556, "longitude": 2.2986},
+                "primaryType": "lodging",
+                "types": ["lodging"],
+                "businessStatus": "OPERATIONAL",
+            },
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(places)
+
+        enriched_ids: list[str] = []
+
+        async def mock_enrich(place_ids):
+            enriched_ids.extend(place_ids)
+            return {pid: {"rating": 4.0, "userRatingCount": 100} for pid in place_ids}
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            return []
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+
+        vision_result = VisionResult(
+            category="landmark",
+            detected_text=["Eiffel Tower"],
+            confidence="high",
+        )
+
+        async def make_vision_task():
+            return {"cluster-weak": vision_result}
+
+        results, failed = await matcher.find_places_for_clusters(
+            clusters, vision_results_task=asyncio.ensure_future(make_vision_task())
+        )
+        await places_cache.clear()
+
+        assert failed == 0
+        # The weak match must NOT lock the cluster: enrichment still runs.
+        assert "flat-at-eiffel" in enriched_ids
+
+    @pytest.mark.asyncio
     async def test_review_gate_config_drives_enrich_regate_backfill(
         self, matcher, monkeypatch
     ) -> None:
@@ -3834,6 +4525,717 @@ class TestFinalistEnrichment:
         await places_cache.clear()
         assert "gem" not in ids_hi
         assert "backfill" in ids_hi
+
+    @staticmethod
+    def _wide_place(pid: str, lat: float) -> dict[str, Any]:
+        return {
+            "id": pid,
+            "displayName": {"text": f"Place {pid}"},
+            "formattedAddress": "1 St",
+            "location": {"latitude": lat, "longitude": 139.6503},
+            "primaryType": "restaurant",
+            "types": ["restaurant"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+    @pytest.mark.asyncio
+    async def test_backfill_is_gated_via_second_enrichment_batch(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Backfill candidates must pass the review gate too.
+
+        Finalists are all gate-dropped junk; the first-pass tail holds junk at
+        rank 4 and a quality place at rank 5. Legacy behavior backfills the
+        tail UN-GATED in first-pass order, so junk-4 leads the suggestions.
+        The fix enriches the tail (one bounded second batch), gates it, and
+        puts the quality survivor first.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        wide_places = [
+            self._wide_place("junk-1", 35.67624),
+            self._wide_place("junk-2", 35.67626),
+            self._wide_place("junk-3", 35.67628),
+            self._wide_place("junk-4", 35.67630),
+            self._wide_place("quality-5", 35.67632),
+            self._wide_place("junk-6", 35.67634),
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(wide_places)
+
+        ratings = {
+            "junk-1": {"rating": 4.8, "userRatingCount": 1},
+            "junk-2": {"rating": 4.9, "userRatingCount": 2},
+            "junk-3": {"rating": 5.0, "userRatingCount": 0},
+            "junk-4": {"rating": 4.7, "userRatingCount": 1},
+            "quality-5": {"rating": 4.4, "userRatingCount": 400},
+            "junk-6": {"rating": 4.6, "userRatingCount": 2},
+        }
+        enrich_calls: list[list[str]] = []
+
+        async def mock_enrich(place_ids):
+            enrich_calls.append(sorted(place_ids))
+            return {pid: ratings[pid] for pid in place_ids if pid in ratings}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        # The gated quality tail candidate leads; un-gated filler only after it.
+        assert place_ids[0] == "quality-5"
+        # Exactly one extra (global) enrichment batch, covering the tail.
+        assert len(enrich_calls) == 2
+        assert enrich_calls[1] == ["junk-4", "junk-6", "quality-5"]
+
+    @pytest.mark.asyncio
+    async def test_all_failed_gate_falls_back_ungated_with_log(
+        self, matcher, monkeypatch, caplog
+    ) -> None:
+        """When every candidate fails the review gate the cluster must still
+        return suggestions (never empty) and announce the terminal fallback
+        with a greppable log line.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        wide_places = [
+            self._wide_place("junk-1", 35.67624),
+            self._wide_place("junk-2", 35.67626),
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(wide_places)
+
+        async def mock_enrich(place_ids):
+            return {pid: {"rating": 5.0, "userRatingCount": 1} for pid in place_ids}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        with caplog.at_level("INFO"):
+            results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        assert place_ids == ["junk-1", "junk-2"]  # non-empty, un-gated fallback
+        assert "failed review gate" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_backfill_limit_zero_reproduces_legacy_behavior(
+        self, matcher, monkeypatch
+    ) -> None:
+        """places_enrich_backfill_limit=0 disables the second batch: exactly one
+        enrichment call and the legacy un-gated first-pass-order backfill.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+        matcher._settings.places_enrich_backfill_limit = 0
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        wide_places = [
+            self._wide_place("junk-1", 35.67624),
+            self._wide_place("junk-2", 35.67626),
+            self._wide_place("junk-3", 35.67628),
+            self._wide_place("junk-4", 35.67630),
+            self._wide_place("quality-5", 35.67632),
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(wide_places)
+
+        enrich_calls: list[list[str]] = []
+
+        async def mock_enrich(place_ids):
+            enrich_calls.append(sorted(place_ids))
+            return {pid: {"rating": 4.8, "userRatingCount": 1} for pid in place_ids}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        assert len(enrich_calls) == 1  # no second batch
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        # Legacy: un-gated tail backfill in first-pass order.
+        assert place_ids == ["junk-4", "quality-5"]
+
+    @pytest.mark.asyncio
+    async def test_second_batch_is_one_global_call_across_clusters(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Backfill enrichment batches once per REQUEST, not per cluster."""
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-a",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            },
+            {
+                "id": "cluster-b",
+                "centroid": {"latitude": 48.8584, "longitude": 2.2945},
+                "photos": [{"asset_id": "photo-2"}],
+            },
+        ]
+
+        def world(
+            prefix: str, base_lat: float, base_lng: float
+        ) -> list[dict[str, Any]]:
+            return [
+                {
+                    **self._wide_place(f"{prefix}-junk-{i}", base_lat + offset),
+                    "location": {
+                        "latitude": base_lat + offset,
+                        "longitude": base_lng,
+                    },
+                }
+                for i, offset in ((1, 0.00004), (2, 0.00006), (3, 0.00008))
+            ] + [
+                {
+                    **self._wide_place(f"{prefix}-tail-4", base_lat + 0.00010),
+                    "location": {
+                        "latitude": base_lat + 0.00010,
+                        "longitude": base_lng,
+                    },
+                }
+            ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            if abs(latitude - 35.6762) < 0.01:
+                return _tiered(world("a", 35.6762, 139.6503))
+            return _tiered(world("b", 48.8584, 2.2945))
+
+        enrich_calls: list[list[str]] = []
+
+        async def mock_enrich(place_ids):
+            enrich_calls.append(sorted(place_ids))
+            return {pid: {"rating": 4.8, "userRatingCount": 1} for pid in place_ids}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        assert len(results) == 2
+        # One finalist batch + one combined backfill batch.
+        assert len(enrich_calls) == 2
+        assert enrich_calls[1] == ["a-tail-4", "b-tail-4"]
+
+    @pytest.mark.asyncio
+    async def test_enriched_zero_review_place_is_gated(
+        self, matcher, monkeypatch
+    ) -> None:
+        """Google OMITS userRatingCount for zero-review places, so a
+        'successfully enriched' junk listing used to re-skip the gate on the
+        absent field. An enriched place with no count must gate as 0 reviews.
+        """
+        from app.services.place_matcher import places_cache
+
+        await places_cache.clear()
+
+        clusters = [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 35.6762, "longitude": 139.6503},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+        wide_places = [
+            self._wide_place("zero-review-junk", 35.67624),
+            self._wide_place("real-b", 35.67627),
+            self._wide_place("real-c", 35.67629),
+            self._wide_place("real-d", 35.67632),
+        ]
+
+        async def mock_enrich(place_ids):
+            out: dict[str, dict[str, Any]] = {}
+            for pid in place_ids:
+                if pid == "zero-review-junk":
+                    # Details resolved, but Google omitted both fields.
+                    out[pid] = {"rating": None, "userRatingCount": None}
+                else:
+                    out[pid] = {"rating": 4.3, "userRatingCount": 150}
+            return out
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(wide_places)
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        results, failed = await matcher.find_places_for_clusters(clusters)
+        await places_cache.clear()
+
+        assert failed == 0
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        assert "zero-review-junk" not in place_ids
+        assert set(place_ids) == {"real-b", "real-c", "real-d"}
+
+
+class TestLandmarkTextRescue:
+    """U5: text-less landmark photos rescue via the vision landmark_name.
+
+    Monument photos usually have no readable signage, so the business-name
+    Text Search path never fires and the venue (whose Google point sits beyond
+    the dense-city Nearby radii) is simply never fetched. When vision
+    recognizes the landmark visually, its name is a free query.
+    """
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
+        settings.places_landmark_text_rescue = True
+        settings.places_landmark_rescue_bias_radius_m = 500
+        settings.places_enrich_backfill_limit = 3
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @staticmethod
+    def _clusters() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 48.85562, "longitude": 2.29865},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+    @staticmethod
+    def _micro_pois() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "monument-micro",
+                "displayName": {"text": "Monument des Droits de l'Homme"},
+                "formattedAddress": "Champ de Mars",
+                "location": {"latitude": 48.85562, "longitude": 2.29865},
+                "primaryType": "monument",
+                "types": ["monument", "tourist_attraction"],
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rescue_fires_for_textless_landmark(
+        self, matcher, monkeypatch
+    ) -> None:
+        vision = VisionResult(
+            category="landmark",
+            detected_text=[],
+            confidence="high",
+            landmark_name="Eiffel Tower",
+        )
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(self._micro_pois())
+
+        text_calls: list[tuple[str, float, float, float]] = []
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            text_calls.append((text_query, latitude, longitude, radius))
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert len(text_calls) == 1
+        query, lat, lng, radius = text_calls[0]
+        assert query == "Eiffel Tower"
+        assert radius == 500
+        # Coarse (3-decimal ≈ 110m) bias center so every cluster inside the
+        # same big venue shares ONE cached Text Search.
+        assert lat == round(48.85562, 3)
+        assert lng == round(2.29865, 3)
+
+    @pytest.mark.asyncio
+    async def test_rescue_respects_flag_off(self, matcher, monkeypatch) -> None:
+        matcher._settings.places_landmark_text_rescue = False
+        vision = VisionResult(
+            category="landmark",
+            detected_text=[],
+            confidence="high",
+            landmark_name="Eiffel Tower",
+        )
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(self._micro_pois())
+
+        text_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_called
+            text_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        _results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert text_called is False
+
+    @pytest.mark.asyncio
+    async def test_rescue_suppressed_when_landmark_already_in_nearby(
+        self, matcher, monkeypatch
+    ) -> None:
+        vision = VisionResult(
+            category="landmark",
+            detected_text=[],
+            confidence="high",
+            landmark_name="Eiffel Tower",
+        )
+        nearby = self._micro_pois() + [
+            {
+                "id": "eiffel",
+                "displayName": {"text": "Eiffel Tower"},
+                "formattedAddress": "Champ de Mars",
+                "location": {"latitude": 48.8583, "longitude": 2.2945},
+                "primaryType": "tourist_attraction",
+                "types": ["tourist_attraction", "historical_landmark"],
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(nearby)
+
+        text_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_called
+            text_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        _results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert text_called is False
+
+    @pytest.mark.asyncio
+    async def test_rescue_skipped_at_low_confidence(self, matcher, monkeypatch) -> None:
+        vision = VisionResult(
+            category="landmark",
+            detected_text=[],
+            confidence="low",
+            landmark_name="Eiffel Tower",
+        )
+
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(self._micro_pois())
+
+        text_called = False
+
+        async def mock_execute_text_search(
+            text_query, latitude, longitude, radius=200.0
+        ):
+            nonlocal text_called
+            text_called = True
+            return []
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_text_search", mock_execute_text_search)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        _results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert text_called is False
+
+
+class TestPopularityProbe:
+    """U6: flag-gated POPULARITY Nearby probe for text-less landmark clusters.
+
+    Last resort when vision says landmark but there is no readable signage,
+    no recognized landmark name, and the distance-ranked world contains no
+    landmark-family place at all.
+    """
+
+    @pytest.fixture
+    def matcher(self, monkeypatch):
+        settings = MagicMock()
+        settings.google_places_api_key = "test-key"
+        settings.places_api_timeout_seconds = 5.0
+        settings.places_cluster_timeout_seconds = 15.0
+        settings.places_min_quality_results_before_stop = 5
+        settings.places_diagnostics = False
+        settings.places_extra_search_tier_m = None
+        settings.places_min_review_count = MIN_REVIEW_COUNT
+        settings.places_text_rescue_on_empty = False
+        settings.places_landmark_text_rescue = True
+        settings.places_landmark_rescue_bias_radius_m = 500
+        settings.places_enrich_backfill_limit = 3
+        settings.places_popularity_probe = True
+        monkeypatch.setattr(
+            "app.services.place_matcher.matcher.get_settings", lambda: settings
+        )
+        return PlaceMatcher(http_client=AsyncMock())
+
+    @staticmethod
+    def _clusters() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "cluster-1",
+                "centroid": {"latitude": 48.85562, "longitude": 2.29865},
+                "photos": [{"asset_id": "photo-1"}],
+            }
+        ]
+
+    @staticmethod
+    def _non_landmark_world() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "creperie",
+                "displayName": {"text": "Crêperie du Champ de Mars"},
+                "formattedAddress": "Champ de Mars",
+                "location": {"latitude": 48.85562, "longitude": 2.29865},
+                "primaryType": "restaurant",
+                "types": ["restaurant", "food"],
+                "businessStatus": "OPERATIONAL",
+            }
+        ]
+
+    @staticmethod
+    def _eiffel() -> dict[str, Any]:
+        return {
+            "id": "eiffel",
+            "displayName": {"text": "Eiffel Tower"},
+            "formattedAddress": "Champ de Mars",
+            "location": {"latitude": 48.8583, "longitude": 2.2945},
+            "primaryType": "tourist_attraction",
+            "types": ["tourist_attraction", "historical_landmark"],
+            "businessStatus": "OPERATIONAL",
+        }
+
+    def _wire(self, matcher, monkeypatch, nearby, probe_result):
+        async def mock_search_nearby_tiered(latitude, longitude):
+            return _tiered(nearby)
+
+        probe_calls: list[tuple[float, float]] = []
+
+        async def mock_probe(latitude, longitude, radius=200.0):
+            probe_calls.append((latitude, longitude))
+            return probe_result
+
+        async def mock_enrich(place_ids):
+            return {}
+
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", mock_search_nearby_tiered)
+        monkeypatch.setattr(matcher, "_execute_popularity_probe", mock_probe)
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", mock_enrich)
+        return probe_calls
+
+    @pytest.mark.asyncio
+    async def test_probe_fires_and_merges_for_textless_landmark(
+        self, matcher, monkeypatch
+    ) -> None:
+        probe_calls = self._wire(
+            matcher, monkeypatch, self._non_landmark_world(), [self._eiffel()]
+        )
+        vision = VisionResult(category="landmark", detected_text=[], confidence="high")
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert len(probe_calls) == 1
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        assert "eiffel" in place_ids
+
+    @pytest.mark.asyncio
+    async def test_probe_off_makes_no_call(self, matcher, monkeypatch) -> None:
+        matcher._settings.places_popularity_probe = False
+        probe_calls = self._wire(
+            matcher, monkeypatch, self._non_landmark_world(), [self._eiffel()]
+        )
+        vision = VisionResult(category="landmark", detected_text=[], confidence="high")
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        _results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert probe_calls == []
+
+    @pytest.mark.asyncio
+    async def test_probe_skipped_when_world_has_landmark(
+        self, matcher, monkeypatch
+    ) -> None:
+        nearby = self._non_landmark_world() + [self._eiffel()]
+        probe_calls = self._wire(matcher, monkeypatch, nearby, [])
+        vision = VisionResult(category="landmark", detected_text=[], confidence="high")
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        _results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert probe_calls == []
+
+    @pytest.mark.asyncio
+    async def test_probe_results_pass_quality_filter(
+        self, matcher, monkeypatch
+    ) -> None:
+        closed_landmark = {
+            **self._eiffel(),
+            "id": "closed-attraction",
+            "displayName": {"text": "Old Pavilion"},
+            "businessStatus": "CLOSED_PERMANENTLY",
+        }
+        probe_calls = self._wire(
+            matcher,
+            monkeypatch,
+            self._non_landmark_world(),
+            [closed_landmark, self._eiffel()],
+        )
+        vision = VisionResult(category="landmark", detected_text=[], confidence="high")
+
+        async def make_vision_task():
+            return {"cluster-1": vision}
+
+        results, failed = await matcher.find_places_for_clusters(
+            self._clusters(),
+            vision_results_task=asyncio.ensure_future(make_vision_task()),
+        )
+
+        assert failed == 0
+        assert len(probe_calls) == 1
+        place_ids = [p["place_id"] for p in results[0]["places"]]
+        assert "closed-attraction" not in place_ids
+        assert "eiffel" in place_ids
+
+    @pytest.mark.asyncio
+    async def test_probe_cache_key_never_collides_with_nearby(
+        self, matcher, monkeypatch
+    ) -> None:
+        """POPULARITY results must not poison the DISTANCE Nearby cache."""
+        captured_keys: list[str] = []
+
+        async def fake_get_or_fetch(cache_key, fetch, l2_get=None, l2_set=None):
+            captured_keys.append(cache_key)
+            return []
+
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_search.places_cache.get_or_fetch",
+            fake_get_or_fetch,
+        )
+
+        await matcher._execute_popularity_probe(48.85562, 2.29865, radius=200.0)
+        await matcher._execute_search(48.85562, 2.29865, radius=200.0)
+
+        assert len(captured_keys) == 2
+        assert captured_keys[0] != captured_keys[1]
+        assert captured_keys[0].startswith("pop_")
 
 
 # ============================================================================

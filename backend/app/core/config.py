@@ -165,6 +165,32 @@ class Settings(BaseSettings):
         le=5.0,
         description="Weight for vision signage name-match bonus in place ranking",
     )
+    places_rank_lodging_penalty: float = Field(
+        default=2.5,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "U3 type prior: score penalty for lodging-typed candidates (points; "
+            "2.5 ≈ 50m of distance). Applied in full when vision confidently "
+            "says the photo is NOT accommodation, at half strength when there "
+            "is no usable vision signal, and not at all when vision says "
+            "'stay'. Demotion only — an all-lodging candidate world still "
+            "returns lodging. 0 disables (runtime rollback)."
+        ),
+    )
+    places_rank_landmark_boost: float = Field(
+        default=1.5,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "U3 type prior: extra score bonus for landmark-family places "
+            "(museum/monument/tourist_attraction/...) when vision classifies "
+            "the photo as 'landmark' (full at high confidence, half at "
+            "medium). Stacks with the generic vision category bonus so the "
+            "large venue beats its own micro-POIs in the rating-blind first "
+            "pass. 0 disables (runtime rollback)."
+        ),
+    )
 
     # Place-matcher recall tunables (migrated from constants.py; the constant
     # values remain the defaults, so behavior is unchanged unless overridden).
@@ -189,6 +215,18 @@ class Settings(BaseSettings):
             "a finalist on distance aren't demoted below a backfill."
         ),
     )
+    places_enrich_backfill_limit: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description=(
+            "U4: when the post-enrichment review gate drops finalists, enrich "
+            "up to this many first-pass tail candidates per cluster (one "
+            "global second batch per request) and gate them before falling "
+            "back to un-gated candidates. 0 disables the second batch (legacy "
+            "un-gated backfill)."
+        ),
+    )
     places_text_rescue_on_empty: bool = Field(
         default=False,
         description=(
@@ -207,6 +245,38 @@ class Settings(BaseSettings):
             "Optional extra outer Nearby radius (meters) appended after the "
             "density-adaptive tiers when the stop threshold has not been met. "
             "None preserves the current DENSITY_SEARCH_RADII profiles."
+        ),
+    )
+    places_landmark_text_rescue: bool = Field(
+        default=True,
+        description=(
+            "U5: when vision recognizes a landmark (category 'landmark', "
+            "confidence above low) whose name has no strong match among the "
+            "Nearby candidates, fire a Text Search for the recognized name. "
+            "Large venues' Google points sit beyond the dense-city Nearby "
+            "radii, so this is the only way they enter the candidate world. "
+            "Cost-bounded: landmark clusters only, suppressed on a strong "
+            "match, and the coarse cache key dedupes repeat venues."
+        ),
+    )
+    places_landmark_rescue_bias_radius_m: int = Field(
+        default=500,
+        ge=50,
+        le=2000,
+        description=(
+            "Location-bias radius (meters) for landmark-rescue Text Searches. "
+            "Wider than the default 200m business-name bias because large "
+            "venues' point locations sit far from photo GPS."
+        ),
+    )
+    places_popularity_probe: bool = Field(
+        default=False,
+        description=(
+            "U6: last-resort extra Nearby call ranked by POPULARITY (200m) "
+            "for landmark-classified clusters whose candidate world contains "
+            "no landmark-family place and no text signal to rescue with. OFF "
+            "by default — enable if verification shows text-less landmark "
+            "clusters still missing their venue after the U5 rescue."
         ),
     )
 

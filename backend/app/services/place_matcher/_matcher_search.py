@@ -401,6 +401,83 @@ class SearchMixin:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
             return []
 
+    async def _execute_popularity_probe(
+        self,
+        latitude: float,
+        longitude: float,
+        radius: float = 200.0,
+    ) -> list[dict]:
+        """One Nearby call ranked by POPULARITY instead of DISTANCE (U6).
+
+        Last-resort recovery for landmark clusters with no text signal: the
+        distance-ranked tiers return whatever micro-POI sits nearest the photo
+        GPS, while the actual venue's Google point can sit hundreds of meters
+        away. Popularity ranking surfaces the prominent venue regardless.
+
+        The cache key carries a ``pop_`` marker so POPULARITY results never
+        collide with the DISTANCE-ranked Nearby entries at the same spot.
+        """
+        if not self._settings.google_places_api_key:
+            raise ConfigurationError("Google Places API key not configured")
+
+        cache_key = "pop_" + places_cache.get_cache_key(
+            latitude,
+            longitude,
+            int(radius),
+            type_set_hash=_SEARCHABLE_TYPE_SET_HASH,
+        )
+
+        async def fetch_from_api() -> list[dict]:
+            response = await self._client.post(
+                NEARBY_SEARCH_URL,
+                json={
+                    "maxResultCount": MAX_PLACES_PER_SEARCH,
+                    "rankPreference": "POPULARITY",
+                    "locationRestriction": {
+                        "circle": {
+                            "center": {"latitude": latitude, "longitude": longitude},
+                            "radius": radius,
+                        }
+                    },
+                    "includedTypes": SEARCHABLE_PLACE_TYPES,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": self._settings.google_places_api_key,
+                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                },
+            )
+
+            if response.status_code == 429:
+                error_reason = self._parse_error_reason(response)
+                if error_reason == "QUOTA_EXCEEDED":
+                    raise QuotaExhaustedError("Daily quota exceeded")
+                raise RateLimitError("Rate limit exceeded")
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"Popularity probe API error: status={response.status_code}"
+                )
+                return []
+
+            places = response.json().get("places", [])
+            logger.info(
+                f"Popularity probe at ({latitude:.4f}, {longitude:.4f}) "
+                f"radius={radius}m: found {len(places)} places"
+            )
+            return places
+
+        try:
+            return await places_cache.get_or_fetch(
+                cache_key,
+                fetch_from_api,
+                l2_get=get_search_cache,
+                l2_set=set_search_cache,
+            )
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning(f"Popularity probe failed: {e}")
+            return []
+
     async def _enrich_place_ratings(
         self,
         place_ids: list[str],
@@ -607,6 +684,17 @@ class SearchMixin:
             # keeps small/new real places that distance alone surfaced.
             min_review_count = self._settings.places_min_review_count
             is_institutional = primary_type in INSTITUTIONAL_TYPES
+            if (
+                is_institutional
+                and primary_type in ("hotel", "resort_hotel")
+                and has_rating_count
+                and rating_count == 0
+            ):
+                # Aparthotel/OYO-style rental inventory surfaces with
+                # primaryType=hotel and zero reviews. The institutional
+                # exemption exists for legitimate small venues, not for
+                # review-less listings — let the review gate judge them.
+                is_institutional = False
             if (
                 has_rating_count
                 and rating_count < min_review_count

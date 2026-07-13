@@ -53,7 +53,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.services.photo_vision import PhotoClassifier, VisionResult
 from app.services.place_matcher import MAX_PLACES_PER_SEARCH, PlaceMatcher
 from app.services.place_matcher.constants import SEARCHABLE_PLACE_TYPES
-from app.services.place_matcher.utils import haversine, name_matches_candidate
+from app.services.place_matcher.utils import (
+    haversine,
+    name_match_strength,
+    name_matches_candidate,
+)
 
 WeightName = Literal[
     "places_rank_distance_weight",
@@ -63,6 +67,8 @@ WeightName = Literal[
     "places_rank_dwell_weight",
     "places_rank_vision_weight",
     "places_rank_name_match_weight",
+    "places_rank_lodging_penalty",
+    "places_rank_landmark_boost",
 ]
 
 WEIGHT_NAMES: tuple[WeightName, ...] = (
@@ -73,6 +79,8 @@ WEIGHT_NAMES: tuple[WeightName, ...] = (
     "places_rank_dwell_weight",
     "places_rank_vision_weight",
     "places_rank_name_match_weight",
+    "places_rank_lodging_penalty",
+    "places_rank_landmark_boost",
 )
 
 DEFAULT_SEARCH_RANGES: dict[WeightName, tuple[float, float]] = {
@@ -83,6 +91,9 @@ DEFAULT_SEARCH_RANGES: dict[WeightName, tuple[float, float]] = {
     "places_rank_dwell_weight": (0.2, 3.0),
     "places_rank_vision_weight": (0.2, 3.0),
     "places_rank_name_match_weight": (0.2, 3.0),
+    # U3 type-prior magnitudes (points, not multipliers): 0 disables.
+    "places_rank_lodging_penalty": (0.0, 5.0),
+    "places_rank_landmark_boost": (0.0, 5.0),
 }
 
 
@@ -158,7 +169,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "C5 sim: filter the simulated Nearby RESULTS to places whose types "
             "intersect SEARCHABLE_PLACE_TYPES (the includedTypes allowlist). "
-            "Filters results, not calls — avg_nearby_calls is unchanged."
+            "Filters results, not per-call cost — though dropping results can "
+            "leave the tiered search short of its stop threshold, adding tiers."
         ),
     )
     parser.add_argument(
@@ -188,10 +200,12 @@ def load_dataset(path: str) -> list[dict[str, Any]]:
 def parse_vision_result(raw: dict[str, Any] | None) -> VisionResult | None:
     if not raw:
         return None
+    landmark_name = raw.get("landmark_name")
     return VisionResult(
         category=str(raw.get("category", "unknown")),
         detected_text=[str(t) for t in raw.get("detected_text", []) if t],
         confidence=str(raw.get("confidence", "low")),
+        landmark_name=str(landmark_name) if landmark_name else None,
     )
 
 
@@ -304,35 +318,50 @@ def _simulate_text_rescue(
 
     Rescue rule (mirrors ``_matcher_cluster_processing`` rescue triggering):
 
-    1. Vision must carry at least one ``business_name_candidate`` (the same
-       gate the production matcher uses; low-confidence text only rescues when
-       Nearby is empty, matching ``confidence_ok``).
-    2. Suppress the rescue when a Nearby place already name-matches the first
-       candidate — the production matcher skips the (Enterprise-tier) Text
-       Search in that case because it would only re-find what we already have.
+    1. Vision must carry at least one ``business_name_candidate``, OR (U5) a
+       visually recognized ``landmark_name`` on a non-low-confidence landmark
+       cluster (the same gates the production matcher uses; low-confidence
+       text only rescues when Nearby is empty, matching ``confidence_ok``).
+    2. Suppress the rescue only when a Nearby place STRONG-matches the query
+       (same venue, per ``name_match_strength``) — the production matcher
+       skips the (Enterprise-tier) Text Search in that case because it would
+       only re-find what we already have. A weak containment match must NOT
+       suppress (U2): that is exactly how 'Eiffel Tower' matched a nearby
+       Airbnb's marketing name and the real tower was never fetched.
     3. Otherwise simulate ONE Text Search: return every world place whose
-       ``displayName.text`` name-matches any business-name candidate. This is a
-       name-match against the whole world (NOT a radius filter, NOT a real API
-       call), so it can recover a place Nearby missed because it sat outside
-       every search radius.
+       ``displayName.text`` name-matches any query. This is a name-match
+       against the whole world (NOT a radius filter, NOT a real API call), so
+       it can recover a place Nearby missed because it sat outside every
+       search radius.
 
     Returns ``(rescued_places, text_search_calls)`` where ``text_search_calls``
     is 0 (rescue suppressed / not eligible) or 1 (one simulated call).
     """
-    if vision_result is None or not vision_result.has_business_name:
+    if vision_result is None:
         return [], 0
 
-    candidates = vision_result.business_name_candidates
-    if not candidates:
+    if vision_result.has_business_name:
+        queries = vision_result.business_name_candidates
+    elif (
+        vision_result.category == "landmark"
+        and vision_result.confidence != "low"
+        and vision_result.landmark_name
+    ):
+        queries = [vision_result.landmark_name]
+    else:
+        return [], 0
+
+    if not queries:
         return [], 0
 
     # Cost-bounded gate: low-confidence text only rescues when Nearby is empty.
     if vision_result.confidence == "low" and nearby_places:
         return [], 0
 
-    # Suppress if a Nearby result already name-matches the first candidate.
+    # Suppress only on a STRONG (same-venue) match among Nearby results.
     already_found = any(
-        name_matches_candidate(p.get("displayName", {}).get("text", ""), candidates[0])
+        name_match_strength(p.get("displayName", {}).get("text", ""), queries[0])
+        == "strong"
         for p in nearby_places
     )
     if already_found:
@@ -342,10 +371,8 @@ def _simulate_text_rescue(
         place
         for place in world
         if any(
-            name_matches_candidate(
-                place.get("displayName", {}).get("text", ""), candidate
-            )
-            for candidate in candidates
+            name_matches_candidate(place.get("displayName", {}).get("text", ""), query)
+            for query in queries
         )
     ]
     return rescued, 1
@@ -372,8 +399,9 @@ def evaluate_pipeline(
     Args:
         simulate_type_filter: C5 sim. Filter the in-radius candidate set to
             places whose ``types`` intersect ``SEARCHABLE_PLACE_TYPES`` (the
-            ``includedTypes`` allowlist). Filters RESULTS, not CALLS, so
-            ``avg_nearby_calls`` is unchanged vs baseline.
+            ``includedTypes`` allowlist). Filters RESULTS, not per-call cost;
+            ``avg_nearby_calls`` can still rise vs baseline when the dropped
+            results leave a tier short of the stop threshold.
         simulate_text_rescue: C2 sim. After the Nearby search, run a simulated
             name-match Text Search (see :func:`_simulate_text_rescue`) so a
             place that sits outside every search radius can be recovered. When

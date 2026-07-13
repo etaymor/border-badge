@@ -230,6 +230,47 @@ class TestParseResponse:
         assert result.detected_text == []
         assert result.confidence == "low"
 
+    def test_landmark_name_parsed(self) -> None:
+        """U5: the model's recognized-landmark name is carried through."""
+        content = json.dumps(
+            {
+                "category": "landmark",
+                "detected_text": [],
+                "confidence": "high",
+                "reasoning": "test",
+                "landmark_name": "Eiffel Tower",
+            }
+        )
+
+        result = PhotoClassifier._parse_response(content)
+
+        assert result is not None
+        assert result.landmark_name == "Eiffel Tower"
+
+    def test_landmark_name_absent_or_blank_is_none(self) -> None:
+        """Older responses without the field (and blank strings) yield None."""
+        assert PhotoClassifier._parse_response(json.dumps({})).landmark_name is None
+        blank = json.dumps(
+            {
+                "category": "landmark",
+                "detected_text": [],
+                "confidence": "high",
+                "reasoning": "test",
+                "landmark_name": "   ",
+            }
+        )
+        assert PhotoClassifier._parse_response(blank).landmark_name is None
+
+    def test_landmark_name_in_strict_schema(self) -> None:
+        """The strict response schema must declare (and require) the field."""
+        from app.services.photo_vision.constants import (
+            CLASSIFICATION_RESPONSE_FORMAT,
+        )
+
+        schema = CLASSIFICATION_RESPONSE_FORMAT["json_schema"]["schema"]
+        assert "landmark_name" in schema["properties"]
+        assert "landmark_name" in schema["required"]
+
     def test_detected_text_non_list_defaults_to_empty(self) -> None:
         """If detected_text is not a list, default to empty list."""
         content = json.dumps(
@@ -360,6 +401,39 @@ class TestAggregateResults:
 
         assert merged is not None
         assert merged.detected_text == ["Sushi Dai", "Menu", "Open"]
+
+    def test_landmark_name_carried_from_highest_confidence(self) -> None:
+        """U5: aggregation keeps the most confident photo's landmark name."""
+        results = [
+            VisionResult(
+                category="landmark",
+                detected_text=[],
+                confidence="low",
+                landmark_name="Sacré-Cœur",
+            ),
+            VisionResult(
+                category="landmark",
+                detected_text=[],
+                confidence="high",
+                landmark_name="Eiffel Tower",
+            ),
+            VisionResult(category="landmark", detected_text=[], confidence="medium"),
+        ]
+
+        merged = PhotoClassifier.aggregate_results(results)
+
+        assert merged is not None
+        assert merged.landmark_name == "Eiffel Tower"
+
+    def test_landmark_name_none_when_no_photo_has_one(self) -> None:
+        results = [
+            VisionResult(category="landmark", detected_text=[], confidence="high"),
+        ]
+
+        merged = PhotoClassifier.aggregate_results(results)
+
+        assert merged is not None
+        assert merged.landmark_name is None
 
 
 # ============================================================================

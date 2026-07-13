@@ -27,6 +27,27 @@ TEST_PROFILE_PK_ID = "550e8400-e29b-41d4-a716-446655440011"
 OTHER_USER_ID = "550e8400-e29b-41d4-a716-446655440099"
 
 
+@pytest.fixture(autouse=True)
+def disable_persistent_places_cache(monkeypatch) -> None:
+    """Keep the persistent (Postgres L2) places cache out of every unit test.
+
+    The L2 cache is consulted before any Google Places call. Tests build their
+    matcher with a MagicMock settings object, whose auto-created `supabase_url` /
+    `supabase_service_role_key` attributes read truthy -- so the cache believes it
+    is configured and queries an AsyncMock "database", which dutifully fabricates
+    a hit for every key. The mocked HTTP client is then never reached, and tests
+    that assert on request headers or on failure handling silently pass through a
+    result that no code under test produced.
+
+    Forcing a miss keeps the mocked HTTP client the single source of truth. Tests
+    that specifically exercise the L2 path should patch these back locally.
+    """
+    monkeypatch.setattr(
+        "app.services.place_matcher.persistent_cache._persistent_cache_enabled",
+        lambda: False,
+    )
+
+
 @pytest.fixture
 def client() -> TestClient:
     """Create a test client for the FastAPI app."""
