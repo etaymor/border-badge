@@ -27,7 +27,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.atlasi.app',
-      buildNumber: '3',
+      buildNumber: '4',
       usesAppleSignIn: true,
       icon: {
         light: './assets/atlasi-stamp-app-icon.png',
