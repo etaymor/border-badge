@@ -9,11 +9,11 @@
 
 import { useCallback } from 'react';
 import { Dimensions, FlatList, Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
 import { styles } from '../photoImportStyles';
+import { PhotoThumbnail } from './PhotoThumbnail';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -100,8 +100,9 @@ export function PhotoGalleryModal({
                       alignItems: 'center',
                     }}
                   >
-                    <Image
-                      source={{ uri: item.uri }}
+                    <PhotoThumbnail
+                      uri={item.uri}
+                      assetId={item.id}
                       style={styles.fullPreview}
                       contentFit="contain"
                     />

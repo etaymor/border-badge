@@ -24,8 +24,29 @@ export interface PlaceSuggestionProgress {
   failedClusters: number;
 }
 
-/** Chunk size for batched place suggestion requests */
-const CHUNK_SIZE = 15;
+/**
+ * Chunk size for batched place suggestion requests.
+ *
+ * The backend searches clusters with a bounded concurrency (5), so a chunk's wall
+ * time scales with ceil(CHUNK_SIZE / 5) rounds of tiered Places lookups. At 15 a
+ * slow chunk could outrun the request timeout, and because a timeout fails the
+ * WHOLE chunk, one slow cluster took 14 healthy ones down with it into
+ * "Couldn't check this location". Smaller chunks bound that blast radius and let
+ * partial results paint sooner.
+ */
+export const CHUNK_SIZE = 5;
+
+/**
+ * Per-request timeout for place suggestions (ms).
+ *
+ * The shared api client's 30s default is tuned for ordinary CRUD. A suggestion
+ * chunk fans out to vision classification plus several sequential Google Places
+ * calls per cluster, so it legitimately needs longer -- and a client timeout here
+ * is indistinguishable from a real failure, marking every cluster in the chunk as
+ * lookup-failed. Retrying such a chunk just re-runs the same work into the same
+ * wall, which is why a too-tight timeout also makes the Retry button look broken.
+ */
+export const SUGGEST_PLACES_TIMEOUT_MS = 90000;
 
 /** Extended response with client-side timing data */
 export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
@@ -83,7 +104,9 @@ export function useSuggestPlaces() {
   return useMutation({
     mutationFn: async (data: PlaceSuggestionRequest): Promise<PlaceSuggestionResponse> => {
       try {
-        const response = await api.post('/photos/suggest-places', data);
+        const response = await api.post('/photos/suggest-places', data, {
+          timeout: SUGGEST_PLACES_TIMEOUT_MS,
+        });
         return response.data;
       } catch (error) {
         if (error instanceof AxiosError) {
@@ -191,7 +214,11 @@ export function useSuggestPlacesChunked() {
 
         const chunkStartTime = Date.now();
         try {
-          const response = await api.post('/photos/suggest-places', { clusters: chunk });
+          const response = await api.post(
+            '/photos/suggest-places',
+            { clusters: chunk },
+            { timeout: SUGGEST_PLACES_TIMEOUT_MS }
+          );
           const chunkDurationMs = Date.now() - chunkStartTime;
           chunkResponseTimes.push(chunkDurationMs);
           const responseData = response.data as PlaceSuggestionResponse;
@@ -221,7 +248,14 @@ export function useSuggestPlacesChunked() {
           // retry DISABLED (KTD10). Without this the rejected mutation would drop
           // those clusters entirely, re-introducing B1 for exactly the quota case.
           if (error instanceof AxiosError) {
-            if (error.response?.status === 503) {
+            // Only a QUOTA 503 is fatal. The backend also returns 503 for a
+            // misconfigured service and for an unreachable upstream — treating
+            // those as quota-exhausted told the user "Daily limit reached" and
+            // HID the Retry button, making a transient outage look permanent and
+            // unrecoverable. Quota is the only 503 that carries Retry-After, so
+            // use that to tell them apart; the rest fall through to the
+            // retryable path below.
+            if (error.response?.status === 503 && error.response.headers['retry-after']) {
               recordFailedClusters(chunks.slice(i).flat(), true);
               throw new QuotaExhaustedError();
             }

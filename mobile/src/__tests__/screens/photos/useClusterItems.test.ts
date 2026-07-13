@@ -36,6 +36,7 @@ const buildCluster = (id: string): LocationClusterDisplay => ({
   photoIds: [`${id}-p1`, `${id}-p2`],
   photoCount: 2,
   previewUris: [`https://example.com/${id}-1.jpg`, `https://example.com/${id}-2.jpg`],
+  previewAssetIds: [`${id}-p1`, `${id}-p2`],
   timeRange: { start: new Date('2026-01-01T10:00:00Z'), end: new Date('2026-01-01T12:00:00Z') },
   countryCode: 'JP',
 });
@@ -64,6 +65,7 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
   photoIds: [],
   photoCount: 10,
   previewUris: [],
+  previewAssetIds: [],
   locationClusterIds: clusterIds,
 });
 

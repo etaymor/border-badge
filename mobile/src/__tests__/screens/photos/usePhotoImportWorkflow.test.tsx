@@ -110,6 +110,7 @@ jest.mock('../../../services/photoImport', () => {
       photoIds: cluster.photos.map((p) => p.id),
       photoCount: cluster.photos.length,
       previewUris: [],
+      previewAssetIds: [],
       timeRange: { start: new Date(), end: new Date() },
       countryCode: 'JP',
     })),
@@ -281,6 +282,7 @@ function createMockTripCandidate(id: string, countryCode = 'JP') {
     photoIds: ['photo-1', 'photo-2'],
     photoCount: 2,
     previewUris: ['file://photo-1.jpg', 'file://photo-2.jpg'],
+    previewAssetIds: ['photo-1', 'photo-2'],
     locationClusterIds: ['cluster-1'],
   };
 }

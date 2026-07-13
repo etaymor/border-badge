@@ -16,6 +16,7 @@ import {
   useSuggestPlacesChunked,
   RateLimitError,
   QuotaExhaustedError,
+  SUGGEST_PLACES_TIMEOUT_MS,
 } from '@hooks/usePhotoImport';
 import { api } from '@services/api';
 import {
@@ -403,9 +404,13 @@ export function usePlaceSuggestions({
 
     try {
       const visionImages = await prepareVisionImagesBounded(clusters);
-      const response = await api.post('/photos/suggest-places', {
-        clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
-      });
+      const response = await api.post(
+        '/photos/suggest-places',
+        {
+          clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        },
+        { timeout: SUGGEST_PLACES_TIMEOUT_MS }
+      );
       const result = response.data as PlaceSuggestionResponse;
 
       // Cache results to SQLite — skip clusters missing due to transient failures.
@@ -580,9 +585,13 @@ export function usePlaceSuggestions({
         if (uncached.length === 0) return;
 
         const visionImages = await prepareVisionImagesBounded(uncached);
-        const response = await api.post('/photos/suggest-places', {
-          clusters: uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
-        });
+        const response = await api.post(
+          '/photos/suggest-places',
+          {
+            clusters: uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+          },
+          { timeout: SUGGEST_PLACES_TIMEOUT_MS }
+        );
         const result = response.data as PlaceSuggestionResponse;
 
         const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));

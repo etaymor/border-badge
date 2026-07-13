@@ -912,4 +912,71 @@ describe('photoCacheDb', () => {
       expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM saved_cluster_photos');
     });
   });
+
+  describe('trip segments previewAssetIds', () => {
+    it('persists previewAssetIds and reads it back', async () => {
+      await photoCacheDb.saveTripSegments([
+        {
+          id: 'trip-1',
+          countryCode: 'JP',
+          startTime: 1700000000000,
+          endTime: 1700009999999,
+          photoCount: 2,
+          clusterCount: 1,
+          previewUris: ['file://a.jpg', 'file://b.jpg'],
+          previewAssetIds: ['asset-a', 'asset-b'],
+          clusterIds: ['c1'],
+          photoIds: ['asset-a', 'asset-b'],
+        },
+      ]);
+
+      // The insert must include the serialized previewAssetIds.
+      const insertCall = mockDb.runAsync.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO cached_trip_segments')
+      );
+      expect(insertCall).toBeDefined();
+      expect(insertCall![1]).toContain(JSON.stringify(['asset-a', 'asset-b']));
+
+      // Round-trip read.
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          id: 'trip-1',
+          country_code: 'JP',
+          start_time: 1700000000000,
+          end_time: 1700009999999,
+          photo_count: 2,
+          cluster_count: 1,
+          preview_uris: JSON.stringify(['file://a.jpg', 'file://b.jpg']),
+          preview_asset_ids: JSON.stringify(['asset-a', 'asset-b']),
+          cluster_ids: JSON.stringify(['c1']),
+          photo_ids: JSON.stringify(['asset-a', 'asset-b']),
+        },
+      ]);
+
+      const [segment] = await photoCacheDb.getTripSegments();
+      expect(segment.previewAssetIds).toEqual(['asset-a', 'asset-b']);
+    });
+
+    it('reads pre-migration rows (no preview_asset_ids column) as an empty array', async () => {
+      mockDb.getAllAsync.mockResolvedValue([
+        {
+          id: 'trip-old',
+          country_code: 'JP',
+          start_time: 1700000000000,
+          end_time: 1700009999999,
+          photo_count: 1,
+          cluster_count: 1,
+          preview_uris: JSON.stringify(['file://a.jpg']),
+          // preview_asset_ids intentionally absent (old row, pre-migration)
+          cluster_ids: JSON.stringify(['c1']),
+          photo_ids: JSON.stringify(['asset-a']),
+        },
+      ]);
+
+      const [segment] = await photoCacheDb.getTripSegments();
+      expect(segment.previewAssetIds).toEqual([]);
+      // The rest of the row still reads correctly.
+      expect(segment.previewUris).toEqual(['file://a.jpg']);
+    });
+  });
 });

@@ -2,9 +2,12 @@
  * Tests for LookupFailedCard (U9 / KTD10).
  *
  * The lookup-failed terminal card must:
- *  - render the cluster photos + an "Add Manually" affordance + dismiss
+ *  - render the cluster photos + an "Add Manually" affordance
  *  - render an active Retry button when retryDisabled=false and call onRetry
  *  - render a time-gated message (no active Retry button) when retryDisabled=true
+ *
+ * Skipping is no longer this card's concern -- it moved to the SwipeToSkipCard
+ * wrapper in ClusterListItem, which has its own tests.
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -13,17 +16,6 @@ import { render, fireEvent } from '@testing-library/react-native';
 
 import { LookupFailedCard } from '../../../screens/photos/components/LookupFailedCard';
 import type { LocationClusterDisplay } from '../../../services/photoImport';
-
-// Jest hoists jest.mock above imports; re-require inside the factory.
-jest.mock('react-native-gesture-handler', () => {
-  const mockReact = require('react');
-  const mockRN = require('react-native');
-  return {
-    Swipeable: mockReact.forwardRef(({ children }: { children: React.ReactNode }, ref: unknown) =>
-      mockReact.createElement(mockRN.View, { ref }, children)
-    ),
-  };
-});
 
 jest.mock('expo-image', () => {
   const mockReact = require('react');
@@ -49,6 +41,7 @@ const buildCluster = (overrides: Partial<LocationClusterDisplay> = {}): Location
     'https://example.com/p2.jpg',
     'https://example.com/p3.jpg',
   ],
+  previewAssetIds: ['p1', 'p2', 'p3'],
   timeRange: { start: new Date('2026-01-01T10:00:00Z'), end: new Date('2026-01-01T12:00:00Z') },
   countryCode: 'JP',
   ...overrides,
@@ -64,7 +57,6 @@ describe('LookupFailedCard', () => {
         onRetry={onRetry}
         onAddEntry={jest.fn()}
         onPhotoPress={jest.fn()}
-        onDismiss={jest.fn()}
       />
     );
 
@@ -81,7 +73,6 @@ describe('LookupFailedCard', () => {
         onRetry={onRetry}
         onAddEntry={jest.fn()}
         onPhotoPress={jest.fn()}
-        onDismiss={jest.fn()}
       />
     );
 
@@ -98,7 +89,6 @@ describe('LookupFailedCard', () => {
         onRetry={jest.fn()}
         onAddEntry={jest.fn()}
         onPhotoPress={onPhotoPress}
-        onDismiss={jest.fn()}
       />
     );
 
@@ -117,7 +107,6 @@ describe('LookupFailedCard', () => {
         onRetry={jest.fn()}
         onAddEntry={onAddEntry}
         onPhotoPress={jest.fn()}
-        onDismiss={jest.fn()}
       />
     );
 
@@ -133,7 +122,6 @@ describe('LookupFailedCard', () => {
         onRetry={jest.fn()}
         onAddEntry={jest.fn()}
         onPhotoPress={jest.fn()}
-        onDismiss={jest.fn()}
       />
     );
 
@@ -150,7 +138,6 @@ describe('LookupFailedCard', () => {
         onRetry={onRetry}
         onAddEntry={jest.fn()}
         onPhotoPress={jest.fn()}
-        onDismiss={jest.fn()}
       />
     );
 

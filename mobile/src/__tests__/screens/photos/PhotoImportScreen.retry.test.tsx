@@ -103,6 +103,7 @@ function toDisplay(c: LocationCluster): LocationClusterDisplay {
     photoIds: c.photos.map((p) => p.id),
     photoCount: c.photos.length,
     previewUris: c.photos.map((p) => p.uri),
+    previewAssetIds: c.photos.map((p) => p.id),
     timeRange: c.timeRange,
     countryCode: c.countryCode,
   };
@@ -115,6 +116,7 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
   photoIds: [],
   photoCount: 10,
   previewUris: [],
+  previewAssetIds: [],
   locationClusterIds: clusterIds,
 });
 

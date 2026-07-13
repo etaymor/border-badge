@@ -75,6 +75,7 @@ export function createMergedSuggestion(
 ): MergedSuggestion | null {
   const allPhotoIds: string[] = [];
   const allPreviewUris: string[] = [];
+  const allPreviewAssetIds: string[] = [];
   let minStart: Date | null = null;
   let maxEnd: Date | null = null;
 
@@ -84,6 +85,9 @@ export function createMergedSuggestion(
 
     allPhotoIds.push(...cluster.photoIds);
     allPreviewUris.push(...cluster.previewUris);
+    // previewAssetIds is aligned with previewUris per cluster, so pushing both
+    // in lockstep keeps merged.previewAssetIds[i] the asset for previewUris[i].
+    allPreviewAssetIds.push(...cluster.previewAssetIds);
 
     if (!minStart || cluster.timeRange.start < minStart) {
       minStart = cluster.timeRange.start;
@@ -104,6 +108,7 @@ export function createMergedSuggestion(
     clusterIds,
     photoIds: allPhotoIds,
     previewUris: allPreviewUris.slice(0, 30),
+    previewAssetIds: allPreviewAssetIds.slice(0, 30),
     photoCount: allPhotoIds.length,
     place: primaryEntry.suggestion.places[0],
     allPlaces: primaryEntry.suggestion.places,

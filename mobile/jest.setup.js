@@ -31,10 +31,30 @@ jest.mock(
       FadeOutUp: {
         duration: () => ({}),
       },
-      useSharedValue: jest.fn((initial) => ({ value: initial })),
+      // Real useSharedValue returns the SAME object across renders. Returning a
+      // fresh one each time would hide recycling bugs (a stale offset written by
+      // a previous render would appear to "reset" on its own), so mirror the real
+      // identity semantics by holding the object in a ref.
+      useSharedValue: jest.fn((initial) => {
+        const ref = mockReact.useRef(null);
+        if (ref.current === null) ref.current = { value: initial };
+        return ref.current;
+      }),
       useAnimatedStyle: jest.fn(() => ({})),
-      withTiming: jest.fn((value) => value),
-      withSpring: jest.fn((value) => value),
+      // Invoke the completion callback synchronously so components that chain work
+      // off the end of an animation (e.g. SwipeToSkipCard committing a skip) are
+      // testable without a real UI-thread animation driver.
+      withTiming: jest.fn((value, _config, callback) => {
+        callback?.(true);
+        return value;
+      }),
+      withSpring: jest.fn((value, _config, callback) => {
+        callback?.(true);
+        return value;
+      }),
+      runOnJS: jest.fn((fn) => fn),
+      cancelAnimation: jest.fn(),
+      useAnimatedReaction: jest.fn(),
       interpolate: jest.fn((value, inputRange, outputRange) => {
         // Linear interpolation supporting multiple keyframes
         // Find the segment that contains our value
@@ -62,6 +82,49 @@ jest.mock(
   },
   { virtual: true }
 );
+
+// Mock react-native-gesture-handler.
+//
+// Gesture.Pan() returns a chainable stub that records each handler it is given
+// (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe by calling those directly,
+// which is the only way to exercise a gesture without a real touch system.
+// `Swipeable` is retained for TripListsScreen, which still uses the legacy API.
+jest.mock('react-native-gesture-handler', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  const createGestureStub = () => {
+    const gesture = {};
+    const chainable = [
+      'enabled',
+      'activeOffsetX',
+      'activeOffsetY',
+      'failOffsetX',
+      'failOffsetY',
+      'onBegin',
+      'onStart',
+      'onUpdate',
+      'onEnd',
+      'onFinalize',
+    ];
+    for (const method of chainable) {
+      gesture[method] = jest.fn((arg) => {
+        gesture[`_${method}`] = arg;
+        return gesture;
+      });
+    }
+    return gesture;
+  };
+
+  return {
+    Gesture: { Pan: jest.fn(createGestureStub) },
+    GestureDetector: ({ children }) => children,
+    GestureHandlerRootView: mockRN.View,
+    Swipeable: ({ children }) => mockReact.createElement(mockRN.View, null, children),
+    State: {},
+    Directions: {},
+  };
+});
 
 // Mock react-native-screen-transitions
 jest.mock('react-native-screen-transitions', () => {

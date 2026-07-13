@@ -30,6 +30,8 @@ export interface MergedSuggestion {
   photoIds: string[];
   /** Combined preview URIs from all clusters (first 5) */
   previewUris: string[];
+  /** Asset IDs positionally aligned with previewUris (for on-error re-resolve) */
+  previewAssetIds: string[];
   /** Total photo count across all clusters */
   photoCount: number;
   /** The shared top place suggestion */

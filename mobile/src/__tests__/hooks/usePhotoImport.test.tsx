@@ -2,7 +2,12 @@ import { renderHook, act } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-import { useSuggestPlaces, useSuggestPlacesChunked } from '../../hooks/usePhotoImport';
+import {
+  useSuggestPlaces,
+  useSuggestPlacesChunked,
+  CHUNK_SIZE,
+  SUGGEST_PLACES_TIMEOUT_MS,
+} from '../../hooks/usePhotoImport';
 import { api } from '../../services/api';
 import { AxiosError } from 'axios';
 
@@ -94,7 +99,11 @@ describe('usePhotoImport', () => {
         await result.current.mutateAsync(requestData);
       });
 
-      expect(mockedApi.post).toHaveBeenCalledWith('/photos/suggest-places', requestData);
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/photos/suggest-places',
+        requestData,
+        expect.objectContaining({ timeout: SUGGEST_PLACES_TIMEOUT_MS })
+      );
     });
 
     it('returns place suggestions on success', async () => {
@@ -169,13 +178,18 @@ describe('usePhotoImport', () => {
   });
 
   describe('useSuggestPlacesChunked - failedClusterIds (KTD6/KTD8/KTD10)', () => {
-    // CHUNK_SIZE is 15; build enough clusters to span two chunks.
+    // Chunk boundaries are derived from the real CHUNK_SIZE rather than hardcoded,
+    // so tuning it (as the timeout fix did) can't silently invalidate these tests.
     const buildClusters = (count: number) =>
       Array.from({ length: count }, (_, i) => ({
         id: `cluster-${i}`,
         centroid: { latitude: 35 + i * 0.001, longitude: 139 + i * 0.001 },
         photos: [{ asset_id: `photo-${i}`, latitude: 35, longitude: 139 }],
       }));
+
+    /** Cluster ids belonging to the nth (0-indexed) chunk. */
+    const chunkIds = (clusters: { id: string }[], n: number) =>
+      clusters.slice(n * CHUNK_SIZE, (n + 1) * CHUNK_SIZE).map((c) => c.id);
 
     const suggestionsFor = (ids: string[]) =>
       ids.map((id) => ({ cluster_id: id, photo_ids: [`photo-${id}`], places: [] }));
@@ -187,10 +201,14 @@ describe('usePhotoImport', () => {
       return err;
     };
 
+    // The backend sends Retry-After ONLY on a genuine quota 503; a config/network
+    // 503 carries no header and must stay retryable. Mirror that here.
+    const makeQuotaError = () => makeAxiosError(503, { 'retry-after': '3600' });
+
     it('records exactly chunk-2 cluster IDs in failedClusterIds when chunk-2 throws (non-fatal)', async () => {
-      const clusters = buildClusters(20); // chunk-1: 0-14, chunk-2: 15-19
-      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
-      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+      const clusters = buildClusters(CHUNK_SIZE * 2); // exactly two chunks
+      const chunk1Ids = chunkIds(clusters, 0);
+      const chunk2Ids = chunkIds(clusters, 1);
 
       mockedApi.post
         .mockResolvedValueOnce({
@@ -221,15 +239,15 @@ describe('usePhotoImport', () => {
     });
 
     it('records remaining clusters with retryDisabled=true when a chunk throws 503 (quota)', async () => {
-      const clusters = buildClusters(20);
-      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
-      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const chunk1Ids = chunkIds(clusters, 0);
+      const chunk2Ids = chunkIds(clusters, 1);
 
       mockedApi.post
         .mockResolvedValueOnce({
           data: { suggestions: suggestionsFor(chunk1Ids), failed_cluster_count: 0 },
         })
-        .mockRejectedValueOnce(makeAxiosError(503));
+        .mockRejectedValueOnce(makeQuotaError());
 
       const { result } = renderHook(() => useSuggestPlacesChunked(), {
         wrapper: createWrapper(queryClient),
@@ -256,9 +274,9 @@ describe('usePhotoImport', () => {
     });
 
     it('records remaining clusters with retryDisabled=true when a chunk throws 429 (rate limit)', async () => {
-      const clusters = buildClusters(20);
-      const chunk1Ids = clusters.slice(0, 15).map((c) => c.id);
-      const chunk2Ids = clusters.slice(15).map((c) => c.id);
+      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const chunk1Ids = chunkIds(clusters, 0);
+      const chunk2Ids = chunkIds(clusters, 1);
 
       mockedApi.post
         .mockResolvedValueOnce({
@@ -289,19 +307,19 @@ describe('usePhotoImport', () => {
     });
 
     it('records ALL remaining clusters (current + later chunks) on a fatal error in an early chunk', async () => {
-      const clusters = buildClusters(35); // 3 chunks: 0-14, 15-29, 30-34
-      const chunk2Ids = clusters.slice(15, 30).map((c) => c.id);
-      const chunk3Ids = clusters.slice(30).map((c) => c.id);
+      const clusters = buildClusters(CHUNK_SIZE * 3); // exactly three chunks
+      const chunk2Ids = chunkIds(clusters, 1);
+      const chunk3Ids = chunkIds(clusters, 2);
 
       mockedApi.post
         .mockResolvedValueOnce({
           data: {
-            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            suggestions: suggestionsFor(chunkIds(clusters, 0)),
             failed_cluster_count: 0,
           },
         })
         // chunk-2 throws fatal — chunk-3 never runs
-        .mockRejectedValueOnce(makeAxiosError(503));
+        .mockRejectedValueOnce(makeQuotaError());
 
       const { result } = renderHook(() => useSuggestPlacesChunked(), {
         wrapper: createWrapper(queryClient),
@@ -321,17 +339,17 @@ describe('usePhotoImport', () => {
     });
 
     it('leaves failedClusterIds empty when all chunks succeed', async () => {
-      const clusters = buildClusters(20);
+      const clusters = buildClusters(CHUNK_SIZE * 2);
       mockedApi.post
         .mockResolvedValueOnce({
           data: {
-            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            suggestions: suggestionsFor(chunkIds(clusters, 0)),
             failed_cluster_count: 0,
           },
         })
         .mockResolvedValueOnce({
           data: {
-            suggestions: suggestionsFor(clusters.slice(15).map((c) => c.id)),
+            suggestions: suggestionsFor(chunkIds(clusters, 1)),
             failed_cluster_count: 0,
           },
         });
@@ -348,11 +366,11 @@ describe('usePhotoImport', () => {
     });
 
     it('clears failedClusterIds on reset', async () => {
-      const clusters = buildClusters(20);
+      const clusters = buildClusters(CHUNK_SIZE * 2);
       mockedApi.post
         .mockResolvedValueOnce({
           data: {
-            suggestions: suggestionsFor(clusters.slice(0, 15).map((c) => c.id)),
+            suggestions: suggestionsFor(chunkIds(clusters, 0)),
             failed_cluster_count: 0,
           },
         })
@@ -371,6 +389,44 @@ describe('usePhotoImport', () => {
         result.current.reset();
       });
       expect(result.current.failedClusterIds.size).toBe(0);
+    });
+
+    it('keeps a 503 WITHOUT Retry-After retryable instead of reporting quota exhausted', async () => {
+      // The backend returns 503 for a misconfigured service and for an unreachable
+      // upstream, neither of which is a quota problem. Treating every 503 as fatal
+      // showed "Daily limit reached" and hid the Retry button, so a transient
+      // outage looked permanent. Only the quota 503 carries Retry-After.
+      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const chunk1Ids = chunkIds(clusters, 0);
+      const chunk2Ids = chunkIds(clusters, 1);
+
+      mockedApi.post
+        .mockResolvedValueOnce({
+          data: { suggestions: suggestionsFor(chunk1Ids), failed_cluster_count: 0 },
+        })
+        .mockRejectedValueOnce(makeAxiosError(503)); // no Retry-After
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      let caught: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ clusters });
+        } catch (e) {
+          caught = e as Error;
+        }
+      });
+
+      // Non-fatal: the loop keeps going and the mutation resolves.
+      expect(caught).toBeNull();
+      const failed = result.current.failedClusterIds;
+      expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
+      // ...and crucially the user can still retry them.
+      for (const id of chunk2Ids) {
+        expect(failed.get(id)).toEqual({ retryDisabled: false });
+      }
     });
   });
 });

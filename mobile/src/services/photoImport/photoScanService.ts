@@ -471,6 +471,7 @@ async function runScan(
         photoCount: c.photoCount,
         clusterCount: c.locationClusterIds.length,
         previewUris: c.previewUris,
+        previewAssetIds: c.previewAssetIds,
         clusterIds: c.locationClusterIds,
         photoIds: c.photoIds,
       }))

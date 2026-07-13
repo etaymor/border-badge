@@ -14,18 +14,6 @@ import { render, fireEvent } from '@testing-library/react-native';
 import { PlaceSuggestionCard } from '../../../screens/photos/components/PlaceSuggestionCard';
 import type { ClusterSuggestion, PlaceSuggestion } from '../../../services/photoImport';
 
-// Jest hoists jest.mock calls above imports, so factories cannot reference
-// the React/View imported at the top of the file. Re-require inside.
-jest.mock('react-native-gesture-handler', () => {
-  const mockReact = require('react');
-  const mockRN = require('react-native');
-  return {
-    Swipeable: mockReact.forwardRef(({ children }: { children: React.ReactNode }, ref: unknown) =>
-      mockReact.createElement(mockRN.View, { ref }, children)
-    ),
-  };
-});
-
 jest.mock('expo-image', () => {
   const mockReact = require('react');
   return {
@@ -45,8 +33,11 @@ const buildPlace = (overrides: Partial<PlaceSuggestion> = {}): PlaceSuggestion =
   ...overrides,
 });
 
-const buildSuggestion = (places: PlaceSuggestion[]): ClusterSuggestion => ({
-  cluster_id: 'cluster-x',
+const buildSuggestion = (
+  places: PlaceSuggestion[],
+  clusterId = 'cluster-x'
+): ClusterSuggestion => ({
+  cluster_id: clusterId,
   photo_ids: ['p1'],
   places,
 });
@@ -197,6 +188,53 @@ describe('PlaceSuggestionCard', () => {
       expect.anything(),
       expect.objectContaining({ place_id: 'ChIJ_alt' }),
       expect.objectContaining({ suggested_rank: 2 })
+    );
+  });
+
+  it('resets the alternatives index when FlashList recycles the cell into a new cluster', () => {
+    const onConfirm = jest.fn();
+    const three = [
+      buildPlace({ place_id: 'ChIJ_1', name: 'First' }),
+      buildPlace({ place_id: 'ChIJ_2', name: 'Second' }),
+      buildPlace({ place_id: 'ChIJ_3', name: 'Third' }),
+    ];
+
+    const { getByLabelText, getByText, rerender } = render(
+      <PlaceSuggestionCard
+        suggestion={buildSuggestion(three, 'cluster-a')}
+        previewUris={['https://example.com/p1.jpg']}
+        onConfirm={onConfirm}
+        onReject={jest.fn()}
+        onPhotoPress={jest.fn()}
+      />
+    );
+
+    // Cycle to the 3rd of 3 options.
+    fireEvent.press(getByLabelText('Next suggestion'));
+    fireEvent.press(getByLabelText('Next suggestion'));
+    expect(getByText('3 of 3 options')).toBeTruthy();
+
+    // FlashList hands this pooled cell to a cluster with only ONE option, without
+    // remounting. A leaked index of 2 would read past `places` and render nothing.
+    const one = [buildPlace({ place_id: 'ChIJ_only', name: 'Only Place' })];
+    rerender(
+      <PlaceSuggestionCard
+        suggestion={buildSuggestion(one, 'cluster-b')}
+        previewUris={['https://example.com/p2.jpg']}
+        onConfirm={onConfirm}
+        onReject={jest.fn()}
+        onPhotoPress={jest.fn()}
+      />
+    );
+
+    expect(getByText('Only Place')).toBeTruthy();
+
+    // And the decision metadata restarts at rank 1 rather than inheriting rank 3.
+    fireEvent.press(getByLabelText('Confirm place suggestion'));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ place_id: 'ChIJ_only' }),
+      expect.objectContaining({ suggested_rank: 1, alternatives_viewed: 1 })
     );
   });
 });

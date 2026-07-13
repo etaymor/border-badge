@@ -204,6 +204,7 @@ describe('usePlaceSuggestions.fetchSuggestions - chunk-failure empty-cache guard
       photoIds: [],
       photoCount: 2,
       previewUris: [],
+      previewAssetIds: [],
       locationClusterIds: ['chunk-1', 'chunk-2'],
     };
 
@@ -242,6 +243,7 @@ describe('usePlaceSuggestions.fetchSuggestions - chunk-failure empty-cache guard
       photoIds: [],
       photoCount: 2,
       previewUris: [],
+      previewAssetIds: [],
       locationClusterIds: ['tc-1', 'tc-2'],
     };
 
@@ -439,6 +441,7 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
       photoIds: [],
       photoCount: 1,
       previewUris: [],
+      previewAssetIds: [],
       locationClusterIds: ['quota-1'],
     };
 
@@ -544,6 +547,7 @@ describe('usePlaceSuggestions.fetchSuggestions — B3 stale-request guard (live 
     photoIds: [],
     photoCount: clusterIds.length,
     previewUris: [],
+    previewAssetIds: [],
     locationClusterIds: clusterIds,
   });
 

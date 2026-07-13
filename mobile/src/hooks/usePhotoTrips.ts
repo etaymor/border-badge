@@ -125,6 +125,7 @@ function segmentToDisplay(row: TripSegmentRow): TripCandidateDisplay {
     photoIds: row.photoIds,
     photoCount: row.photoCount,
     previewUris: row.previewUris,
+    previewAssetIds: row.previewAssetIds,
     locationClusterIds: row.clusterIds,
   };
 }
@@ -187,6 +188,7 @@ export function usePhotoTrips(options?: UsePhotoTripsOptions): UsePhotoTripsResu
             photoCount: c.photoCount,
             clusterCount: c.locationClusterIds.length,
             previewUris: c.previewUris,
+            previewAssetIds: c.previewAssetIds,
             clusterIds: c.locationClusterIds,
             photoIds: c.photoIds,
           }))

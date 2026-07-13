@@ -36,6 +36,7 @@ const buildCluster = (id: string): LocationClusterDisplay => ({
   photoIds: [`${id}-p1`, `${id}-p2`],
   photoCount: 2,
   previewUris: [`https://example.com/${id}-1.jpg`, `https://example.com/${id}-2.jpg`],
+  previewAssetIds: [`${id}-p1`, `${id}-p2`],
   timeRange: { start: new Date('2026-01-01T10:00:00Z'), end: new Date('2026-01-01T12:00:00Z') },
   countryCode: 'JP',
 });
@@ -64,6 +65,7 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
   photoIds: [],
   photoCount: 10,
   previewUris: [],
+  previewAssetIds: [],
   locationClusterIds: clusterIds,
 });
 
@@ -169,6 +171,16 @@ describe('createMergedSuggestion', () => {
     expect(merged).not.toBeNull();
     expect(merged!.primaryClusterId).toBe('c-primary');
     expect(merged!.clusterIds).toEqual(['c-primary', 'c-secondary']);
+
+    // previewAssetIds must stay positionally aligned with previewUris across the
+    // merge so a failed thumbnail can re-resolve the right asset.
+    expect(merged!.previewAssetIds).toHaveLength(merged!.previewUris.length);
+    expect(merged!.previewAssetIds).toEqual([
+      'c-primary-p1',
+      'c-primary-p2',
+      'c-secondary-p1',
+      'c-secondary-p2',
+    ]);
   });
 });
 

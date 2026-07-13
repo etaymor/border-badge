@@ -315,7 +315,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const openGalleryForCluster = useCallback(
     (uri: string, clusterId: string, cluster: LocationClusterDisplay) => {
       const photos = cluster.previewUris.map((u, i) => ({
-        id: cluster.photoIds[i],
+        // previewAssetIds is aligned with previewUris (same slice); photoIds is
+        // the full, unbounded list and can diverge past the preview cap.
+        id: cluster.previewAssetIds[i],
         uri: u,
       }));
       const index = photos.findIndex((p) => p.uri === uri);
@@ -332,7 +334,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   // Open gallery for merged suggestion (multiple clusters)
   const openGalleryForMerged = useCallback((uri: string, merged: MergedSuggestion) => {
     const photos = merged.previewUris.map((u, i) => ({
-      id: merged.photoIds[i],
+      // previewAssetIds is aligned with previewUris (same slice); photoIds is
+      // the full, unbounded list and can diverge past the preview cap.
+      id: merged.previewAssetIds[i],
       uri: u,
     }));
     const index = photos.findIndex((p) => p.uri === uri);

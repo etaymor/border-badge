@@ -1,11 +1,13 @@
 export { ManualPlaceSearch, type ManualPlaceSearchProps } from './ManualPlaceSearch';
 export { PhotoTripCard, type PhotoTripCardProps } from './PhotoTripCard';
+export { PhotoThumbnail, type PhotoThumbnailProps } from './PhotoThumbnail';
 export { PlaceSuggestionCard, type PlaceSuggestionCardProps } from './PlaceSuggestionCard';
 export { PhotoClusterCard, type PhotoClusterCardProps } from './PhotoClusterCard';
 export { LookupFailedCard, type LookupFailedCardProps } from './LookupFailedCard';
 export { PhotoTripSwitcherSheet, type PhotoTripSwitcherSheetProps } from './PhotoTripSwitcherSheet';
 export { PhotoGalleryModal, type PhotoGalleryModalProps } from './PhotoGalleryModal';
 export { ClusterListItem, type ClusterListItemProps } from './ClusterListItem';
+export { SwipeToSkipCard, type SwipeToSkipCardProps } from './SwipeToSkipCard';
 export { IdlePhase, type IdlePhaseProps } from './IdlePhase';
 export { ScanningPhase, type ScanningPhaseProps } from './ScanningPhase';
 export { SuggestionsPhase, type SuggestionsPhaseProps } from './SuggestionsPhase';
