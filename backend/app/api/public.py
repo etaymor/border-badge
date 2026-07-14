@@ -367,6 +367,8 @@ async def view_public_trip(
                 notes=entry.get("notes"),
                 place_name=place.get("place_name"),
                 address=place.get("address"),
+                latitude=lat,
+                longitude=lng,
                 media_urls=extract_media_urls(entry.get("media_files")),
                 place_photo_url=_extract_place_photo_url(place),
                 redirect_url=redirect_url,

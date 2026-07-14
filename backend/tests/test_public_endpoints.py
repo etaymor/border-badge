@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+import app.api.public as public_module
 from app.core.security import AuthUser, get_current_user
 from app.core.seo import LANDING_FAQS
 from app.main import app
@@ -798,3 +799,132 @@ def test_public_list_with_place_photo_url(
 
     assert response.status_code == 200
     assert "Best Coffee Shop" in response.text
+
+
+# ============================================================================
+# Trip Entry Coordinates (U1)
+# ============================================================================
+
+
+def _render_trip_and_capture_view(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    entry_rows: list[dict[str, Any]],
+) -> Any:
+    """Render /t/{slug} with the given entries and return the PublicTripView."""
+    trip_data = {
+        "id": TEST_TRIP_ID,
+        "user_id": TEST_USER_ID,
+        "name": "Summer Vacation",
+        "share_slug": "summer-vacation-abc123",
+        "cover_image_url": None,
+        "date_range": "[2024-06-01,2024-06-15]",
+        "created_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "country": {"name": "United States", "code": "US"},
+    }
+    mock_supabase_client.get.side_effect = [
+        [trip_data],
+        entry_rows,
+    ]
+
+    captured: dict[str, Any] = {}
+    real_template_response = public_module.templates.TemplateResponse
+
+    def capture(*args: Any, **kwargs: Any) -> Any:
+        captured["context"] = kwargs.get("context", {})
+        return real_template_response(*args, **kwargs)
+
+    with (
+        patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
+        patch.object(public_module.templates, "TemplateResponse", side_effect=capture),
+    ):
+        response = client.get("/t/summer-vacation-abc123")
+
+    assert response.status_code == 200
+    return captured["context"]["trip"]
+
+
+def test_public_trip_entry_exposes_place_coordinates(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A trip entry whose place has lat/lng exposes them on the view model."""
+    trip_view = _render_trip_and_capture_view(
+        client,
+        mock_supabase_client,
+        [
+            {
+                "id": TEST_ENTRY_ID,
+                "title": "Golden Gate Bridge",
+                "type": "place",
+                "notes": None,
+                "place": {
+                    "place_name": "Golden Gate Bridge",
+                    "address": "San Francisco",
+                    "lat": 37.8199,
+                    "lng": -122.4783,
+                },
+                "media_files": [],
+            }
+        ],
+    )
+
+    entry = trip_view.entries[0]
+    assert entry.latitude == 37.8199
+    assert entry.longitude == -122.4783
+
+
+def test_public_trip_entry_without_place_has_null_coordinates(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A trip entry with no place row yields None coordinates, not a KeyError."""
+    trip_view = _render_trip_and_capture_view(
+        client,
+        mock_supabase_client,
+        [
+            {
+                "id": TEST_ENTRY_ID,
+                "title": "Just a note",
+                "type": "experience",
+                "notes": "No place attached",
+                "place": None,
+                "media_files": [],
+            }
+        ],
+    )
+
+    entry = trip_view.entries[0]
+    assert entry.latitude is None
+    assert entry.longitude is None
+
+
+def test_public_trip_entry_with_place_but_null_coordinates(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A place row with null lat/lng yields None for both coordinates."""
+    trip_view = _render_trip_and_capture_view(
+        client,
+        mock_supabase_client,
+        [
+            {
+                "id": TEST_ENTRY_ID,
+                "title": "Somewhere",
+                "type": "place",
+                "notes": None,
+                "place": {
+                    "place_name": "Somewhere",
+                    "address": None,
+                    "lat": None,
+                    "lng": None,
+                },
+                "media_files": [],
+            }
+        ],
+    )
+
+    entry = trip_view.entries[0]
+    assert entry.latitude is None
+    assert entry.longitude is None
