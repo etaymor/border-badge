@@ -1,176 +1,51 @@
 {% extends "base.html" %}
+{% import "_share_page.html" as share_page_macros %}
 
-{% block title %}{{ list.name }} - Atlasi{% endblock %}
-{% block description %}{{ list.description or 'A public travel list on Atlasi' }}{% endblock %}
+{% block title %}{{ share.title }} - Atlasi{% endblock %}
+{% block description %}{{ share.subtitle or 'A public travel list on Atlasi' }}{% endblock %}
+
+{% block nav_links %}
+<nav class="nav-links share-nav">
+  <a href="#places">Places</a>
+  {% if share.has_map %}<a href="#map">Map</a>{% endif %}
+  <a
+    href="{{ app_store_url | safe_external_url or '#download' }}"
+    class="cta-button"
+    data-track-location="header"
+    >Get Atlasi</a
+  >
+</nav>
+{% endblock %}
 
 {% block content %}
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  "name": {{ list.name|tojson }},
-  "description": {{ (list.description or '')|tojson }},
-  "datePublished": {{ list.created_at.isoformat()|tojson }},
-  "url": {{ canonical_url|tojson }},
-  "itemListElement": [
-    {% for entry in list.entries %}
-    {
-      "@type": "ListItem",
-      "position": {{ loop.index }},
-      "name": {{ entry.title|tojson }}
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ],
-  "breadcrumb": {
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      {
-        "@type": "ListItem",
-        "position": 1,
-        "name": "Home",
-        "item": {{ canonical_url.split('/l/')[0]|tojson }}
-      },
-      {
-        "@type": "ListItem",
-        "position": 2,
-        "name": {{ list.name|tojson }},
-        "item": {{ canonical_url|tojson }}
-      }
-    ]
-  }
-}
+<script type="application/ld+json" nonce="{{ request.state.csp_nonce }}">
+{{ structured_data | tojson }}
 </script>
 
-<!-- Hero Section -->
-<section class="hero-section">
-    {% if list.cover_image_url %}
-    <img src="{{ list.cover_image_url }}" alt="Cover image for {{ list.name }} travel list" class="hero-bg">
-    {% else %}
-    <!-- Fallback pattern if no image -->
-    <div class="hero-bg hero-bg-fallback"></div>
-    {% endif %}
-    <div class="hero-overlay"></div>
-</section>
-
-<!-- List Info Card (Liquid Glass) -->
-<div class="list-info-container">
-    <div class="list-info-card">
-        <h1 class="list-title">{{ list.name }}</h1>
-        
-        <div class="list-meta">
-            {% if list.country_name %}
-            <div class="meta-item">
-                <span class="emoji-icon">{{ list.country_flag or '🌍' }}</span> {{ list.country_name }}
-            </div>
-            {% endif %}
-
-            {% if list.trip_name %}
-            <div class="meta-item">
-                <span class="emoji-icon">✈️</span> {{ list.trip_name }}
-            </div>
-            {% endif %}
-
-            <div class="meta-item">
-                <span class="emoji-icon">📍</span> {{ list.entries|length }} Places
-            </div>
-
-            <div class="meta-item">
-                <span class="emoji-icon">📅</span> Shared {{ list.created_at.strftime('%B %d, %Y') }}
-            </div>
-        </div>
-
-        {% if list.description %}
-        <p class="list-description">{{ list.description }}</p>
-        {% endif %}
-    </div>
+<div class="share-page">
+  {{ share_page_macros.share_page(
+       share,
+       app_store_url,
+       google_maps_browser_api_key,
+       google_maps_map_id,
+       request.state.csp_nonce,
+       url_for('static', path='js/share-map.js')
+     ) }}
 </div>
-
-<!-- Entries Grid -->
-<section class="entries-container">
-    {% if list.entries %}
-    <div class="entries-grid">
-        {% for entry in list.entries %}
-        {% set sanitized_link = entry.link | safe_external_url %}
-        {% set primary_image = entry.media_urls[0] if entry.media_urls and entry.media_urls|length > 0 else entry.place_photo_url %}
-        {% set sanitized_image = primary_image | safe_external_url if primary_image else None %}
-        {% set fallback_url = 'https://www.google.com/maps/search/?api=1&query=' ~ (entry.latitude|string) ~ ',' ~ (entry.longitude|string) if entry.latitude and entry.longitude else ('https://www.google.com/maps/search/?api=1&query_place_id=' ~ entry.google_place_id if entry.google_place_id else '') %}
-        {# Prefer redirect_url for affiliate tracking, fall back to direct URL #}
-        {% set entry_url = entry.redirect_url if entry.redirect_url else (sanitized_link if sanitized_link else fallback_url) %}
-        
-        {% if entry_url %}
-        <a href="{{ entry_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
-        {% endif %}
-            
-            <article class="entry-card">
-                <div class="entry-image-wrapper">
-                    {% if sanitized_image %}
-                    <img src="{{ sanitized_image }}" alt="Photo of {{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}" class="entry-image" loading="lazy">
-                    {% else %}
-                    <div class="entry-image-placeholder">
-                        <span>No Photo</span>
-                    </div>
-                    {% endif %}
-                </div>
-                
-                <div class="entry-content">
-                    {% if entry.type %}
-                    <span class="entry-category">{{ entry.type }}</span>
-                    {% endif %}
-                    
-                    <h3 class="entry-title">{{ entry.title }}</h3>
-                    
-                    {% if entry.place_name %}
-                    <div class="entry-location">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                        {{ entry.place_name }}
-                    </div>
-                    {% endif %}
-                    
-                    {% if entry.notes %}
-                    <div class="entry-notes">
-                        "{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}"
-                    </div>
-                    {% endif %}
-                </div>
-            </article>
-            
-        {% if entry_url %}
-        </a>
-        {% endif %}
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-        <p>This list is just getting started. No entries yet.</p>
-    </div>
-    {% endif %}
-</section>
-
-<!-- CTA Section -->
-<section class="cta-section">
-    <div class="cta-content">
-        <span class="cta-hand-text">Start your adventure</span>
-        <h2 class="cta-title">Track your travels & share your story</h2>
-        <p class="cta-description">Download Atlasi to build your own lists, mark countries visited, and explore the world.</p>
-        <a href="{{ app_store_url or '#download' }}" class="cta-button">
-            Get Atlasi
-        </a>
-    </div>
-</section>
 {% endblock %}
 
 {% block footer_cta %}{% endblock %}
 
 {% block footer_main %}
 <div class="footer-main">
-    <a href="/">
-        <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
-    </a>
-    <nav class="footer-links">
-        <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
-           data-track-location="footer">Download App</a>
-        <a href="/privacy" class="footer-link">Privacy</a>
-        <a href="/terms" class="footer-link">Terms</a>
-    </nav>
+  <a href="/">
+    <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+  </a>
+  <nav class="footer-links">
+    <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
+       data-track-location="footer">Download App</a>
+    <a href="/privacy" class="footer-link">Privacy</a>
+    <a href="/terms" class="footer-link">Terms</a>
+  </nav>
 </div>
 {% endblock %}

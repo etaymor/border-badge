@@ -14,14 +14,23 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
-from app.core.media import AVATAR_WIDTH, extract_media_urls, media_url
+from app.core.media import (
+    AVATAR_WIDTH,
+    ENTRY_IMAGE_WIDTH,
+    HERO_COVER_WIDTH,
+    extract_media_urls,
+    media_url,
+    resize_stored_url,
+)
 from app.core.seo import (
     LANDING_FAQS,
     build_landing_seo,
     build_landing_structured_data,
     build_list_seo,
+    build_share_structured_data,
     build_trip_seo,
 )
+from app.core.share_view import build_share_view_model
 from app.core.urls import safe_external_url, safe_google_photo_url
 from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter, templates
@@ -324,7 +333,9 @@ async def view_public_list(
                     google_place_id=google_place_id,
                     latitude=lat,
                     longitude=lng,
-                    media_urls=extract_media_urls(entry.get("media_files")),
+                    media_urls=extract_media_urls(
+                        entry.get("media_files"), width=ENTRY_IMAGE_WIDTH
+                    ),
                     place_photo_url=_extract_place_photo_url(place),
                     redirect_url=redirect_url,
                 )
@@ -352,17 +363,29 @@ async def view_public_list(
         description=list_view.description,
         country_name=list_view.country_name,
         base_url=settings.base_url,
+        # The OG image keeps the full-size original: social scrapers want the
+        # source, and only the on-page hero is bound by the display size.
         cover_image_url=list_view.cover_image_url,
     )
 
     author = await _fetch_share_author(db, lst.get("owner_id"))
+    share = build_share_view_model(list_view, author=author)
+    share.cover_image_url = resize_stored_url(
+        share.cover_image_url, width=HERO_COVER_WIDTH
+    )
 
     response = templates.TemplateResponse(
         request=request,
         name="list_public.html",
         context={
             "list": list_view,
+            "share": share,
             "author": author,
+            "structured_data": build_share_structured_data(
+                share, seo.canonical_url, settings.base_url
+            ),
+            "google_maps_browser_api_key": settings.google_maps_browser_api_key,
+            "google_maps_map_id": settings.google_maps_map_id,
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
@@ -465,7 +488,9 @@ async def view_public_trip(
                 address=place.get("address"),
                 latitude=lat,
                 longitude=lng,
-                media_urls=extract_media_urls(entry.get("media_files")),
+                media_urls=extract_media_urls(
+                    entry.get("media_files"), width=ENTRY_IMAGE_WIDTH
+                ),
                 place_photo_url=_extract_place_photo_url(place),
                 redirect_url=redirect_url,
             )
@@ -494,13 +519,23 @@ async def view_public_trip(
     )
 
     author = await _fetch_share_author(db, trip.get("user_id"))
+    share = build_share_view_model(trip_view, author=author)
+    share.cover_image_url = resize_stored_url(
+        share.cover_image_url, width=HERO_COVER_WIDTH
+    )
 
     response = templates.TemplateResponse(
         request=request,
         name="trip_public.html",
         context={
             "trip": trip_view,
+            "share": share,
             "author": author,
+            "structured_data": build_share_structured_data(
+                share, seo.canonical_url, settings.base_url
+            ),
+            "google_maps_browser_api_key": settings.google_maps_browser_api_key,
+            "google_maps_map_id": settings.google_maps_map_id,
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,

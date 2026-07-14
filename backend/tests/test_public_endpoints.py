@@ -9,14 +9,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.public as public_module
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.core.media import AVATAR_WIDTH
 from app.core.security import AuthUser, get_current_user
 from app.core.seo import LANDING_FAQS
+from app.core.share_view import CATEGORY_STYLES
 from app.main import app
 from tests.conftest import (
     OTHER_USER_ID,
     TEST_ENTRY_ID,
+    TEST_LIST_ID,
     TEST_TRIP_ID,
     TEST_USER_ID,
     mock_auth_dependency,
@@ -536,7 +538,13 @@ def test_public_trip_with_many_entries(
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
-    assert response.text.count("entry-card") == len(entry_rows)
+    # The editorial redesign replaced the .entry-card grid with numbered
+    # alternating rows; count the row that actually exists now (R12: the feed
+    # is uncapped, so every entry must be present). Anchored on the <article>
+    # so the row's own child classes (share-row-figure, -body, ...) don't count.
+    assert len(re.findall(r'<article\s+class="share-row', response.text)) == len(
+        entry_rows
+    )
     assert "Entry 0" in response.text
     assert "Entry 24" in response.text
 
@@ -1398,3 +1406,453 @@ def test_byline_country_count_failure_still_shows_the_name(
     author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
 
     assert author is None
+
+
+# ============================================================================
+# Editorial share page: layout, image discipline, SEO (U5 / U5b)
+# ============================================================================
+
+
+def _list_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    entry_rows: list[dict[str, Any]],
+    *,
+    list_row: dict[str, Any] | None = None,
+    profile: list[dict[str, Any]] | None = None,
+) -> Any:
+    """Render /l/{slug} with the given entries and return the response."""
+    base_list = {
+        "id": TEST_LIST_ID,
+        "owner_id": TEST_USER_ID,
+        "name": "Istanbul",
+        "slug": "istanbul-abc123",
+        "description": "Highlights from two trips",
+        "created_at": "2024-01-01T00:00:00Z",
+        "trip": {
+            "name": "Turkey",
+            "cover_image_url": (
+                "https://test.supabase.co/storage/v1/object/public/media/cover.jpg"
+            ),
+            "country": {"name": "Turkey", "code": "TR"},
+        },
+    }
+    tables: dict[str, Any] = {
+        "list": [list_row or base_list],
+        "list_entries": entry_rows,
+    }
+    if profile is not None:
+        tables["user_profile"] = profile
+
+    mock_supabase_client.get.side_effect = supabase_tables(**tables)
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        return client.get("/l/istanbul-abc123")
+
+
+def _entry_row(
+    index: int,
+    *,
+    entry_type: str = "place",
+    media: list[dict[str, Any]] | None = None,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"le-{index}",
+        "position": index,
+        "entry": {
+            "id": f"00000000-0000-0000-0000-{index:012d}",
+            "title": f"Entry {index}",
+            "type": entry_type,
+            "notes": f"Note {index}",
+            "place": {
+                "place_name": f"Place {index}",
+                "address": "Istanbul",
+                "lat": lat,
+                "lng": lng,
+            },
+            "media_files": media or [],
+        },
+    }
+
+
+def test_share_rows_alternate_image_side(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Even ordinals put the image left; odd ones flip it (AE1)."""
+    response = _list_page(
+        client, mock_supabase_client, [_entry_row(i) for i in range(4)]
+    )
+
+    rows = re.findall(r'<article\s+class="share-row([^"]*)"', response.text)
+    assert len(rows) == 4
+    # 1st and 3rd rows are un-reversed; 2nd and 4th carry the modifier.
+    assert "is-reversed" not in rows[0]
+    assert "is-reversed" in rows[1]
+    assert "is-reversed" not in rows[2]
+    assert "is-reversed" in rows[3]
+
+
+def test_share_entry_with_photo_renders_an_image(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """An entry with media shows the photo, not the fallback tile (AE3)."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(
+                0,
+                media=[
+                    {
+                        "status": "uploaded",
+                        "file_path": "u/photo.jpg",
+                        "thumbnail_path": None,
+                    }
+                ],
+            )
+        ],
+    )
+
+    assert 'class="share-row-image"' in response.text
+    assert "share-tile-glyph" not in response.text
+
+
+def test_share_entry_without_photo_renders_the_category_tile(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """An entry with no photo falls back to the tinted category tile (AE3)."""
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    assert "share-tile-glyph" in response.text
+    assert 'class="share-row-image"' not in response.text
+
+
+def test_share_entry_photo_is_served_at_display_width(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """AE9: an entry whose media row has no thumbnail still gets a sized URL."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(
+                0,
+                media=[
+                    {
+                        "status": "uploaded",
+                        "file_path": "u/huge-original.jpg",
+                        "thumbnail_path": None,
+                    }
+                ],
+            )
+        ],
+    )
+
+    assert "/render/image/public/media/" in response.text
+    assert "width=800" in response.text
+
+
+def test_share_hero_is_resized_and_not_lazy(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R13/KTD9: the hero is the LCP element -- sized, eager, high priority."""
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    hero = re.search(r'<img[^>]*class="share-hero-image"[^>]*>', response.text)
+    assert hero, "hero image is missing"
+    hero_tag = hero.group(0)
+    assert "width=1600" in response.text
+    assert 'fetchpriority="high"' in hero_tag
+    assert 'loading="lazy"' not in hero_tag
+
+
+def test_share_entry_images_are_lazy_and_dimensioned(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """KTD9: below-fold images defer and reserve layout space (no CLS)."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(
+                0,
+                media=[
+                    {
+                        "status": "uploaded",
+                        "file_path": "u/p.jpg",
+                        "thumbnail_path": "u/t.jpg",
+                    }
+                ],
+            )
+        ],
+    )
+
+    img = re.search(r'<img[^>]*class="share-row-image"[^>]*>', response.text)
+    assert img
+    tag = img.group(0)
+    assert 'loading="lazy"' in tag
+    assert 'decoding="async"' in tag
+    assert 'width="800"' in tag
+    assert 'height="600"' in tag
+
+
+def test_share_filters_only_offer_categories_present(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A collection with no stays must not offer a 'Stays · 0' chip."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(0, entry_type="place"),
+            _entry_row(1, entry_type="food"),
+        ],
+    )
+
+    assert 'data-filter="place"' in response.text
+    assert 'data-filter="food"' in response.text
+    assert 'data-filter="stay"' not in response.text
+    assert 'data-filter="experience"' not in response.text
+
+
+def test_share_entry_preserves_the_affiliate_redirect(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R9: entry clicks must still go through the signed redirect."""
+    with patch(
+        "app.api.public._generate_entry_redirect_url",
+        return_value="https://atlasi.app/r/signed-token",
+    ):
+        response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    assert 'href="https://atlasi.app/r/signed-token"' in response.text
+
+
+def test_share_empty_collection_renders_empty_state_and_no_map(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """AE5: no entries -> empty state, and no map section at all."""
+    response = _list_page(client, mock_supabase_client, [])
+
+    assert response.status_code == 200
+    assert "share-empty" in response.text
+    assert 'id="share-map"' not in response.text
+
+
+def test_share_map_absent_without_coordinates(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """AE5: entries with no coordinates render a feed but hide the map."""
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    assert "Entry 0" in response.text
+    assert 'id="share-map"' not in response.text
+
+
+def test_share_map_absent_without_an_api_key(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """AE6: no browser key (CI, local dev) -> the map section is omitted."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, lat=41.0, lng=28.9)],
+    )
+
+    assert "Entry 0" in response.text
+    assert 'id="share-map"' not in response.text
+
+
+def test_share_content_is_server_rendered(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """AE10 / KTD10: every entry's text is in the HTML, with no JS required."""
+    response = _list_page(
+        client, mock_supabase_client, [_entry_row(i) for i in range(30)]
+    )
+
+    for i in range(30):
+        assert f"Entry {i}" in response.text  # title
+        assert f"Note {i}" in response.text  # note
+        assert f"Place {i}" in response.text  # place name
+
+
+def test_share_pages_emit_nonced_structured_data(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """U5b: valid JSON-LD, carrying the CSP nonce -- which it did not before."""
+    response = _list_page(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, lat=41.0, lng=28.9), _entry_row(1)],
+    )
+
+    match = re.search(
+        r'<script type="application/ld\+json"([^>]*)>(.*?)</script>',
+        response.text,
+        re.DOTALL,
+    )
+    assert match, "share page is missing its JSON-LD"
+    assert "nonce=" in match.group(1)
+
+    data = json.loads(match.group(2))
+    types = {node["@type"] for node in data["@graph"]}
+    assert types == {"ItemList", "BreadcrumbList"}
+
+    item_list = next(n for n in data["@graph"] if n["@type"] == "ItemList")
+    assert len(item_list["itemListElement"]) == 2
+
+    # An entry with coordinates contributes geo; one without omits it entirely.
+    first, second = item_list["itemListElement"]
+    assert first["item"]["geo"]["latitude"] == 41.0
+    assert "geo" not in second["item"]
+
+
+# ============================================================================
+# The map: custom pins (U7)
+# ============================================================================
+
+
+def _list_page_with_maps_configured(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    entry_rows: list[dict[str, Any]],
+) -> Any:
+    """Render /l/{slug} with a Maps browser key and Map ID configured."""
+    settings = get_settings()
+    configured = settings.model_copy(
+        update={
+            "google_maps_browser_api_key": "browser-key-123",
+            "google_maps_map_id": "map-id-456",
+            "google_places_api_key": "SERVER-SIDE-PLACES-KEY",
+        }
+    )
+
+    with patch("app.api.public.get_settings", return_value=configured):
+        return _list_page(client, mock_supabase_client, entry_rows)
+
+
+def test_map_renders_when_configured_and_coordinates_exist(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Key + Map ID + at least one coordinate -> the map section renders."""
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, lat=41.0082, lng=28.9784)],
+    )
+
+    assert 'id="share-map"' in response.text
+    assert "share-map-data" in response.text
+    assert "js/share-map.js" in response.text
+
+
+def test_map_data_carries_only_entries_with_coordinates(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R8: a coordinate-less entry stays in the feed but off the map."""
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(0, lat=41.0082, lng=28.9784),
+            _entry_row(1),  # no coordinates
+            _entry_row(2, entry_type="food", lat=41.03, lng=28.97),
+        ],
+    )
+
+    # All three are in the feed...
+    assert len(re.findall(r'<article\s+class="share-row', response.text)) == 3
+
+    # ...but only the two with coordinates reach the map.
+    payload = json.loads(
+        re.search(
+            r'<script type="application/json" id="share-map-data"[^>]*>(.*?)</script>',
+            response.text,
+            re.DOTALL,
+        ).group(1)
+    )
+    assert len(payload["entries"]) == 2
+
+    # Each pin carries its ordinal (so it matches its feed row) and its
+    # category's pin color.
+    first, second = payload["entries"]
+    assert first["ordinal"] == 1
+    assert first["color"] == CATEGORY_STYLES["place"].pin
+    assert second["ordinal"] == 3  # ordinal 2 has no coordinates
+    assert second["color"] == CATEGORY_STYLES["food"].pin
+
+
+def test_map_data_script_carries_the_csp_nonce(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A nonce-less script is silently blocked by the CSP."""
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+
+    tag = re.search(
+        r'<script type="application/json" id="share-map-data"([^>]*)>', response.text
+    )
+    assert tag
+    assert "nonce=" in tag.group(1)
+
+
+def test_map_never_leaks_the_server_side_places_key(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R5: the browser gets the referrer-restricted key, never the server one.
+
+    Reusing `google_places_api_key` here is the obvious shortcut and it would
+    leak a server credential into public HTML.
+    """
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+
+    assert "browser-key-123" in response.text
+    assert "SERVER-SIDE-PLACES-KEY" not in response.text
+
+
+def test_map_absent_when_map_id_is_unset(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R1: a key with no Map ID would render a map with zero pins. Omit it."""
+    settings = get_settings()
+    configured = settings.model_copy(
+        update={
+            "google_maps_browser_api_key": "browser-key-123",
+            "google_maps_map_id": "",
+        }
+    )
+
+    with patch("app.api.public.get_settings", return_value=configured):
+        response = _list_page(
+            client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+        )
+
+    assert 'id="share-map"' not in response.text
+
+
+def test_legend_lists_only_the_categories_present(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The legend mirrors the collection, not the full EntryType enum."""
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(0, entry_type="place", lat=41.0, lng=28.9),
+            _entry_row(1, entry_type="food", lat=41.1, lng=28.8),
+        ],
+    )
+
+    legend = re.search(
+        r'<ul class="share-legend">(.*?)</ul>', response.text, re.DOTALL
+    ).group(1)
+    assert CATEGORY_STYLES["place"].label in legend
+    assert CATEGORY_STYLES["food"].label in legend
+    assert CATEGORY_STYLES["stay"].label not in legend
+    assert CATEGORY_STYLES["experience"].label not in legend

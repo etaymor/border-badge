@@ -30,7 +30,7 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
         ink="#2f6690",
         pin="#2f6690",
         label="Places",
-        icon="pin",
+        icon="location",
     ),
     EntryType.FOOD.value: CategoryStyle(
         key="food",
@@ -38,7 +38,7 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
         ink="#C1543E",
         pin="#C1543E",
         label="Food",
-        icon="fork",
+        icon="nutrition",
     ),
     EntryType.STAY.value: CategoryStyle(
         key="stay",
@@ -54,7 +54,7 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
         ink="#a97b12",
         pin="#a97b12",
         label="Experiences",
-        icon="compass",
+        icon="sparkles",
     ),
 }
 

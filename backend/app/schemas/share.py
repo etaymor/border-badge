@@ -115,3 +115,23 @@ class ShareView(BaseModel):
 
         present = {entry.type for entry in self.entries}
         return [style for key, style in CATEGORY_STYLES.items() if key in present]
+
+    @property
+    def map_payload(self) -> list[dict[str, object]]:
+        """The plottable entries, in the exact shape `share-map.js` consumes.
+
+        Kept here rather than assembled in Jinja so the contract between the
+        server and the map script is typed, unit-tested, and changes in one
+        place. Carries only what a pin needs — never the whole entry.
+        """
+        return [
+            {
+                "ordinal": entry.ordinal,
+                "title": entry.title,
+                "lat": entry.latitude,
+                "lng": entry.longitude,
+                "color": entry.style.pin,
+                "category": entry.style.label,
+            }
+            for entry in self.map_entries
+        ]
