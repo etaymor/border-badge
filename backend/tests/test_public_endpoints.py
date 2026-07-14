@@ -5,9 +5,11 @@ import re
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.public as public_module
+from app.core.config import Settings
 from app.core.security import AuthUser, get_current_user
 from app.core.seo import LANDING_FAQS
 from app.main import app
@@ -928,3 +930,159 @@ def test_public_trip_entry_with_place_but_null_coordinates(
     entry = trip_view.entries[0]
     assert entry.latitude is None
     assert entry.longitude is None
+
+
+# ============================================================================
+# Content-Security-Policy Tests (U3: Maps configuration and CSP)
+#
+# The share routes (/l/{slug}, /t/{slug}) render an interactive Google Map, so
+# they get a Maps-compatible CSP. Every other route keeps the stricter default
+# policy. The containment of 'unsafe-eval' to just the share routes is the
+# whole point of the branch, so it is asserted in both directions.
+# ============================================================================
+
+CSP_HEADER = "Content-Security-Policy"
+
+# Routes that must keep the stricter default policy. /trips is an API route: it
+# 401s without a token, but the middleware still stamps the header on the way out.
+NON_SHARE_PATHS = ("/", "/privacy", "/contact", "/health", "/trips")
+
+
+def _csp_for_share_route(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    path: str,
+) -> str:
+    """Return the CSP header for a share route.
+
+    The middleware sets the header on every response, including the 404 that a
+    slug miss produces, so an empty supabase result is enough to exercise the
+    header without fixture-shaping a full page render.
+    """
+    mock_supabase_client.get.return_value = []
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get(path)
+    assert response.status_code == 404
+    return response.headers[CSP_HEADER]
+
+
+def _csp_directive(csp: str, name: str) -> str:
+    """Extract a single directive's value from a CSP header string."""
+    for directive in csp.split(";"):
+        directive = directive.strip()
+        if directive.split(" ")[0] == name:
+            return directive
+    raise AssertionError(f"CSP has no {name!r} directive: {csp}")
+
+
+def test_share_list_csp_allows_google_maps(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Maps needs unsafe-eval, blob workers, and googleapis in connect/img."""
+    csp = _csp_for_share_route(client, mock_supabase_client, "/l/some-slug")
+
+    assert "'unsafe-eval'" in _csp_directive(csp, "script-src")
+    assert "blob:" in _csp_directive(csp, "script-src")
+    assert "worker-src blob:" in csp
+    assert "*.googleapis.com" in _csp_directive(csp, "connect-src")
+    assert "*.googleapis.com" in _csp_directive(csp, "img-src")
+
+
+def test_share_trip_csp_allows_google_maps(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """The trip share route gets the same Maps-compatible policy."""
+    csp = _csp_for_share_route(client, mock_supabase_client, "/t/some-slug")
+
+    assert "'unsafe-eval'" in _csp_directive(csp, "script-src")
+    assert "blob:" in _csp_directive(csp, "script-src")
+    assert "worker-src blob:" in csp
+    assert "*.googleapis.com" in _csp_directive(csp, "connect-src")
+    assert "*.googleapis.com" in _csp_directive(csp, "img-src")
+
+
+def test_share_route_csp_keeps_supabase_images(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Entry photos are served from Supabase storage - regression guard."""
+    for path in ("/l/some-slug", "/t/some-slug"):
+        csp = _csp_for_share_route(client, mock_supabase_client, path)
+        img_src = _csp_directive(csp, "img-src")
+        assert "https://*.supabase.co" in img_src
+
+
+def test_share_route_csp_keeps_google_places_photo_hosts(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Entry photos can also come from Google Places photo hosts."""
+    for path in ("/l/some-slug", "/t/some-slug"):
+        img_src = _csp_directive(
+            _csp_for_share_route(client, mock_supabase_client, path), "img-src"
+        )
+        assert "https://places.googleapis.com" in img_src
+        assert "https://*.ggpht.com" in img_src
+        assert "https://lh3.googleusercontent.com" in img_src
+
+
+def test_share_route_csp_keeps_analytics_and_fonts(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """GA and Google Fonts must keep working on the redesigned share pages."""
+    for path in ("/l/some-slug", "/t/some-slug"):
+        csp = _csp_for_share_route(client, mock_supabase_client, path)
+        assert "https://www.googletagmanager.com" in _csp_directive(csp, "script-src")
+        connect_src = _csp_directive(csp, "connect-src")
+        assert "https://www.google-analytics.com" in connect_src
+        assert "https://analytics.google.com" in connect_src
+        assert "https://fonts.googleapis.com" in _csp_directive(csp, "style-src")
+        assert "https://fonts.gstatic.com" in _csp_directive(csp, "font-src")
+
+
+def test_share_route_csp_style_src_is_nonce_only(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """R10: Maps support must not weaken style-src to 'unsafe-inline'."""
+    for path in ("/l/some-slug", "/t/some-slug"):
+        csp = _csp_for_share_route(client, mock_supabase_client, path)
+        style_src = _csp_directive(csp, "style-src")
+        assert "'nonce-" in style_src
+        assert "'unsafe-inline'" not in style_src
+
+
+def test_non_share_routes_csp_has_no_unsafe_eval(client: TestClient) -> None:
+    """KTD11 containment guard: 'unsafe-eval' never leaves the share routes."""
+    for path in NON_SHARE_PATHS:
+        response = client.get(path)
+        csp = response.headers[CSP_HEADER]
+        assert "'unsafe-eval'" not in csp, f"{path} leaked 'unsafe-eval'"
+        assert "worker-src" not in csp, f"{path} leaked worker-src"
+
+
+def test_non_share_routes_csp_style_src_is_nonce_only(client: TestClient) -> None:
+    """The default policy keeps its nonce-based style-src."""
+    for path in NON_SHARE_PATHS:
+        style_src = _csp_directive(client.get(path).headers[CSP_HEADER], "style-src")
+        assert "'nonce-" in style_src
+        assert "'unsafe-inline'" not in style_src
+
+
+def test_maps_settings_default_to_empty_strings() -> None:
+    """CI and local dev must work without the new Maps env vars."""
+    settings = Settings(_env_file=None)
+    assert settings.google_maps_browser_api_key == ""
+    assert settings.google_maps_map_id == ""
+
+
+def test_maps_settings_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both Maps vars are env-overridable."""
+    monkeypatch.setenv("GOOGLE_MAPS_BROWSER_API_KEY", "browser-key")
+    monkeypatch.setenv("GOOGLE_MAPS_MAP_ID", "map-id-123")
+    settings = Settings(_env_file=None)
+    assert settings.google_maps_browser_api_key == "browser-key"
+    assert settings.google_maps_map_id == "map-id-123"

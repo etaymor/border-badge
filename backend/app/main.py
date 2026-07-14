@@ -147,12 +147,79 @@ def generate_csp_nonce() -> str:
     return secrets.token_urlsafe(16)
 
 
+# Public share-page route prefixes (/l/{slug} lists, /t/{slug} trips). These are
+# the only pages that embed the Google Maps JS API, so they are the only ones
+# that get the relaxed Maps-compatible CSP below.
+SHARE_ROUTE_PREFIXES = ("/l/", "/t/")
+
+
+def is_share_route(path: str) -> bool:
+    """True for the public list/trip share pages that render a Google Map."""
+    return path.startswith(SHARE_ROUTE_PREFIXES)
+
+
+def _build_default_csp(nonce: str) -> str:
+    """Strict policy for every route that is not a share page.
+
+    Google Fonts CSS from fonts.googleapis.com is allowed as an external
+    stylesheet. Any inline style/script in a template must carry
+    nonce="{{ request.state.csp_nonce }}".
+    """
+    return (
+        "default-src 'self'; "
+        "img-src 'self' https://*.supabase.co https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com data:; "
+        f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        f"script-src 'self' 'nonce-{nonce}' https://www.googletagmanager.com https://challenges.cloudflare.com; "
+        "frame-src https://challenges.cloudflare.com; "
+        "connect-src 'self' https://www.google-analytics.com https://analytics.google.com"
+    )
+
+
+def _build_maps_csp(nonce: str) -> str:
+    """Google-recommended strict (nonce-based) Maps policy for share pages.
+
+    Three non-obvious requirements, each of which fails at runtime rather than
+    at build time:
+
+    * ``'unsafe-eval'`` -- the Maps JS API does not initialize without it. This
+      is the security give, and confining it to the two share routes (rather
+      than relaxing the app-wide policy) is the whole point of the branch.
+    * ``blob:`` in script-src/connect-src plus ``worker-src blob:`` -- Maps
+      spins up blob-backed workers.
+    * ``*.googleapis.com`` in connect-src/img-src -- since Q2 2023 Maps
+      *hard-rejects* requests from a page whose CSP omits it (an API-level
+      refusal, not merely a browser-blocked resource).
+
+    ``style-src`` deliberately keeps the nonce and stays free of
+    ``'unsafe-inline'`` (R10).
+
+    ``'strict-dynamic'`` makes host allowlists in script-src ignored by
+    browsers that support it, but ``'self'`` and the GA host are kept so older
+    browsers that ignore ``'strict-dynamic'`` still load our bundle and GA.
+    """
+    return (
+        "default-src 'self'; "
+        "img-src 'self' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com https://*.supabase.co data:; "
+        f"style-src 'nonce-{nonce}' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        f"script-src 'nonce-{nonce}' 'strict-dynamic' 'self' https: 'unsafe-eval' blob: https://www.googletagmanager.com; "
+        "frame-src *.google.com; "
+        "connect-src 'self' https://*.googleapis.com *.google.com https://*.gstatic.com https://www.google-analytics.com https://analytics.google.com data: blob:; "
+        "worker-src blob:"
+    )
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses.
 
     Generates a per-request CSP nonce for inline styles/scripts.
     The nonce is stored in request.state and can be accessed in templates.
     Also stores request in ContextVar for rate limit functions to access.
+
+    The CSP itself branches: the public share pages (``/l/``, ``/t/``) render a
+    Google Map and get a Maps-compatible policy; everything else keeps the
+    stricter default.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
@@ -172,18 +239,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Build CSP with nonce for styles and scripts
-        # Note: Google Fonts CSS from fonts.googleapis.com is allowed as external stylesheet
-        # Any inline styles/scripts in templates must include nonce="{{ request.state.csp_nonce }}"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' https://*.supabase.co https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com data:; "
-            f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            f"script-src 'self' 'nonce-{nonce}' https://www.googletagmanager.com https://challenges.cloudflare.com; "
-            "frame-src https://challenges.cloudflare.com; "
-            "connect-src 'self' https://www.google-analytics.com https://analytics.google.com"
-        )
+        if is_share_route(request.url.path):
+            response.headers["Content-Security-Policy"] = _build_maps_csp(nonce)
+        else:
+            response.headers["Content-Security-Policy"] = _build_default_csp(nonce)
         return response
 
 

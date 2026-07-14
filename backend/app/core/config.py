@@ -83,6 +83,16 @@ class Settings(BaseSettings):
         default="", repr=False
     )  # Google Places API key for place resolution
 
+    # Google Maps JS API (public share pages). Separate from the server-side
+    # Places key: this one is embedded in the page, so it must be a
+    # browser-restricted (HTTP-referrer) key.
+    google_maps_browser_api_key: str = Field(
+        default="",
+        repr=False,
+        description="Browser-restricted Google Maps JS API key for public share pages",
+    )
+    google_maps_map_id: str = ""  # Cloud-styled Map ID (required for Advanced Markers)
+
     # Place extraction settings
     place_extraction_min_confidence: float = Field(
         default=0.5,
