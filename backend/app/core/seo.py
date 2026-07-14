@@ -1,7 +1,10 @@
 """SEO metadata helpers for public pages."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.schemas.share import ShareView
 
 # The landing page FAQ. This single list drives both the visible accordion and
 # the FAQPage structured data, so the two cannot drift apart.
@@ -226,3 +229,84 @@ def build_trip_seo(
         og_image=cover_image_url,
         og_type="article",
     )
+
+
+def build_share_structured_data(
+    share: "ShareView",
+    canonical_url: str,
+    base_url: str,
+) -> dict[str, Any]:
+    """Build the JSON-LD for a public share page (list or trip).
+
+    Both share pages emit the same structure. Previously only the list page had
+    structured data — hand-rolled inline in its template, and without a CSP
+    nonce — while the trip page had none at all. Building it here means the two
+    pages cannot drift, and the emitted script gets the nonce like any other.
+
+    Entries become `Place` items rather than bare strings: now that they carry
+    coordinates, a category, a note, and a photo, the `ItemList` can say what
+    each item actually *is*, which is a materially better search result than a
+    list of names. An entry with no coordinates simply omits `geo` rather than
+    emitting nulls.
+    """
+    items: list[dict[str, Any]] = []
+    for entry in share.entries:
+        place: dict[str, Any] = {
+            "@type": "Place",
+            "name": entry.title,
+        }
+        if entry.place_name:
+            place["address"] = entry.place_name
+        if entry.note:
+            place["description"] = entry.note
+        if entry.photo_url:
+            place["image"] = entry.photo_url
+        if entry.has_coordinates:
+            place["geo"] = {
+                "@type": "GeoCoordinates",
+                "latitude": entry.latitude,
+                "longitude": entry.longitude,
+            }
+        items.append(
+            {
+                "@type": "ListItem",
+                "position": entry.ordinal,
+                "item": place,
+            }
+        )
+
+    item_list: dict[str, Any] = {
+        "@type": "ItemList",
+        "name": share.title,
+        "numberOfItems": share.entry_count,
+        "datePublished": share.share_date.isoformat(),
+        "url": canonical_url,
+        "itemListElement": items,
+    }
+    if share.subtitle:
+        item_list["description"] = share.subtitle
+    if share.author:
+        item_list["author"] = {
+            "@type": "Person",
+            "name": share.author.display_name,
+        }
+
+    breadcrumbs: dict[str, Any] = {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Home",
+                "item": base_url,
+            },
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": share.title,
+                "item": canonical_url,
+            },
+        ],
+    }
+
+    return {"@context": "https://schema.org", "@graph": [item_list, breadcrumbs]}
