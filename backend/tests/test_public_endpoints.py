@@ -1856,3 +1856,18 @@ def test_legend_lists_only_the_categories_present(
     assert CATEGORY_STYLES["food"].label in legend
     assert CATEGORY_STYLES["stay"].label not in legend
     assert CATEGORY_STYLES["experience"].label not in legend
+
+
+def test_filter_script_loads_even_without_a_map(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R6: the category filter must work on pages that have no map.
+
+    The script tag originally lived inside the map section, which renders only
+    when a Maps key is configured -- so with no key (the default, and every CI
+    and local run) the filter chips silently did nothing.
+    """
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    assert 'id="share-map"' not in response.text  # no map...
+    assert "js/share-map.js" in response.text  # ...but the filter still loads

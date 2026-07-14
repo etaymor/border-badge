@@ -37,6 +37,13 @@
   /* Accent text used for the uppercase tags on tinted cards */
   --color-accent-blue: #2f6690;
   --color-accent-butter: #8a6410;
+  /* Entry-category ink/pin colors for the public share pages. Kept in step
+     with CATEGORY_STYLES in app/core/share_view.py, which colors the map pins
+     from the same values. */
+  --color-category-place: #2f6690;
+  --color-category-food: #c1543e;
+  --color-category-stay: #547a5f;
+  --color-category-experience: #a97b12;
   --color-accent-sand: #7d6f4a;
 
   /* Semantic Colors */

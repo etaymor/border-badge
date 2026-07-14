@@ -134,9 +134,8 @@
     <div class="share-filter-chips">
       <button
         type="button"
-        class="share-chip is-active"
+        class="share-chip share-chip-all is-active"
         data-filter="all"
-        style="background: var(--color-midnight-navy); color: var(--color-warm-cream);"
       >
         All &middot; {{ share.entry_count }}
       </button>
@@ -144,9 +143,8 @@
       {% set count = share.entries | selectattr('type', 'equalto', style.key) | list | length %}
       <button
         type="button"
-        class="share-chip"
+        class="share-chip is-{{ style.key }}"
         data-filter="{{ style.key }}"
-        style="background: {{ style.tint }}; color: {{ style.ink }};"
       >
         {{ style.label }} &middot; {{ count }}
       </button>
@@ -179,7 +177,7 @@
       class="share-row {{ 'is-reversed' if loop.index0 % 2 else '' }}"
       data-type="{{ entry.type }}"
     >
-      <figure class="share-row-figure" style="background: {{ entry.style.tint }};">
+      <figure class="share-row-figure is-{{ entry.type }}">
         {% if entry.photo_url %}
         <img
           src="{{ entry.photo_url }}"
@@ -191,11 +189,11 @@
           height="600"
         />
         {% else %}
-        <span class="share-tile-glyph" style="color: {{ entry.style.ink }};">
+        <span class="share-tile-glyph">
           {{ category_icon(entry.style.icon) }}
         </span>
         {% endif %}
-        <figcaption class="share-row-chip" style="color: {{ entry.style.ink }};">
+        <figcaption class="share-row-chip">
           {{ entry.style.label }}
         </figcaption>
       </figure>
@@ -248,7 +246,7 @@
    The pins themselves are drawn by share-map.js from the nonce'd JSON below.
    The legend and the place list are server-rendered from the same category
    styles, so they need no JS and are visible to crawlers. #}
-{% macro share_map(share, maps_key, map_id, nonce, script_url) %}
+{% macro share_map(share, maps_key, map_id, nonce) %}
 {% if share.has_map and maps_key and map_id %}
 <section class="share-map-section" id="map">
   <div class="share-map-inner">
@@ -267,7 +265,7 @@
     <ul class="share-legend">
       {% for style in share.legend %}
       <li class="share-legend-item">
-        <span class="share-legend-dot" style="background: {{ style.pin }};" aria-hidden="true"></span>
+        <span class="share-legend-dot is-{{ style.key }}" aria-hidden="true"></span>
         {{ style.label }}
       </li>
       {% endfor %}
@@ -281,7 +279,7 @@
       {% for entry in share.map_entries %}
       <li class="share-map-list-item">
         <span class="share-map-list-num">{{ '%02d' | format(entry.ordinal) }}</span>
-        <span class="share-map-list-dot" style="background: {{ entry.style.pin }};" aria-hidden="true"></span>
+        <span class="share-map-list-dot is-{{ entry.type }}" aria-hidden="true"></span>
         <span class="share-map-list-name">{{ entry.title }}</span>
       </li>
       {% endfor %}
@@ -292,7 +290,6 @@
 <script type="application/json" id="share-map-data" nonce="{{ nonce }}">
 {{ {"apiKey": maps_key, "mapId": map_id, "entries": share.map_payload} | tojson }}
 </script>
-<script src="{{ script_url }}" defer nonce="{{ nonce }}"></script>
 {% endif %}
 {% endmacro %}
 
@@ -319,11 +316,18 @@
 
 
 {# --- The whole page ---------------------------------------------------- #}
-{% macro share_page(share, app_store_url, maps_key, map_id, nonce, map_script_url) %}
+{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url) %}
 {{ share_hero(share) }}
 {{ share_byline(share.author) }}
 {{ share_filters(share) }}
 {{ share_feed(share) }}
-{{ share_map(share, maps_key, map_id, nonce, map_script_url) }}
+{{ share_map(share, maps_key, map_id, nonce) }}
 {{ share_cta(app_store_url) }}
+{# One script for the whole page. It drives the category filter, which must
+   work whether or not a map is configured -- so it is loaded here rather than
+   inside the map section, which renders only when a Maps key exists. It
+   initializes the map only if the map's data block is on the page. #}
+{% if share.entries %}
+<script src="{{ script_url }}" defer nonce="{{ nonce }}"></script>
+{% endif %}
 {% endmacro %}

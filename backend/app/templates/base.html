@@ -70,7 +70,9 @@
 
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
-    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
+    {# The nonce is what keeps this loading on the share pages, whose CSP uses
+       'strict-dynamic' -- which disables host allowlisting outright. #}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}" nonce="{{ request.state.csp_nonce }}"></script>
     <script nonce="{{ request.state.csp_nonce }}">
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}

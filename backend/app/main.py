@@ -192,17 +192,27 @@ def _build_maps_csp(nonce: str) -> str:
       refusal, not merely a browser-blocked resource).
 
     ``style-src`` deliberately keeps the nonce and stays free of
-    ``'unsafe-inline'`` (R10).
+    ``'unsafe-inline'`` (R10). It must also keep ``'self'``: Google's published
+    template omits it, because their example page has no stylesheet of its own
+    -- ours does, and without ``'self'`` the browser blocks styles.css and the
+    page renders entirely unstyled. This is invisible to the test suite and
+    obvious in a browser, which is why the plan mandated loading the page.
 
-    ``'strict-dynamic'`` makes host allowlists in script-src ignored by
-    browsers that support it, but ``'self'`` and the GA host are kept so older
-    browsers that ignore ``'strict-dynamic'`` still load our bundle and GA.
+    Because a nonce cannot be applied to a ``style=`` *attribute*, the templates
+    must not carry inline styles: per-category color comes from CSS classes
+    keyed on the entry type instead.
+
+    ``'strict-dynamic'`` makes host allowlists in script-src ignored by browsers
+    that support it, which means the Google Analytics tag -- a plain
+    ``<script src>`` in base.html -- would be blocked outright. GA is loaded
+    from a nonce'd element, so it survives ``'strict-dynamic'``; the host is kept
+    for older browsers that ignore the keyword and fall back to the allowlist.
     """
     return (
         "default-src 'self'; "
         "img-src 'self' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://places.googleapis.com https://*.ggpht.com https://lh3.googleusercontent.com https://*.supabase.co data:; "
-        f"style-src 'nonce-{nonce}' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
         f"script-src 'nonce-{nonce}' 'strict-dynamic' 'self' https: 'unsafe-eval' blob: https://www.googletagmanager.com; "
         "frame-src *.google.com; "
         "connect-src 'self' https://*.googleapis.com *.google.com https://*.gstatic.com https://www.google-analytics.com https://analytics.google.com data: blob:; "

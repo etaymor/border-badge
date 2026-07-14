@@ -13,6 +13,85 @@
   background: var(--color-warm-cream);
 }
 
+/* --- Category color ------------------------------------------------------
+   These four blocks are the CSS half of CATEGORY_STYLES (app/core/share_view.py),
+   which is the single source of truth: the same table colors the map pins and
+   the legend via the map's JSON payload.
+
+   The colors live here, in classes keyed on the entry type, rather than in
+   `style="..."` attributes on the elements. That is not a stylistic
+   preference -- the share pages run a strict CSP, and a nonce cannot authorize
+   a style *attribute*. Inline styles would be silently blocked, and every tile
+   would render colorless. */
+
+.share-row-figure.is-place {
+  background: var(--color-tint-blue);
+}
+.share-row-figure.is-food {
+  background: var(--color-tint-rose);
+}
+.share-row-figure.is-stay {
+  background: var(--color-tint-sage);
+}
+.share-row-figure.is-experience {
+  background: var(--color-tint-butter);
+}
+
+.is-place .share-tile-glyph,
+.is-place .share-row-chip {
+  color: var(--color-category-place);
+}
+.is-food .share-tile-glyph,
+.is-food .share-row-chip {
+  color: var(--color-category-food);
+}
+.is-stay .share-tile-glyph,
+.is-stay .share-row-chip {
+  color: var(--color-category-stay);
+}
+.is-experience .share-tile-glyph,
+.is-experience .share-row-chip {
+  color: var(--color-category-experience);
+}
+
+.share-chip.is-place {
+  background: var(--color-tint-blue);
+  color: var(--color-category-place);
+}
+.share-chip.is-food {
+  background: var(--color-tint-rose);
+  color: var(--color-category-food);
+}
+.share-chip.is-stay {
+  background: var(--color-tint-sage);
+  color: var(--color-category-stay);
+}
+.share-chip.is-experience {
+  background: var(--color-tint-butter);
+  color: var(--color-category-experience);
+}
+.share-chip-all {
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+}
+
+.share-legend-dot.is-place,
+.share-map-list-dot.is-place {
+  background: var(--color-category-place);
+}
+.share-legend-dot.is-food,
+.share-map-list-dot.is-food {
+  background: var(--color-category-food);
+}
+.share-legend-dot.is-stay,
+.share-map-list-dot.is-stay {
+  background: var(--color-category-stay);
+}
+.share-legend-dot.is-experience,
+.share-map-list-dot.is-experience {
+  background: var(--color-category-experience);
+}
+
 .share-page .share-inner,
 .share-hero-inner,
 .share-byline-inner,
