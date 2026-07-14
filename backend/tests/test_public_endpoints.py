@@ -10,14 +10,17 @@ from fastapi.testclient import TestClient
 
 import app.api.public as public_module
 from app.core.config import Settings
+from app.core.media import AVATAR_WIDTH
 from app.core.security import AuthUser, get_current_user
 from app.core.seo import LANDING_FAQS
 from app.main import app
 from tests.conftest import (
+    OTHER_USER_ID,
     TEST_ENTRY_ID,
     TEST_TRIP_ID,
     TEST_USER_ID,
     mock_auth_dependency,
+    supabase_tables,
 )
 
 # ============================================================================
@@ -107,10 +110,7 @@ def test_public_list_returns_html(
         **sample_list,
         "trip": {"name": "Summer Vacation", "country": {"name": "United States"}},
     }
-    mock_supabase_client.get.side_effect = [
-        [list_with_trip],  # List by slug
-        [],  # Entries (empty)
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(list=[list_with_trip])
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/best-places-to-visit-abc123")
@@ -125,7 +125,7 @@ def test_public_list_not_found(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test that non-existent list returns 404."""
-    mock_supabase_client.get.return_value = []
+    mock_supabase_client.get.side_effect = supabase_tables()
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/nonexistent-slug")
@@ -143,10 +143,7 @@ def test_public_list_has_cache_header(
         **sample_list,
         "trip": {"name": "Summer Vacation", "country": {"name": "United States"}},
     }
-    mock_supabase_client.get.side_effect = [
-        [list_with_trip],
-        [],
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(list=[list_with_trip])
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/best-places-to-visit-abc123")
@@ -181,10 +178,10 @@ def test_public_list_with_entries(
             },
         }
     ]
-    mock_supabase_client.get.side_effect = [
-        [list_with_trip],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[list_with_trip],
+        list_entries=entry_rows,
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/best-places-to-visit-abc123")
@@ -220,10 +217,7 @@ def test_public_trip_returns_html(
         "deleted_at": None,
         "country": {"name": "United States", "code": "US"},
     }
-    mock_supabase_client.get.side_effect = [
-        [trip_data],  # Trip by share_slug
-        [],  # Entries (empty)
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(trip=[trip_data])
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/summer-vacation-abc123")
@@ -238,7 +232,7 @@ def test_public_trip_not_found(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test that non-existent trip returns 404."""
-    mock_supabase_client.get.return_value = []
+    mock_supabase_client.get.side_effect = supabase_tables()
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/nonexistent-slug")
@@ -262,10 +256,7 @@ def test_public_trip_has_cache_header(
         "deleted_at": None,
         "country": {"name": "United States", "code": "US"},
     }
-    mock_supabase_client.get.side_effect = [
-        [trip_data],
-        [],
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(trip=[trip_data])
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/summer-vacation-abc123")
@@ -298,10 +289,10 @@ def test_sitemap_xml(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test that sitemap.xml is generated correctly."""
-    mock_supabase_client.get.side_effect = [
-        [{"slug": "best-tacos-abc123"}, {"slug": "cool-spots-def456"}],  # public lists
-        [{"share_slug": "summer-trip-xyz"}],  # public trips
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{"slug": "best-tacos-abc123"}, {"slug": "cool-spots-def456"}],
+        trip=[{"share_slug": "summer-trip-xyz"}],
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/sitemap.xml")
@@ -321,10 +312,7 @@ def test_sitemap_xml_empty(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test sitemap.xml with no public content."""
-    mock_supabase_client.get.side_effect = [
-        [],  # no public lists
-        [],  # no public trips
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables()
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/sitemap.xml")
@@ -500,10 +488,10 @@ def test_public_trip_with_entries(
             "media_files": [],
         }
     ]
-    mock_supabase_client.get.side_effect = [
-        [trip_data],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[trip_data],
+        entry=entry_rows,
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/summer-vacation-abc123")
@@ -539,10 +527,10 @@ def test_public_trip_with_many_entries(
         }
         for i in range(25)
     ]
-    mock_supabase_client.get.side_effect = [
-        [trip_data],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[trip_data],
+        entry=entry_rows,
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/summer-vacation-abc123")
@@ -559,7 +547,7 @@ def test_public_list_private_returns_404(
 ) -> None:
     """Test that private list (is_public=false) returns 404."""
     # The query filters by is_public=true, so an empty result means list doesn't exist or is private
-    mock_supabase_client.get.return_value = []
+    mock_supabase_client.get.side_effect = supabase_tables()
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/private-list-slug")
@@ -744,10 +732,10 @@ def test_public_trip_with_place_photo_url(
             "media_files": [],
         }
     ]
-    mock_supabase_client.get.side_effect = [
-        [trip_data],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[trip_data],
+        entry=entry_rows,
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/t/summer-vacation-abc123")
@@ -791,10 +779,10 @@ def test_public_list_with_place_photo_url(
             },
         }
     ]
-    mock_supabase_client.get.side_effect = [
-        [list_with_trip],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[list_with_trip],
+        list_entries=entry_rows,
+    )
 
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get("/l/best-places-to-visit-abc123")
@@ -825,10 +813,10 @@ def _render_trip_and_capture_view(
         "deleted_at": None,
         "country": {"name": "United States", "code": "US"},
     }
-    mock_supabase_client.get.side_effect = [
-        [trip_data],
-        entry_rows,
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[trip_data],
+        entry=entry_rows,
+    )
 
     captured: dict[str, Any] = {}
     real_template_response = public_module.templates.TemplateResponse
@@ -959,7 +947,7 @@ def _csp_for_share_route(
     slug miss produces, so an empty supabase result is enough to exercise the
     header without fixture-shaping a full page render.
     """
-    mock_supabase_client.get.return_value = []
+    mock_supabase_client.get.side_effect = supabase_tables()
     with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
         response = client.get(path)
     assert response.status_code == 404
@@ -1086,3 +1074,327 @@ def test_maps_settings_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)
     assert settings.google_maps_browser_api_key == "browser-key"
     assert settings.google_maps_map_id == "map-id-123"
+
+
+# ============================================================================
+# Owner byline (U4: R7 "Shared by Maya - 31 countries visited", R11 avatar)
+#
+# The byline is the page's social proof, not load-bearing content: it is the
+# one part of a share page that may be missing without the page being wrong.
+# So every test here is really asking the same question -- does the page still
+# render? -- with the author data degraded in a different way.
+# ============================================================================
+
+LIST_SLUG = "best-places-to-visit-abc123"
+TRIP_SLUG = "summer-vacation-abc123"
+
+
+def _trip_row() -> dict[str, Any]:
+    return {
+        "id": TEST_TRIP_ID,
+        "user_id": TEST_USER_ID,
+        "name": "Summer Vacation",
+        "share_slug": TRIP_SLUG,
+        "cover_image_url": None,
+        "date_range": None,
+        "created_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "country": {"name": "United States", "code": "US"},
+    }
+
+
+def _visited(count: int) -> list[dict[str, Any]]:
+    """`count` visited user_countries rows, as the byline query would see them."""
+    return [{"id": f"uc-{i}"} for i in range(count)]
+
+
+def _render_and_capture_author(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    path: str,
+) -> Any:
+    """Render a share page and return the `author` it put in the template context."""
+    captured: dict[str, Any] = {}
+    real_template_response = public_module.templates.TemplateResponse
+
+    def capture(*args: Any, **kwargs: Any) -> Any:
+        captured["context"] = kwargs.get("context", {})
+        return real_template_response(*args, **kwargs)
+
+    with (
+        patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
+        patch.object(public_module.templates, "TemplateResponse", side_effect=capture),
+    ):
+        response = client.get(path)
+
+    assert response.status_code == 200
+    return captured["context"]["author"]
+
+
+def test_public_list_byline_has_owner_name_and_country_count(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """R7: a list's byline carries the owner's name and visited-country count."""
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{**sample_list, "trip": {"name": "Summer Vacation"}}],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=_visited(31),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author is not None
+    assert author.display_name == "Maya"
+    assert author.country_count == 31
+
+
+def test_public_trip_byline_has_owner_name_and_country_count(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """R7: the trip page bylines its owner too, keyed off trip.user_id."""
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[_trip_row()],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=_visited(31),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/t/{TRIP_SLUG}")
+
+    assert author is not None
+    assert author.display_name == "Maya"
+    assert author.country_count == 31
+
+
+def test_byline_queries_owner_of_the_shared_thing(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """The profile is looked up by the list's owner_id, not some other user."""
+    seen: list[dict[str, Any]] = []
+
+    def record_profile(params: dict[str, Any]) -> list[dict[str, Any]]:
+        seen.append(params)
+        return [{"display_name": "Maya", "avatar_url": None}]
+
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{**sample_list, "owner_id": OTHER_USER_ID}],
+        user_profile=record_profile,
+        user_countries=[],
+    )
+
+    _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert seen, "the byline never queried user_profile"
+    assert seen[0]["user_id"] == f"eq.{OTHER_USER_ID}"
+
+
+def test_byline_counts_only_visited_countries(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """Wishlist rows are aspirations, not stamps -- they must not be counted."""
+    seeded = [
+        {"id": "uc-1", "status": "visited"},
+        {"id": "uc-2", "status": "wishlist"},
+    ]
+
+    def only_visited(params: dict[str, Any]) -> list[dict[str, Any]]:
+        # Mirror what PostgREST would do with the endpoint's own filter, so a
+        # query that forgot `status=eq.visited` counts the wishlist row and fails.
+        wanted = params.get("status", "").removeprefix("eq.")
+        return [row for row in seeded if row["status"] == wanted]
+
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=only_visited,
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author.country_count == 1
+
+
+def test_byline_owner_with_no_visited_countries_has_zero_count(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """A brand-new owner still gets a byline -- name only, count 0, no crash.
+
+    The template omits the "N countries visited" clause at 0, so the byline
+    never reads "0 countries visited".
+    """
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=[],
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author is not None
+    assert author.display_name == "Maya"
+    assert author.country_count == 0
+
+
+def test_byline_owner_with_no_profile_row_renders_without_byline(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """R7 degradation: a missing profile drops the byline, it does not 500."""
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[],  # no profile row for this owner
+        user_countries=_visited(3),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author is None
+
+
+def test_byline_profile_with_null_avatar_yields_no_avatar_url(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """R11: no avatar means a name-only byline, never a broken <img>."""
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=_visited(2),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author.avatar_url is None
+
+
+def test_byline_keeps_social_provider_avatar_url_intact(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """`user_profile.avatar_url` holds an absolute social-provider URL.
+
+    `handle_new_user()` copies it straight out of the OAuth metadata
+    (`avatar_url` / `picture`), so it is already a Google-hosted URL -- not a
+    path inside our storage bucket. Rewriting it through the storage
+    render endpoint would produce a 404, so it must pass through untouched.
+    """
+    google_avatar = "https://lh3.googleusercontent.com/a/ACg8ocK=s96-c"
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[{"display_name": "Maya", "avatar_url": google_avatar}],
+        user_countries=_visited(2),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author.avatar_url == google_avatar
+
+
+def test_byline_resizes_a_storage_path_avatar(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """R13: an avatar stored in our bucket is served at AVATAR_WIDTH, not full-res.
+
+    No writer puts a storage path in this column today, but the schema is a bare
+    TEXT and an in-app avatar upload would land here -- so the path form is
+    handled rather than silently emitted as a relative URL.
+    """
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[
+            {"display_name": "Maya", "avatar_url": f"{TEST_USER_ID}/avatar.jpg"}
+        ],
+        user_countries=_visited(2),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author.avatar_url is not None
+    assert "/render/image/public/media/" in author.avatar_url
+    assert f"width={AVATAR_WIDTH}" in author.avatar_url
+
+
+def test_byline_rejects_a_hostile_avatar_url(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """A `javascript:` avatar must not reach an `<img src>`."""
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[
+            {"display_name": "Maya", "avatar_url": "javascript:alert('xss')"}
+        ],
+        user_countries=[],
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author.avatar_url is None
+
+
+@pytest.mark.parametrize(
+    ("path", "primary_table", "primary_rows"),
+    [
+        ("/l/" + LIST_SLUG, "list", None),
+        ("/t/" + TRIP_SLUG, "trip", None),
+    ],
+)
+def test_byline_db_failure_does_not_break_the_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+    path: str,
+    primary_table: str,
+    primary_rows: Any,
+) -> None:
+    """A failed author fetch degrades to no byline; the share page still renders.
+
+    The share page is the growth surface -- losing the byline is survivable,
+    losing the page is not. Both queries behind the byline are failed here.
+    """
+    rows = [sample_list] if primary_table == "list" else [_trip_row()]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        **{primary_table: rows},
+        user_profile=RuntimeError("supabase is down"),
+        user_countries=RuntimeError("supabase is down"),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, path)
+
+    assert author is None
+
+
+def test_byline_country_count_failure_still_shows_the_name(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    """Both byline queries fail together, so a partial failure loses the byline.
+
+    Documents the chosen degradation: the two fetches are gathered, and any
+    failure drops the whole author rather than rendering a name beside a
+    count we could not verify.
+    """
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[sample_list],
+        user_profile=[{"display_name": "Maya", "avatar_url": None}],
+        user_countries=RuntimeError("supabase is down"),
+    )
+
+    author = _render_and_capture_author(client, mock_supabase_client, f"/l/{LIST_SLUG}")
+
+    assert author is None

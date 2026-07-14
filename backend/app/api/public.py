@@ -1,5 +1,6 @@
 """Public web page endpoints (HTML rendering)."""
 
+import asyncio
 import datetime
 import html
 import logging
@@ -13,7 +14,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
-from app.core.media import extract_media_urls
+from app.core.media import AVATAR_WIDTH, extract_media_urls, media_url
 from app.core.seo import (
     LANDING_FAQS,
     build_landing_seo,
@@ -21,11 +22,12 @@ from app.core.seo import (
     build_list_seo,
     build_trip_seo,
 )
-from app.core.urls import safe_google_photo_url
-from app.db.session import get_supabase_client
+from app.core.urls import safe_external_url, safe_google_photo_url
+from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter, templates
 from app.schemas.lists import PublicListEntry, PublicListView
 from app.schemas.public import PublicTripEntry, PublicTripView
+from app.schemas.share import ShareAuthor
 from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
@@ -105,6 +107,97 @@ def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
         return None
     # Validate URL with Google domain whitelist for SSRF protection
     return safe_google_photo_url(photo_url)
+
+
+def _avatar_url(stored: str | None) -> str | None:
+    """Resolve `user_profile.avatar_url` to something an `<img src>` can use.
+
+    The column holds whatever `handle_new_user()` copied out of the OAuth
+    metadata -- in practice an absolute, Google-hosted URL
+    (`lh3.googleusercontent.com/...`), which is already avatar-sized and is
+    *not* an object in our storage bucket. Pushing that through the storage
+    render endpoint would yield a 404, so absolute URLs pass through unchanged.
+
+    The column is a bare TEXT, though, and an in-app avatar upload would write a
+    bucket-relative path instead. That form is resized to `AVATAR_WIDTH` (R13:
+    never serve an image bigger than it is displayed at).
+
+    Anything that is neither -- a `javascript:` payload, say -- yields None, and
+    the byline falls back to the name alone.
+    """
+    if not stored:
+        return None
+
+    candidate = stored.strip()
+    if not candidate:
+        return None
+
+    # Anything carrying a scheme is treated as absolute and must survive
+    # `safe_external_url` (http/https only). Checking for *any* ":" -- not just
+    # "://" -- is what keeps `javascript:alert(1)` out of the storage-path
+    # branch, where it would otherwise be pasted into a render URL.
+    if ":" in candidate:
+        return safe_external_url(candidate)
+
+    return media_url(candidate.lstrip("/"), width=AVATAR_WIDTH)
+
+
+async def _fetch_share_author(db: SupabaseClient, owner_id: str) -> ShareAuthor | None:
+    """Byline data for the owner of a shared list or trip.
+
+    R7: "Shared by Maya - 31 countries visited". Two cheap indexed lookups --
+    the profile row, and the owner's visited countries (which
+    `idx_user_countries_user_status` covers) -- issued concurrently, so the
+    byline costs one round-trip of latency rather than two.
+
+    The byline is social proof, not content: a page whose owner has no profile
+    row, or whose author fetch fails outright, renders *without* a byline rather
+    than 500-ing. The share pages are the app's primary growth surface, and a
+    missing name is survivable in a way a missing page is not. Returns None in
+    both cases.
+    """
+    if not owner_id:
+        return None
+
+    try:
+        profiles, visited = await asyncio.gather(
+            db.get(
+                "user_profile",
+                {
+                    "user_id": f"eq.{owner_id}",
+                    "select": "display_name, avatar_url",
+                    "limit": 1,
+                },
+            ),
+            db.get(
+                "user_countries",
+                {
+                    "user_id": f"eq.{owner_id}",
+                    "status": "eq.visited",
+                    "select": "id",
+                },
+            ),
+        )
+    except Exception as e:
+        # Degrade to no byline rather than taking the whole page down.
+        logger.warning("Failed to fetch share byline for owner %s: %s", owner_id, e)
+        return None
+
+    if not profiles:
+        return None
+
+    profile = profiles[0]
+    display_name = (profile.get("display_name") or "").strip()
+    if not display_name:
+        return None
+
+    return ShareAuthor(
+        display_name=display_name,
+        avatar_url=_avatar_url(profile.get("avatar_url")),
+        # 0 is a legitimate value (a brand-new owner); the template omits the
+        # clause rather than rendering "0 countries visited".
+        country_count=len(visited),
+    )
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -262,11 +355,14 @@ async def view_public_list(
         cover_image_url=list_view.cover_image_url,
     )
 
+    author = await _fetch_share_author(db, lst.get("owner_id"))
+
     response = templates.TemplateResponse(
         request=request,
         name="list_public.html",
         context={
             "list": list_view,
+            "author": author,
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
@@ -397,11 +493,14 @@ async def view_public_trip(
         cover_image_url=trip_view.cover_image_url,
     )
 
+    author = await _fetch_share_author(db, trip.get("user_id"))
+
     response = templates.TemplateResponse(
         request=request,
         name="trip_public.html",
         context={
             "trip": trip_view,
+            "author": author,
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,

@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import time
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -79,6 +80,61 @@ def mock_supabase_client():
     mock.delete = AsyncMock(return_value=[])
     mock.rpc = AsyncMock(return_value=[])
     return mock
+
+
+# Rows a table can return: a fixed result, a queue of results consumed one per
+# call (for the rare endpoint that hits the same table twice), or a callable
+# that inspects the PostgREST params and decides.
+TableRows = (
+    list[dict[str, Any]]
+    | list[list[dict[str, Any]]]
+    | Callable[[dict[str, Any]], list[dict[str, Any]]]
+    | Exception
+)
+
+
+def supabase_tables(**tables: TableRows) -> Callable[..., Any]:
+    """Build a `.get()` side effect that dispatches on the table name.
+
+    Endpoints fetch tables in whatever order their code happens to run, and a
+    positional `side_effect` list couples every test to that order: adding one
+    query anywhere makes every test in the file raise `StopIteration`. This
+    keys the mock on `db.get(table, params)`'s first argument instead, so a
+    test declares *what data exists* rather than *when it is asked for*.
+
+        mock_supabase_client.get.side_effect = supabase_tables(
+            list=[list_row],
+            list_entries=entry_rows,
+            user_profile=[profile_row],
+        )
+
+    A table not named here returns `[]` — an unseeded table is "empty", never a
+    crash. Values may be:
+
+    * a list of row dicts — returned for every call to that table;
+    * a list of lists — a queue, one element per call to that table, the last
+      element repeating once exhausted;
+    * a callable taking the PostgREST `params` dict and returning rows — use it
+      to vary on a filter (e.g. `status=eq.visited`);
+    * an `Exception` instance — raised, for testing degradation on DB failure.
+    """
+    queues: dict[str, list[list[dict[str, Any]]]] = {}
+
+    def side_effect(table: str, params: dict[str, Any] | None = None) -> Any:
+        rows = tables.get(table)
+        if rows is None:
+            return []
+        if isinstance(rows, Exception):
+            raise rows
+        if callable(rows):
+            return rows(params or {})
+        # A list-of-lists is a per-call queue; a plain list of rows is constant.
+        if rows and isinstance(rows[0], list):
+            queue = queues.setdefault(table, list(rows))  # type: ignore[arg-type]
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+        return rows
+
+    return side_effect
 
 
 @pytest.fixture
