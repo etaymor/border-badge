@@ -246,6 +246,13 @@
    The pins themselves are drawn by share-map.js from the nonce'd JSON below.
    The legend and the place list are server-rendered from the same category
    styles, so they need no JS and are visible to crawlers. #}
+{# Whether the map actually renders. The nav "Map" link and the map section
+   must agree, or a deployment with no Map ID gets a nav link that jumps to a
+   missing anchor. Both gate on this one test. #}
+{% macro map_visible(share, maps_key, map_id) -%}
+{{ 'yes' if (share.has_map and maps_key and map_id) else '' }}
+{%- endmacro %}
+
 {% macro share_map(share, maps_key, map_id, nonce) %}
 {% if share.has_map and maps_key and map_id %}
 <section class="share-map-section" id="map">

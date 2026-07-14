@@ -1834,6 +1834,21 @@ def test_map_absent_when_map_id_is_unset(
         )
 
     assert 'id="share-map"' not in response.text
+    # The nav "Map" link must be gone too, not just the section -- otherwise it
+    # jumps to a missing anchor on every deployment without a Map ID.
+    assert '<a href="#map">Map</a>' not in response.text
+
+
+def test_nav_map_link_present_when_the_map_renders(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The nav 'Map' link appears only when the map section actually renders."""
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+
+    assert 'id="share-map"' in response.text
+    assert '<a href="#map">Map</a>' in response.text
 
 
 def test_legend_lists_only_the_categories_present(

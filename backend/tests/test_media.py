@@ -234,3 +234,15 @@ def test_resize_stored_url_passes_through_an_already_transformed_url(
 def test_resize_stored_url_returns_none_for_missing_values(settings_with_url) -> None:
     assert resize_stored_url(None, width=1600) is None
     assert resize_stored_url("", width=1600) is None
+
+
+def test_resize_stored_url_drops_an_existing_query_string(settings_with_url) -> None:
+    """A cover URL with its own query must not yield a double-? render URL."""
+    stored = f"{SUPABASE_URL}/storage/v1/object/public/media/a/b.jpg?t=cachebuster"
+
+    result = resize_stored_url(stored, width=1600)
+
+    assert result.count("?") == 1
+    assert "width=1600" in result
+    assert "t=cachebuster" not in result
+    assert "/render/image/public/media/a/b.jpg?" in result

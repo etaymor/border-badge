@@ -101,6 +101,10 @@ def resize_stored_url(
         return stored_url
 
     base, _, path = stored_url.partition(_OBJECT_SEGMENT)
+    # Drop any query the stored URL already carries (a cache-buster, a signed
+    # token) before appending ours -- otherwise the result has two "?" and the
+    # render endpoint never sees width/quality, so the hero ships full-size.
+    path = path.partition("?")[0]
     params: dict[str, Any] = {"width": width, "quality": quality}
     if resize is not None:
         params["resize"] = resize
