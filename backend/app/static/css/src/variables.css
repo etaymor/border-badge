@@ -3,19 +3,41 @@
    ============================================== */
 
 :root {
-  /* Colors - Primary */
+  /* Colors - Primary (see docs/STYLEGUIDE.md) */
   --color-midnight-navy: #172a3a;
   --color-warm-cream: #fdf6ed;
-  --color-sunset-gold: #f4c24e;
+  --color-sunset-gold: #ffc636;
   --color-adobe-brick: #c1543e;
   --color-lake-blue: #a0cdeb;
   --color-moss-green: #547a5f;
 
   /* Colors - Secondary */
   --color-paper-beige: #f5ece0;
+  --color-dusty-beige: #f0e6d8;
   --color-dusty-coral: #f39b8b;
   --color-storm-gray: #666d7a;
   --color-cloud-white: #ffffff;
+
+  /* Card tints - each brand color mixed toward Warm Cream. Used as flat
+     card fills on the landing page. */
+  --color-tint-rose: #f3dad1; /* Adobe Brick */
+  --color-tint-pink: #f1dbd9; /* Adobe Brick, lighter */
+  --color-tint-blue: #d2e4f1; /* Lake Blue */
+  --color-tint-butter: #fbe7b4; /* Sunset Gold */
+  --color-tint-sage: #dae3d6; /* Moss Green */
+  --color-tint-sand: #f0e6d8; /* warm neutral */
+
+  /* Readable text colors on the card tints (each passes AA on its own fill) */
+  --color-text-on-rose: #6a5750;
+  --color-text-on-blue: #3f5568;
+  --color-text-on-butter: #6b5a2f;
+  --color-text-on-sage: #556155;
+  --color-text-on-sand: #6b5f45;
+
+  /* Accent text used for the uppercase tags on tinted cards */
+  --color-accent-blue: #2f6690;
+  --color-accent-butter: #8a6410;
+  --color-accent-sand: #7d6f4a;
 
   /* Semantic Colors */
   --color-text-main: var(--color-midnight-navy);
@@ -25,6 +47,11 @@
   --color-border-glass: rgba(255, 255, 255, 0.5);
   --color-primary-action: var(--color-sunset-gold);
   --color-primary-action-hover: #e0aa2e;
+
+  /* Flat section bands (landing page alternates between these) */
+  --color-band-cream: var(--color-warm-cream);
+  --color-band-beige: var(--color-paper-beige);
+  --color-hairline: rgba(23, 42, 58, 0.09);
 
   /* Typography */
   --font-family-title: "Playfair Display", serif;
@@ -51,6 +78,13 @@
   --shadow-hover: 0 20px 40px -10px rgba(23, 42, 58, 0.12);
   --glass-blur: blur(12px);
   --transition-base: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+
+  /* Device mockups — the only place the flat landing page uses depth */
+  --shadow-phone: 0 26px 50px rgba(23, 42, 58, 0.2);
+  --shadow-phone-sm: 0 20px 40px rgba(23, 42, 58, 0.16);
+  --shadow-stamp: 0 2px 6px rgba(23, 42, 58, 0.12);
+  --shadow-stamp-hover: 0 12px 22px rgba(23, 42, 58, 0.24);
+  --ease-out-back: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Animation Timing */
   --anim-duration: 0.8s;

@@ -1,11 +1,14 @@
 """Tests for public web page endpoints."""
 
+import json
+import re
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
 from app.core.security import AuthUser, get_current_user
+from app.core.seo import LANDING_FAQS
 from app.main import app
 from tests.conftest import (
     TEST_ENTRY_ID,
@@ -42,6 +45,48 @@ def test_landing_page_has_seo_tags(client: TestClient) -> None:
     # Check for Open Graph tags
     assert "og:title" in response.text
     assert "og:description" in response.text
+    assert "og:image" in response.text
+
+
+def test_landing_page_emits_structured_data(client: TestClient) -> None:
+    """The landing page renders valid FAQPage + app JSON-LD."""
+    response = client.get("/")
+    match = re.search(
+        r'<script type="application/ld\+json"[^>]*>(.*?)</script>',
+        response.text,
+        re.DOTALL,
+    )
+    assert match, "landing page is missing its JSON-LD block"
+
+    data = json.loads(match.group(1))
+    types = {node["@type"] for node in data["@graph"]}
+    assert types == {"MobileApplication", "FAQPage"}
+
+    faq = next(n for n in data["@graph"] if n["@type"] == "FAQPage")
+    assert len(faq["mainEntity"]) == len(LANDING_FAQS)
+
+
+def test_landing_page_renders_every_faq(client: TestClient) -> None:
+    """Every FAQ in the source list reaches the visible accordion."""
+    response = client.get("/")
+    assert response.text.count('<details class="faq-item">') == len(LANDING_FAQS)
+
+
+def test_landing_page_tracks_all_app_store_ctas(client: TestClient) -> None:
+    """Hero and download CTAs must fire click_app_store, not just the header."""
+    response = client.get("/")
+    for location in ("header", "hero", "download_section"):
+        assert f'data-track-location="{location}"' in response.text
+
+
+def test_landing_page_inline_scripts_carry_csp_nonce(client: TestClient) -> None:
+    """A nonce-less inline script would be silently blocked by the CSP."""
+    html_text = client.get("/").text
+    inline_scripts = [
+        tag for tag in re.findall(r"<script[^>]*>", html_text) if "src=" not in tag
+    ]
+    assert inline_scripts, "expected inline scripts on the landing page"
+    assert all("nonce=" in tag for tag in inline_scripts)
 
 
 # ============================================================================

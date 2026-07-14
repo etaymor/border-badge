@@ -14,7 +14,13 @@ from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
 from app.core.media import extract_media_urls
-from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
+from app.core.seo import (
+    LANDING_FAQS,
+    build_landing_seo,
+    build_landing_structured_data,
+    build_list_seo,
+    build_trip_seo,
+)
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_supabase_client
 from app.main import limiter, templates
@@ -118,10 +124,15 @@ async def landing_page(request: Request) -> HTMLResponse:
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
             "og_description": seo.og_description,
+            "og_image": seo.og_image,
             "og_url": seo.canonical_url,
             "canonical_url": seo.canonical_url,
             "has_hero": True,
             "current_year": get_current_year(),
+            "faqs": LANDING_FAQS,
+            "structured_data": build_landing_structured_data(
+                settings.base_url, settings.app_store_url
+            ),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=3600"

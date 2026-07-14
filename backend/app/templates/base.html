@@ -61,20 +61,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    {% if is_production %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.min.css') }}"
-    />
-    {% else %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.css') }}"
-    />
-    {% endif %}
+    {% set stylesheet = 'css/styles.min.css' if is_production else 'css/styles.css' %}
+    <link rel="preload" as="style" href="{{ url_for('static', path=stylesheet) }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path=stylesheet) }}" />
 
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
