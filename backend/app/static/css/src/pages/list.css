@@ -1,110 +1,537 @@
 /* ==============================================
-   LIST & TRIP DETAIL PAGE STYLES
+   PUBLIC SHARE PAGES (/l/{slug} and /t/{slug})
+
+   The editorial layout, rendered by templates/_share_page.html.
+
+   Every rule here is scoped under `.share-page`. components.css is shared by
+   all eight templates -- .cta-button, .header, .logo, and the .footer-* rules
+   are used by the landing, legal, and contact pages too -- so this file
+   overrides them under the page class rather than editing them in place.
    ============================================== */
 
-/* List Info Card (Floating Glass) */
-.list-info-container {
-  max-width: var(--max-width);
-  margin: -100px auto 0;
-  padding: 0 var(--spacing-lg);
-  position: relative;
-  z-index: 10;
-  animation: fadeInUp 0.8s ease-out 0.4s backwards;
-}
-
-.list-info-card {
-  background: var(--color-bg-card);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--color-border-glass);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
-  box-shadow: var(--shadow-soft);
-  text-align: center;
-}
-
-.list-title {
-  font-family: var(--font-family-title);
-  font-size: 3rem;
-  font-weight: 700;
-  color: var(--color-midnight-navy);
-  margin-bottom: var(--spacing-sm);
-  line-height: 1.1;
-}
-
-.list-meta {
-  display: flex;
-  justify-content: center;
-  gap: var(--spacing-md);
-  color: var(--color-storm-gray);
-  font-family: var(--font-family-body);
-  font-size: 0.95rem;
-  margin-bottom: var(--spacing-lg);
-  flex-wrap: wrap;
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.list-description {
-  font-size: 1.125rem;
-  color: var(--color-text-main);
-  max-width: 700px;
-  margin: 0 auto var(--spacing-lg);
-}
-
-.creator-pill {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(23, 42, 58, 0.1);
-  border-radius: 50px;
-  padding: 4px 12px 4px 4px;
-  font-size: 0.9rem;
-  color: var(--color-midnight-navy);
-  font-weight: 600;
-}
-
-.creator-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--color-lake-blue);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  margin-right: 8px;
-}
-
-/* Grid Layout */
-.entries-container {
-  max-width: var(--max-width);
-  margin: var(--spacing-2xl) auto;
-  padding: 0 var(--spacing-lg);
-}
-
-.entries-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: var(--spacing-lg);
-  align-items: start;
-}
-
-/* Features Section */
-.features {
-  padding: var(--spacing-2xl) var(--spacing-lg);
+.share-page {
   background: var(--color-warm-cream);
 }
 
-.features-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--spacing-xl);
-  max-width: var(--max-width);
+.share-page .share-inner,
+.share-hero-inner,
+.share-byline-inner,
+.share-filters-inner,
+.share-feed-inner,
+.share-map-inner {
+  max-width: 1000px;
   margin: 0 auto;
+}
+
+/* --- Header ---------------------------------------------------------------
+   base.html's header is shared. The share pages want the same solid cream bar
+   the mock has, and their own nav links. */
+
+.share-nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #4a5560;
+}
+
+/* --- Hero ---------------------------------------------------------------- */
+
+.share-hero {
+  position: relative;
+  height: 660px;
+  overflow: hidden;
+}
+
+.share-hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.share-hero-fallback {
+  background: linear-gradient(
+    135deg,
+    var(--color-midnight-navy),
+    var(--color-adobe-brick)
+  );
+}
+
+.share-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(23, 42, 58, 0.42) 0%,
+    rgba(23, 42, 58, 0.06) 34%,
+    rgba(23, 42, 58, 0.16) 60%,
+    rgba(23, 42, 58, 0.8) 100%
+  );
+}
+
+.share-hero-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 48px 56px;
+}
+
+.share-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  font-size: 0.78125rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-warm-cream);
+}
+
+.share-eyebrow-mark {
+  width: 8px;
+  height: 8px;
+  background: var(--color-sunset-gold);
+  transform: rotate(45deg);
+}
+
+.share-title {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 5.375rem;
+  line-height: 0.94;
+  letter-spacing: -0.03em;
+  margin: 0 0 18px;
+  color: var(--color-warm-cream);
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.35);
+}
+
+.share-subtitle {
+  max-width: 560px;
+  margin: 0;
+  font-size: 1.3125rem;
+  line-height: 1.5;
+  color: rgba(253, 246, 237, 0.92);
+}
+
+/* --- Byline --------------------------------------------------------------- */
+
+.share-byline {
+  padding: 26px 48px;
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+}
+
+.share-byline-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.share-byline-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.share-byline-label {
+  margin: 0 0 2px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fb2bf;
+}
+
+.share-byline-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.share-byline-count {
+  font-weight: 400;
+  color: #c7cdd4;
+}
+
+/* --- Category filters ------------------------------------------------------
+   Sticky under the header. The chips are colored from CATEGORY_STYLES, which
+   is also what colors the tiles, the pins, and the legend. */
+
+.share-filters {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  padding: 16px 48px;
+  background: rgba(253, 246, 237, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.share-filters-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.share-filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.share-chip {
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-body);
+  font-size: 0.84375rem;
+  font-weight: 700;
+  padding: 9px 17px;
+  border-radius: 999px;
+  transition: transform 0.15s ease;
+}
+
+.share-chip:hover {
+  transform: translateY(-2px);
+}
+
+.share-chip.is-active {
+  box-shadow: 0 0 0 2px rgba(23, 42, 58, 0.18);
+}
+
+.share-filter-count {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #8a929c;
+}
+
+/* --- The editorial feed ----------------------------------------------------
+   Alternating rows. `.is-reversed` flips the image to the right by reordering
+   the two grid children, so the DOM order stays reading order (image first) for
+   assistive tech regardless of which side the image lands on. */
+
+.share-feed {
+  padding: 8px 48px;
+  background: var(--color-warm-cream);
+}
+
+.share-row {
+  display: grid;
+  grid-template-columns: 0.85fr 1fr;
+  gap: 48px;
+  align-items: center;
+  padding: 44px 0;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.share-row.is-reversed {
+  grid-template-columns: 1fr 0.85fr;
+}
+
+.share-row.is-reversed .share-row-figure {
+  order: 2;
+}
+
+.share-row.is-reversed .share-row-body {
+  order: 1;
+}
+
+.share-row[hidden] {
+  display: none;
+}
+
+.share-row-figure {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(23, 42, 58, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.share-row-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The tinted fallback tile, shown when an entry has no photo. */
+.share-tile-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+}
+
+.share-tile-icon {
+  width: 64px;
+  height: 64px;
+}
+
+.share-row-chip {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 253, 248, 0.92);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.share-row-ordinal {
+  font-family: var(--font-family-title);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.25rem;
+  color: var(--color-adobe-brick);
+  margin: 0 0 8px;
+}
+
+.share-row-title {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 2.125rem;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  margin: 0 0 4px;
+  color: var(--color-midnight-navy);
+}
+
+.share-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.share-row-link:hover {
+  color: var(--color-adobe-brick);
+}
+
+.share-row-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #8a929c;
+}
+
+.share-row-pin {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+/* The note, set as a serif pull-quote -- the move that makes the page read
+   like a magazine spread rather than a database listing. */
+.share-row-note {
+  margin: 0;
+  border-left: 3px solid var(--color-sunset-gold);
+  padding: 2px 0 2px 20px;
+}
+
+.share-row-note p {
+  font-family: var(--font-family-title);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: #3f4a56;
+  margin: 0;
+}
+
+.share-empty {
+  padding: 80px 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+/* --- Map ------------------------------------------------------------------ */
+
+.share-map-section {
+  padding: 70px 48px;
+  background: var(--color-paper-beige);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.share-map-hand {
+  font-family: var(--font-family-hand);
+  font-size: 1.75rem;
+  color: var(--color-adobe-brick);
+  line-height: 1;
+  margin: 0 0 4px;
+}
+
+.share-map-title {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 2.125rem;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+  color: var(--color-midnight-navy);
+}
+
+.share-map-blurb {
+  max-width: 560px;
+  margin: 0 0 24px;
+  font-size: 0.96875rem;
+  color: #5a6470;
+}
+
+.share-legend {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.share-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #4a5560;
+}
+
+.share-legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.share-map-frame {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 14px 40px rgba(23, 42, 58, 0.16);
+  border: 1px solid var(--color-hairline);
+}
+
+.share-map {
+  width: 100%;
+  height: 420px;
+  background: var(--color-dusty-beige);
+}
+
+.share-map-list {
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 40px;
+}
+
+.share-map-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(23, 42, 58, 0.06);
+}
+
+.share-map-list-num {
+  flex: none;
+  width: 24px;
+  text-align: right;
+  font-family: var(--font-family-title);
+  font-style: italic;
+  font-size: 0.875rem;
+  color: #8a929c;
+}
+
+.share-map-list-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.share-map-list-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #2b3a47;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- CTA ------------------------------------------------------------------
+   The mock's band is gold. components.css's .cta-section is navy and is shared,
+   so this is a separate class rather than an override of it. */
+
+.share-cta {
+  padding: 74px 48px;
+  background: var(--color-sunset-gold);
+}
+
+.share-cta-inner {
+  max-width: 680px;
+  margin: 0 auto;
+  text-align: center;
+  color: var(--color-midnight-navy);
+}
+
+.share-cta-hand {
+  font-family: var(--font-family-hand);
+  font-size: 1.875rem;
+  line-height: 1;
+  margin: 0 0 6px;
+}
+
+.share-cta-title {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 2.625rem;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 0 14px;
+}
+
+.share-cta-blurb {
+  margin: 0 0 28px;
+  font-size: 1.03125rem;
+  line-height: 1.6;
+  color: #4a3f28;
+}
+
+.share-cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 16px 32px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: var(--transition-base);
+}
+
+.share-cta-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
 }

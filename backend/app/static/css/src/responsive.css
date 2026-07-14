@@ -40,25 +40,58 @@
    ============================================== */
 
 @media (max-width: 768px) {
-  /* List/Trip Pages */
-  .list-title {
-    font-size: 2rem;
+  /* Public share pages (/l/ and /t/) -- the editorial layout collapses to a
+     single column: the alternating spread has no room to alternate. */
+  .share-hero {
+    height: 60vh;
+    min-height: 380px;
   }
 
-  .list-info-card {
-    padding: var(--spacing-lg);
+  .share-hero-body {
+    padding: 0 24px 32px;
   }
 
-  .hero-section {
-    height: 40vh;
+  .share-title {
+    font-size: 2.75rem;
   }
 
-  .entries-grid {
+  .share-subtitle {
+    font-size: 1.0625rem;
+  }
+
+  .share-byline,
+  .share-filters,
+  .share-feed,
+  .share-map-section,
+  .share-cta {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .share-row,
+  .share-row.is-reversed {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 32px 0;
+  }
+
+  /* Image above text on every row, whichever side it would take at width. */
+  .share-row.is-reversed .share-row-figure,
+  .share-row.is-reversed .share-row-body {
+    order: initial;
+  }
+
+  .share-row-title {
+    font-size: 1.75rem;
+  }
+
+  .share-map-list {
     grid-template-columns: 1fr;
   }
 
-  .list-info-container {
-    margin-top: -60px;
+  .share-map-title,
+  .share-cta-title {
+    font-size: 1.75rem;
   }
 
   .hero-title {
