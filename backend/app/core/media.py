@@ -73,6 +73,41 @@ def media_url(
     )
 
 
+_OBJECT_SEGMENT = "/storage/v1/object/public/media/"
+_RENDER_SEGMENT = "/storage/v1/render/image/public/media/"
+
+
+def resize_stored_url(
+    stored_url: str | None,
+    *,
+    width: int,
+    quality: int = DEFAULT_IMAGE_QUALITY,
+    resize: ResizeMode | None = None,
+) -> str | None:
+    """Rewrite an already-stored media URL to be served at a display size.
+
+    Some columns (`trip.cover_image_url`) hold a full absolute URL rather than a
+    bucket path, so they cannot go through `media_url`. The cover is the LCP
+    element on every share page and is stored unresized, which is the single
+    biggest cost on the page.
+
+    Only our own storage URLs are rewritten. A foreign host (a Google Places
+    photo, say) is already right-sized and is passed through untouched, as is a
+    URL that has been transformed already.
+    """
+    if not stored_url:
+        return None
+    if _OBJECT_SEGMENT not in stored_url:
+        return stored_url
+
+    base, _, path = stored_url.partition(_OBJECT_SEGMENT)
+    params: dict[str, Any] = {"width": width, "quality": quality}
+    if resize is not None:
+        params["resize"] = resize
+
+    return f"{base}{_RENDER_SEGMENT}{path}?{urlencode(params)}"
+
+
 def extract_media_urls(
     media_files: list[dict[str, Any]] | None,
     *,

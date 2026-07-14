@@ -4,7 +4,12 @@ from unittest.mock import patch
 
 import pytest
 
-from app.core.media import build_media_url, extract_media_urls, media_url
+from app.core.media import (
+    build_media_url,
+    extract_media_urls,
+    media_url,
+    resize_stored_url,
+)
 
 SUPABASE_URL = "https://test.supabase.co"
 
@@ -181,3 +186,51 @@ def test_extract_media_urls_without_width_keeps_object_urls(settings_with_url) -
         f"{SUPABASE_URL}/storage/v1/object/public/media/user/original.jpg",
         f"{SUPABASE_URL}/storage/v1/object/public/media/user/thumb.jpg",
     ]
+
+
+# --- resize_stored_url: the hero cover fix (KTD8) ---
+# `cover_image_url` stores a full absolute URL, not a bucket path, so it cannot
+# go through `media_url()`. It is the LCP element on every share page and today
+# ships the raw original.
+
+
+def test_resize_stored_url_rewrites_object_url_to_render_endpoint(
+    settings_with_url,
+) -> None:
+    stored = f"{SUPABASE_URL}/storage/v1/object/public/media/u1/covers/abc.jpg"
+
+    result = resize_stored_url(stored, width=1600)
+
+    assert "/storage/v1/render/image/public/media/" in result
+    assert "/object/public/" not in result
+    assert "u1/covers/abc.jpg" in result
+    assert "width=1600" in result
+
+
+def test_resize_stored_url_carries_quality_and_resize_mode(settings_with_url) -> None:
+    stored = f"{SUPABASE_URL}/storage/v1/object/public/media/cover.jpg"
+
+    result = resize_stored_url(stored, width=1600, quality=70, resize="contain")
+
+    assert "quality=70" in result
+    assert "resize=contain" in result
+
+
+def test_resize_stored_url_passes_through_a_foreign_host(settings_with_url) -> None:
+    """A Google Places photo is a different host and is already right-sized."""
+    stored = "https://lh3.googleusercontent.com/p/photo123"
+
+    assert resize_stored_url(stored, width=1600) == stored
+
+
+def test_resize_stored_url_passes_through_an_already_transformed_url(
+    settings_with_url,
+) -> None:
+    stored = f"{SUPABASE_URL}/storage/v1/render/image/public/media/cover.jpg?width=800"
+
+    assert resize_stored_url(stored, width=1600) == stored
+
+
+def test_resize_stored_url_returns_none_for_missing_values(settings_with_url) -> None:
+    assert resize_stored_url(None, width=1600) is None
+    assert resize_stored_url("", width=1600) is None
