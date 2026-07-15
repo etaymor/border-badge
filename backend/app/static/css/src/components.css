@@ -137,6 +137,29 @@ body.has-hero .header .cta-button {
   font-size: 0.9rem;
 }
 
+/* Header nav wraps the text links and the always-visible Download CTA. The
+   links collapse on mobile (responsive.css); the CTA never does. */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+/* Apple icon + label inside the header Download button. */
+.header .cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.header .cta-button .apple-icon {
+  width: 16px;
+  height: 16px;
+  /* Nudge the glyph to sit on the text baseline. */
+  margin-top: -2px;
+  flex-shrink: 0;
+}
+
 /* ==============================================
    BUTTONS
    ============================================== */

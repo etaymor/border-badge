@@ -93,7 +93,7 @@
    clause entirely rather than reading "0 countries visited". #}
 {% macro share_byline(author) %}
 {% if author %}
-<section class="share-byline">
+<section class="share-byline reveal">
   <div class="share-byline-inner">
     {% if author.avatar_url %}
     <img
@@ -174,7 +174,7 @@
     {% if share.entries %}
     {% for entry in share.entries %}
     <article
-      class="share-row {{ 'is-reversed' if loop.index0 % 2 else '' }}"
+      class="share-row reveal {{ 'is-reversed' if loop.index0 % 2 else '' }}"
       data-type="{{ entry.type }}"
     >
       <figure class="share-row-figure is-{{ entry.type }}">
@@ -255,7 +255,7 @@
 
 {% macro share_map(share, maps_key, map_id, nonce) %}
 {% if share.has_map and maps_key and map_id %}
-<section class="share-map-section" id="map">
+<section class="share-map-section reveal" id="map">
   <div class="share-map-inner">
     <p class="share-map-hand">on the map</p>
     <h2 class="share-map-title">
@@ -303,7 +303,7 @@
 
 {# --- CTA --------------------------------------------------------------- #}
 {% macro share_cta(app_store_url) %}
-<section class="share-cta">
+<section class="share-cta reveal">
   <div class="share-cta-inner">
     <p class="share-cta-hand">start your adventure</p>
     <h2 class="share-cta-title">Track your travels &amp; share your story.</h2>
@@ -323,7 +323,7 @@
 
 
 {# --- The whole page ---------------------------------------------------- #}
-{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url) %}
+{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url, reveal_script_url) %}
 {{ share_hero(share) }}
 {{ share_byline(share.author) }}
 {{ share_filters(share) }}
@@ -337,4 +337,7 @@
 {% if share.entries %}
 <script src="{{ script_url }}" defer nonce="{{ nonce }}"></script>
 {% endif %}
+{# Scroll-reveal fade-in. Nonce'd so it survives the share pages' strict-dynamic
+   CSP. Runs on every share page, entries or not. #}
+<script src="{{ reveal_script_url }}" defer nonce="{{ nonce }}"></script>
 {% endmacro %}

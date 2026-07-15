@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-07-14T21:16:55.066Z
+   Generated: 2026-07-15T00:25:16.883Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -403,6 +403,29 @@ body.has-hero .header .cta-button {
 .nav .cta-button {
   padding: 10px 20px;
   font-size: 0.9rem;
+}
+
+/* Header nav wraps the text links and the always-visible Download CTA. The
+   links collapse on mobile (responsive.css); the CTA never does. */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+/* Apple icon + label inside the header Download button. */
+.header .cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.header .cta-button .apple-icon {
+  width: 16px;
+  height: 16px;
+  /* Nudge the glyph to sit on the text baseline. */
+  margin-top: -2px;
+  flex-shrink: 0;
 }
 
 /* ==============================================
@@ -1035,12 +1058,51 @@ body.has-hero .header .cta-button {
    the mock has, and their own nav links. */
 
 .share-nav {
-  display: flex;
-  align-items: center;
   gap: 26px;
   font-size: 0.875rem;
   font-weight: 600;
   color: #4a5560;
+}
+
+/* The share header's Download button: solid gold pill that darkens on hover,
+   matching the mock. Scoped here so it does not inherit the landing header's
+   cream-invert hover, which reads as broken on the cream share bar. */
+.share-nav .cta-button {
+  background: var(--color-sunset-gold);
+  color: var(--color-midnight-navy);
+  border: 1px solid var(--color-sunset-gold);
+}
+
+.share-nav .cta-button:hover {
+  background: var(--color-primary-action-hover);
+  border-color: var(--color-primary-action-hover);
+  color: var(--color-midnight-navy);
+}
+
+/* --- Scroll reveal -------------------------------------------------------
+   Sections gently fade + rise as they enter the viewport. The hidden state is
+   gated on .reveal-ready (added by share-reveal.js) so that without JS, or
+   with reduced motion, everything renders visible and in place. */
+.reveal-ready .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s ease;
+  will-change: opacity, transform;
+}
+
+.reveal-ready .reveal.is-revealed {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-ready .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 /* --- Hero ---------------------------------------------------------------- */
@@ -1539,6 +1601,8 @@ body.has-hero .header .cta-button {
 }
 
 .share-cta-button:hover {
+  background: #0f1d29;
+  color: var(--color-warm-cream);
   transform: translateY(-2px);
   box-shadow: var(--shadow-hover);
 }
@@ -2740,7 +2804,8 @@ body.has-hero .footer-copyright {
     gap: var(--spacing-md);
   }
 
-  /* Landing Page */
+  /* Landing Page: the text links collapse on mobile, but the header's
+     Download CTA (a sibling of .nav-links inside .header-nav) stays. */
   .nav-links {
     display: none;
   }

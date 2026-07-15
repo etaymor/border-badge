@@ -52,7 +52,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PUBLIC_WEB_BASE_URL", "BASE_URL"),
         description="Base URL for public web pages (landing, lists, trips)",
     )
-    app_store_url: str = ""  # iOS App Store URL (placeholder)
+    app_store_url: str = (
+        "https://apps.apple.com/il/app/track-share-travels-atlasi/id6757568311"
+    )
     play_store_url: str = ""  # Google Play Store URL (placeholder)
 
     # OpenRouter Configuration (for traveler classification)

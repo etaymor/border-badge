@@ -108,7 +108,8 @@
     gap: var(--spacing-md);
   }
 
-  /* Landing Page */
+  /* Landing Page: the text links collapse on mobile, but the header's
+     Download CTA (a sibling of .nav-links inside .header-nav) stays. */
   .nav-links {
     display: none;
   }
