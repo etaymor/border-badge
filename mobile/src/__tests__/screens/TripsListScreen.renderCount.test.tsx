@@ -83,7 +83,7 @@ function mockData() {
   jest.spyOn(useUserCountriesModule, 'useUserCountries').mockReturnValue({
     data: [],
     isLoading: false,
-  } as ReturnType<typeof useUserCountriesModule.useUserCountries>);
+  } as unknown as ReturnType<typeof useUserCountriesModule.useUserCountries>);
 }
 
 describe('TripsListScreen render-count hygiene', () => {

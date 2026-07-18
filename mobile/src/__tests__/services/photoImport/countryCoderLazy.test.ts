@@ -18,6 +18,10 @@
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 
+// Type-only import: erased at compile time, so it cannot evaluate the module
+// graph this test is measuring.
+import type { LocationCluster } from '@services/photoImport/types';
+
 // Spy factory for country-coder. jest.mock is hoisted; the spy is created inside
 // the factory and re-read after import via requireMock so we can assert call state.
 jest.mock('@rapideditor/country-coder', () => ({
@@ -70,7 +74,7 @@ describe('country-coder lazy loading (U10 boot-path guard)', () => {
 
     expect(getCountryCoderSpy()).not.toHaveBeenCalled();
 
-    const clusters = [
+    const clusters: LocationCluster[] = [
       {
         id: 'c1',
         geohash: 'c1',

@@ -82,7 +82,7 @@ function mockData() {
   jest.spyOn(useUserCountriesModule, 'useUserCountries').mockReturnValue({
     data: [],
     isLoading: false,
-  } as ReturnType<typeof useUserCountriesModule.useUserCountries>);
+  } as unknown as ReturnType<typeof useUserCountriesModule.useUserCountries>);
   jest.spyOn(useUserCountriesModule, 'useAddUserCountry').mockReturnValue({
     mutate: jest.fn(),
   } as unknown as ReturnType<typeof useUserCountriesModule.useAddUserCountry>);

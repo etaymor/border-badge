@@ -41,14 +41,15 @@ beforeEach(() => {
   reduceMotionChangedCb = null;
   initialValue = false;
 
-  addEventListenerSpy = jest
-    .spyOn(AccessibilityInfo, 'addEventListener')
-    .mockImplementation((event: string, cb: (value: boolean) => void) => {
-      if (event === 'reduceMotionChanged') {
-        reduceMotionChangedCb = cb;
-      }
-      return { remove: mockRemove } as never;
-    });
+  addEventListenerSpy = jest.spyOn(AccessibilityInfo, 'addEventListener').mockImplementation(((
+    event: string,
+    cb: (value: boolean) => void
+  ) => {
+    if (event === 'reduceMotionChanged') {
+      reduceMotionChangedCb = cb;
+    }
+    return { remove: mockRemove };
+  }) as unknown as typeof AccessibilityInfo.addEventListener);
 
   isReduceMotionEnabledSpy = jest
     .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')

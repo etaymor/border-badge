@@ -9,7 +9,7 @@ import { EntryCard } from '@components/entries/EntryCard';
 
 const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
 
-function getImageUri(element: { props: { source: unknown } }): string | undefined {
+function getImageUri(element: { props: Record<string, unknown> }): string | undefined {
   const source = element.props.source;
   if (Array.isArray(source)) {
     return (source[0] as { uri?: string })?.uri;

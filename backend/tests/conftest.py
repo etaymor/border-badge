@@ -9,6 +9,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.core.security import AuthUser
 from app.main import app
 
@@ -47,6 +48,29 @@ def disable_persistent_places_cache(monkeypatch) -> None:
         "app.services.place_matcher.persistent_cache._persistent_cache_enabled",
         lambda: False,
     )
+
+
+@pytest.fixture(autouse=True)
+def pin_environment_settings(monkeypatch) -> None:
+    """Pin env-dependent settings so results never vary by machine.
+
+    `Settings` loads `backend/.env`, so an unpinned test run reads whatever the
+    developer happens to have configured. That splits the suite in two
+    directions at once: image tests assert on transform URLs, which
+    `build_image_url` returns as `""` when `supabase_url` is unset (empty in
+    CI, populated locally); the share-map test asserts the map is *omitted*,
+    which only holds when `google_maps_browser_api_key` is absent (empty in CI,
+    populated locally). Each set passed on exactly the machine the other
+    failed on.
+
+    Pinning both here makes every test see the same configuration everywhere.
+    Tests that exercise a specific configuration should override these locally
+    via their own `monkeypatch.setattr` on the settings object.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "supabase_url", "https://test.supabase.co")
+    monkeypatch.setattr(settings, "google_maps_browser_api_key", "")
+    monkeypatch.setattr(settings, "google_maps_map_id", "")
 
 
 @pytest.fixture

@@ -29,7 +29,7 @@ const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
  * Extract the resolved `uri` from an expo-image `source` prop.
  * expo-image normalizes `source={{ uri }}` to `[{ uri }]`.
  */
-function getImageUri(element: { props: { source: unknown } }): string | undefined {
+function getImageUri(element: { props: Record<string, unknown> }): string | undefined {
   const source = element.props.source;
   if (Array.isArray(source)) {
     return (source[0] as { uri?: string })?.uri;
