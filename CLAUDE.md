@@ -259,6 +259,9 @@ See `docs/SUBSCRIPTION.md`. Free-tier limits: 5 share-extension uses/month, 1 ph
 6. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
 7. **Place Matcher Mixin Architecture:** PlaceMatcher uses a mixin pattern (`SearchMixin`, `RankingMixin`, `ClusterProcessingMixin`). When modifying matching behavior, identify the correct mixin file rather than editing `matcher.py` directly. See `docs/photo-import.md`.
 8. **Onboarding Flow Order:** Account creation happens BEFORE the paywall. The `needsPostSignupFlow` flag in authStore keeps users in OnboardingNavigator after authentication until the paywall is complete. See `docs/ONBOARDING_PAYWALL_FIX.md`.
+9. **Navigation freezing:** `App.tsx` calls `enableFreeze()` and stacks set `freezeOnBlur`. Do NOT add `detachPreviousScreen` to `PassportNavigator` or `RootNavigator` — on these 2-deep stacks it collapses `react-native-screen-transitions`' `activeScreensLimit` from 2→1 and freezes the screen that must co-animate during the pop, killing the pop animation and flashing on return. A tripwire test (`mainStackDetach.test.tsx`) guards this; `OnboardingNavigator` keeps its detach (forward-mostly, no symptom).
+10. **React Compiler is enabled** (`experiments.reactCompiler`). Never write to a ref during render (`ref.current = fn` in the render body) — the compiler may memoize around it and hand back stale closures. Use `useStableCallback` (ref synced in an effect) for stable-identity callbacks; see `mobile/src/hooks/useStableCallback.ts`.
+11. **Production console stripping:** `babel.config.js` strips `console.*` (except `error`/`warn`) from production bundles only. Use `console.error`/`console.warn` for logs that must survive in production.
 
 ## Pre-Commit Checklist (REQUIRED)
 

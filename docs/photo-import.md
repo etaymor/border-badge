@@ -47,9 +47,19 @@ PlaceMatcher uses a mixin pattern for separation of concerns. When modifying mat
 - `_matcher_search.py` - Density-adaptive tiered radius search, Text Search API fallback, tourist relevance filter
 - `_matcher_ranking.py` - Vision-integrated scoring with 7 configurable weights (distance, reviews, rating, fame, dwell, vision, name-match)
 - `_matcher_cluster_processing.py` - Parallel cluster processing with vision result integration
-- `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
+- `cache.py` - In-memory (L1) LRU cache with TTL and single-flight pattern for deduplication, backed by the persistent L2 cache
+- `persistent_cache.py` - Postgres/Supabase-backed persistent cache (L2); see "Persistent place cache" below
 - `constants.py` - Search radii, density thresholds, place type mappings, quality filters
 - `utils.py` - Haversine distance, coordinate utilities, name/address sanitization
+
+### Persistent place cache (L2)
+
+`cache.py` (in-memory L1) is backed by a durable Postgres/Supabase layer (`persistent_cache.py`, L2) so the same physical location resolves from our DB instead of being re-bought from Google at Enterprise pricing on every request. The L2 cache survives restarts/deploys and is shared across all server instances and users. It has two complementary tables (migration `0057_persistent_place_cache`), both backend-only (service role, RLS enabled with no user policies):
+
+- `places_search_cache` - raw Nearby/Text Search responses keyed by a quantized `(lat, lng, radius, type-set-hash)` cache key (photo import).
+- `cached_google_place` - enriched per-place fields keyed by `google_place_id`, consulted before any Place Details call (social ingest).
+
+Both use a 60-day TTL (place data near a coordinate is very stable); the short in-memory L1 TTL still guards the hottest entries against intra-day churn. All L2 operations are best-effort: a DB failure logs and degrades to a cache miss rather than failing the request, and L2 short-circuits entirely when Supabase is not configured (e.g. tests).
 
 ### Backend Photo Vision (`backend/app/services/photo_vision/`)
 
@@ -171,6 +181,23 @@ overrides; the `--no-search` gate stays at `top1=1.0 mrr=1.0`.
 ### `places_rank_vision_weight` default raised 1.0 → 2.0 (C4/U7)
 
 Pre-enrichment, the wide Nearby field mask strips `rating`/`userRatingCount`, so the only live first-pass ranking signals are distance and vision category (plus dwell and signage name-match when present). At `vision_weight=1.0` a high-confidence category match offsets only ~30m of distance, so a closer wrong-category place could consume a top-3 finalist slot and a correct place that never reached the finalists was unrecoverable (enrichment only re-ranks within the 3 finalists). At `2.0` the match offsets ~60m — within typical indoor GPS drift — pulling the correct place into the finalists while still not erasing a large distance gap. Validated by `TestVisionWeightDefault` (a non-name-matched discriminating case the synthetic `--no-search` gate cannot see) and by holding `--no-search` at `top1=1.0 mrr=1.0`. The default is env-overridable via `PLACES_RANK_VISION_WEIGHT`.
+
+### Two-pass field mask + enrichment backfill (U4)
+
+The Nearby search uses a cheap wide field mask (no `rating`/`userRatingCount`), then enriches only the top finalists with a Place Details call. Because the review-count quality gate (`PLACES_MIN_REVIEW_COUNT`, lowered 5→3) can only be enforced once a rating count is present, it runs on enriched finalists. When that gate drops finalists, up to `PLACES_ENRICH_BACKFILL_LIMIT` (default 3) first-pass tail candidates are enriched in one global second batch per request and gated before falling back to un-gated candidates; set it to 0 for the legacy un-gated backfill.
+
+### Type priors: lodging penalty & landmark boost/rescue (U3/U5/U6)
+
+Two vision-driven type priors sharpen the rating-blind first pass:
+
+- **Lodging penalty** (`PLACES_RANK_LODGING_PENALTY`, default 2.5 ≈ 50m of distance): demotes lodging-typed candidates in full when vision confidently says the photo is _not_ accommodation, at half strength with no usable vision signal, and not at all when vision says "stay". Demotion only — an all-lodging candidate world still returns lodging; 0 disables.
+- **Landmark boost** (`PLACES_RANK_LANDMARK_BOOST`, default 1.5): extra bonus for landmark-family places (museum/monument/tourist_attraction/…) when vision classifies the photo as "landmark", stacking with the generic vision category bonus so a large venue beats its own micro-POIs; 0 disables.
+
+Large venues' Google points often sit beyond the dense-city Nearby radii, so two rescues bring them into the candidate world for landmark-classified clusters: **landmark text rescue** (`PLACES_LANDMARK_TEXT_RESCUE`, default on) fires a Text Search for a recognized landmark name that has no strong Nearby match, biased by `PLACES_LANDMARK_RESCUE_BIAS_RADIUS_M` (default 500m, wider than the 200m business-name bias); and a last-resort **popularity probe** (`PLACES_POPULARITY_PROBE`, default off) issues a popularity-ranked 200m Nearby call for text-less landmark clusters with no landmark-family candidate. Both are cost-bounded to landmark clusters and deduped via the coarse cache key.
+
+### Diagnostics
+
+Set `PLACES_DIAGNOSTICS=true` to emit one structured JSON trace per cluster (raw candidate world, filter-drop tallies, vision signals, finalists, outcome). Off by default — retaining the raw world has a memory cost, so production stays clean. Use it to capture real imports for the labeling workflow in `backend/docs/how-to-label-place-matcher-dataset.md`.
 
 ## Key Files
 

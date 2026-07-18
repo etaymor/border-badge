@@ -253,8 +253,10 @@ Atlasi is intentionally **whimsical and celebratory**. It encourages users to:
 - `/` - Landing page
 - `/t/{slug}` - Public trip view
 - `/l/{slug}` - Public list view
-- SEO-optimized with OG tags for social sharing
+- SEO-optimized with OG tags and JSON-LD structured data for social sharing and rich results
 - Affiliate link integration for monetization
+
+**Editorial share layout:** Both `/t/{slug}` and `/l/{slug}` share one editorial template — a full-bleed hero, a byline bar ("Shared by Maya · 31 countries visited", degrading to name-only or nothing when profile/avatar data is missing), sticky category filters, alternating numbered image/text rows, an interactive Google Map with custom colored numbered pins, and an App Store CTA band. The map is driven by per-entry coordinates and requires `GOOGLE_MAPS_BROWSER_API_KEY` + `GOOGLE_MAPS_MAP_ID` (see `docs/environment-setup.md`); it renders without the map when those are unset. Images are served at display size via Supabase render transforms, while OG images keep the full-size original for social scrapers.
 
 **User value:** Share travel content beyond the app; receive traffic from social shares
 

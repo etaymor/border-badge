@@ -1355,7 +1355,7 @@ Get place metadata by ID.
 
 ### Public Endpoints
 
-These endpoints do not require authentication.
+These endpoints do not require authentication. The human-facing HTML share pages are served at `/l/{slug}` (lists) and `/t/{slug}` (trips) — an editorial layout with a byline, category filters, and an interactive map (see `docs/app-overview.md`). Public entries expose `latitude`/`longitude` so those pages can plot map pins.
 
 #### `GET /public/lists/{slug}`
 
@@ -1372,6 +1372,8 @@ Get a public list by slug.
       "title": "Ichiran Shibuya",
       "notes": "...",
       "place_name": "Ichiran",
+      "latitude": 35.6595,
+      "longitude": 139.7005,
       "media_urls": ["https://..."]
     }
   ]
