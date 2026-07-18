@@ -7,6 +7,7 @@ import { Alert } from 'react-native';
 
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
+import { logger } from '@utils/logger';
 
 // Entry type enum matching backend
 export type EntryType = 'place' | 'food' | 'stay' | 'experience';
@@ -239,7 +240,7 @@ export function useCreateEntry() {
 
   return useMutation({
     mutationFn: async (input: CreateEntryInput): Promise<EntryWithPlace> => {
-      console.log('[useCreateEntry] Input received', {
+      logger.log('[useCreateEntry] Input received', {
         trip_id: input.trip_id,
         entry_type: input.entry_type,
         title: input.title,
@@ -278,14 +279,14 @@ export function useCreateEntry() {
         pending_media_ids: input.pending_media_ids,
       };
 
-      console.log('[useCreateEntry] Sending to backend', {
+      logger.log('[useCreateEntry] Sending to backend', {
         trip_id: input.trip_id,
         backendInput,
       });
 
       const response = await api.post(`/trips/${input.trip_id}/entries`, backendInput);
 
-      console.log('[useCreateEntry] Response from backend', {
+      logger.log('[useCreateEntry] Response from backend', {
         data: response.data,
         place: (response.data as Record<string, unknown>)?.place,
       });

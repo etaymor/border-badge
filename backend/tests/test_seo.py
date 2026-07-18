@@ -1,6 +1,12 @@
 """Tests for SEO metadata helpers."""
 
-from app.core.seo import build_landing_seo, build_list_seo, build_trip_seo
+from app.core.seo import (
+    LANDING_FAQS,
+    build_landing_seo,
+    build_landing_structured_data,
+    build_list_seo,
+    build_trip_seo,
+)
 
 
 def test_build_landing_seo() -> None:
@@ -10,6 +16,38 @@ def test_build_landing_seo() -> None:
     assert seo.canonical_url == "https://example.com"
     assert seo.og_type == "website"
     assert "Atlasi" in seo.og_title
+
+
+def test_build_landing_seo_has_og_image() -> None:
+    """The landing page must ship an og:image for social cards."""
+    seo = build_landing_seo("https://example.com")
+    assert seo.og_image == "https://example.com/static/images/screens/og-image.png"
+
+
+def test_landing_structured_data_covers_app_and_faqs() -> None:
+    """The JSON-LD @graph carries the app entity and every FAQ."""
+    data = build_landing_structured_data(
+        "https://example.com", "https://apps.apple.com/app/id123"
+    )
+    assert data["@context"] == "https://schema.org"
+
+    by_type = {node["@type"]: node for node in data["@graph"]}
+    app = by_type["MobileApplication"]
+    assert app["name"] == "Atlasi"
+    assert app["operatingSystem"] == "iOS"
+    assert app["offers"]["price"] == "0"
+    assert app["installUrl"] == "https://apps.apple.com/app/id123"
+
+    questions = by_type["FAQPage"]["mainEntity"]
+    assert len(questions) == len(LANDING_FAQS)
+    assert all(q["acceptedAnswer"]["text"] for q in questions)
+
+
+def test_landing_structured_data_omits_install_url_when_unset() -> None:
+    """No App Store URL configured means no empty installUrl in the schema."""
+    data = build_landing_structured_data("https://example.com")
+    app = next(n for n in data["@graph"] if n["@type"] == "MobileApplication")
+    assert "installUrl" not in app
 
 
 def test_build_list_seo() -> None:

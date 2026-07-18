@@ -14,12 +14,17 @@
     "vision_results": [
       {
         "category": "food",
-        "detected_text": ["Tsukiji Ramen"],
+        "detected_text": [
+          "Tsukiji Ramen"
+        ],
         "confidence": "high"
       },
       {
         "category": "food",
-        "detected_text": ["Tsukiji Ramen", "Open"],
+        "detected_text": [
+          "Tsukiji Ramen",
+          "Open"
+        ],
         "confidence": "medium"
       },
       {
@@ -40,7 +45,11 @@
           "longitude": 139.7709
         },
         "primaryType": "restaurant",
-        "types": ["restaurant", "ramen_restaurant", "food"],
+        "types": [
+          "restaurant",
+          "ramen_restaurant",
+          "food"
+        ],
         "rating": 4.4,
         "userRatingCount": 420
       },
@@ -55,7 +64,10 @@
           "longitude": 139.77094
         },
         "primaryType": "tourist_attraction",
-        "types": ["tourist_attraction", "market"],
+        "types": [
+          "tourist_attraction",
+          "market"
+        ],
         "rating": 4.3,
         "userRatingCount": 3100
       },
@@ -70,7 +82,11 @@
           "longitude": 139.7706
         },
         "primaryType": "cafe",
-        "types": ["cafe", "coffee_shop", "food"],
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
         "rating": 4.2,
         "userRatingCount": 85
       }
@@ -105,7 +121,11 @@
           "longitude": 2.2945
         },
         "primaryType": "tourist_attraction",
-        "types": ["tourist_attraction", "historical_landmark", "monument"],
+        "types": [
+          "tourist_attraction",
+          "historical_landmark",
+          "monument"
+        ],
         "rating": 4.7,
         "userRatingCount": 425000
       },
@@ -120,7 +140,9 @@
           "longitude": 2.2972
         },
         "primaryType": "tourist_attraction",
-        "types": ["tourist_attraction"],
+        "types": [
+          "tourist_attraction"
+        ],
         "rating": 4.5,
         "userRatingCount": 9800
       },
@@ -135,7 +157,11 @@
           "longitude": 2.29803
         },
         "primaryType": "cafe",
-        "types": ["cafe", "coffee_shop", "food"],
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
         "rating": 4.3,
         "userRatingCount": 1240
       }
@@ -156,12 +182,17 @@
     "vision_results": [
       {
         "category": "nightlife",
-        "detected_text": ["Neon Cellar"],
+        "detected_text": [
+          "Neon Cellar"
+        ],
         "confidence": "medium"
       },
       {
         "category": "nightlife",
-        "detected_text": ["Cocktails", "Neon Cellar"],
+        "detected_text": [
+          "Cocktails",
+          "Neon Cellar"
+        ],
         "confidence": "medium"
       }
     ],
@@ -177,7 +208,11 @@
           "longitude": -73.98653
         },
         "primaryType": "bar",
-        "types": ["bar", "night_club", "pub"],
+        "types": [
+          "bar",
+          "night_club",
+          "pub"
+        ],
         "rating": 4.5,
         "userRatingCount": 670
       },
@@ -192,7 +227,11 @@
           "longitude": -73.98685
         },
         "primaryType": "pizza_restaurant",
-        "types": ["pizza_restaurant", "restaurant", "food"],
+        "types": [
+          "pizza_restaurant",
+          "restaurant",
+          "food"
+        ],
         "rating": 4.6,
         "userRatingCount": 2400
       },
@@ -207,9 +246,1308 @@
           "longitude": -73.98614
         },
         "primaryType": "night_club",
-        "types": ["night_club", "bar"],
+        "types": [
+          "night_club",
+          "bar"
+        ],
         "rating": 4.4,
         "userRatingCount": 810
+      }
+    ]
+  },
+  {
+    "id": "paris-bistro-vs-eiffel",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8574,
+        "longitude": 2.2932
+      },
+      "time_hint": "food",
+      "start_time": "2024-06-21T12:30:00Z",
+      "end_time": "2024-06-21T13:45:00Z"
+    },
+    "expected_place_id": "place-chez-louise",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": [
+          "Chez Louise"
+        ],
+        "confidence": "high"
+      },
+      {
+        "category": "food",
+        "detected_text": [],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-chez-louise",
+        "displayName": {
+          "text": "Chez Louise"
+        },
+        "formattedAddress": "8 Rue de Monttessuy, Paris",
+        "location": {
+          "latitude": 48.85751,
+          "longitude": 2.2932
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ],
+        "rating": 4.5,
+        "userRatingCount": 320
+      },
+      {
+        "id": "place-eiffel-tower",
+        "displayName": {
+          "text": "Eiffel Tower"
+        },
+        "formattedAddress": "Champ de Mars, 5 Av. Anatole France, Paris",
+        "location": {
+          "latitude": 48.85704,
+          "longitude": 2.2932
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction",
+          "historical_landmark",
+          "monument"
+        ],
+        "rating": 4.7,
+        "userRatingCount": 425000
+      },
+      {
+        "id": "place-souvenir-shop",
+        "displayName": {
+          "text": "Paris Souvenirs & Gifts"
+        },
+        "formattedAddress": "12 Av. de la Bourdonnais, Paris",
+        "location": {
+          "latitude": 48.85758,
+          "longitude": 2.2932
+        },
+        "primaryType": "store",
+        "types": [
+          "store",
+          "market"
+        ],
+        "rating": 4.0,
+        "userRatingCount": 150
+      }
+    ]
+  },
+  {
+    "id": "rome-gps-drift-trattoria",
+    "cluster": {
+      "centroid": {
+        "latitude": 41.89015,
+        "longitude": 12.4733
+      },
+      "time_hint": "food",
+      "start_time": "2024-05-03T19:40:00Z",
+      "end_time": "2024-05-03T20:50:00Z"
+    },
+    "expected_place_id": "place-trattoria-bella-vita",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": [
+          "Trattoria Bella Vita"
+        ],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-trattoria-bella-vita",
+        "displayName": {
+          "text": "Trattoria Bella Vita"
+        },
+        "formattedAddress": "Via dei Coronari 44, Roma",
+        "location": {
+          "latitude": 41.89083,
+          "longitude": 12.4733
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "italian_restaurant",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 600
+      },
+      {
+        "id": "place-gelateria-luna",
+        "displayName": {
+          "text": "Gelateria Luna"
+        },
+        "formattedAddress": "Via dei Coronari 25, Roma",
+        "location": {
+          "latitude": 41.89008,
+          "longitude": 12.4733
+        },
+        "primaryType": "ice_cream_shop",
+        "types": [
+          "ice_cream_shop",
+          "food"
+        ],
+        "rating": 4.6,
+        "userRatingCount": 900
+      },
+      {
+        "id": "place-fontana-piazza",
+        "displayName": {
+          "text": "Fontana di Piazza Navona"
+        },
+        "formattedAddress": "Piazza Navona, Roma",
+        "location": {
+          "latitude": 41.8897,
+          "longitude": 12.4733
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction",
+          "monument"
+        ],
+        "rating": 4.7,
+        "userRatingCount": 32000
+      }
+    ]
+  },
+  {
+    "id": "kyoto-hidden-gem-tea-house",
+    "cluster": {
+      "centroid": {
+        "latitude": 35.0036,
+        "longitude": 135.7785
+      },
+      "time_hint": "food",
+      "start_time": "2024-11-08T10:10:00Z",
+      "end_time": "2024-11-08T10:50:00Z"
+    },
+    "expected_place_id": "place-koto-tea-house",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": [
+          "Koto Tea House"
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-koto-tea-house",
+        "displayName": {
+          "text": "Koto Tea House"
+        },
+        "formattedAddress": "Fushimi Ward, Kyoto",
+        "location": {
+          "latitude": 35.00369,
+          "longitude": 135.7785
+        },
+        "primaryType": "tea_house",
+        "types": [
+          "tea_house",
+          "cafe",
+          "food"
+        ],
+        "rating": 4.8,
+        "userRatingCount": 30
+      },
+      {
+        "id": "place-fushimi-shrine-gate",
+        "displayName": {
+          "text": "Fushimi Inari Shrine Gate"
+        },
+        "formattedAddress": "68 Fukakusa Yabunouchicho, Kyoto",
+        "location": {
+          "latitude": 35.00311,
+          "longitude": 135.7785
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction",
+          "historical_landmark"
+        ],
+        "rating": 4.6,
+        "userRatingCount": 48000
+      },
+      {
+        "id": "place-matcha-stand",
+        "displayName": {
+          "text": "Matcha Stand Kyoto"
+        },
+        "formattedAddress": "Fushimi Ward, Kyoto",
+        "location": {
+          "latitude": 35.00382,
+          "longitude": 135.7785
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
+        "rating": 4.3,
+        "userRatingCount": 210
+      }
+    ]
+  },
+  {
+    "id": "sf-park-long-dwell-no-vision",
+    "cluster": {
+      "centroid": {
+        "latitude": 37.7687,
+        "longitude": -122.4829
+      },
+      "time_hint": "attraction",
+      "start_time": "2024-08-17T14:00:00Z",
+      "end_time": "2024-08-17T17:10:00Z"
+    },
+    "expected_place_id": "place-botanical-garden",
+    "places": [
+      {
+        "id": "place-botanical-garden",
+        "displayName": {
+          "text": "San Francisco Botanical Garden"
+        },
+        "formattedAddress": "1199 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76888,
+          "longitude": -122.4829
+        },
+        "primaryType": "botanical_garden",
+        "types": [
+          "botanical_garden",
+          "park",
+          "tourist_attraction"
+        ],
+        "rating": 4.7,
+        "userRatingCount": 5200
+      },
+      {
+        "id": "place-garden-gift-shop",
+        "displayName": {
+          "text": "Garden Gift Shop"
+        },
+        "formattedAddress": "1199 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76901,
+          "longitude": -122.4829
+        },
+        "primaryType": "store",
+        "types": [
+          "store"
+        ],
+        "rating": 4.2,
+        "userRatingCount": 180
+      },
+      {
+        "id": "place-park-cafe",
+        "displayName": {
+          "text": "Ninth Avenue Cafe"
+        },
+        "formattedAddress": "1265 9th Ave, San Francisco, CA",
+        "location": {
+          "latitude": 37.76924,
+          "longitude": -122.4829
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
+        "rating": 4.3,
+        "userRatingCount": 350
+      }
+    ]
+  },
+  {
+    "id": "tokyo-partial-ocr-blue-bottle",
+    "cluster": {
+      "centroid": {
+        "latitude": 35.6654,
+        "longitude": 139.7123
+      },
+      "time_hint": "quick_stop",
+      "start_time": "2024-04-12T09:20:00Z",
+      "end_time": "2024-04-12T09:45:00Z"
+    },
+    "expected_place_id": "place-blue-bottle-omotesando",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": [
+          "BLUE BOTTLE"
+        ],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-blue-bottle-omotesando",
+        "displayName": {
+          "text": "Blue Bottle Coffee Omotesando"
+        },
+        "formattedAddress": "3 Chome-13-14 Minamiaoyama, Tokyo",
+        "location": {
+          "latitude": 35.66556,
+          "longitude": 139.7123
+        },
+        "primaryType": "coffee_shop",
+        "types": [
+          "coffee_shop",
+          "cafe",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 800
+      },
+      {
+        "id": "place-omotesando-hills",
+        "displayName": {
+          "text": "Omotesando Hills"
+        },
+        "formattedAddress": "4 Chome-12-10 Jingumae, Tokyo",
+        "location": {
+          "latitude": 35.66567,
+          "longitude": 139.7123
+        },
+        "primaryType": "shopping_mall",
+        "types": [
+          "shopping_mall",
+          "store"
+        ],
+        "rating": 4.2,
+        "userRatingCount": 21000
+      },
+      {
+        "id": "place-ramen-corner",
+        "displayName": {
+          "text": "Ramen Corner Aoyama"
+        },
+        "formattedAddress": "5 Chome-1-2 Minamiaoyama, Tokyo",
+        "location": {
+          "latitude": 35.6658,
+          "longitude": 139.7123
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "ramen_restaurant",
+          "food"
+        ],
+        "rating": 4.5,
+        "userRatingCount": 1300
+      }
+    ]
+  },
+  {
+    "id": "bangkok-hotel-overnight",
+    "cluster": {
+      "centroid": {
+        "latitude": 13.7499,
+        "longitude": 100.4952
+      },
+      "start_time": "2024-12-02T21:00:00Z",
+      "end_time": "2024-12-03T07:30:00Z"
+    },
+    "expected_place_id": "place-riverside-grand-hotel",
+    "vision_results": [
+      {
+        "category": "stay",
+        "detected_text": [
+          "Riverside Grand Hotel"
+        ],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-riverside-grand-hotel",
+        "displayName": {
+          "text": "Riverside Grand Hotel"
+        },
+        "formattedAddress": "123 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.7501,
+          "longitude": 100.4952
+        },
+        "primaryType": "hotel",
+        "types": [
+          "hotel",
+          "lodging"
+        ],
+        "rating": 4.6,
+        "userRatingCount": 3800
+      },
+      {
+        "id": "place-rooftop-bar",
+        "displayName": {
+          "text": "Sky Deck Rooftop Bar"
+        },
+        "formattedAddress": "123 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.75015,
+          "longitude": 100.4952
+        },
+        "primaryType": "bar",
+        "types": [
+          "bar",
+          "night_club"
+        ],
+        "rating": 4.5,
+        "userRatingCount": 950
+      },
+      {
+        "id": "place-street-noodles",
+        "displayName": {
+          "text": "Charoen Krung Boat Noodles"
+        },
+        "formattedAddress": "145 Charoen Krung Rd, Bangkok",
+        "location": {
+          "latitude": 13.75026,
+          "longitude": 100.4952
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "thai_restaurant",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 620
+      }
+    ]
+  },
+  {
+    "id": "berlin-gym-type-excluded",
+    "_note": "C5 lever (type-filter sim). Expected place is a gym; 'gym'/'fitness_center' are NOT in SEARCHABLE_PLACE_TYPES, so --simulate-type-filter drops it from Nearby (candidate_recall falls). The vision name-match keeps it ranked #1 in the ranking-only (--no-search) eval. Compare against an allowlisted type to show recovery.",
+    "cluster": {
+      "centroid": {
+        "latitude": 52.52006,
+        "longitude": 13.40495
+      },
+      "time_hint": "quick_stop",
+      "start_time": "2024-07-14T08:05:00Z",
+      "end_time": "2024-07-14T09:10:00Z"
+    },
+    "expected_place_id": "place-mitte-fitness",
+    "vision_results": [
+      {
+        "category": "unknown",
+        "detected_text": [
+          "Mitte Fitness Studio"
+        ],
+        "confidence": "high"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-mitte-fitness",
+        "displayName": {
+          "text": "Mitte Fitness Studio"
+        },
+        "formattedAddress": "Rosenthaler Str. 40, Berlin",
+        "location": {
+          "latitude": 52.52011,
+          "longitude": 13.40495
+        },
+        "primaryType": "gym",
+        "types": [
+          "gym",
+          "fitness_center"
+        ],
+        "rating": 4.5,
+        "userRatingCount": 240
+      },
+      {
+        "id": "place-mitte-cafe",
+        "displayName": {
+          "text": "Rosenthaler Kaffee"
+        },
+        "formattedAddress": "Rosenthaler Str. 42, Berlin",
+        "location": {
+          "latitude": 52.52017,
+          "longitude": 13.40495
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
+        "rating": 4.3,
+        "userRatingCount": 410
+      },
+      {
+        "id": "place-mitte-bakery",
+        "displayName": {
+          "text": "Hackescher Backhaus"
+        },
+        "formattedAddress": "Hackescher Markt 1, Berlin",
+        "location": {
+          "latitude": 52.51995,
+          "longitude": 13.40495
+        },
+        "primaryType": "bakery",
+        "types": [
+          "bakery",
+          "store",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 530
+      }
+    ]
+  },
+  {
+    "id": "lisbon-text-rescue-far",
+    "_note": "C2 lever (text-rescue sim). Two near decoys (~10m) make this a MEDIUM-density cluster, so the Nearby sim searches radii [15, 50, 125]m. The expected place sits ~140m from the centroid, just beyond the 125m max, so geometric Nearby never returns it (candidate_recall=0 without rescue). Its displayName matches the vision detected_text, so --simulate-text-rescue recovers it via a name-match Text Search (recall lifts, avg_text_search_calls increments). At 140m the distance penalty (~7) stays below NAME_MATCH_BONUS (9.0), so the strong name-match keeps it ranked #1 in the ranking-only (--no-search) eval, which uses the full places[] set with no geometric filter.",
+    "cluster": {
+      "centroid": {
+        "latitude": 38.71,
+        "longitude": -9.14
+      },
+      "time_hint": "food",
+      "start_time": "2024-10-05T13:15:00Z",
+      "end_time": "2024-10-05T14:30:00Z"
+    },
+    "expected_place_id": "place-alfama-tasca",
+    "vision_results": [
+      {
+        "category": "food",
+        "detected_text": [
+          "Tasca do Alfama"
+        ],
+        "confidence": "high"
+      },
+      {
+        "category": "food",
+        "detected_text": [
+          "Tasca do Alfama",
+          "Aberto"
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "places": [
+      {
+        "id": "place-alfama-tasca",
+        "displayName": {
+          "text": "Tasca do Alfama"
+        },
+        "formattedAddress": "Rua de Sao Joao da Praca 8, Lisboa",
+        "location": {
+          "latitude": 38.711258,
+          "longitude": -9.14
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "portuguese_restaurant",
+          "food"
+        ],
+        "rating": 4.6,
+        "userRatingCount": 480
+      },
+      {
+        "id": "place-baixa-pasteis",
+        "displayName": {
+          "text": "Pasteis da Baixa"
+        },
+        "formattedAddress": "Rua Augusta 120, Lisboa",
+        "location": {
+          "latitude": 38.7101,
+          "longitude": -9.14
+        },
+        "primaryType": "bakery",
+        "types": [
+          "bakery",
+          "cafe",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 1900
+      },
+      {
+        "id": "place-se-cathedral",
+        "displayName": {
+          "text": "Se de Lisboa"
+        },
+        "formattedAddress": "Largo da Se, Lisboa",
+        "location": {
+          "latitude": 38.70989,
+          "longitude": -9.14
+        },
+        "primaryType": "church",
+        "types": [
+          "church",
+          "tourist_attraction"
+        ],
+        "rating": 4.6,
+        "userRatingCount": 14000
+      }
+    ]
+  },
+  {
+    "id": "paris-airbnb-lodging-flood",
+    "_note": "F1: dense residential cell whose 50m world (2 places inside the 15m probe -> MEDIUM density, resolves at the 50m tier like the real import log) is almost all zero-review Airbnb 'lodging' listings (rating/userRatingCount OMITTED to mimic the rating-blind wide pass). No usable vision signal (unknown/low). Today the nearest Airbnb wins on distance; the lodging demotion (U3) must flip the top to the restaurant. Red until U3.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8905,
+        "longitude": 2.344
+      },
+      "time_hint": "food",
+      "start_time": "2025-05-29T12:30:00Z",
+      "end_time": "2025-05-29T13:15:00Z"
+    },
+    "expected_place_id": "place-sourire-saigon",
+    "vision_result": {
+      "category": "unknown",
+      "detected_text": [],
+      "confidence": "low"
+    },
+    "places": [
+      {
+        "id": "place-airbnb-ramey",
+        "displayName": {
+          "text": "Amazing Apartment 1br /4p Sacre Coeur /ramey"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8905449,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-sparks",
+        "displayName": {
+          "text": "Appartement Sparks"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8905719,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-parking",
+        "displayName": {
+          "text": "Unique MontmartreSacré-Cœur appartement Parking - Two-Bedroom Apartment"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906437,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-home",
+        "displayName": {
+          "text": "Home"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906527,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-studio32",
+        "displayName": {
+          "text": "Studio 32 m² in Paris with Wifi – 4 people"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906707,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-guestready",
+        "displayName": {
+          "text": "GuestReady - Refuge cosy près du Sacré-Cœur"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906617,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-naranja",
+        "displayName": {
+          "text": "Casa Naranja - One-Bedroom Apartment"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906797,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-airbnb-blanca",
+        "displayName": {
+          "text": "Casa Blanca - Entire Place"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8906976,
+          "longitude": 2.344
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-sourire-saigon",
+        "displayName": {
+          "text": "Le Sourire de Saïgon"
+        },
+        "formattedAddress": "Rue Ramey, Paris",
+        "location": {
+          "latitude": 48.8907246,
+          "longitude": 2.344
+        },
+        "primaryType": "vietnamese_restaurant",
+        "types": [
+          "vietnamese_restaurant",
+          "restaurant",
+          "food"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paris-eiffel-apartment-substring",
+    "_note": "F2: vision correctly reads 'Eiffel Tower' but the substring matcher awards the 9.0 name bonus to the Airbnb whose marketing name CONTAINS it, so distance decides and the apartment wins. Rating-blind world (wide pass). U2 must demote the containment match to weak (and zero it for lodging under a landmark vision) so the real tower wins. Red until U2.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8582,
+        "longitude": 2.2945
+      },
+      "time_hint": "attraction",
+      "start_time": "2025-05-30T15:00:00Z",
+      "end_time": "2025-05-30T17:35:00Z"
+    },
+    "expected_place_id": "place-eiffel-tower",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [
+        "Eiffel Tower"
+      ],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-flat-at-eiffel",
+        "displayName": {
+          "text": "Gorgeous 3 Bedroom Flat at Eiffel Tower - Apartment"
+        },
+        "formattedAddress": "Av. de la Bourdonnais, Paris",
+        "location": {
+          "latitude": 48.8583078,
+          "longitude": 2.2945
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-eiffel-tower",
+        "displayName": {
+          "text": "Eiffel Tower"
+        },
+        "formattedAddress": "Champ de Mars, 5 Av. Anatole France, Paris",
+        "location": {
+          "latitude": 48.8593678,
+          "longitude": 2.2945
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction",
+          "historical_landmark",
+          "monument"
+        ]
+      },
+      {
+        "id": "place-crepe-stand",
+        "displayName": {
+          "text": "Crêperie du Champ de Mars"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.8585773,
+          "longitude": 2.2945
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paris-pantheon-apartment-substring",
+    "_note": "F2 + accent folding: single-word detected name 'Panthéon' substring-matches the apartment marketing name. After U2 the apartment is a weak whole-token match (zeroed for lodging under landmark vision) while the monument is a strong exact match. Red until U2.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8462,
+        "longitude": 2.3464
+      },
+      "time_hint": "attraction",
+      "start_time": "2025-05-31T10:20:00Z",
+      "end_time": "2025-05-31T11:35:00Z"
+    },
+    "expected_place_id": "place-pantheon",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [
+        "Panthéon"
+      ],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-apt-pantheon",
+        "displayName": {
+          "text": "Appartement à deux pas du Panthéon avec balcon - One-Bedroom Apartment"
+        },
+        "formattedAddress": "Rue Valette, Paris",
+        "location": {
+          "latitude": 48.8462898,
+          "longitude": 2.3464
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-pantheon",
+        "displayName": {
+          "text": "Panthéon"
+        },
+        "formattedAddress": "Pl. du Panthéon, Paris",
+        "location": {
+          "latitude": 48.847188,
+          "longitude": 2.3464
+        },
+        "primaryType": "monument",
+        "types": [
+          "monument",
+          "historical_landmark",
+          "tourist_attraction"
+        ]
+      },
+      {
+        "id": "place-bistrot-valette",
+        "displayName": {
+          "text": "Le Bistrot Valette"
+        },
+        "formattedAddress": "Rue Valette, Paris",
+        "location": {
+          "latitude": 48.8464695,
+          "longitude": 2.3464
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paris-dorsay-batobus-prefix",
+    "_note": "F2+F4: 'Musée d'Orsay' substring-matches the boat stop AND the museum restaurant, so all three tie at 9.0 and the nearest (Batobus) wins. U2's prefix rule keeps only the museum strong; the containment matches drop to weak. Red until U2.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8599,
+        "longitude": 2.3266
+      },
+      "time_hint": "attraction",
+      "start_time": "2025-06-01T13:40:00Z",
+      "end_time": "2025-06-01T16:10:00Z"
+    },
+    "expected_place_id": "place-musee-dorsay",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [
+        "Musée d'Orsay"
+      ],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-batobus-dorsay",
+        "displayName": {
+          "text": "Batobus- Musée d'Orsay"
+        },
+        "formattedAddress": "Quai Anatole France, Paris",
+        "location": {
+          "latitude": 48.8599719,
+          "longitude": 2.3266
+        },
+        "primaryType": "tour_agency",
+        "types": [
+          "tour_agency",
+          "travel_agency"
+        ]
+      },
+      {
+        "id": "place-restaurant-dorsay",
+        "displayName": {
+          "text": "Le Restaurant du Musée d'Orsay"
+        },
+        "formattedAddress": "Esplanade Valéry Giscard d'Estaing, Paris",
+        "location": {
+          "latitude": 48.8601246,
+          "longitude": 2.3266
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ]
+      },
+      {
+        "id": "place-musee-dorsay",
+        "displayName": {
+          "text": "Musée d'Orsay"
+        },
+        "formattedAddress": "Esplanade Valéry Giscard d'Estaing, Paris",
+        "location": {
+          "latitude": 48.8607533,
+          "longitude": 2.3266
+        },
+        "primaryType": "art_museum",
+        "types": [
+          "art_museum",
+          "museum",
+          "tourist_attraction"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paris-louvre-association-vs-museum",
+    "_note": "F4: no readable signage, vision only says landmark/high. The rating-blind first pass has no type prior, so the association micro-POI 10m away beats the museum 85m away and every Louvre cluster tops a different sub-POI. U3's landmark-family boost must flip the top to the museum. Red until U3.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8611,
+        "longitude": 2.3364
+      },
+      "time_hint": "attraction",
+      "start_time": "2025-06-02T11:00:00Z",
+      "end_time": "2025-06-02T13:40:00Z"
+    },
+    "expected_place_id": "place-musee-louvre",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-amis-louvre",
+        "displayName": {
+          "text": "Société des Amis du Louvre"
+        },
+        "formattedAddress": "Rue de Rivoli, Paris",
+        "location": {
+          "latitude": 48.8611898,
+          "longitude": 2.3364
+        },
+        "primaryType": "association_or_organization",
+        "types": [
+          "association_or_organization",
+          "point_of_interest"
+        ]
+      },
+      {
+        "id": "place-cafe-marly",
+        "displayName": {
+          "text": "Café Marly"
+        },
+        "formattedAddress": "93 Rue de Rivoli, Paris",
+        "location": {
+          "latitude": 48.8613246,
+          "longitude": 2.3364
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ]
+      },
+      {
+        "id": "place-musee-louvre",
+        "displayName": {
+          "text": "Musée du Louvre"
+        },
+        "formattedAddress": "Rue de Rivoli, Paris",
+        "location": {
+          "latitude": 48.8618635,
+          "longitude": 2.3364
+        },
+        "primaryType": "museum",
+        "types": [
+          "museum",
+          "art_museum",
+          "tourist_attraction"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paris-champ-de-mars-eiffel-recall",
+    "_note": "F3 (pipeline row): three micro-POIs within 15m make the cell DENSE (radii 15/35/75m), the tower sits ~120m out so geometric Nearby never fetches it, and TODAY --simulate-text-rescue is SUPPRESSED because the Airbnb's name substring-matches 'Eiffel Tower' ('already in nearby results'). candidate_recall stays red even with the rescue sim until U2 makes suppression strong-only and U5 mirrors it in the sim. Ranking-only eval is green today (tower has full ratings and fame).",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.8556,
+        "longitude": 2.2986
+      },
+      "time_hint": "attraction",
+      "start_time": "2025-06-03T14:05:00Z",
+      "end_time": "2025-06-03T15:40:00Z"
+    },
+    "expected_place_id": "place-eiffel",
+    "vision_result": {
+      "category": "landmark",
+      "detected_text": [
+        "Eiffel Tower"
+      ],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-riverside-flat",
+        "displayName": {
+          "text": "Riverside Flat at Eiffel Tower - Two-Bedroom Apartment"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.8556719,
+          "longitude": 2.2986
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging"
+        ]
+      },
+      {
+        "id": "place-human-rights-monument",
+        "displayName": {
+          "text": "Monument des Droits de l'Homme"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.8556898,
+          "longitude": 2.2986
+        },
+        "primaryType": "monument",
+        "types": [
+          "monument",
+          "tourist_attraction"
+        ],
+        "rating": 4.3,
+        "userRatingCount": 420
+      },
+      {
+        "id": "place-mozza-co",
+        "displayName": {
+          "text": "Mozza & Co"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.8557078,
+          "longitude": 2.2986
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "italian_restaurant",
+          "food"
+        ],
+        "rating": 4.2,
+        "userRatingCount": 610
+      },
+      {
+        "id": "place-carrousel-cdm",
+        "displayName": {
+          "text": "Carrousel du Champ de Mars"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.8560042,
+          "longitude": 2.2986
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 380
+      },
+      {
+        "id": "place-kiosque-cdm",
+        "displayName": {
+          "text": "Le Kiosque du Champ de Mars"
+        },
+        "formattedAddress": "Champ de Mars, Paris",
+        "location": {
+          "latitude": 48.856139,
+          "longitude": 2.2986
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
+        "rating": 4.1,
+        "userRatingCount": 230
+      },
+      {
+        "id": "place-eiffel",
+        "displayName": {
+          "text": "Eiffel Tower"
+        },
+        "formattedAddress": "Champ de Mars, 5 Av. Anatole France, Paris",
+        "location": {
+          "latitude": 48.856678,
+          "longitude": 2.2986
+        },
+        "primaryType": "tourist_attraction",
+        "types": [
+          "tourist_attraction",
+          "historical_landmark",
+          "monument"
+        ],
+        "rating": 4.7,
+        "userRatingCount": 425000
+      }
+    ]
+  },
+  {
+    "id": "paris-actual-hotel-stay",
+    "_note": "RECALL-SAFETY GUARD: the user's real hotel (vision category 'stay') must remain top-1 through every unit — the U3 lodging demotion must not fire when vision says stay, and the reviewed hotel survives every gate. Green today, must STAY green.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.871,
+        "longitude": 2.353
+      },
+      "start_time": "2025-06-03T21:00:00Z",
+      "end_time": "2025-06-04T07:30:00Z"
+    },
+    "expected_place_id": "place-hotel-regent",
+    "vision_result": {
+      "category": "stay",
+      "detected_text": [
+        "Hôtel Le Régent"
+      ],
+      "confidence": "high"
+    },
+    "places": [
+      {
+        "id": "place-hotel-regent",
+        "displayName": {
+          "text": "Hôtel Le Régent"
+        },
+        "formattedAddress": "Rue de Dunkerque, Paris",
+        "location": {
+          "latitude": 48.8711348,
+          "longitude": 2.353
+        },
+        "primaryType": "hotel",
+        "types": [
+          "hotel",
+          "lodging"
+        ],
+        "rating": 4.5,
+        "userRatingCount": 2100
+      },
+      {
+        "id": "place-brasserie-nord",
+        "displayName": {
+          "text": "Brasserie du Nord"
+        },
+        "formattedAddress": "Rue de Dunkerque, Paris",
+        "location": {
+          "latitude": 48.8711078,
+          "longitude": 2.353
+        },
+        "primaryType": "restaurant",
+        "types": [
+          "restaurant",
+          "french_restaurant",
+          "food"
+        ],
+        "rating": 4.4,
+        "userRatingCount": 800
+      },
+      {
+        "id": "place-cafe-dunkerque",
+        "displayName": {
+          "text": "Café Dunkerque"
+        },
+        "formattedAddress": "Rue de Dunkerque, Paris",
+        "location": {
+          "latitude": 48.8712695,
+          "longitude": 2.353
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "coffee_shop",
+          "food"
+        ],
+        "rating": 4.2,
+        "userRatingCount": 310
       }
     ]
   }

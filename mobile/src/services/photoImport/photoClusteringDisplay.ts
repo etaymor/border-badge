@@ -49,6 +49,8 @@ export function toLocationClusterDisplay(cluster: LocationCluster): LocationClus
     photoIds: sortedPhotos.map((p) => p.id),
     photoCount: sortedPhotos.length,
     previewUris: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.uri),
+    // Same slice as previewUris so previewAssetIds[i] is the asset for previewUris[i].
+    previewAssetIds: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.id),
     timeRange: cluster.timeRange,
     countryCode: cluster.countryCode,
   };
@@ -77,6 +79,8 @@ export function toTripCandidateDisplay(candidate: TripCandidate): TripCandidateD
     photoIds: sortedPhotos.map((p) => p.id),
     photoCount: sortedPhotos.length,
     previewUris: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.uri),
+    // Same slice as previewUris so previewAssetIds[i] is the asset for previewUris[i].
+    previewAssetIds: sortedPhotos.slice(0, MAX_PREVIEW_URIS).map((p) => p.id),
     locationClusterIds: candidate.locationClusters.map((c) => c.id),
   };
 }

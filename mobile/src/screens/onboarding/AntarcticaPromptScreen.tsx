@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -32,7 +33,8 @@ const ANTARCTICA_CODE = 'AQ';
 const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
-  const { addVisitedContinent, toggleCountry } = useOnboardingStore();
+  const addVisitedContinent = useOnboardingStore((s) => s.addVisitedContinent);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
   const { isSmallScreen, isLargeScreen } = useResponsive();
   const reduceMotion = useReducedMotion();
 
@@ -108,7 +110,12 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
             { transform: [{ scale: imageScale }] },
           ]}
         >
-          <Image source={antarcticaImage} style={styles.image} resizeMode="contain" />
+          <ExpoImage
+            testID="antarctica-image"
+            source={antarcticaImage}
+            style={styles.image}
+            contentFit="contain"
+          />
 
           {/* Buttons overlaid on image */}
           <Animated.View style={[styles.buttonContainer, getButtonStyle(2)]}>

@@ -28,7 +28,7 @@ import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -47,7 +47,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const { displayName } = useOnboardingStore();
+  const displayName = useOnboardingStore(selectDisplayName);
   const reduceMotion = useReducedMotion();
 
   // Track screen view

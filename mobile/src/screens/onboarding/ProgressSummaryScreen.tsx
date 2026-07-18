@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -27,7 +28,13 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectSelectedCountries,
+  selectHomeCountry,
+  selectMotivationTags,
+  selectPersonaTags,
+} from '@stores/onboardingStore';
 import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
@@ -73,7 +80,10 @@ function calculateStampPositions(count: number, containerWidth: number) {
 
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
-  const { selectedCountries, homeCountry, motivationTags, personaTags } = useOnboardingStore();
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const homeCountry = useOnboardingStore(selectHomeCountry);
+  const motivationTags = useOnboardingStore(selectMotivationTags);
+  const personaTags = useOnboardingStore(selectPersonaTags);
   const { data: allCountriesData } = useCountries();
   const reduceMotion = useReducedMotion();
 
@@ -334,7 +344,14 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                           },
                         ]}
                       >
-                        <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+                        <ExpoImage
+                          testID={`progress-stamp-${code}`}
+                          source={stampImage}
+                          style={styles.stampImage}
+                          contentFit="contain"
+                          recyclingKey={code}
+                          cachePolicy="memory-disk"
+                        />
                       </Animated.View>
                     );
                   })}

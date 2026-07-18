@@ -5,6 +5,7 @@ This module provides async functions for interacting with the Google Places API 
 
 import logging
 import time
+import uuid
 
 import httpx
 
@@ -12,6 +13,10 @@ from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.services.place_extractor.data import MAJOR_CITIES
 from app.services.place_extractor.location_hints import LocationHint
+from app.services.place_matcher.persistent_cache import (
+    get_place_details_cache,
+    set_place_details_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +36,22 @@ def is_configured() -> bool:
     return bool(key and key.strip())
 
 
+def new_session_token() -> str:
+    """Mint an Autocomplete session token.
+
+    Pairing an Autocomplete call (carrying this token) with a Place Details call
+    (carrying the same token) bills the Autocomplete leg under the FREE
+    Autocomplete-Session SKU instead of the per-request SKU ($2.83/1k). Generate
+    one per place-resolution attempt and pass it to both legs.
+    """
+    return str(uuid.uuid4())
+
+
 async def search_places(
     query: str,
     country_code: str | None = None,
     location_bias: LocationHint | None = None,
+    session_token: str | None = None,
 ) -> list[dict]:
     """Search for places using Google Places Autocomplete API.
 
@@ -42,6 +59,9 @@ async def search_places(
         query: Search query string
         country_code: Optional ISO country code to scope results
         location_bias: Optional location hint to bias results towards a geographic area
+        session_token: Optional Autocomplete session token. When the same token is
+            passed to the follow-up get_place_details call, the Autocomplete leg
+            bills under the free Session SKU.
 
     Returns:
         List of place predictions with id, name, address
@@ -60,6 +80,9 @@ async def search_places(
     body: dict = {
         "input": query,
     }
+
+    if session_token:
+        body["sessionToken"] = session_token
 
     if country_code:
         body["includedRegionCodes"] = [country_code.lower()]
@@ -165,11 +188,17 @@ async def search_places(
         return []
 
 
-async def get_place_details(place_id: str) -> dict | None:
+async def get_place_details(
+    place_id: str,
+    session_token: str | None = None,
+) -> dict | None:
     """Get detailed information about a place.
 
     Args:
         place_id: Google Places place ID
+        session_token: Optional Autocomplete session token. When it matches the
+            token used by the preceding search_places (Autocomplete) call, that
+            Autocomplete leg bills under the free Session SKU.
 
     Returns:
         Place details dict, or None on failure
@@ -177,19 +206,42 @@ async def get_place_details(place_id: str) -> dict | None:
     if not is_configured():
         return None
 
+    # Consult the cross-user persistent by-ID cache before paying for a call.
+    # Place metadata is stable, so a cached hit avoids an Enterprise-tier
+    # Place Details call entirely (shared across users and deploys).
+    #
+    # The same table is also written with rating-only enrichment entries by the
+    # photo-import finalist enrichment (see place_matcher._enrich_place_ratings),
+    # which omit name/address. Only trust a cached entry that carries the full
+    # social-ingest detail shape; otherwise fall through to a real fetch (which
+    # overwrites the partial entry with full details).
+    cached = await get_place_details_cache(place_id)
+    if cached is not None and cached.get("place_id") and cached.get("name"):
+        logger.debug(f"places_details_cache_hit: place_id={place_id}")
+        return cached
+
     settings = get_settings()
     url = f"{PLACES_DETAILS_URL}/{place_id}"
     logger.info(f"PLACES DETAILS: fetching {url}")
 
     start_time = time.monotonic()
 
+    # Pass the session token so the paired Autocomplete call bills under the free
+    # Session SKU. Cache hits above return before this, which is fine — a session
+    # that doesn't reach Details simply bills Autocomplete per-request.
+    params = {"sessionToken": session_token} if session_token else None
+
     try:
         client = get_http_client()
         response = await client.get(
             url,
+            params=params,
             headers={
                 "X-Goog-Api-Key": settings.google_places_api_key,
-                "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,websiteUri,primaryType,types",
+                # websiteUri dropped: it is never surfaced/saved downstream (the
+                # DetectedPlace built from this result has no website field), and
+                # requesting it pushed this Place Details call to a pricier SKU.
+                "X-Goog-FieldMask": "id,displayName,formattedAddress,location,addressComponents,photos,primaryType,types",
             },
             timeout=API_TIMEOUT_SECONDS,
         )
@@ -234,7 +286,6 @@ async def get_place_details(place_id: str) -> dict | None:
             "city": city,
             "country": country,
             "country_code": country_code,
-            "website": data.get("websiteUri"),
             "photos": data.get("photos", []),
             "primary_type": primary_type,
             "types": types,
@@ -243,6 +294,12 @@ async def get_place_details(place_id: str) -> dict | None:
         logger.info(
             f"PLACES DETAILS SUCCESS: {result['name']}, country={country_code}, primary_type={primary_type}"
         )
+
+        # Write-through to the persistent by-ID cache so future resolutions of
+        # this place (any user, any deploy) skip the Place Details call.
+        resolved_id = result.get("place_id")
+        if resolved_id:
+            await set_place_details_cache(resolved_id, result)
 
         return result
 

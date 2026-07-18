@@ -424,6 +424,65 @@ class TestMultiPlaceResolutionTimeout:
         assert result == [], "Should return empty list when no time remaining"
 
     @pytest.mark.asyncio
+    async def test_resolution_capped_at_configured_max(self, monkeypatch):
+        """Resolution must not exceed multimodal_max_resolved_places.
+
+        Each resolved place is one Autocomplete + one Place Details call, so an
+        unbounded list is the worst-case cost driver. With 8 extracted places and
+        a cap of 5, only the top 5 should be resolved (5 try_candidate calls).
+        """
+        import time
+
+        from app.core.config import get_settings
+        from app.services.multimodal_extractor import ExtractedPlace
+
+        # Force a known cap regardless of env.
+        settings = get_settings()
+        monkeypatch.setattr(settings, "multimodal_max_resolved_places", 5)
+
+        orchestrator = ExtractionOrchestrator(
+            total_timeout=15.0,
+            enable_video_fallback=False,
+        )
+
+        extracted_places = [
+            ExtractedPlace(
+                name=f"Place {i}", city="Paris", country="France", entry_type="place"
+            )
+            for i in range(8)
+        ]
+
+        call_count = 0
+
+        async def counting_try_candidate(query, location_bias=None):
+            nonlocal call_count
+            call_count += 1
+            return DetectedPlace(
+                google_place_id=f"ChIJ{call_count}",
+                name=f"Resolved {query}",
+                address="1 Rue",
+                country="France",
+                country_code="FR",
+                confidence=0.9,
+            )
+
+        with patch(
+            "app.services.extraction_orchestrator.try_candidate",
+            new_callable=AsyncMock,
+            side_effect=counting_try_candidate,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.extract_location_hints",
+                return_value=[],
+            ):
+                result = await orchestrator._resolve_multimodal_places(
+                    extracted_places, time.monotonic()
+                )
+
+        assert call_count == 5, f"Expected 5 resolutions (cap), got {call_count}"
+        assert len(result) == 5
+
+    @pytest.mark.asyncio
     async def test_extract_from_frames_passes_start_time_to_resolution(self):
         """Verify extract_from_frames passes start_time to resolution."""
         from app.schemas.social_ingest import OEmbedResponse

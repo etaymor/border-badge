@@ -112,6 +112,7 @@ function makeCandidate(id = 'trip-1') {
     photoIds: ['p1'],
     photoCount: 1,
     previewUris: ['file://p1.jpg'],
+    previewAssetIds: ['p1'],
     locationClusterIds: ['c1'],
   };
 }

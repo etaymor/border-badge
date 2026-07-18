@@ -10,6 +10,10 @@ jest.mock('../../assets/stampImages', () => ({
 
 const mockGetStampImage = getStampImage as jest.MockedFunction<typeof getStampImage>;
 
+// expo-image renders a native host component ("ViewManagerAdapter_ExpoImage"),
+// so expo-image-only props (cachePolicy / recyclingKey) are introspectable.
+const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
+
 describe('StampCard', () => {
   const defaultProps = {
     code: 'US',
@@ -42,6 +46,19 @@ describe('StampCard', () => {
       render(<StampCard {...defaultProps} code="FR" />);
 
       expect(mockGetStampImage).toHaveBeenCalledWith('FR');
+    });
+  });
+
+  // U3 nav-regression fix: passport grid stamps must repaint from the memory
+  // cache on remount (back-nav / tab reset) instead of re-decoding asynchronously.
+  describe('image caching', () => {
+    it('renders the stamp as an expo-image with cachePolicy memory-disk', () => {
+      render(<StampCard {...defaultProps} code="FR" />);
+
+      const image = screen.getByTestId('stamp-image-FR');
+      expect(image.type).toBe(EXPO_IMAGE_HOST);
+      expect(image.props.cachePolicy).toBe('memory-disk');
+      expect(image.props.recyclingKey).toBe('FR');
     });
   });
 

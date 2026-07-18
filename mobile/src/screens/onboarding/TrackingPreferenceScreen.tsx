@@ -27,7 +27,7 @@ import {
 import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useOnboardingStore, selectTrackingPreference } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'TrackingPreference'>;
 
@@ -103,7 +103,8 @@ const PresetCard = memo(function PresetCard({
 });
 
 function TrackingPreferenceScreen({ navigation }: Props) {
-  const { trackingPreference, setTrackingPreference } = useOnboardingStore();
+  const trackingPreference = useOnboardingStore(selectTrackingPreference);
+  const setTrackingPreference = useOnboardingStore((s) => s.setTrackingPreference);
   const { isSmallScreen } = useResponsive();
 
   // Premium entrance animation

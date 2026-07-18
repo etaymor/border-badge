@@ -38,6 +38,17 @@ function PassportNavigatorContent() {
       <Stack.Navigator
         screenOptions={{
           ...SlideWithScalePreset,
+          // Suspend off-screen screens' re-renders (requires enableFreeze() in App.tsx).
+          //
+          // Do NOT add `detachPreviousScreen` here. react-native-screen-transitions
+          // derives activeScreensLimit from the top route's descriptor; setting the
+          // flag collapses the limit from 2 to 1, which drives the screen directly
+          // beneath the top route to activityState 0 and freezes it. On this 2-deep
+          // hot path (PassportHome → CountryDetail) that screen is the one that must
+          // co-animate during the pop (scale 0.95→1 + translateX), so detaching kills
+          // the pop animation and flashes on return. There are no screens buried
+          // deeper than that here, so the flag has nothing to win.
+          freezeOnBlur: true,
         }}
       >
         <Stack.Screen name="PassportHome" component={PassportScreen} />

@@ -1,27 +1,20 @@
 /**
  * PlaceSuggestionCard - Displays a place suggestion with photo previews
- * and confirm/reject actions. Supports swipe-left-to-dismiss, upload progress,
- * and cycling through alternative place suggestions.
+ * and confirm/reject actions. Supports upload progress and cycling through
+ * alternative place suggestions. Skipping is handled by the SwipeToSkipCard
+ * wrapper in ClusterListItem, not here.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
-import { Image } from 'expo-image';
+import { useCallback, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRecyclingState } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 
 import type { ClusterSuggestion, PlaceSuggestion } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { styles } from '../photoImportStyles';
+import { PhotoThumbnail } from './PhotoThumbnail';
 
 /**
  * Metadata captured at the moment a user confirms or overrides a suggestion.
@@ -40,6 +33,8 @@ export interface SuggestionDecisionMeta {
 export interface PlaceSuggestionCardProps {
   suggestion: ClusterSuggestion;
   previewUris: string[];
+  /** Asset IDs positionally aligned with previewUris, for on-error re-resolve. */
+  previewAssetIds?: string[];
   onConfirm: (
     suggestion: ClusterSuggestion,
     place: PlaceSuggestion,
@@ -47,7 +42,6 @@ export interface PlaceSuggestionCardProps {
   ) => void;
   onReject: (suggestion: ClusterSuggestion, meta: SuggestionDecisionMeta) => void;
   onPhotoPress: (uri: string) => void;
-  onDismiss?: (clusterId: string) => void;
   /** Number of selected (non-excluded) photos */
   selectedPhotoCount?: number;
   /** Total photo count for this cluster */
@@ -67,10 +61,10 @@ export interface PlaceSuggestionCardProps {
 export function PlaceSuggestionCard({
   suggestion,
   previewUris,
+  previewAssetIds,
   onConfirm,
   onReject,
   onPhotoPress,
-  onDismiss,
   selectedPhotoCount,
   totalPhotoCount,
   isUploading,
@@ -79,37 +73,37 @@ export function PlaceSuggestionCard({
   totalPhotosToUpload = 0,
   onCancelUpload,
 }: PlaceSuggestionCardProps) {
-  const swipeableRef = useRef<Swipeable>(null);
-  const [placeIndex, setPlaceIndex] = useState(0);
   // Track which alternative indices the user has actually viewed so we can
   // distinguish "accepted the top suggestion without looking" from "cycled
   // through 3 options before picking one". Always seeded with index 0.
   const viewedIndicesRef = useRef<Set<number>>(new Set([0]));
 
-  // Reset cycling state when the suggestion changes (e.g. different cluster)
-  useEffect(() => {
-    setPlaceIndex(0);
+  // FlashList recycles this cell into a new cluster WITHOUT remounting, so a
+  // plain useState would carry the previous cluster's index over. That index can
+  // exceed the new cluster's `places` array, making currentPlace undefined and
+  // blanking the card for a frame. useRecyclingState resets during the render
+  // that reassigns the cell -- a useEffect would be a frame too late.
+  const [placeIndex, setPlaceIndex] = useRecyclingState(0, [suggestion.cluster_id], () => {
     viewedIndicesRef.current = new Set([0]);
-  }, [suggestion.cluster_id]);
+  });
 
   const places = suggestion.places;
   const hasAlternatives = places.length > 1;
 
+  // Compute the next index and record it OUTSIDE the state updater. React may
+  // invoke an updater more than once, which would double-count alternatives_viewed
+  // (and mutating a ref inside one is the pattern React Compiler flags -- see U2).
   const goToPrevPlace = useCallback(() => {
-    setPlaceIndex((prev) => {
-      const next = prev > 0 ? prev - 1 : places.length - 1;
-      viewedIndicesRef.current.add(next);
-      return next;
-    });
-  }, [places.length]);
+    const next = placeIndex > 0 ? placeIndex - 1 : places.length - 1;
+    viewedIndicesRef.current.add(next);
+    setPlaceIndex(next);
+  }, [placeIndex, places.length, setPlaceIndex]);
 
   const goToNextPlace = useCallback(() => {
-    setPlaceIndex((prev) => {
-      const next = prev < places.length - 1 ? prev + 1 : 0;
-      viewedIndicesRef.current.add(next);
-      return next;
-    });
-  }, [places.length]);
+    const next = placeIndex < places.length - 1 ? placeIndex + 1 : 0;
+    viewedIndicesRef.current.add(next);
+    setPlaceIndex(next);
+  }, [placeIndex, places.length, setPlaceIndex]);
 
   const currentPlace = places[placeIndex];
   if (!currentPlace) return null;
@@ -121,187 +115,122 @@ export function PlaceSuggestionCard({
   });
 
   const heroUri = previewUris[0];
-
-  const renderRightActions = (
-    progress: Animated.AnimatedInterpolation<number>,
-    _dragX: Animated.AnimatedInterpolation<number>
-  ) => {
-    const scale = progress.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.8, 1],
-      extrapolate: 'clamp',
-    });
-    const opacity = progress.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [0, 0.8, 1],
-      extrapolate: 'clamp',
-    });
-
-    return (
-      <View style={localStyles.swipeActionContainer}>
-        <Animated.View style={[localStyles.swipeAction, { transform: [{ scale }], opacity }]}>
-          <Ionicons name="close-circle" size={28} color={colors.white} />
-          <Text style={localStyles.swipeActionText}>Skip</Text>
-        </Animated.View>
-      </View>
-    );
-  };
-
-  const handleSwipeOpen = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (onDismiss) {
-      onDismiss(suggestion.cluster_id);
-    }
-  };
+  const heroAssetId = previewAssetIds?.[0];
 
   return (
-    <Swipeable
-      ref={swipeableRef}
-      renderRightActions={renderRightActions}
-      onSwipeableOpen={handleSwipeOpen}
-      friction={3}
-      rightThreshold={120}
-      overshootRight={true}
-      enabled={!isUploading} // Disable swipe during upload
-      containerStyle={localStyles.swipeableContainer}
-    >
-      <View style={styles.suggestionCard}>
-        {/* Hero Image */}
-        <View style={styles.suggestionHeroContainer}>
+    <View style={styles.suggestionCard}>
+      {/* Hero Image */}
+      <View style={styles.suggestionHeroContainer}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => onPhotoPress(heroUri)}
+          disabled={isUploading}
+          style={{ flex: 1 }}
+        >
+          <PhotoThumbnail
+            uri={heroUri}
+            assetId={heroAssetId}
+            style={styles.suggestionHeroImage}
+            contentFit="cover"
+            transition={200}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* Alternatives strip overlaid on the photo. Rendered as a sibling of
+          the hero container (matching suggestionFloatingActions) so its
+          touch handlers are not affected by the hero's flex-1
+          TouchableOpacity or by FlashList cell recycling that was leaving
+          chevrons unresponsive after a save. */}
+      {hasAlternatives && !isUploading && (
+        <View style={styles.alternativesStrip} pointerEvents="box-none">
+          <View style={styles.alternativesStripPill}>
+            <TouchableOpacity
+              accessibilityLabel="Previous suggestion"
+              onPress={goToPrevPlace}
+              hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-back" size={16} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.alternativesStripText}>
+              {placeIndex + 1} of {places.length} options
+            </Text>
+            <TouchableOpacity
+              accessibilityLabel="Next suggestion"
+              onPress={goToNextPlace}
+              hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-forward" size={16} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Floating Actions */}
+      {!isUploading && (
+        <View style={styles.suggestionFloatingActions}>
           <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => onPhotoPress(heroUri)}
-            disabled={isUploading}
-            style={{ flex: 1 }}
+            accessibilityLabel="Edit place suggestion"
+            style={[styles.floatingActionButton, styles.floatingRejectButton]}
+            onPress={() => onReject(suggestion, buildDecisionMeta())}
           >
-            <Image
-              source={{ uri: heroUri }}
-              style={styles.suggestionHeroImage}
-              contentFit="cover"
-              transition={200}
-              recyclingKey={heroUri}
-            />
+            <Ionicons name="pencil" size={20} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel="Confirm place suggestion"
+            style={[styles.floatingActionButton, styles.floatingConfirmButton]}
+            onPress={() => onConfirm(suggestion, currentPlace, buildDecisionMeta())}
+          >
+            <Ionicons name="checkmark" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
+      )}
 
-        {/* Alternatives strip overlaid on the photo. Rendered as a sibling of
-            the hero container (matching suggestionFloatingActions) so its
-            touch handlers are not affected by the hero's flex-1
-            TouchableOpacity or by FlashList cell recycling that was leaving
-            chevrons unresponsive after a save. */}
-        {hasAlternatives && !isUploading && (
-          <View style={styles.alternativesStrip} pointerEvents="box-none">
-            <View style={styles.alternativesStripPill}>
-              <TouchableOpacity
-                accessibilityLabel="Previous suggestion"
-                onPress={goToPrevPlace}
-                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-              >
-                <Ionicons name="chevron-back" size={16} color={colors.white} />
-              </TouchableOpacity>
-              <Text style={styles.alternativesStripText}>
-                {placeIndex + 1} of {places.length} options
-              </Text>
-              <TouchableOpacity
-                accessibilityLabel="Next suggestion"
-                onPress={goToNextPlace}
-                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-              >
-                <Ionicons name="chevron-forward" size={16} color={colors.white} />
-              </TouchableOpacity>
-            </View>
+      {/* Place info */}
+      <View style={styles.suggestionContent}>
+        <Text style={styles.suggestionName}>{currentPlace.name}</Text>
+        <Text style={styles.suggestionAddress} numberOfLines={1}>
+          {currentPlace.address}
+        </Text>
+        <View style={styles.suggestionMeta}>
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>{currentPlace.category}</Text>
           </View>
-        )}
-
-        {/* Floating Actions */}
-        {!isUploading && (
-          <View style={styles.suggestionFloatingActions}>
-            <TouchableOpacity
-              accessibilityLabel="Edit place suggestion"
-              style={[styles.floatingActionButton, styles.floatingRejectButton]}
-              onPress={() => onReject(suggestion, buildDecisionMeta())}
-            >
-              <Ionicons name="pencil" size={20} color={colors.white} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityLabel="Confirm place suggestion"
-              style={[styles.floatingActionButton, styles.floatingConfirmButton]}
-              onPress={() => onConfirm(suggestion, currentPlace, buildDecisionMeta())}
-            >
-              <Ionicons name="checkmark" size={24} color={colors.white} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Place info */}
-        <View style={styles.suggestionContent}>
-          <Text style={styles.suggestionName}>{currentPlace.name}</Text>
-          <Text style={styles.suggestionAddress} numberOfLines={1}>
-            {currentPlace.address}
-          </Text>
-          <View style={styles.suggestionMeta}>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{currentPlace.category}</Text>
-            </View>
-            <Text style={styles.distanceText}>{Math.round(currentPlace.distance_m)}m away</Text>
-            {totalPhotoCount !== undefined && totalPhotoCount > 0 && (
-              <Text style={localStyles.photoCountLabel}>
-                {selectedPhotoCount !== undefined && selectedPhotoCount < totalPhotoCount
-                  ? `${selectedPhotoCount} of ${totalPhotoCount} photos`
-                  : `${totalPhotoCount} photo${totalPhotoCount !== 1 ? 's' : ''}`}
-              </Text>
-            )}
-          </View>
-
-          {/* Upload progress */}
-          {isUploading && (
-            <View style={localStyles.uploadContainerInline}>
-              <View style={localStyles.uploadContent}>
-                <ActivityIndicator size="small" color={colors.sunsetGold} />
-                <Text style={localStyles.uploadText}>
-                  Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
-                </Text>
-              </View>
-              <View style={localStyles.uploadProgressBar}>
-                <View style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]} />
-              </View>
-              {onCancelUpload && (
-                <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
-                  <Text style={localStyles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          <Text style={styles.distanceText}>{Math.round(currentPlace.distance_m)}m away</Text>
+          {totalPhotoCount !== undefined && totalPhotoCount > 0 && (
+            <Text style={localStyles.photoCountLabel}>
+              {selectedPhotoCount !== undefined && selectedPhotoCount < totalPhotoCount
+                ? `${selectedPhotoCount} of ${totalPhotoCount} photos`
+                : `${totalPhotoCount} photo${totalPhotoCount !== 1 ? 's' : ''}`}
+            </Text>
           )}
         </View>
+
+        {/* Upload progress */}
+        {isUploading && (
+          <View style={localStyles.uploadContainerInline}>
+            <View style={localStyles.uploadContent}>
+              <ActivityIndicator size="small" color={colors.sunsetGold} />
+              <Text style={localStyles.uploadText}>
+                Uploading {uploadingPhotoIndex + 1} of {totalPhotosToUpload}...
+              </Text>
+            </View>
+            <View style={localStyles.uploadProgressBar}>
+              <View style={[localStyles.uploadProgressFill, { width: `${uploadProgress}%` }]} />
+            </View>
+            {onCancelUpload && (
+              <TouchableOpacity onPress={onCancelUpload} style={localStyles.cancelButton}>
+                <Text style={localStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
-    </Swipeable>
+    </View>
   );
 }
 
 const localStyles = StyleSheet.create({
-  swipeableContainer: {
-    overflow: 'visible',
-  },
-  swipeActionContainer: {
-    width: 100,
-    backgroundColor: colors.adobeBrick,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24, // Matches suggestionCard marginBottom
-    borderTopRightRadius: 16,
-    borderBottomRightRadius: 16,
-  },
-  swipeAction: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  swipeActionText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
-  },
   uploadContainerInline: {
     marginTop: 16,
     paddingTop: 16,

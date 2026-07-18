@@ -20,7 +20,7 @@ import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -30,7 +30,8 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 type Props = OnboardingStackScreenProps<'NameEntry'>;
 
 export function NameEntryScreen({ navigation }: Props) {
-  const { displayName, setDisplayName } = useOnboardingStore();
+  const displayName = useOnboardingStore(selectDisplayName);
+  const setDisplayName = useOnboardingStore((s) => s.setDisplayName);
   const [name, setName] = useState(displayName ?? '');
   const [error, setError] = useState('');
 

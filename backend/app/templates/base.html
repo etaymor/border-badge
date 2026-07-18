@@ -61,24 +61,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    {% if is_production %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.min.css') }}"
-    />
-    {% else %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.css') }}"
-    />
-    {% endif %}
+    {% set stylesheet = 'css/styles.min.css' if is_production else 'css/styles.css' %}
+    <link rel="preload" as="style" href="{{ url_for('static', path=stylesheet) }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path=stylesheet) }}" />
 
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
-    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
+    {# The nonce is what keeps this loading on the share pages, whose CSP uses
+       'strict-dynamic' -- which disables host allowlisting outright. #}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}" nonce="{{ request.state.csp_nonce }}"></script>
     <script nonce="{{ request.state.csp_nonce }}">
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -94,17 +88,21 @@
           <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="logo-image">
           <span class="logo-text">Atlasi</span>
         </a>
-        {% block nav_links %}
-        <nav class="nav-links">
-          <a href="#features">Features</a>
-          <a href="#how-it-works">How It Works</a>
-          <a href="#faq">FAQ</a>
+        {% block header_nav %}
+        <nav class="header-nav">
+          <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How It Works</a>
+            <a href="#faq">FAQ</a>
+          </div>
           <a
             href="{{ app_store_url | safe_external_url or '#download' }}"
-            class="cta-button"
+            class="cta-button header-cta"
             data-track-location="header"
-            >Download on iOS</a
           >
+            {% include "_apple_icon.svg" %}
+            <span>Download</span>
+          </a>
         </nav>
         {% endblock %}
       </div>

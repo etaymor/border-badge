@@ -42,7 +42,7 @@ function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
 }
 
 const DB_NAME = 'photos.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * SQLite has a default limit of 999 bound parameters per query.
@@ -154,7 +154,8 @@ async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS cached_place_suggestions (
       cluster_id TEXT PRIMARY KEY NOT NULL,
       suggestions_json TEXT NOT NULL,
-      cached_at INTEGER NOT NULL
+      cached_at INTEGER NOT NULL,
+      location_key TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cached_trip_segments (
@@ -165,6 +166,7 @@ async function initSchema(): Promise<void> {
       photo_count INTEGER NOT NULL,
       cluster_count INTEGER NOT NULL,
       preview_uris TEXT NOT NULL,
+      preview_asset_ids TEXT,
       cluster_ids TEXT NOT NULL,
       photo_ids TEXT NOT NULL,
       cached_at INTEGER NOT NULL
@@ -190,8 +192,43 @@ async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_saved_cluster_photos_cluster ON saved_cluster_photos(cluster_id);
   `);
 
+  // Migrate pre-existing databases (CREATE TABLE IF NOT EXISTS does not alter an
+  // already-created table). location_key lets suggestion lookups fall back to the
+  // physical spot when a re-segmented/split cluster mints a new cluster_id.
+  await addColumnIfMissing('cached_place_suggestions', 'location_key', 'TEXT');
+  await db.execAsync(
+    'CREATE INDEX IF NOT EXISTS idx_cached_suggestions_location ON cached_place_suggestions(location_key);'
+  );
+
+  // preview_asset_ids lets a failed thumbnail re-resolve a fresh URI from
+  // MediaLibrary. Nullable so pre-existing rows read as [] (retry unavailable
+  // for them, placeholder still applies) — see getTripSegments.
+  await addColumnIfMissing('cached_trip_segments', 'preview_asset_ids', 'TEXT');
+
   // Store schema version for future migrations
   await setMetadata('schema_version', SCHEMA_VERSION.toString());
+}
+
+/**
+ * Add a column to an existing table if it isn't already present.
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`; attempt the ALTER and swallow the
+ * "duplicate column name" error when the column already exists. (Avoids an extra
+ * PRAGMA read so callers' query-call ordering is unaffected.)
+ */
+async function addColumnIfMissing(
+  table: string,
+  column: string,
+  definition: string
+): Promise<void> {
+  if (!db) return;
+  try {
+    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate column name/i.test(message)) {
+      throw error;
+    }
+  }
 }
 
 /**
@@ -480,6 +517,7 @@ export interface TripSegmentRow {
   photoCount: number;
   clusterCount: number;
   previewUris: string[];
+  previewAssetIds: string[];
   clusterIds: string[];
   photoIds: string[];
 }
@@ -499,7 +537,7 @@ export async function saveTripSegments(segments: TripSegmentRow[]): Promise<void
 
     for (let i = 0; i < segments.length; i += BATCH_SIZE) {
       const batch = segments.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const values = batch.flatMap((s) => [
         s.id,
         s.countryCode,
@@ -508,6 +546,7 @@ export async function saveTripSegments(segments: TripSegmentRow[]): Promise<void
         s.photoCount,
         s.clusterCount,
         JSON.stringify(s.previewUris),
+        JSON.stringify(s.previewAssetIds),
         JSON.stringify(s.clusterIds),
         JSON.stringify(s.photoIds),
         now,
@@ -515,7 +554,7 @@ export async function saveTripSegments(segments: TripSegmentRow[]): Promise<void
 
       await database.runAsync(
         `INSERT INTO cached_trip_segments
-         (id, country_code, start_time, end_time, photo_count, cluster_count, preview_uris, cluster_ids, photo_ids, cached_at)
+         (id, country_code, start_time, end_time, photo_count, cluster_count, preview_uris, preview_asset_ids, cluster_ids, photo_ids, cached_at)
          VALUES ${placeholders}`,
         values
       );
@@ -537,6 +576,7 @@ export async function getTripSegments(): Promise<TripSegmentRow[]> {
     photo_count: number;
     cluster_count: number;
     preview_uris: string;
+    preview_asset_ids: string | null;
     cluster_ids: string;
     photo_ids: string;
   }>('SELECT * FROM cached_trip_segments ORDER BY start_time DESC');
@@ -549,6 +589,10 @@ export async function getTripSegments(): Promise<TripSegmentRow[]> {
     photoCount: row.photo_count,
     clusterCount: row.cluster_count,
     previewUris: JSON.parse(row.preview_uris) as string[],
+    // Rows cached before the preview_asset_ids migration have no value here;
+    // read them as [] so the surfaces still render (retry unavailable, but the
+    // placeholder still applies).
+    previewAssetIds: row.preview_asset_ids ? (JSON.parse(row.preview_asset_ids) as string[]) : [],
     clusterIds: JSON.parse(row.cluster_ids) as string[],
     photoIds: JSON.parse(row.photo_ids) as string[],
   }));

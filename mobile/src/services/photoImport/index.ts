@@ -11,6 +11,7 @@ export * from './photoClusteringCache';
 export * from './photoCacheDb';
 export * from './photoCacheDbSuggestions';
 export * from './photoBackgroundSync';
+export * from './resolveLoadableUri';
 // Explicit named re-exports of the public photoScanService API. Internal helpers
 // (markFailed, readScanInProgressMetadata, clearScanInProgressMetadata,
 // __resetForTesting) are intentionally NOT re-exported here; package-internal

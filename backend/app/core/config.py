@@ -52,7 +52,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PUBLIC_WEB_BASE_URL", "BASE_URL"),
         description="Base URL for public web pages (landing, lists, trips)",
     )
-    app_store_url: str = ""  # iOS App Store URL (placeholder)
+    app_store_url: str = (
+        "https://apps.apple.com/il/app/track-share-travels-atlasi/id6757568311"
+    )
     play_store_url: str = ""  # Google Play Store URL (placeholder)
 
     # OpenRouter Configuration (for traveler classification)
@@ -83,12 +85,32 @@ class Settings(BaseSettings):
         default="", repr=False
     )  # Google Places API key for place resolution
 
+    # Google Maps JS API (public share pages). Separate from the server-side
+    # Places key: this one is embedded in the page, so it must be a
+    # browser-restricted (HTTP-referrer) key.
+    google_maps_browser_api_key: str = Field(
+        default="",
+        repr=False,
+        description="Browser-restricted Google Maps JS API key for public share pages",
+    )
+    google_maps_map_id: str = ""  # Cloud-styled Map ID (required for Advanced Markers)
+
     # Place extraction settings
     place_extraction_min_confidence: float = Field(
         default=0.5,
         ge=0.0,
         le=1.0,
         description="Minimum confidence score (0.0-1.0) for place extraction",
+    )
+    multimodal_max_resolved_places: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description=(
+            "Max places resolved (Autocomplete+Details) per multimodal/video "
+            "extraction. Bounds worst-case Google Places fan-out for video/carousel "
+            "posts (each resolved place is one Autocomplete + one Place Details)."
+        ),
     )
 
     # Google Places API settings
@@ -135,10 +157,139 @@ class Settings(BaseSettings):
         description="Weight for dwell/time-hint bonus term in place ranking",
     )
     places_rank_vision_weight: float = Field(
+        default=2.0,
+        ge=0.0,
+        le=5.0,
+        description=(
+            "Weight for vision category bonus term in place ranking. Default "
+            "raised from 1.0 to 2.0 (C4/U7): pre-enrichment the only live "
+            "first-pass signals are distance and vision, so a high-confidence "
+            "category match offsetting only ~30m of distance let a closer "
+            "wrong-category place consume a top-3 finalist slot. At 2.0 it "
+            "offsets ~60m — within typical indoor GPS drift — pulling the "
+            "correct place into the finalists where enrichment can re-rank it, "
+            "while still not erasing a large distance gap."
+        ),
+    )
+    places_rank_name_match_weight: float = Field(
         default=1.0,
         ge=0.0,
         le=5.0,
-        description="Weight for vision category bonus term in place ranking",
+        description="Weight for vision signage name-match bonus in place ranking",
+    )
+    places_rank_lodging_penalty: float = Field(
+        default=2.5,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "U3 type prior: score penalty for lodging-typed candidates (points; "
+            "2.5 ≈ 50m of distance). Applied in full when vision confidently "
+            "says the photo is NOT accommodation, at half strength when there "
+            "is no usable vision signal, and not at all when vision says "
+            "'stay'. Demotion only — an all-lodging candidate world still "
+            "returns lodging. 0 disables (runtime rollback)."
+        ),
+    )
+    places_rank_landmark_boost: float = Field(
+        default=1.5,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "U3 type prior: extra score bonus for landmark-family places "
+            "(museum/monument/tourist_attraction/...) when vision classifies "
+            "the photo as 'landmark' (full at high confidence, half at "
+            "medium). Stacks with the generic vision category bonus so the "
+            "large venue beats its own micro-POIs in the rating-blind first "
+            "pass. 0 disables (runtime rollback)."
+        ),
+    )
+
+    # Place-matcher recall tunables (migrated from constants.py; the constant
+    # values remain the defaults, so behavior is unchanged unless overridden).
+    places_min_quality_results_before_stop: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description=(
+            "Tiered Nearby search keeps expanding until it accumulates this many "
+            "quality candidates (deduped across tiers) or runs out of radii. "
+            "Raising it widens recall at the cost of more Nearby calls."
+        ),
+    )
+    places_min_review_count: int = Field(
+        default=3,
+        ge=0,
+        le=50,
+        description=(
+            "Minimum userRatingCount for a non-institutional place to pass the "
+            "quality gate (only enforced once a rating count is present, i.e. on "
+            "enriched finalists). Lowered 5->3 (C3/U13) so small/new real places "
+            "a finalist on distance aren't demoted below a backfill."
+        ),
+    )
+    places_enrich_backfill_limit: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description=(
+            "U4: when the post-enrichment review gate drops finalists, enrich "
+            "up to this many first-pass tail candidates per cluster (one "
+            "global second batch per request) and gate them before falling "
+            "back to un-gated candidates. 0 disables the second batch (legacy "
+            "un-gated backfill)."
+        ),
+    )
+    places_text_rescue_on_empty: bool = Field(
+        default=False,
+        description=(
+            "C2/U14: broaden Text Search rescue to fire on an empty Nearby result "
+            "even when vision found no strong business-name candidate, using any "
+            "detected signage text as the query. Text Search is the most "
+            "expensive (Enterprise-tier) lever, so this stays OFF until a "
+            "real-world A/B justifies the per-cluster cost."
+        ),
+    )
+    places_extra_search_tier_m: int | None = Field(
+        default=None,
+        ge=15,
+        le=1000,
+        description=(
+            "Optional extra outer Nearby radius (meters) appended after the "
+            "density-adaptive tiers when the stop threshold has not been met. "
+            "None preserves the current DENSITY_SEARCH_RADII profiles."
+        ),
+    )
+    places_landmark_text_rescue: bool = Field(
+        default=True,
+        description=(
+            "U5: when vision recognizes a landmark (category 'landmark', "
+            "confidence above low) whose name has no strong match among the "
+            "Nearby candidates, fire a Text Search for the recognized name. "
+            "Large venues' Google points sit beyond the dense-city Nearby "
+            "radii, so this is the only way they enter the candidate world. "
+            "Cost-bounded: landmark clusters only, suppressed on a strong "
+            "match, and the coarse cache key dedupes repeat venues."
+        ),
+    )
+    places_landmark_rescue_bias_radius_m: int = Field(
+        default=500,
+        ge=50,
+        le=2000,
+        description=(
+            "Location-bias radius (meters) for landmark-rescue Text Searches. "
+            "Wider than the default 200m business-name bias because large "
+            "venues' point locations sit far from photo GPS."
+        ),
+    )
+    places_popularity_probe: bool = Field(
+        default=False,
+        description=(
+            "U6: last-resort extra Nearby call ranked by POPULARITY (200m) "
+            "for landmark-classified clusters whose candidate world contains "
+            "no landmark-family place and no text signal to rescue with. OFF "
+            "by default — enable if verification shows text-less landmark "
+            "clusters still missing their venue after the U5 rescue."
+        ),
     )
 
     # Email (Resend) - marked as secret to prevent logging exposure
@@ -152,6 +303,15 @@ class Settings(BaseSettings):
 
     # Feature flags
     enable_social_features: bool = False
+
+    # Per-cluster place-matcher diagnostics. When true, the matcher emits one
+    # structured JSON trace per cluster (full raw candidate world, filter-drop
+    # tallies, vision signals, finalists, outcome). Off by default — retaining
+    # the raw world has a memory cost, so production stays clean.
+    places_diagnostics: bool = Field(
+        default=False,
+        description="Emit per-cluster place-matcher diagnostic traces (verbose)",
+    )
 
     # LLM Place Extraction (reuses existing openrouter_api_key and openrouter_model)
     llm_place_extraction_enabled: bool = Field(

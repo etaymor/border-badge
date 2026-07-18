@@ -53,10 +53,12 @@ export const StampCard = React.memo(function StampCard({
       testID={testID || `stamp-card-${code}`}
     >
       <Image
+        testID={`stamp-image-${code}`}
         source={stampImage}
         style={[styles.stampImage, { transform: [{ rotate: rotation }] }]}
         contentFit="contain"
         recyclingKey={code}
+        cachePolicy="memory-disk"
       />
       {hasTrips && (
         <View style={styles.tripsIndicator} testID={`stamp-card-trips-${code}`}>

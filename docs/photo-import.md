@@ -45,7 +45,7 @@ PlaceMatcher uses a mixin pattern for separation of concerns. When modifying mat
 
 - `matcher.py` - PlaceMatcher orchestrator (inherits SearchMixin, RankingMixin, ClusterProcessingMixin)
 - `_matcher_search.py` - Density-adaptive tiered radius search, Text Search API fallback, tourist relevance filter
-- `_matcher_ranking.py` - Vision-integrated scoring with 6 configurable weights (distance, reviews, rating, fame, dwell, vision)
+- `_matcher_ranking.py` - Vision-integrated scoring with 7 configurable weights (distance, reviews, rating, fame, dwell, vision, name-match)
 - `_matcher_cluster_processing.py` - Parallel cluster processing with vision result integration
 - `cache.py` - LRU cache with TTL and single-flight pattern for deduplication
 - `constants.py` - Search radii, density thresholds, place type mappings, quality filters
@@ -91,7 +91,9 @@ The photo import pipeline optionally uses computer vision to improve place match
 ### How Vision Improves Matching
 
 - **Category bonus in ranking**: Places matching the vision category get a score boost (configurable via `PLACES_RANK_VISION_WEIGHT`)
-- **Text detection**: Signage/menu text triggers Google Places Text Search API as fallback when nearby search fails
+- **Signage name-match bonus (dominant)**: When OCR'd signage text matches a candidate's name, that candidate gets a bonus (9.0 base, `PLACES_RANK_NAME_MATCH_WEIGHT`) sized to outweigh any neighbor's combined review/rating/fame advantage — a readable business name in the user's own photo is near-conclusive
+- **Text detection**: Signage/menu text triggers Google Places Text Search API as fallback when nearby search fails (suppressed when the nearby results already contain a name match)
+- **Enrichment skip**: When a cluster's top finalist matches detected signage, the per-finalist Place Details rating enrichment is skipped entirely — the ranking outcome can no longer change, so the calls would be pure cost
 - **Multi-photo aggregation**: Confidence-weighted voting across up to 3 photos per cluster
 - **Request-level cap**: Maximum 50 vision images per request to prevent payload bloat
 
@@ -146,7 +148,29 @@ poetry run python scripts/eval_place_matcher.py \
   --trials 200 --optimize-for top1
 ```
 
-The script runs random search over the 6 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
+The script runs random search over the 7 `PLACES_RANK_*_WEIGHT` env vars and prints the best configs with top-1 accuracy, MRR, and recommended env var values. Use `--no-search` to evaluate the current config without tuning. Use `--vision-mode none|single|aggregate` to test with/without vision data.
+
+Use `--pipeline` to additionally simulate the tiered Nearby search per sample (treating the sample's places as the world): it reports candidate **recall** (did the visited place get fetched at all), end-to-end top-1, and the average number of paid Nearby calls per cluster. `--stop-threshold N` overrides `places_min_quality_results_before_stop` for the run (`--stop-threshold 1` reproduces the legacy stop-at-first-hit search) for before/after recall/cost comparison — ranking-only metrics cannot see recall failures, which were the dominant real-world miss mode. Two cost-lever sims make the remaining Set-2 levers measurable offline: `--simulate-type-filter` (drops candidates whose `types` fall outside the `SEARCHABLE_PLACE_TYPES` allowlist — the C5 lever) and `--simulate-text-rescue` (a name-match text-search rescue against the world, reporting `avg_text_search_calls` — the C2 lever).
+
+The sample dataset (11 labeled clusters) encodes the observed real-world failure modes: a mega-famous neighbor outranking the signage-matched place actually visited, GPS drift putting the visited place 75m from the centroid, low-review hidden gems, a venue whose only type sits outside the allowlist (C5), and a venue just beyond the search radii recoverable only by text rescue (C2). To grow it into a real tuning corpus, add labeled samples from actual trip imports — see `backend/docs/how-to-label-place-matcher-dataset.md` for the capture-and-label workflow (run with `PLACES_DIAGNOSTICS=true` to emit per-cluster traces).
+
+### Search recall: sparse mid-range tier + optional outer tier (C1/C6/U12)
+
+The tiered Nearby search reads its stop threshold from
+`places_min_quality_results_before_stop` and its radii from the density profiles.
+Two recall levers: the sparse profile is now `[50, 100, 250]` (was `[100, 250]`)
+so a 30–80 m venue in a sparse area — pushed out of the 15 m probe by GPS drift —
+is reachable via the restored 50 m tier (C6); and `PLACES_EXTRA_SEARCH_TIER_M`
+(default unset) appends one extra outer radius after the density profile when the
+threshold is still unmet (C1), for a venue one tier past the profile. Cost: the
+50 m sparse tier adds one Nearby call only in sparse areas where the 15 m probe
+found nothing; the extra tier adds one call only when the threshold is unmet.
+Measure before/after with `--pipeline --stop-threshold N` and the `PLACES_*` env
+overrides; the `--no-search` gate stays at `top1=1.0 mrr=1.0`.
+
+### `places_rank_vision_weight` default raised 1.0 → 2.0 (C4/U7)
+
+Pre-enrichment, the wide Nearby field mask strips `rating`/`userRatingCount`, so the only live first-pass ranking signals are distance and vision category (plus dwell and signage name-match when present). At `vision_weight=1.0` a high-confidence category match offsets only ~30m of distance, so a closer wrong-category place could consume a top-3 finalist slot and a correct place that never reached the finalists was unrecoverable (enrichment only re-ranks within the 3 finalists). At `2.0` the match offsets ~60m — within typical indoor GPS drift — pulling the correct place into the finalists while still not erasing a large distance gap. Validated by `TestVisionWeightDefault` (a non-name-matched discriminating case the synthetic `--no-search` gate cannot see) and by holding `--no-search` at `top1=1.0 mrr=1.0`. The default is env-overridable via `PLACES_RANK_VISION_WEIGHT`.
 
 ## Key Files
 

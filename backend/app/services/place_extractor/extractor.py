@@ -21,6 +21,7 @@ from app.services.place_extractor.data import COUNTRIES
 from app.services.place_extractor.google_places_client import (
     get_place_details,
     is_configured,
+    new_session_token,
     search_places,
 )
 from app.services.place_extractor.llm_client import try_llm_extraction
@@ -58,7 +59,13 @@ async def try_candidate(
     Returns:
         DetectedPlace if found, None otherwise
     """
-    results = await search_places(candidate, location_bias=location_bias)
+    # One session token spans the Autocomplete + Place Details pair so the
+    # Autocomplete leg bills under the free Session SKU rather than per-request.
+    session_token = new_session_token()
+
+    results = await search_places(
+        candidate, location_bias=location_bias, session_token=session_token
+    )
 
     if not results:
         logger.debug("try_candidate: no results", extra={"candidate": candidate[:50]})
@@ -72,8 +79,8 @@ async def try_candidate(
         logger.debug("try_candidate: no place_id", extra={"candidate": candidate[:50]})
         return None
 
-    # Fetch full details
-    details = await get_place_details(place_id)
+    # Fetch full details (same session token closes the billing session)
+    details = await get_place_details(place_id, session_token=session_token)
 
     if not details:
         logger.debug("try_candidate: no details", extra={"place_id": place_id})

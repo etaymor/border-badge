@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -21,6 +21,7 @@ import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { usePhotoTrips } from '@hooks/usePhotoTrips';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { Trip, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
@@ -173,16 +174,34 @@ export function TripsListScreen({ navigation }: Props) {
     [navigation]
   );
 
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableTripPress = useStableCallback(handleTripPress);
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback(
+    (tripId: string) => {
+      const existing = tripPressCallbacksRef.current.get(tripId);
+      if (existing) return existing;
+      const handler = () => stableTripPress(tripId);
+      tripPressCallbacksRef.current.set(tripId, handler);
+      return handler;
+    },
+    [stableTripPress]
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: Trip }) => {
       const flagEmoji = item.country_code ? getFlagEmoji(item.country_code) : '';
       return (
         <View style={styles.tripCardWrapper}>
-          <TripCard trip={item} flagEmoji={flagEmoji} onPress={() => handleTripPress(item.id)} />
+          <TripCard trip={item} flagEmoji={flagEmoji} onPress={getTripPressHandler(item.id)} />
         </View>
       );
     },
-    [handleTripPress]
+    [getTripPressHandler]
   );
 
   const renderSectionHeader = useCallback(

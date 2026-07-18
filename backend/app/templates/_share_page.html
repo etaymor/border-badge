@@ -1,0 +1,343 @@
+{# ============================================================================
+   Shared editorial layout for the two public share pages (/l/ and /t/).
+
+   Both pages render the same `share` view model (app/core/share_view.py), so
+   the markup lives here once. The page templates supply only their own
+   structured data and call `share_page(share)`.
+
+   Everything is scoped under `.share-page` so none of these rules can leak
+   into the landing, legal, or contact pages, which share components.css.
+   ============================================================================ #}
+
+{# The four category glyphs. These are the same Ionicons outline shapes the
+   mobile app already uses for entry types (see mobile/src/constants/entryTypes.ts:
+   location / nutrition / bed / sparkles), ported to inline SVG so the web page
+   and the app speak the same visual language. They appear only on the tinted
+   fallback tile, when an entry has no photo. #}
+{% macro category_icon(key) -%}
+  {%- if key == 'nutrition' -%}
+    <svg class="share-tile-icon" viewBox="0 0 512 512" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M352,128c-32.26-2.89-64,16-96,16s-63.75-19-96-16c-64,6-96,64-96,160,0,80,64,192,111.2,192s51.94-24,80.8-24,33.59,24,80.8,24S448,368,448,288C448,192,419,134,352,128Z" stroke-miterlimit="10"/>
+      <path d="M323.92,83.14c-21,21-45.66,27-58.82,28.79A8,8,0,0,1,256,103.2a97.6,97.6,0,0,1,28.61-59.33c22-22,46-26.9,58.72-27.85A8,8,0,0,1,352,24.94,98,98,0,0,1,323.92,83.14Z" fill="currentColor" stroke="none"/>
+    </svg>
+  {%- elif key == 'bed' -%}
+    <svg class="share-tile-icon" viewBox="0 0 512 512" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M384,240H96V136a40.12,40.12,0,0,1,40-40H376a40.12,40.12,0,0,1,40,40V240Z"/>
+      <path d="M48,416V304a64.19,64.19,0,0,1,64-64H400a64.19,64.19,0,0,1,64,64V416"/>
+      <path d="M48,416v-8a24.07,24.07,0,0,1,24-24H440a24.07,24.07,0,0,1,24,24v8"/>
+      <path d="M112,240V224a32.09,32.09,0,0,1,32-32h80a32.09,32.09,0,0,1,32,32v16"/>
+      <path d="M256,240V224a32.09,32.09,0,0,1,32-32h80a32.09,32.09,0,0,1,32,32v16"/>
+    </svg>
+  {%- elif key == 'sparkles' -%}
+    <svg class="share-tile-icon" viewBox="0 0 512 512" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M259.92,262.91,216.4,149.77a9,9,0,0,0-16.8,0L156.08,262.91a9,9,0,0,1-5.17,5.17L37.77,311.6a9,9,0,0,0,0,16.8l113.14,43.52a9,9,0,0,1,5.17,5.17L199.6,490.23a9,9,0,0,0,16.8,0l43.52-113.14a9,9,0,0,1,5.17-5.17L378.23,328.4a9,9,0,0,0,0-16.8L265.09,268.08A9,9,0,0,1,259.92,262.91Z"/>
+      <polygon points="108 68 88 16 68 68 16 88 68 108 88 160 108 108 160 88 108 68"/>
+      <polygon points="426.67 117.33 400 48 373.33 117.33 304 144 373.33 170.67 400 240 426.67 170.67 496 144 426.67 117.33"/>
+    </svg>
+  {%- else -%}
+    <svg class="share-tile-icon" viewBox="0 0 512 512" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M256,48c-79.5,0-144,61.39-144,137,0,87,96,224.87,131.25,272.49a15.77,15.77,0,0,0,25.5,0C304,409.89,400,272.07,400,185,400,109.39,335.5,48,256,48Z"/>
+      <circle cx="256" cy="192" r="48"/>
+    </svg>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro pin_icon() -%}
+  <svg class="share-row-pin" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 21s7-6.4 7-12a7 7 0 1 0-14 0c0 5.6 7 12 7 12z"></path>
+    <circle cx="12" cy="9" r="2.5"></circle>
+  </svg>
+{%- endmacro %}
+
+
+{# --- Hero -------------------------------------------------------------- #}
+{# The cover is the LCP element: it is fetched eagerly at high priority and is
+   deliberately NOT lazy-loaded. Everything below the fold defers instead. #}
+{% macro share_hero(share) %}
+<header class="share-hero">
+  {% if share.cover_image_url %}
+  <img
+    src="{{ share.cover_image_url }}"
+    alt="Cover image for {{ share.title }}"
+    class="share-hero-image"
+    fetchpriority="high"
+    decoding="async"
+    width="1600"
+    height="900"
+  />
+  {% else %}
+  <div class="share-hero-image share-hero-fallback"></div>
+  {% endif %}
+  <div class="share-hero-scrim"></div>
+
+  <div class="share-hero-body">
+    <div class="share-hero-inner">
+      <p class="share-eyebrow">
+        <span class="share-eyebrow-mark" aria-hidden="true"></span>
+        {% if share.country_name %}{{ share.country_name }} &middot; {% endif %}
+        {{ share.entry_count }} {{ 'place' if share.entry_count == 1 else 'places' }}
+        &middot; shared {{ share.share_date.strftime('%b %-d, %Y') }}
+      </p>
+      <h1 class="share-title">{{ share.title }}</h1>
+      {% if share.subtitle %}
+      <p class="share-subtitle">{{ share.subtitle }}</p>
+      {% endif %}
+    </div>
+  </div>
+</header>
+{% endmacro %}
+
+
+{# --- Byline ------------------------------------------------------------ #}
+{# Renders only when the owner has a profile. A zero country count omits the
+   clause entirely rather than reading "0 countries visited". #}
+{% macro share_byline(author) %}
+{% if author %}
+<section class="share-byline reveal">
+  <div class="share-byline-inner">
+    {% if author.avatar_url %}
+    <img
+      src="{{ author.avatar_url }}"
+      alt=""
+      class="share-byline-avatar"
+      width="48"
+      height="48"
+      loading="lazy"
+      decoding="async"
+    />
+    {% endif %}
+    <div>
+      <p class="share-byline-label">Shared by</p>
+      <p class="share-byline-name">
+        {{ author.display_name }}{% if author.country_count %} &middot;
+        <span class="share-byline-count">
+          {{ author.country_count }}
+          {{ 'country' if author.country_count == 1 else 'countries' }} visited
+        </span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endmacro %}
+
+
+{# --- Category filters -------------------------------------------------- #}
+{# Only categories actually present get a chip -- a list with no stays should
+   not offer a "Stays · 0" button. Filtering is client-side and additive: with
+   JS off, every entry stays visible (the feed is fully server-rendered). #}
+{% macro share_filters(share) %}
+{% if share.entries %}
+<div class="share-filters" id="places">
+  <div class="share-filters-inner">
+    <div class="share-filter-chips">
+      <button
+        type="button"
+        class="share-chip share-chip-all is-active"
+        data-filter="all"
+      >
+        All &middot; {{ share.entry_count }}
+      </button>
+      {% for style in share.legend %}
+      {% set count = share.entries | selectattr('type', 'equalto', style.key) | list | length %}
+      <button
+        type="button"
+        class="share-chip is-{{ style.key }}"
+        data-filter="{{ style.key }}"
+      >
+        {{ style.label }} &middot; {{ count }}
+      </button>
+      {% endfor %}
+    </div>
+    <p class="share-filter-count" data-total="{{ share.entry_count }}">
+      {{ share.entry_count }} of {{ share.entry_count }} places
+    </p>
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{# --- The editorial feed ------------------------------------------------ #}
+{# Rows alternate: odd ordinals put the image left, even ones put it right.
+
+   Entry images carry loading="lazy", decoding="async", and explicit width and
+   height. The dimensions are what keep a 50-row uncapped feed from being a CLS
+   disaster -- the browser reserves the box before the image arrives.
+
+   Only image *bytes* defer. Every title, note, and place name is in the
+   server-rendered HTML, so a crawler with no JS sees the whole collection. #}
+{% macro share_feed(share) %}
+<div class="share-feed">
+  <div class="share-feed-inner">
+    {% if share.entries %}
+    {% for entry in share.entries %}
+    <article
+      class="share-row reveal {{ 'is-reversed' if loop.index0 % 2 else '' }}"
+      data-type="{{ entry.type }}"
+    >
+      <figure class="share-row-figure is-{{ entry.type }}">
+        {% if entry.photo_url %}
+        <img
+          src="{{ entry.photo_url }}"
+          alt="{{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}"
+          class="share-row-image"
+          loading="lazy"
+          decoding="async"
+          width="800"
+          height="600"
+        />
+        {% else %}
+        <span class="share-tile-glyph">
+          {{ category_icon(entry.style.icon) }}
+        </span>
+        {% endif %}
+        <figcaption class="share-row-chip">
+          {{ entry.style.label }}
+        </figcaption>
+      </figure>
+
+      <div class="share-row-body">
+        <p class="share-row-ordinal">{{ '%02d' | format(entry.ordinal) }}</p>
+        <h2 class="share-row-title">
+          {% if entry.redirect_url %}
+          <a
+            href="{{ entry.redirect_url }}"
+            class="share-row-link"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ entry.title }}</a
+          >
+          {% else %}
+          {{ entry.title }}
+          {% endif %}
+        </h2>
+        {% if entry.place_name %}
+        <p class="share-row-place">
+          {{ pin_icon() }}
+          {{ entry.place_name }}
+        </p>
+        {% endif %}
+        {% if entry.note %}
+        <blockquote class="share-row-note">
+          <p>{{ entry.note }}</p>
+        </blockquote>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+    {% else %}
+    <div class="share-empty">
+      <p>This list is just getting started. No places yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+
+{# --- Map --------------------------------------------------------------- #}
+{# Renders only when the map is configured AND at least one entry has
+   coordinates. A half-initialized map that throws in the console on the app's
+   primary growth surface is worse than no map at all, so this degrades to
+   omitted rather than to broken.
+
+   The pins themselves are drawn by share-map.js from the nonce'd JSON below.
+   The legend and the place list are server-rendered from the same category
+   styles, so they need no JS and are visible to crawlers. #}
+{# Whether the map actually renders. The nav "Map" link and the map section
+   must agree, or a deployment with no Map ID gets a nav link that jumps to a
+   missing anchor. Both gate on this one test. #}
+{% macro map_visible(share, maps_key, map_id) -%}
+{{ 'yes' if (share.has_map and maps_key and map_id) else '' }}
+{%- endmacro %}
+
+{% macro share_map(share, maps_key, map_id, nonce) %}
+{% if share.has_map and maps_key and map_id %}
+<section class="share-map-section reveal" id="map">
+  <div class="share-map-inner">
+    <p class="share-map-hand">on the map</p>
+    <h2 class="share-map-title">
+      {% if share.map_entries | length == share.entry_count %}
+      All {{ share.entry_count }} places, mapped
+      {% else %}
+      {{ share.map_entries | length }} of {{ share.entry_count }} places, mapped
+      {% endif %}
+    </h2>
+    <p class="share-map-blurb">
+      Every spot in this collection{% if share.country_name %}, pinned across {{ share.country_name }}{% endif %}.
+    </p>
+
+    <ul class="share-legend">
+      {% for style in share.legend %}
+      <li class="share-legend-item">
+        <span class="share-legend-dot is-{{ style.key }}" aria-hidden="true"></span>
+        {{ style.label }}
+      </li>
+      {% endfor %}
+    </ul>
+
+    <div class="share-map-frame">
+      <div id="share-map" class="share-map" role="img" aria-label="Map of the places in this collection"></div>
+    </div>
+
+    <ol class="share-map-list">
+      {% for entry in share.map_entries %}
+      <li class="share-map-list-item">
+        <span class="share-map-list-num">{{ '%02d' | format(entry.ordinal) }}</span>
+        <span class="share-map-list-dot is-{{ entry.type }}" aria-hidden="true"></span>
+        <span class="share-map-list-name">{{ entry.title }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+</section>
+
+<script type="application/json" id="share-map-data" nonce="{{ nonce }}">
+{{ {"apiKey": maps_key, "mapId": map_id, "entries": share.map_payload} | tojson }}
+</script>
+{% endif %}
+{% endmacro %}
+
+
+{# --- CTA --------------------------------------------------------------- #}
+{% macro share_cta(app_store_url) %}
+<section class="share-cta reveal">
+  <div class="share-cta-inner">
+    <p class="share-cta-hand">start your adventure</p>
+    <h2 class="share-cta-title">Track your travels &amp; share your story.</h2>
+    <p class="share-cta-blurb">
+      Download Atlasi to build your own lists, mark countries visited, and
+      explore the world.
+    </p>
+    <a
+      href="{{ app_store_url | safe_external_url or '#download' }}"
+      class="share-cta-button"
+      data-track-location="share_cta"
+      >Get Atlasi</a
+    >
+  </div>
+</section>
+{% endmacro %}
+
+
+{# --- The whole page ---------------------------------------------------- #}
+{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url, reveal_script_url) %}
+{{ share_hero(share) }}
+{{ share_byline(share.author) }}
+{{ share_filters(share) }}
+{{ share_feed(share) }}
+{{ share_map(share, maps_key, map_id, nonce) }}
+{{ share_cta(app_store_url) }}
+{# One script for the whole page. It drives the category filter, which must
+   work whether or not a map is configured -- so it is loaded here rather than
+   inside the map section, which renders only when a Maps key exists. It
+   initializes the map only if the map's data block is on the page. #}
+{% if share.entries %}
+<script src="{{ script_url }}" defer nonce="{{ nonce }}"></script>
+{% endif %}
+{# Scroll-reveal fade-in. Nonce'd so it survives the share pages' strict-dynamic
+   CSP. Runs on every share page, entries or not. #}
+<script src="{{ reveal_script_url }}" defer nonce="{{ nonce }}"></script>
+{% endmacro %}

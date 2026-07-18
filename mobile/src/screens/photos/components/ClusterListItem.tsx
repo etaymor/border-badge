@@ -15,7 +15,8 @@ import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { ClusterDisplayItem } from '../photoImportHelpers';
 import { buildSuggestionFromMerged } from '../photoImportHelpers';
 import type { MergedSuggestion } from '../photoImportTypes';
-import { PlaceSuggestionCard, PhotoClusterCard } from './index';
+import { PlaceSuggestionCard, PhotoClusterCard, LookupFailedCard } from './index';
+import { SwipeToSkipCard } from './SwipeToSkipCard';
 import type { SuggestionDecisionMeta } from './PlaceSuggestionCard';
 
 export interface ClusterListItemProps {
@@ -35,6 +36,8 @@ export interface ClusterListItemProps {
   onHideCluster: (clusterId: string) => Promise<void>;
   onHideMultipleClusters: (clusterIds: string[]) => Promise<void>;
   onAddEntryForCluster: (clusterId: string) => void;
+  /** Retry the place lookup for a failed cluster (U10 supplies the real fetch). */
+  onRetryCluster: (clusterId: string) => void;
   onCancelUpload: (clusterId: string) => void;
   onOpenGalleryForCluster: (
     uri: string,
@@ -54,6 +57,7 @@ export function ClusterListItem({
   onHideCluster,
   onHideMultipleClusters,
   onAddEntryForCluster,
+  onRetryCluster,
   onCancelUpload,
   onOpenGalleryForCluster,
   onOpenGalleryForMerged,
@@ -70,24 +74,30 @@ export function ClusterListItem({
     const selectedPhotos = totalPhotos - excludedCount;
 
     return (
-      <PlaceSuggestionCard
-        suggestion={buildSuggestionFromMerged(merged)}
-        previewUris={merged.previewUris}
-        onConfirm={(suggestion, place, meta) => {
-          const excluded = excludedPhotoIds.get(merged.primaryClusterId);
-          onConfirmPlace(suggestion, place, meta, false, additionalClusterIds, excluded);
-        }}
-        onReject={onRejectPlace}
-        onPhotoPress={(uri) => onOpenGalleryForMerged(uri, merged)}
-        onDismiss={() => onHideMultipleClusters(merged.clusterIds)}
-        selectedPhotoCount={selectedPhotos}
-        totalPhotoCount={totalPhotos}
-        isUploading={isUploadingAny}
-        uploadProgress={primaryUploadState?.overallProgress ?? 0}
-        uploadingPhotoIndex={primaryUploadState?.currentPhotoIndex ?? 0}
-        totalPhotosToUpload={primaryUploadState?.totalPhotos ?? 0}
-        onCancelUpload={() => onCancelUpload(merged.primaryClusterId)}
-      />
+      <SwipeToSkipCard
+        itemId={merged.primaryClusterId}
+        onSkip={() => onHideMultipleClusters(merged.clusterIds)}
+        enabled={!isUploadingAny}
+      >
+        <PlaceSuggestionCard
+          suggestion={buildSuggestionFromMerged(merged)}
+          previewUris={merged.previewUris}
+          previewAssetIds={merged.previewAssetIds}
+          onConfirm={(suggestion, place, meta) => {
+            const excluded = excludedPhotoIds.get(merged.primaryClusterId);
+            onConfirmPlace(suggestion, place, meta, false, additionalClusterIds, excluded);
+          }}
+          onReject={onRejectPlace}
+          onPhotoPress={(uri) => onOpenGalleryForMerged(uri, merged)}
+          selectedPhotoCount={selectedPhotos}
+          totalPhotoCount={totalPhotos}
+          isUploading={isUploadingAny}
+          uploadProgress={primaryUploadState?.overallProgress ?? 0}
+          uploadingPhotoIndex={primaryUploadState?.currentPhotoIndex ?? 0}
+          totalPhotosToUpload={primaryUploadState?.totalPhotos ?? 0}
+          onCancelUpload={() => onCancelUpload(merged.primaryClusterId)}
+        />
+      </SwipeToSkipCard>
     );
   }
 
@@ -101,34 +111,65 @@ export function ClusterListItem({
     const selectedPhotos = totalPhotos - excludedCount;
 
     return (
-      <PlaceSuggestionCard
-        suggestion={item.data}
-        previewUris={item.cluster.previewUris}
-        onConfirm={(suggestion, place, meta) => {
-          const excluded = excludedPhotoIds.get(clusterId);
-          onConfirmPlace(suggestion, place, meta, false, [], excluded);
-        }}
-        onReject={onRejectPlace}
-        onPhotoPress={(uri) => onOpenGalleryForCluster(uri, clusterId, item.cluster)}
-        onDismiss={onHideCluster}
-        selectedPhotoCount={selectedPhotos}
-        totalPhotoCount={totalPhotos}
-        isUploading={isUploadingThisCluster}
-        uploadProgress={clusterUploadState?.overallProgress ?? 0}
-        uploadingPhotoIndex={clusterUploadState?.currentPhotoIndex ?? 0}
-        totalPhotosToUpload={clusterUploadState?.totalPhotos ?? 0}
-        onCancelUpload={() => onCancelUpload(clusterId)}
-      />
+      <SwipeToSkipCard
+        itemId={clusterId}
+        onSkip={() => onHideCluster(clusterId)}
+        enabled={!isUploadingThisCluster}
+      >
+        <PlaceSuggestionCard
+          suggestion={item.data}
+          previewUris={item.cluster.previewUris}
+          previewAssetIds={item.cluster.previewAssetIds}
+          onConfirm={(suggestion, place, meta) => {
+            const excluded = excludedPhotoIds.get(clusterId);
+            onConfirmPlace(suggestion, place, meta, false, [], excluded);
+          }}
+          onReject={onRejectPlace}
+          onPhotoPress={(uri) => onOpenGalleryForCluster(uri, clusterId, item.cluster)}
+          selectedPhotoCount={selectedPhotos}
+          totalPhotoCount={totalPhotos}
+          isUploading={isUploadingThisCluster}
+          uploadProgress={clusterUploadState?.overallProgress ?? 0}
+          uploadingPhotoIndex={clusterUploadState?.currentPhotoIndex ?? 0}
+          totalPhotosToUpload={clusterUploadState?.totalPhotos ?? 0}
+          onCancelUpload={() => onCancelUpload(clusterId)}
+        />
+      </SwipeToSkipCard>
     );
   }
 
-  // photos-only type
-  return (
-    <PhotoClusterCard
-      cluster={item.cluster}
-      onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
-      onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
-      onDismiss={onHideCluster}
-    />
-  );
+  if (item.type === 'lookup-failed') {
+    const clusterId = item.cluster.id;
+    return (
+      <SwipeToSkipCard itemId={clusterId} onSkip={() => onHideCluster(clusterId)}>
+        <LookupFailedCard
+          cluster={item.cluster}
+          retryDisabled={item.retryDisabled}
+          isRetrying={item.isRetrying}
+          onRetry={onRetryCluster}
+          onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
+          onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
+        />
+      </SwipeToSkipCard>
+    );
+  }
+
+  if (item.type === 'photos-only') {
+    const clusterId = item.cluster.id;
+    return (
+      <SwipeToSkipCard itemId={clusterId} onSkip={() => onHideCluster(clusterId)}>
+        <PhotoClusterCard
+          cluster={item.cluster}
+          onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
+          onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
+        />
+      </SwipeToSkipCard>
+    );
+  }
+
+  // Exhaustiveness: a new union member must be handled, not silently fall
+  // through to PhotoClusterCard. Adding a ClusterDisplayItem variant without a
+  // branch above fails compile here instead of mis-rendering at runtime.
+  const _exhaustive: never = item;
+  return _exhaustive;
 }

@@ -98,6 +98,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     suggestPlacesMutation,
     cachedSuggestions,
     fetchingSuggestions,
+    retryingClusterIds,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -118,6 +119,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleHideMultipleClusters,
     handleSplitCluster,
     handleAddEntryForCluster,
+    retryFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
@@ -147,6 +149,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       hasConfirmedPlaceRef.current = true;
     },
     [handleConfirmPlace]
+  );
+
+  // Retry the place lookup for a single lookup-failed cluster (U10). Invokes the
+  // scoped re-fetch (per-cluster in-flight guard + retrying spinner, SQLite-cache
+  // respecting). Does NOT toggle the global `fetchingSuggestions` flag, so healthy
+  // photos-only / no-place-found cards stay visible during retry (KTD7 / C4).
+  const handleRetryCluster = useCallback(
+    (clusterId: string) => {
+      void retryFailedClusters([clusterId]);
+    },
+    [retryFailedClusters]
   );
 
   // Wrap handleManualSelect so the override (pencil) path honors the photos
@@ -280,6 +293,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     cachedSuggestions,
     dismissedClusterIdsInternal,
     fetchingSuggestions,
+    retryingClusterIds,
   });
 
   // Toggle a photo's inclusion/exclusion for upload
@@ -301,7 +315,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const openGalleryForCluster = useCallback(
     (uri: string, clusterId: string, cluster: LocationClusterDisplay) => {
       const photos = cluster.previewUris.map((u, i) => ({
-        id: cluster.photoIds[i],
+        // previewAssetIds is aligned with previewUris (same slice); photoIds is
+        // the full, unbounded list and can diverge past the preview cap.
+        id: cluster.previewAssetIds[i],
         uri: u,
       }));
       const index = photos.findIndex((p) => p.uri === uri);
@@ -318,7 +334,9 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   // Open gallery for merged suggestion (multiple clusters)
   const openGalleryForMerged = useCallback((uri: string, merged: MergedSuggestion) => {
     const photos = merged.previewUris.map((u, i) => ({
-      id: merged.photoIds[i],
+      // previewAssetIds is aligned with previewUris (same slice); photoIds is
+      // the full, unbounded list and can diverge past the preview cap.
+      id: merged.previewAssetIds[i],
       uri: u,
     }));
     const index = photos.findIndex((p) => p.uri === uri);
@@ -342,6 +360,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         onHideCluster={handleHideCluster}
         onHideMultipleClusters={handleHideMultipleClusters}
         onAddEntryForCluster={handleAddEntryForCluster}
+        onRetryCluster={handleRetryCluster}
         onCancelUpload={cancelUpload}
         onOpenGalleryForCluster={openGalleryForCluster}
         onOpenGalleryForMerged={openGalleryForMerged}
@@ -351,6 +370,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       handleConfirmPlaceWithTracking,
       handleRejectPlace,
       handleAddEntryForCluster,
+      handleRetryCluster,
       handleHideCluster,
       handleHideMultipleClusters,
       uploadingClusterIds,

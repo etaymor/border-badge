@@ -74,6 +74,7 @@ export interface TripCandidateDisplay {
   photoIds: string[]; // Reference by ID instead of full object
   photoCount: number; // Total count (since we limit stored IDs)
   previewUris: string[]; // First 5 URIs for thumbnail display
+  previewAssetIds: string[]; // Asset IDs positionally aligned with previewUris (for on-error re-resolve)
   locationClusterIds: string[]; // Reference clusters by geohash ID
 }
 
@@ -88,6 +89,7 @@ export interface LocationClusterDisplay {
   photoIds: string[]; // Reference by ID instead of full object
   photoCount: number;
   previewUris: string[]; // First 5 URIs for thumbnails
+  previewAssetIds: string[]; // Asset IDs positionally aligned with previewUris (for on-error re-resolve)
   timeRange: {
     start: Date;
     end: Date;

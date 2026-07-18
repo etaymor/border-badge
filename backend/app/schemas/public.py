@@ -17,6 +17,8 @@ class PublicTripEntry(BaseModel):
     notes: str | None = None
     place_name: str | None = None
     address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     media_urls: list[str] = []
     place_photo_url: str | None = None
     redirect_url: str | None = None

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { File as ExpoFile } from 'expo-file-system';
+import { Image } from 'expo-image';
 
 import {
   useEntryMedia,
@@ -459,9 +459,12 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
           onPress={() => onImagePress?.(media, index)}
         >
           <Image
+            testID="entry-media-gallery-thumbnail"
             source={{ uri: media.thumbnail_url ?? media.url }}
             style={styles.thumbnail}
-            resizeMode="cover"
+            contentFit="cover"
+            recyclingKey={media.id}
+            cachePolicy="memory-disk"
           />
 
           {media.status === 'processing' && (
@@ -503,7 +506,13 @@ export const EntryMediaGallery = forwardRef<EntryMediaGalleryRef, EntryMediaGall
     const renderLocalItem = useCallback(
       (item: LocalMediaItem) => (
         <View key={item.localUri} style={styles.mediaItem}>
-          <Image source={{ uri: item.localUri }} style={styles.thumbnail} resizeMode="cover" />
+          <Image
+            testID="entry-media-gallery-local-thumbnail"
+            source={{ uri: item.localUri }}
+            style={styles.thumbnail}
+            contentFit="cover"
+            recyclingKey={item.localUri}
+          />
 
           {item.uploading && !item.error && (
             <View style={styles.overlay}>

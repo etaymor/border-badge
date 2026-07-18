@@ -6,6 +6,8 @@ import { useOnboardingStore } from '@stores/onboardingStore';
 
 import type { OnboardingStackScreenProps } from '@navigation/types';
 
+const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
+
 // Mock navigation
 const mockNavigation =
   createMockNavigation() as unknown as OnboardingStackScreenProps<'AntarcticaPrompt'>['navigation'];
@@ -67,6 +69,18 @@ describe('AntarcticaPromptScreen', () => {
       expect(addVisitedContinentSpy).not.toHaveBeenCalled();
       expect(toggleCountrySpy).not.toHaveBeenCalled();
       expect(mockNavigation.navigate).toHaveBeenCalledWith('ProgressSummary');
+    });
+  });
+
+  describe('image decode hygiene', () => {
+    it('renders the Antarctica illustration as an expo-image with contentFit contain', () => {
+      render(<AntarcticaPromptScreen navigation={mockNavigation} route={mockRoute} />);
+
+      const image = screen.getByTestId('antarctica-image');
+      expect(image.type).toBe(EXPO_IMAGE_HOST);
+      expect(image.props.contentFit).toBe('contain');
+      // Fills its measurable animated container.
+      expect(image.props.style).toEqual(expect.objectContaining({ width: '100%', height: '100%' }));
     });
   });
 });

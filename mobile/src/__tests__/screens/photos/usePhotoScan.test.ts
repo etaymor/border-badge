@@ -155,6 +155,7 @@ describe('usePhotoScan adapter', () => {
           photoIds: [],
           photoCount: 0,
           previewUris: [],
+          previewAssetIds: [],
           locationClusterIds: [],
         },
       ],
@@ -192,6 +193,7 @@ describe('usePhotoScan adapter', () => {
       photoIds: [],
       photoCount: 0,
       previewUris: [],
+      previewAssetIds: [],
       locationClusterIds: [],
     };
     const frCandidate = {

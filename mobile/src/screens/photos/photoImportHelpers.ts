@@ -8,10 +8,27 @@
 import type { ClusterSuggestion, LocationClusterDisplay } from '@services/photoImport';
 import type { MergedSuggestion } from './photoImportTypes';
 
-/** Display item that can be a merged suggestion, single suggestion, or photo-only cluster */
+/**
+ * Display item that can be a merged suggestion, single suggestion, a terminal
+ * lookup-failed cluster (place lookup errored — distinct from a real empty), or
+ * a photo-only cluster (place lookup succeeded but found nothing).
+ *
+ * `lookup-failed` carries the cluster (so its photos render), `retryDisabled`
+ * (true for 429/503 quota/rate-limit, where an immediate retry is pointless —
+ * KTD10), and `isRetrying` (true while U10's scoped re-fetch is in flight for
+ * this cluster — drives the card spinner). It must NEVER collapse into
+ * `photos-only`: that would re-introduce B1 (a transient failure rendered as a
+ * confident "No place found").
+ */
 export type ClusterDisplayItem =
   | { type: 'merged-suggestion'; data: MergedSuggestion }
   | { type: 'suggestion'; data: ClusterSuggestion; cluster: LocationClusterDisplay }
+  | {
+      type: 'lookup-failed';
+      cluster: LocationClusterDisplay;
+      retryDisabled: boolean;
+      isRetrying: boolean;
+    }
   | { type: 'photos-only'; cluster: LocationClusterDisplay };
 
 /**
@@ -58,6 +75,7 @@ export function createMergedSuggestion(
 ): MergedSuggestion | null {
   const allPhotoIds: string[] = [];
   const allPreviewUris: string[] = [];
+  const allPreviewAssetIds: string[] = [];
   let minStart: Date | null = null;
   let maxEnd: Date | null = null;
 
@@ -67,6 +85,9 @@ export function createMergedSuggestion(
 
     allPhotoIds.push(...cluster.photoIds);
     allPreviewUris.push(...cluster.previewUris);
+    // previewAssetIds is aligned with previewUris per cluster, so pushing both
+    // in lockstep keeps merged.previewAssetIds[i] the asset for previewUris[i].
+    allPreviewAssetIds.push(...cluster.previewAssetIds);
 
     if (!minStart || cluster.timeRange.start < minStart) {
       minStart = cluster.timeRange.start;
@@ -87,6 +108,7 @@ export function createMergedSuggestion(
     clusterIds,
     photoIds: allPhotoIds,
     previewUris: allPreviewUris.slice(0, 30),
+    previewAssetIds: allPreviewAssetIds.slice(0, 30),
     photoCount: allPhotoIds.length,
     place: primaryEntry.suggestion.places[0],
     allPlaces: primaryEntry.suggestion.places,

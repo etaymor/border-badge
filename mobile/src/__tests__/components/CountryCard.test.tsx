@@ -1,6 +1,22 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { fireEvent, render, screen } from '../utils/testUtils';
 
+// Introspection mock: make every rendered expo-blur BlurView leave a queryable
+// marker so we can assert the perf pass removed all live blur stacks (U5).
+// The component no longer imports BlurView, so zero markers === zero BlurViews.
+jest.mock('expo-blur', () => {
+  const mockReact = require('react');
+  return {
+    BlurView: ({ children, style }: { children?: React.ReactNode; style?: unknown }) =>
+      mockReact.createElement('View', { testID: 'blur-view-instance', style }, children),
+  };
+});
+
 import { CountryCard } from '@components/ui/CountryCard';
+
+// expo-image renders a native host component ("ViewManagerAdapter_ExpoImage"),
+// so expo-image-only props (cachePolicy / recyclingKey) are introspectable.
+const EXPO_IMAGE_HOST = 'ViewManagerAdapter_ExpoImage';
 
 describe('CountryCard', () => {
   const defaultProps = {
@@ -84,5 +100,25 @@ describe('CountryCard', () => {
     render(<CountryCard {...defaultProps} hasTrips={false} />);
 
     expect(screen.queryByTestId('country-card-trips-JP')).toBeNull();
+  });
+
+  // U3 nav-regression fix: country cards must repaint from the memory cache on
+  // remount (back-nav / tab reset) instead of re-decoding asynchronously.
+  it('renders the country image as an expo-image with cachePolicy memory-disk', () => {
+    render(<CountryCard {...defaultProps} />);
+
+    const image = screen.getByTestId('country-image-JP');
+    expect(image.type).toBe(EXPO_IMAGE_HOST);
+    expect(image.props.cachePolicy).toBe('memory-disk');
+    expect(image.props.recyclingKey).toBe('JP');
+  });
+
+  // U5 perf pass: repeated grid cells must not composite live blur stacks.
+  // All four decorative BlurViews (name pane, flag badge, visited/wishlist
+  // buttons) were replaced with translucent solid fills.
+  it('renders zero live BlurView instances', () => {
+    render(<CountryCard {...defaultProps} hasTrips isVisited isWishlisted />);
+
+    expect(screen.queryAllByTestId('blur-view-instance')).toHaveLength(0);
   });
 });

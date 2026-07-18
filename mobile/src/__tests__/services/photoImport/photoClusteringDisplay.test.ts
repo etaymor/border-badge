@@ -9,10 +9,12 @@ import {
   applySavedPhotoFilter,
   createPhotoLookupMap,
   toLocationClusterDisplay,
+  toTripCandidateDisplay,
 } from '../../../services/photoImport/photoClusteringDisplay';
 import type {
   LocationCluster,
   PhotoWithLocation,
+  TripCandidate,
   TripCandidateDisplay,
 } from '../../../services/photoImport/types';
 import type { OptimizedTripData } from '../../../services/photoImport/photoClusteringDisplay';
@@ -57,6 +59,7 @@ function makeData(clusters: LocationCluster[]): OptimizedTripData {
     photoIds: allPhotos.map((p) => p.id),
     photoCount: allPhotos.length,
     previewUris: allPhotos.map((p) => p.uri),
+    previewAssetIds: allPhotos.map((p) => p.id),
     locationClusterIds: clusters.map((c) => c.id),
   };
 
@@ -207,5 +210,37 @@ describe('applySavedPhotoFilter', () => {
     const { autoDismissed, data: out } = applySavedPhotoFilter(data, new Set());
     expect(autoDismissed.size).toBe(0);
     expect(out).toBe(data);
+  });
+});
+
+describe('previewAssetIds alignment', () => {
+  it('toLocationClusterDisplay emits previewAssetIds positionally aligned with previewUris', () => {
+    // More photos than the preview cap so both arrays get sliced identically.
+    const photos = Array.from({ length: 35 }, (_, i) => makePhoto(`p${i}`, i));
+    const display = toLocationClusterDisplay(makeCluster('c1', photos));
+
+    // Same length (both capped at the preview limit) and each id maps to its uri.
+    expect(display.previewAssetIds).toHaveLength(display.previewUris.length);
+    display.previewAssetIds.forEach((id, i) => {
+      expect(display.previewUris[i]).toBe(`file://${id}.jpg`);
+    });
+  });
+
+  it('toTripCandidateDisplay emits previewAssetIds aligned with previewUris', () => {
+    const photos = Array.from({ length: 35 }, (_, i) => makePhoto(`p${i}`, i));
+    const candidate: TripCandidate = {
+      id: 'trip-1',
+      countryCode: 'JP',
+      dateRange: { start: photos[0].creationTime, end: photos[photos.length - 1].creationTime },
+      photos,
+      locationClusters: [makeCluster('c1', photos)],
+    };
+
+    const display = toTripCandidateDisplay(candidate);
+
+    expect(display.previewAssetIds).toHaveLength(display.previewUris.length);
+    display.previewAssetIds.forEach((id, i) => {
+      expect(display.previewUris[i]).toBe(`file://${id}.jpg`);
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Analytics } from '@services/analytics';
 import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
 import { ALL_REGIONS, RECOGNITION_GROUPS } from '@constants/regions';
@@ -216,12 +216,19 @@ export function usePassportData() {
       };
     }
 
+    // Build a code -> country map ONCE for O(1) lookups. Previously each
+    // `visitedCountries.filter` / `wishlistCountries.filter` called
+    // `countries.find(...)` per element — O(visited x countries) and
+    // O(wishlist x countries). With 227 countries this is a measurable
+    // per-render cost on the passport surface.
+    const countryByCode = new Map(countries.map((c) => [c.code, c]));
+
     const allowedVisitedCountries = visitedCountries.filter((uc) => {
-      const country = countries.find((c) => c.code === uc.country_code);
+      const country = countryByCode.get(uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
     const allowedWishlistCountries = wishlistCountries.filter((uc) => {
-      const country = countries.find((c) => c.code === uc.country_code);
+      const country = countryByCode.get(uc.country_code);
       return country && isCountryAllowedByPreference(country.recognition, trackingPreference);
     });
 
@@ -231,9 +238,14 @@ export function usePassportData() {
     const worldPercentage =
       totalCountries > 0 ? Math.round((stampedCount / totalCountries) * 100) : 0;
 
-    const visitedCodesSet = new Set(allowedVisitedCountries.map((uc) => uc.country_code));
-    const visitedCountryDetails = countries.filter((c) => visitedCodesSet.has(c.code));
-    const uniqueRegions = new Set(visitedCountryDetails.map((c) => c.region));
+    // Unique regions among allowed visited countries. Derive directly from the
+    // already-resolved country objects (O(1) map lookup) instead of a second
+    // O(countries) filter pass.
+    const uniqueRegions = new Set<string>();
+    for (const uc of allowedVisitedCountries) {
+      const country = countryByCode.get(uc.country_code);
+      if (country) uniqueRegions.add(country.region);
+    }
     const regionsCount = uniqueRegions.size;
 
     const travelStatus = getTravelTier(stampedCount).status;
@@ -248,8 +260,18 @@ export function usePassportData() {
     };
   }, [visitedCountries, wishlistCountries, countries, trackingPreference]);
 
-  // Build share context for passport share overlay
-  const passportShareContext: OnboardingShareContext | null = useMemo(() => {
+  // Whether there is enough data to build a passport share context. Cheap
+  // boolean derived from lengths — evaluated every render (used to decide
+  // whether the share button appears), unlike the full context which is
+  // expensive and only needed when the share overlay actually opens.
+  const hasPassportShareContext = !!countries?.length && !!visitedCountries?.length;
+
+  // Lazily build the share context for the passport share overlay. Previously
+  // this ran on every render (continent grouping + rarity reduce over
+  // ALL_REGIONS x visited). It's now a memoized getter invoked only when the
+  // overlay is opened. The grouping is done in a single pass over the visited
+  // countries (O(visited)) instead of a filter-per-region (O(regions x visited)).
+  const getPassportShareContext = useCallback((): OnboardingShareContext | null => {
     if (!countries?.length || !visitedCountries?.length) return null;
 
     const visitedCodesArray = visitedCountries.map((uc) => uc.country_code);
@@ -260,8 +282,20 @@ export function usePassportData() {
       ...new Set(visitedCountryData.map((c) => c.subregion).filter(Boolean)),
     ] as string[];
 
+    // Group visited countries by region in one pass, preserving the first-seen
+    // order within each region so the rarity reduce yields identical results.
+    const visitedByRegion = new Map<string, typeof visitedCountryData>();
+    for (const c of visitedCountryData) {
+      const bucket = visitedByRegion.get(c.region);
+      if (bucket) {
+        bucket.push(c);
+      } else {
+        visitedByRegion.set(c.region, [c]);
+      }
+    }
+
     const continentStats = ALL_REGIONS.map((region) => {
-      const visitedInRegion = visitedCountryData.filter((c) => c.region === region);
+      const visitedInRegion = visitedByRegion.get(region) ?? [];
 
       let rarestCountryCode: string | null = null;
       if (visitedInRegion.length > 0) {
@@ -363,7 +397,8 @@ export function usePassportData() {
     wishlistCountries,
     // Computed data
     stats,
-    passportShareContext,
+    hasPassportShareContext,
+    getPassportShareContext,
     flatListData,
     displayItems,
     unvisitedCountries,

@@ -30,6 +30,8 @@ export interface MergedSuggestion {
   photoIds: string[];
   /** Combined preview URIs from all clusters (first 5) */
   previewUris: string[];
+  /** Asset IDs positionally aligned with previewUris (for on-error re-resolve) */
+  previewAssetIds: string[];
   /** Total photo count across all clusters */
   photoCount: number;
   /** The shared top place suggestion */
@@ -74,6 +76,13 @@ export interface PhotoImportWorkflowResult {
   /** True from when suggestions fetch starts (including cache check + vision prep) until it completes */
   fetchingSuggestions: boolean;
 
+  /**
+   * Cluster IDs currently being retried (U10). Drives the per-cluster spinner on
+   * the lookup-failed card. NOT the global `fetchingSuggestions` flag — retry
+   * must not re-hide healthy photos-only / no-place-found cards (KTD7 / C4).
+   */
+  retryingClusterIds: Set<string>;
+
   /** Photo upload states for all active uploads, keyed by cluster ID */
   uploadStates: Map<string, ClusterUploadState>;
   /** Get upload state for a specific cluster */
@@ -111,6 +120,8 @@ export interface PhotoImportWorkflowResult {
     groupBPhotoIds: string[]
   ) => Promise<void>;
   handleAddEntryForCluster: (clusterId: string) => void;
+  /** Retry the place lookup for an explicit list of failed cluster ids (U10). */
+  retryFailedClusters: (clusterIds: string[]) => Promise<void>;
   handleManualSelect: (
     place: SelectedPlace,
     category: EntryType,

@@ -13,11 +13,10 @@
  * Mirrors the lock + scanId + localController pattern from `photoBackgroundSync.ts`.
  */
 
-import { iso1A2Code } from '@rapideditor/country-coder';
-
 import { Analytics } from '@services/analytics';
 import { getCountryName } from '@utils/countries';
 
+import { iso1A2Code } from './countryCoder';
 import { HomeCountryNotSetError } from './errors';
 import { abortBackgroundSync } from './photoBackgroundSync';
 import {
@@ -472,6 +471,7 @@ async function runScan(
         photoCount: c.photoCount,
         clusterCount: c.locationClusterIds.length,
         previewUris: c.previewUris,
+        previewAssetIds: c.previewAssetIds,
         clusterIds: c.locationClusterIds,
         photoIds: c.photoIds,
       }))

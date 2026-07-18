@@ -998,6 +998,19 @@ class ExtractionOrchestrator:
         if not extracted:
             return []
 
+        # Cap the resolution fan-out: every resolved place costs one Autocomplete
+        # + one Place Details call, so an unbounded list (e.g. a 10-place video
+        # listicle) is the worst-case cost driver. Resolve only the top N.
+        # The extractor already deduped by name|city|country and ordered by
+        # salience, so the head of the list is the most relevant.
+        max_places = get_settings().multimodal_max_resolved_places
+        capped = extracted[:max_places]
+        if len(extracted) > len(capped):
+            logger.info(
+                "resolve_multimodal_places_capped",
+                extra={"extracted": len(extracted), "resolving": len(capped)},
+            )
+
         # Check remaining time budget before starting resolution
         remaining = self._get_remaining_time(start_time)
         if remaining <= 0:
@@ -1006,9 +1019,7 @@ class ExtractionOrchestrator:
 
         # Per-call timeout: divide remaining time among places, with min/max bounds
         per_call_max = 3.0  # Max 3s per Google Places call
-        per_call_timeout = min(
-            per_call_max, max(0.5, remaining / max(1, len(extracted[:10])))
-        )
+        per_call_timeout = min(per_call_max, max(0.5, remaining / max(1, len(capped))))
 
         # Resolve all places in parallel with semaphore (max 5 concurrent)
         semaphore = asyncio.Semaphore(5)
@@ -1055,7 +1066,7 @@ class ExtractionOrchestrator:
                     )
                     return None
 
-        tasks = [resolve_one(place) for place in extracted[:10]]  # Max 10 places
+        tasks = [resolve_one(place) for place in capped]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter successful results (isinstance check already excludes None and exceptions)

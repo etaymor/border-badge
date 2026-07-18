@@ -5,10 +5,24 @@
  * All functions share the same SQLite database via getDb().
  */
 
+import * as geohash from 'ngeohash';
+
 import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
+import { GEOHASH_PRECISION, haversine } from './photoClustering';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
 const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Compute the location cache key for a cluster centroid. Stable across cluster-id
+ * changes (splits, re-segmentation) for the same physical location, so a
+ * re-segmented cluster at the same spot reuses cached results instead of
+ * re-buying them from Google. Uses the shared GEOHASH_PRECISION (~153m cells) so
+ * the key granularity always tracks the clustering granularity.
+ */
+export function clusterLocationKey(centroid: { latitude: number; longitude: number }): string {
+  return geohash.encode(centroid.latitude, centroid.longitude, GEOHASH_PRECISION);
+}
 
 // =============================================================================
 // Processed Clusters (for hiding already-processed suggestions)
@@ -84,6 +98,11 @@ export async function setLastSelectedCandidateId(
 
 export interface CachedPlaceSuggestion {
   cluster_id: string;
+  /**
+   * Quantized centroid geohash for the location-fallback lookup. Optional for
+   * backward compatibility; when omitted the row is only reachable by cluster_id.
+   */
+  location_key?: string;
   places: Array<{
     place_id: string;
     name: string;
@@ -95,23 +114,93 @@ export interface CachedPlaceSuggestion {
   }>;
 }
 
+/** A cluster identified for cache lookup by both its id and physical location. */
+export interface ClusterCacheRef {
+  id: string;
+  locationKey: string;
+  /**
+   * The cluster's raw centroid. Optional — id-only callers omit it. When present,
+   * the Tier-3 neighbor-cell lookup (B2/KTD9) uses it to pick the NEAREST-centroid
+   * cached entry across the 8 neighbor cells (and to enforce a distance ceiling so
+   * a DIFFERENT nearby venue's cache is never served). When absent, Tier 3 falls
+   * back to the newest neighbor entry.
+   */
+  centroid?: { latitude: number; longitude: number };
+}
+
+/**
+ * Max distance (meters) between a requesting cluster's centroid and a neighbor
+ * cell's decoded center for that neighbor's cache to be reused (B2/KTD9 guard).
+ *
+ * A geohash-7 cell is ~153m wide. A same-venue re-import whose centroid drifted
+ * one cell over keeps its centroid near the venue, so the neighbor cell center is
+ * at most ~1.5 cells (~230m) away in the worst geometric case. 300m (~2 cells)
+ * comfortably admits that legitimate drift while rejecting a distinct venue whose
+ * cached cell center sits meaningfully farther — without coarsening the key (which
+ * would risk silently serving the wrong venue's places). decode() returns the
+ * cell CENTER, a good approximation of the cached venue's location.
+ */
+const NEIGHBOR_CELL_MAX_DISTANCE_M = 300;
+
+/**
+ * Parse a cached suggestions row, honoring the empty-result TTL.
+ * Returns the places array, or null if the row is invalid or an expired empty.
+ */
+function parseSuggestionsRow(
+  suggestionsJson: string,
+  cachedAt: number,
+  now: number,
+  label: string
+): CachedPlaceSuggestion['places'] | null {
+  try {
+    const places = JSON.parse(suggestionsJson);
+    // Empty suggestions expire after TTL so transient failures get retried
+    if (Array.isArray(places) && places.length === 0) {
+      if (now - (cachedAt ?? 0) > EMPTY_SUGGESTION_TTL_MS) {
+        if (__DEV__) console.log(`[PhotoCache] Expired empty cache for ${label}`);
+        return null;
+      }
+    }
+    return places;
+  } catch {
+    if (__DEV__) console.warn(`[PhotoCache] Invalid JSON for ${label}`);
+    return null;
+  }
+}
+
 /**
  * Get cached place suggestions for multiple clusters.
  * Returns a Map of cluster_id -> places array for clusters that have cached data.
- * Clusters not in the cache are not included in the result.
+ *
+ * Lookup is two-tier: an exact cluster_id match first, then a fallback to the
+ * cluster's physical location_key. The location fallback means a manual split or
+ * re-segmentation that mints a new cluster_id still reuses the prior result for
+ * the same physical spot instead of re-buying it from Google.
+ *
+ * Accepts either ClusterCacheRef objects (preferred) or bare cluster-id strings
+ * (id-only lookup, for callers without centroid data).
  */
 export async function getCachedSuggestions(
-  clusterIds: string[]
+  clusters: ClusterCacheRef[] | string[]
 ): Promise<Map<string, CachedPlaceSuggestion['places']>> {
-  if (clusterIds.length === 0) return new Map();
+  if (clusters.length === 0) return new Map();
+
+  // Normalize input: bare strings become id-only refs (no location fallback).
+  const refs: ClusterCacheRef[] =
+    typeof clusters[0] === 'string'
+      ? (clusters as string[]).map((id) => ({ id, locationKey: '' }))
+      : (clusters as ClusterCacheRef[]);
 
   const database = await getDb();
   const result = new Map<string, CachedPlaceSuggestion['places']>();
+  const now = Date.now();
 
-  // Batch size must stay under SQLITE_PARAM_LIMIT (999)
   const BATCH_SIZE = Math.min(100, SQLITE_PARAM_LIMIT);
-  for (let i = 0; i < clusterIds.length; i += BATCH_SIZE) {
-    const batch = clusterIds.slice(i, i + BATCH_SIZE);
+
+  // Tier 1: exact cluster_id match.
+  const ids = refs.map((r) => r.id);
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
     const placeholders = batch.map(() => '?').join(',');
     const rows = await database.getAllAsync<{
       cluster_id: string;
@@ -121,29 +210,148 @@ export async function getCachedSuggestions(
       `SELECT cluster_id, suggestions_json, cached_at FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
       batch
     );
-
-    const now = Date.now();
     for (const row of rows) {
-      try {
-        const places = JSON.parse(row.suggestions_json);
-        // Empty suggestions expire after TTL so transient failures get retried
-        if (Array.isArray(places) && places.length === 0) {
-          const age = now - (row.cached_at ?? 0);
-          if (age > EMPTY_SUGGESTION_TTL_MS) {
-            if (__DEV__) {
-              console.log(`[PhotoCache] Expired empty cache for cluster ${row.cluster_id}`);
-            }
-            continue;
-          }
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `cluster ${row.cluster_id}`
+      );
+      if (places !== null) result.set(row.cluster_id, places);
+    }
+  }
+
+  // Tier 2: location_key fallback for clusters that missed the id lookup.
+  const unresolved = refs.filter((r) => r.locationKey && !result.has(r.id));
+  if (unresolved.length === 0) return result;
+
+  // Map each location_key back to the cluster id(s) waiting on it.
+  const keyToIds = new Map<string, string[]>();
+  for (const ref of unresolved) {
+    const list = keyToIds.get(ref.locationKey) ?? [];
+    list.push(ref.id);
+    keyToIds.set(ref.locationKey, list);
+  }
+
+  const keys = [...keyToIds.keys()];
+  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+    const batch = keys.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    // Pick the most recent entry per location_key.
+    const rows = await database.getAllAsync<{
+      location_key: string;
+      suggestions_json: string;
+      cached_at: number;
+    }>(
+      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+       WHERE location_key IN (${placeholders})
+       ORDER BY cached_at DESC`,
+      batch
+    );
+    const seenKeys = new Set<string>();
+    for (const row of rows) {
+      if (seenKeys.has(row.location_key)) continue; // keep newest per key
+      seenKeys.add(row.location_key);
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `location ${row.location_key}`
+      );
+      if (places === null) continue;
+      for (const id of keyToIds.get(row.location_key) ?? []) {
+        if (!result.has(id)) result.set(id, places);
+      }
+    }
+  }
+
+  // Tier 3 (B2 / KTD9): neighbor-cell fallback for clusters that still missed.
+  // A re-import can drift a split centroid just across a geohash-7 cell boundary,
+  // so the exact-cell key (Tier 2) misses even though the same venue's cache sits
+  // one cell over. Query the 8 neighbor cells and pick the NEAREST-centroid entry
+  // within a distance ceiling — we do NOT coarsen the key (that would risk serving
+  // a different nearby venue's cache).
+  const stillUnresolved = refs.filter((r) => r.locationKey && !result.has(r.id));
+  if (stillUnresolved.length === 0) return result;
+
+  // Collect the neighbor cells to query, mapping each neighbor key back to the
+  // refs that want it (a ref's centroid is needed for the nearest tiebreak).
+  const neighborKeyToRefs = new Map<string, ClusterCacheRef[]>();
+  for (const ref of stillUnresolved) {
+    for (const neighborKey of geohash.neighbors(ref.locationKey)) {
+      const list = neighborKeyToRefs.get(neighborKey) ?? [];
+      list.push(ref);
+      neighborKeyToRefs.set(neighborKey, list);
+    }
+  }
+
+  // Accumulate the best candidate per ref id as neighbor rows arrive.
+  // Without a centroid we tiebreak by recency (newest cached_at).
+  const best = new Map<
+    string,
+    { places: CachedPlaceSuggestion['places']; distanceM: number; cachedAt: number }
+  >();
+
+  const neighborKeys = [...neighborKeyToRefs.keys()];
+  for (let i = 0; i < neighborKeys.length; i += BATCH_SIZE) {
+    const batch = neighborKeys.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      location_key: string;
+      suggestions_json: string;
+      cached_at: number;
+    }>(
+      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+       WHERE location_key IN (${placeholders})
+       ORDER BY cached_at DESC`,
+      batch
+    );
+    for (const row of rows) {
+      const places = parseSuggestionsRow(
+        row.suggestions_json,
+        row.cached_at,
+        now,
+        `neighbor ${row.location_key}`
+      );
+      if (places === null) continue;
+      // The cached row stores a geohash; decode it to the cell center as a stand-in
+      // for the cached venue's location.
+      const cellCenter = geohash.decode(row.location_key);
+      for (const ref of neighborKeyToRefs.get(row.location_key) ?? []) {
+        if (result.has(ref.id)) continue; // already resolved by an earlier tier
+
+        let distanceM = Number.POSITIVE_INFINITY;
+        if (ref.centroid) {
+          distanceM = haversine(
+            ref.centroid.latitude,
+            ref.centroid.longitude,
+            cellCenter.latitude,
+            cellCenter.longitude
+          );
+          // Guard: reject a neighbor cell whose center is too far — this is what
+          // keeps a DIFFERENT venue's cache from being served (KTD9/R3).
+          if (distanceM > NEIGHBOR_CELL_MAX_DISTANCE_M) continue;
         }
-        result.set(row.cluster_id, places);
-      } catch {
-        // Skip invalid JSON entries
-        if (__DEV__) {
-          console.warn(`[PhotoCache] Invalid JSON for cluster ${row.cluster_id}`);
+
+        const current = best.get(ref.id);
+        if (!current) {
+          best.set(ref.id, { places, distanceM, cachedAt: row.cached_at });
+          continue;
+        }
+        // With a centroid: nearest wins. Without one (Infinity distance for both):
+        // newest cached_at wins.
+        const isBetter =
+          distanceM < current.distanceM ||
+          (distanceM === current.distanceM && row.cached_at > current.cachedAt);
+        if (isBetter) {
+          best.set(ref.id, { places, distanceM, cachedAt: row.cached_at });
         }
       }
     }
+  }
+
+  for (const [id, entry] of best) {
+    if (!result.has(id)) result.set(id, entry.places);
   }
 
   return result;
@@ -164,11 +372,16 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
   await database.withTransactionAsync(async () => {
     for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
       const batch = suggestions.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((s) => [s.cluster_id, JSON.stringify(s.places), now]);
+      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+      const values = batch.flatMap((s) => [
+        s.cluster_id,
+        JSON.stringify(s.places),
+        now,
+        s.location_key ?? null,
+      ]);
 
       await database.runAsync(
-        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at) VALUES ${placeholders}`,
+        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
         values
       );
     }

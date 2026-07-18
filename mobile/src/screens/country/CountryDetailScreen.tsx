@@ -27,6 +27,7 @@ import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
 import { useReviewRequest } from '@hooks/useReviewRequest';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -135,13 +136,31 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   }, [isVisited, hasInitialImport, hasPhotos]);
 
   const handleTripPress = useCallback(
-    (trip: Trip) => {
+    (tripId: string) => {
       navigation.navigate('Trips', {
         screen: 'TripDetail',
-        params: { tripId: trip.id },
+        params: { tripId },
       });
     },
     [navigation]
+  );
+
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableTripPress = useStableCallback(handleTripPress);
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders (this screen re-renders on scroll via Animated.Value).
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback(
+    (tripId: string) => {
+      const existing = tripPressCallbacksRef.current.get(tripId);
+      if (existing) return existing;
+      const handler = () => stableTripPress(tripId);
+      tripPressCallbacksRef.current.set(tripId, handler);
+      return handler;
+    },
+    [stableTripPress]
   );
 
   const handleMarkVisited = useCallback(() => {
@@ -335,12 +354,12 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         <TripCard
           trip={item}
           flagEmoji={flagEmoji}
-          onPress={() => handleTripPress(item)}
+          onPress={getTripPressHandler(item.id)}
           testID={`trip-card-${item.id}`}
         />
       </View>
     ),
-    [flagEmoji, handleTripPress]
+    [flagEmoji, getTripPressHandler]
   );
 
   const ListHeader = useMemo(
@@ -460,6 +479,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       <StatusBar barStyle="light-content" />
 
       <CountryHero
+        countryCode={code}
         displayName={displayName}
         subregion={subregion}
         flagEmoji={flagEmoji}

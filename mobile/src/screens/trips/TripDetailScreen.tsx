@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -30,6 +31,7 @@ import { fonts } from '@constants/typography';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
 import { EntryWithPlace, useInfiniteEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import type { TripsStackScreenProps } from '@navigation/types';
@@ -148,6 +150,24 @@ export function TripDetailScreen({ route, navigation }: Props) {
     [navigation, tripId]
   );
 
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableEntryPress = useStableCallback(handleEntryPress);
+
+  // Per-id, stable onPress callbacks so EntryGridCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const entryPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getEntryPressHandler = useCallback(
+    (entryId: string) => {
+      const existing = entryPressCallbacksRef.current.get(entryId);
+      if (existing) return existing;
+      const handler = () => stableEntryPress(entryId);
+      entryPressCallbacksRef.current.set(entryId, handler);
+      return handler;
+    },
+    [stableEntryPress]
+  );
+
   const handleConfirmDelete = useCallback(async () => {
     setShowDeleteConfirm(false);
     try {
@@ -183,9 +203,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const renderEntry = useCallback(
     ({ item }: { item: EntryWithPlace }) => (
-      <EntryGridCard entry={item} onPress={() => handleEntryPress(item.id)} />
+      <EntryGridCard entry={item} onPress={getEntryPressHandler(item.id)} />
     ),
-    [handleEntryPress]
+    [getEntryPressHandler]
   );
 
   const renderHeader = useCallback(
@@ -260,9 +280,13 @@ export function TripDetailScreen({ route, navigation }: Props) {
         // WITH COVER PHOTO - Hero Section
         <View style={styles.heroContainer}>
           <SharedTripImage tripId={tripId} style={styles.sharedImageContainer}>
-            <Image
+            <ExpoImage
+              testID="trip-detail-cover-image"
               source={{ uri: trip.cover_image_url! }}
               style={styles.coverImage}
+              contentFit="cover"
+              recyclingKey={tripId}
+              cachePolicy="memory-disk"
               onError={() => setCoverImageError(true)}
             />
           </SharedTripImage>

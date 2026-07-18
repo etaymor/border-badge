@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Easing,
-  Image,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
@@ -325,6 +325,7 @@ export default function CelebrationOverlay({
           >
             {imageSource ? (
               <Image
+                testID="celebration-image"
                 source={imageSource}
                 style={[
                   type === 'home' ? styles.stampImage : styles.illustrationImage,
@@ -333,7 +334,9 @@ export default function CelebrationOverlay({
                     height: type === 'home' ? imageSize : imageSize * 0.85,
                   },
                 ]}
-                resizeMode="contain"
+                contentFit="contain"
+                recyclingKey={countryCode}
+                cachePolicy="memory-disk"
               />
             ) : (
               <View style={styles.fallbackContainer}>

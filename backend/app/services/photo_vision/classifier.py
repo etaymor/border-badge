@@ -16,6 +16,7 @@ from .constants import (
     CLASSIFICATION_SYSTEM_PROMPT,
     CLASSIFICATION_USER_PROMPT,
     GENERIC_TEXT_WORDS,
+    GENERIC_VENUE_WORDS,
     VISION_CATEGORIES,
     VISION_CONFIDENCE_LEVELS,
 )
@@ -32,40 +33,49 @@ class VisionResult:
     )
     detected_text: list[str] = field(default_factory=list)
     confidence: str = "low"  # high, medium, low
+    # Common name of a visually recognized famous landmark ("Eiffel Tower"),
+    # independent of readable signage — monument photos usually have none.
+    # Costs nothing extra (same LLM call); powers the landmark text-rescue.
+    landmark_name: str | None = None
+
+    @staticmethod
+    def _is_business_name_text(text: str) -> bool:
+        """Whether a detected text string plausibly names a business.
+
+        Multi-word phrases qualify unless any word is generic (EXIT, OPEN...).
+        Single words qualify too — many iconic venues have one-word names
+        (Noma, Nobu, Aman, Gucci) that would otherwise never earn the
+        name-match ranking bonus — but require 4+ characters, at least one
+        letter, and absence from the generic-word list to keep OCR noise out.
+        """
+        stripped = text.strip()
+        if not stripped:
+            return False
+        lower = stripped.lower()
+        if lower in GENERIC_TEXT_WORDS:
+            return False
+        words = stripped.split()
+        if len(words) >= 2:
+            return not any(w.lower() in GENERIC_TEXT_WORDS for w in words)
+        return (
+            len(stripped) >= 4
+            and any(c.isalpha() for c in stripped)
+            and lower not in GENERIC_VENUE_WORDS
+        )
 
     @property
     def has_business_name(self) -> bool:
-        """Check if detected text contains potential business names.
-
-        Filters out generic words (EXIT, OPEN, WELCOME) and requires
-        2+ word phrases that could be business names.
-        """
-        for text in self.detected_text:
-            words = text.strip().split()
-            if len(words) < 2:
-                continue
-            lower = text.lower().strip()
-            if lower in GENERIC_TEXT_WORDS:
-                continue
-            # Not a single generic word
-            if not any(w.lower() in GENERIC_TEXT_WORDS for w in words):
-                return True
-        return False
+        """Check if detected text contains potential business names."""
+        return any(self._is_business_name_text(t) for t in self.detected_text)
 
     @property
     def business_name_candidates(self) -> list[str]:
         """Get non-generic text strings suitable for text search."""
-        candidates = []
-        for text in self.detected_text:
-            words = text.strip().split()
-            if len(words) < 2:
-                continue
-            lower = text.lower().strip()
-            if lower in GENERIC_TEXT_WORDS:
-                continue
-            if not any(w.lower() in GENERIC_TEXT_WORDS for w in words):
-                candidates.append(text.strip())
-        return candidates
+        return [
+            text.strip()
+            for text in self.detected_text
+            if self._is_business_name_text(text)
+        ]
 
 
 class PhotoClassifier:
@@ -184,10 +194,17 @@ class PhotoClassifier:
         # Ensure all items are strings
         detected_text = [str(t) for t in detected_text if t]
 
+        landmark_name = data.get("landmark_name")
+        if not isinstance(landmark_name, str) or not landmark_name.strip():
+            landmark_name = None
+        else:
+            landmark_name = landmark_name.strip()
+
         return VisionResult(
             category=category,
             detected_text=detected_text,
             confidence=confidence,
+            landmark_name=landmark_name,
         )
 
     @staticmethod
@@ -242,10 +259,23 @@ class PhotoClassifier:
                 seen_text.add(key)
                 detected_text.append(normalized)
 
+        # Keep the most confident photo's recognized landmark name (ties by
+        # first seen — same rule as the category vote).
+        landmark_name: str | None = None
+        best_weight = 0.0
+        for result in valid_results:
+            if not result.landmark_name:
+                continue
+            weight = confidence_weights.get(result.confidence, 1.0)
+            if weight > best_weight:
+                best_weight = weight
+                landmark_name = result.landmark_name
+
         return VisionResult(
             category=best_category,
             detected_text=detected_text,
             confidence=aggregate_confidence,
+            landmark_name=landmark_name,
         )
 
 

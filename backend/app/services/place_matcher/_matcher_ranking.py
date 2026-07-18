@@ -14,11 +14,33 @@ from .constants import (
     TIME_HINT_TYPE_MATCHES,
     TYPE_TO_CATEGORY,
 )
-from .utils import haversine, sanitize_address, sanitize_place_name
+from .utils import (
+    haversine,
+    name_match_strength,
+    sanitize_address,
+    sanitize_place_name,
+)
 
 # Vision scoring constants
 VISION_HIGH_CONFIDENCE_BONUS = 1.5
 VISION_MEDIUM_CONFIDENCE_BONUS = 0.75
+
+# Bonus when a candidate's name STRONG-matches vision-detected signage text
+# (same venue per name_match_strength). A readable business name in the user's
+# own photo is near-conclusive evidence of the visited place, so this must
+# outweigh the combined review/fame/rating advantage of a mega-famous neighbor
+# (~8 points for a 400k-review landmark).
+NAME_MATCH_BONUS = 9.0
+
+# Bonus for a WEAK match — the detected name appears inside a longer, different
+# name ("Batobus- Musée d'Orsay" when the signage read "Musée d'Orsay"). Being
+# named after the venue is a mild proximity/relevance hint, never decisive: it
+# must stay below the vision category bonus and a ~50m distance advantage.
+# Lodging-typed candidates get NOTHING from a weak match unless the photo
+# itself is of accommodation (vision "stay") — short-term rentals are
+# systematically named after nearby landmarks, which is how a Paris import
+# suggested "Gorgeous 3 Bedroom Flat at Eiffel Tower" for Eiffel Tower photos.
+WEAK_NAME_MATCH_BONUS = 2.0
 
 
 class RankingMixin:
@@ -109,6 +131,21 @@ class RankingMixin:
         cluster_lat = cluster["centroid"]["latitude"]
         cluster_lng = cluster["centroid"]["longitude"]
 
+        name_candidates: list[str] = (
+            vision_result.business_name_candidates if vision_result is not None else []
+        )
+
+        def _best_name_match_strength(raw_name: str) -> str:
+            """Best match tier across all detected name candidates."""
+            best = "none"
+            for candidate in name_candidates:
+                strength = name_match_strength(raw_name, candidate)
+                if strength == "strong":
+                    return "strong"
+                if strength == "weak":
+                    best = "weak"
+            return best
+
         # Compute dwell minutes from cluster time range
         dwell_minutes: float | None = None
         start_time = cluster.get("start_time")
@@ -161,6 +198,7 @@ class RankingMixin:
                     "_rating_count": rating_count,
                     "_rating": rating,
                     "_primary_type": primary_type,
+                    "_name_match": _best_name_match_strength(raw_name),
                 }
             )
 
@@ -186,6 +224,51 @@ class RankingMixin:
                 return VISION_HIGH_CONFIDENCE_BONUS
             return VISION_MEDIUM_CONFIDENCE_BONUS
 
+        def _type_prior(x: dict) -> float:
+            """Lodging demotion + landmark boost (U3). Positive = worse rank.
+
+            The rating-blind wide pass ranks on distance and vision alone, so
+            without a type prior zero-review Airbnbs win dense residential
+            cells and museum micro-POIs beat the museum itself.
+            """
+
+            def _magnitude(name: str, default: float) -> float:
+                value = getattr(self._settings, name, default)
+                return float(value) if isinstance(value, int | float) else default
+
+            prior = 0.0
+            place_types = set(x["types"])
+
+            if place_types & VISION_TO_PLACE_TYPES["stay"]:
+                penalty = _magnitude("places_rank_lodging_penalty", 2.5)
+                vision_category = (
+                    vision_result.category if vision_result is not None else None
+                )
+                vision_usable = (
+                    vision_result is not None
+                    and vision_result.confidence != "low"
+                    and vision_category in VISION_TO_PLACE_TYPES
+                )
+                if vision_category == "stay":
+                    pass  # the photo IS accommodation — no demotion
+                elif vision_usable:
+                    prior += penalty
+                else:
+                    # No signal either way: demote softly so junk listings
+                    # stop winning on distance but a real hotel stays close.
+                    prior += penalty * 0.5
+
+            if (
+                vision_result is not None
+                and vision_result.category == "landmark"
+                and vision_result.confidence != "low"
+                and place_types & VISION_TO_PLACE_TYPES["landmark"]
+            ):
+                boost = _magnitude("places_rank_landmark_boost", 1.5)
+                prior -= boost if vision_result.confidence == "high" else boost / 2
+
+            return prior
+
         def sort_key(x: dict) -> float:
             distance_m = x["distance_m"]
             review_count = x["_rating_count"]
@@ -201,6 +284,7 @@ class RankingMixin:
             fame_weight = _weight("places_rank_fame_weight")
             dwell_weight = _weight("places_rank_dwell_weight")
             vision_weight = _weight("places_rank_vision_weight")
+            name_match_weight = _weight("places_rank_name_match_weight")
 
             # Distance penalty: 1 point per 20m bucket (unchanged)
             distance_penalty = (distance_m / 20.0) * distance_weight
@@ -226,6 +310,24 @@ class RankingMixin:
             # Vision category bonus
             vision = _vision_bonus(x["types"]) * vision_weight
 
+            # Vision signage name-match bonus. Strong (same venue) dominates;
+            # weak (containment) is a mild hint, zeroed for lodging unless the
+            # photo itself is of accommodation — see WEAK_NAME_MATCH_BONUS.
+            strength = x["_name_match"]
+            if strength == "strong":
+                name_match = NAME_MATCH_BONUS
+            elif strength == "weak":
+                is_lodging = bool(set(x["types"]) & VISION_TO_PLACE_TYPES["stay"])
+                vision_is_stay = (
+                    vision_result is not None and vision_result.category == "stay"
+                )
+                name_match = (
+                    0.0 if is_lodging and not vision_is_stay else WEAK_NAME_MATCH_BONUS
+                )
+            else:
+                name_match = 0.0
+            name_match *= name_match_weight
+
             # Lower score = better rank
             return (
                 distance_penalty
@@ -234,6 +336,8 @@ class RankingMixin:
                 - fame
                 - dwell_cat
                 - vision
+                - name_match
+                + _type_prior(x)
             )
 
         ranked.sort(key=sort_key)
@@ -243,5 +347,6 @@ class RankingMixin:
             del r["_rating_count"]
             del r["_rating"]
             del r["_primary_type"]
+            del r["_name_match"]
 
         return ranked

@@ -24,6 +24,13 @@ import {
 import { createMockMediaFile, createMockLocalFile } from '../utils/mockFactories';
 import { createTestQueryClient } from '../utils/testUtils';
 
+// useUploadMedia resizes via resizeImageForUpload before uploading. These upload-
+// orchestration tests are not about resize (which has its own unit test), so mock
+// it to a pass-through so the native image-manipulator/getSize stack isn't exercised.
+jest.mock('@services/mediaUpload', () => ({
+  resizeImageForUpload: jest.fn((file) => Promise.resolve(file)),
+}));
+
 // Type the mocks
 const mockedApi = api as jest.Mocked<typeof api>;
 const mockedGetStoredToken = getStoredToken as jest.MockedFunction<typeof getStoredToken>;

@@ -62,6 +62,18 @@ export function OnboardingNavigator() {
         // (including 6 country grids and several video screens), this prevents
         // the cumulative lag the user notices by the end of the flow.
         freezeOnBlur: true,
+        // Detach buried onboarding screens so react-freeze actually engages.
+        // freezeOnBlur alone never froze anything here: the blank-stack's
+        // active-screens window only shrinks past a screen that declares
+        // `detachPreviousScreen`, so without it every screen stayed active
+        // (activityState = 1) and kept running store updates + animations.
+        // Applying it on screenOptions covers every route — including each
+        // ContinentIntro instance pushed by the "No" chain — so screens below
+        // the top freeze. Detach does NOT unmount; back-navigation still
+        // restores the previous screen, so the intentional ContinentIntro "No"
+        // push chain and grid→intro back navigation keep working. No transition
+        // preset changes; this only affects lifecycle (freeze), not motion.
+        detachPreviousScreen: true,
       }}
       initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'WelcomeCarousel'}
     >

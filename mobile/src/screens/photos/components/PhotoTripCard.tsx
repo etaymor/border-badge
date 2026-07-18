@@ -19,7 +19,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -38,6 +37,7 @@ import { useCountryByCode } from '@hooks/useCountries';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getFlagEmoji } from '@utils/flags';
+import { PhotoThumbnail } from './PhotoThumbnail';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -83,6 +83,7 @@ export function PhotoTripCard({
   const photoCount = candidate.photoCount;
   // We display up to 3 images in the masonry layout (1 big, 2 small)
   const previewUris = candidate.previewUris.slice(0, 3);
+  const previewAssetIds = candidate.previewAssetIds.slice(0, 3);
 
   // Animation values
   const scale = useSharedValue(1);
@@ -189,46 +190,34 @@ export function PhotoTripCard({
         <View style={styles.photosGrid}>
           {/* Left Column - Large Image */}
           <View style={styles.leftColumn}>
-            {previewUris[0] ? (
-              <Image
-                source={{ uri: previewUris[0] }}
-                style={styles.imageFull}
-                contentFit="cover"
-                transition={200}
-                recyclingKey={previewUris[0]}
-              />
-            ) : (
-              <View style={styles.placeholderFull} />
-            )}
+            <PhotoThumbnail
+              uri={previewUris[0]}
+              assetId={previewAssetIds[0]}
+              style={styles.imageFull}
+              contentFit="cover"
+              transition={200}
+            />
           </View>
 
           {/* Right Column - Stacked Images */}
           <View style={styles.rightColumn}>
             <View style={styles.rightImageContainer}>
-              {previewUris[1] ? (
-                <Image
-                  source={{ uri: previewUris[1] }}
-                  style={styles.imageFull}
-                  contentFit="cover"
-                  transition={200}
-                  recyclingKey={previewUris[1]}
-                />
-              ) : (
-                <View style={styles.placeholderFull} />
-              )}
+              <PhotoThumbnail
+                uri={previewUris[1]}
+                assetId={previewAssetIds[1]}
+                style={styles.imageFull}
+                contentFit="cover"
+                transition={200}
+              />
             </View>
             <View style={styles.rightImageContainer}>
-              {previewUris[2] ? (
-                <Image
-                  source={{ uri: previewUris[2] }}
-                  style={styles.imageFull}
-                  contentFit="cover"
-                  transition={200}
-                  recyclingKey={previewUris[2]}
-                />
-              ) : (
-                <View style={styles.placeholderFull} />
-              )}
+              <PhotoThumbnail
+                uri={previewUris[2]}
+                assetId={previewAssetIds[2]}
+                style={styles.imageFull}
+                contentFit="cover"
+                transition={200}
+              />
               {/* Overlay for remaining photos */}
               {photoCount > 3 && (
                 <View style={styles.morePhotosOverlay}>
@@ -315,11 +304,6 @@ const styles = StyleSheet.create({
   imageFull: {
     width: '100%',
     height: '100%',
-  },
-  placeholderFull: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: colors.border,
   },
   morePhotosOverlay: {
     ...StyleSheet.absoluteFillObject,

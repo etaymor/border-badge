@@ -26,11 +26,31 @@ class TestVisionResultHasBusinessName:
         )
         assert result.has_business_name is True
 
-    def test_returns_false_for_single_words(self) -> None:
-        """Single words are not considered business names."""
+    def test_returns_true_for_single_word_proper_names(self) -> None:
+        """One-word venue names (Noma, Nobu) count as business names."""
+        for name in ["Noma", "Septime", "Starbucks"]:
+            result = VisionResult(
+                category="food",
+                detected_text=[name],
+                confidence="high",
+            )
+            assert result.has_business_name is True, f"'{name}' should qualify"
+
+    def test_returns_false_for_single_generic_venue_words(self) -> None:
+        """Standalone venue-category nouns (RESTAURANT, CAFE) are not names."""
+        for word in ["Restaurant", "CAFE", "Hotel", "BAR", "Pizza"]:
+            result = VisionResult(
+                category="food",
+                detected_text=[word],
+                confidence="high",
+            )
+            assert result.has_business_name is False, f"'{word}' should not qualify"
+
+    def test_returns_false_for_short_single_words(self) -> None:
+        """Single words under 4 characters are treated as OCR noise."""
         result = VisionResult(
             category="food",
-            detected_text=["Restaurant"],
+            detected_text=["Tea", "123456"],
             confidence="high",
         )
         assert result.has_business_name is False
@@ -79,15 +99,15 @@ class TestVisionResultHasBusinessName:
 class TestVisionResultBusinessNameCandidates:
     """Tests for VisionResult.business_name_candidates property."""
 
-    def test_filters_single_words(self) -> None:
-        """Single words should be excluded from candidates."""
+    def test_single_word_proper_names_are_candidates(self) -> None:
+        """One-word venue names qualify; generic venue nouns do not."""
         result = VisionResult(
             category="food",
-            detected_text=["Starbucks", "Tsukiji Fish Market"],
+            detected_text=["Starbucks", "Restaurant", "Tsukiji Fish Market"],
             confidence="high",
         )
         candidates = result.business_name_candidates
-        assert candidates == ["Tsukiji Fish Market"]
+        assert candidates == ["Starbucks", "Tsukiji Fish Market"]
 
     def test_filters_generic_words(self) -> None:
         """Generic text should be excluded from candidates."""
@@ -209,6 +229,47 @@ class TestParseResponse:
         assert result.category == "unknown"
         assert result.detected_text == []
         assert result.confidence == "low"
+
+    def test_landmark_name_parsed(self) -> None:
+        """U5: the model's recognized-landmark name is carried through."""
+        content = json.dumps(
+            {
+                "category": "landmark",
+                "detected_text": [],
+                "confidence": "high",
+                "reasoning": "test",
+                "landmark_name": "Eiffel Tower",
+            }
+        )
+
+        result = PhotoClassifier._parse_response(content)
+
+        assert result is not None
+        assert result.landmark_name == "Eiffel Tower"
+
+    def test_landmark_name_absent_or_blank_is_none(self) -> None:
+        """Older responses without the field (and blank strings) yield None."""
+        assert PhotoClassifier._parse_response(json.dumps({})).landmark_name is None
+        blank = json.dumps(
+            {
+                "category": "landmark",
+                "detected_text": [],
+                "confidence": "high",
+                "reasoning": "test",
+                "landmark_name": "   ",
+            }
+        )
+        assert PhotoClassifier._parse_response(blank).landmark_name is None
+
+    def test_landmark_name_in_strict_schema(self) -> None:
+        """The strict response schema must declare (and require) the field."""
+        from app.services.photo_vision.constants import (
+            CLASSIFICATION_RESPONSE_FORMAT,
+        )
+
+        schema = CLASSIFICATION_RESPONSE_FORMAT["json_schema"]["schema"]
+        assert "landmark_name" in schema["properties"]
+        assert "landmark_name" in schema["required"]
 
     def test_detected_text_non_list_defaults_to_empty(self) -> None:
         """If detected_text is not a list, default to empty list."""
@@ -340,6 +401,39 @@ class TestAggregateResults:
 
         assert merged is not None
         assert merged.detected_text == ["Sushi Dai", "Menu", "Open"]
+
+    def test_landmark_name_carried_from_highest_confidence(self) -> None:
+        """U5: aggregation keeps the most confident photo's landmark name."""
+        results = [
+            VisionResult(
+                category="landmark",
+                detected_text=[],
+                confidence="low",
+                landmark_name="Sacré-Cœur",
+            ),
+            VisionResult(
+                category="landmark",
+                detected_text=[],
+                confidence="high",
+                landmark_name="Eiffel Tower",
+            ),
+            VisionResult(category="landmark", detected_text=[], confidence="medium"),
+        ]
+
+        merged = PhotoClassifier.aggregate_results(results)
+
+        assert merged is not None
+        assert merged.landmark_name == "Eiffel Tower"
+
+    def test_landmark_name_none_when_no_photo_has_one(self) -> None:
+        results = [
+            VisionResult(category="landmark", detected_text=[], confidence="high"),
+        ]
+
+        merged = PhotoClassifier.aggregate_results(results)
+
+        assert merged is not None
+        assert merged.landmark_name is None
 
 
 # ============================================================================
