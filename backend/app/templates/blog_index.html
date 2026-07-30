@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_blog_card.html" as cards %}
+
+{# One template serves both /blog and /blog/category/{slug}; the only
+   differences are the heading, the active chip, and the canonical URL, all of
+   which arrive in the route context. Two templates would just be two places for
+   the card grid to drift. #}
+
+{% block content %}
+<section class="blog-page">
+  <header class="blog-hero">
+    {% if active_category %}
+    <nav class="blog-breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span aria-hidden="true">/</span>
+      <a href="/blog">Blog</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ heading }}</span>
+    </nav>
+    {% endif %}
+    <h1>{{ heading }}</h1>
+    <p class="blog-hero-subtitle">{{ subheading }}</p>
+
+    <nav class="blog-chips" aria-label="Categories">
+      <a href="/blog"
+         class="category-chip{% if not active_category %} is-active{% endif %}">
+        All posts
+      </a>
+      {% for category in categories %}
+      <a href="/blog/category/{{ category.slug }}"
+         class="category-chip{% if active_category == category.slug %} is-active{% endif %}">
+        {{ category.label }}
+      </a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  {% if posts %}
+  <div class="blog-grid">
+    {% for post in posts %}
+    {{ cards.blog_card(post) }}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="blog-empty">No posts here yet. Check back soon.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/ld+json" nonce="{{ request.state.csp_nonce }}">
+{{ structured_data | tojson }}
+</script>
+{% endblock %}

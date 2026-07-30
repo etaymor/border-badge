@@ -4,17 +4,20 @@ import json
 import re
 from typing import Any
 from unittest.mock import AsyncMock, patch
+from xml.etree import ElementTree as ET
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.api.public as public_module
+from app.core.blog import get_registry as blog_registry
 from app.core.config import Settings, get_settings
 from app.core.media import AVATAR_WIDTH
 from app.core.security import AuthUser, get_current_user
 from app.core.seo import LANDING_FAQS
 from app.core.share_view import CATEGORY_STYLES
 from app.main import app
+from app.schemas.share import MAP_NOTE_LIMIT
 from tests.conftest import (
     OTHER_USER_ID,
     TEST_ENTRY_ID,
@@ -1043,12 +1046,50 @@ def test_share_route_csp_style_src_is_nonce_only(
     client: TestClient,
     mock_supabase_client: AsyncMock,
 ) -> None:
-    """R10: Maps support must not weaken style-src to 'unsafe-inline'."""
+    """R10: Maps support must not weaken style-src to 'unsafe-inline'.
+
+    Do not "fix" a blocked-stylesheet failure by relaxing this. The Maps API
+    stamps its own injected <style> elements with the nonce it reads off the
+    first `style[nonce]` in the document, so the correct fix is the nonce donor
+    in base.html (see `test_pages_carry_a_nonced_style_donor_for_maps`). Adding
+    'unsafe-inline' would not even work: a nonce in the source list makes
+    browsers ignore 'unsafe-inline' outright.
+    """
     for path in ("/l/some-slug", "/t/some-slug"):
         csp = _csp_for_share_route(client, mock_supabase_client, path)
         style_src = _csp_directive(csp, "style-src")
         assert "'nonce-" in style_src
         assert "'unsafe-inline'" not in style_src
+
+
+def _style_src_nonce(csp: str) -> str:
+    """Pull the nonce value out of a policy's style-src directive."""
+    match = re.search(r"'nonce-([^']+)'", _csp_directive(csp, "style-src"))
+    assert match, f"style-src carries no nonce: {csp}"
+    return match.group(1)
+
+
+def test_pages_carry_a_nonced_style_donor_for_maps(client: TestClient) -> None:
+    """base.html must ship a <style nonce> for the Maps API to copy.
+
+    The Maps JS API installs all of its classic chrome -- the InfoWindow bubble,
+    its tail and shadow, the control hover states -- through a <style> element it
+    creates at runtime. It stamps a nonce on that element only when
+    `document.querySelector("style[nonce]")` matches; a nonced <link> or <script>
+    does not. Our style-src is nonce-only with no 'unsafe-inline' (deliberately,
+    see the test above), so with no donor those stylesheets are refused and the
+    InfoWindow renders as an unstyled block with a broken close button.
+
+    Asserted on a non-share route too because the donor lives in base.html: the
+    default policy is also nonce-only, so a nonce-less donor would break
+    every page.
+    """
+    for path in ("/", "/privacy"):
+        response = client.get(path)
+        nonce = _style_src_nonce(response.headers[CSP_HEADER])
+        assert re.search(
+            rf'<style nonce="{re.escape(nonce)}"', response.text
+        ), f"{path} has no style[nonce] for the Maps API to copy"
 
 
 def test_non_share_routes_csp_has_no_unsafe_eval(client: TestClient) -> None:
@@ -1457,18 +1498,22 @@ def _entry_row(
     media: list[dict[str, Any]] | None = None,
     lat: float | None = None,
     lng: float | None = None,
+    notes: str | None = None,
+    google_place_id: str | None = None,
+    title: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": f"le-{index}",
         "position": index,
         "entry": {
             "id": f"00000000-0000-0000-0000-{index:012d}",
-            "title": f"Entry {index}",
+            "title": title if title is not None else f"Entry {index}",
             "type": entry_type,
-            "notes": f"Note {index}",
+            "notes": notes if notes is not None else f"Note {index}",
             "place": {
                 "place_name": f"Place {index}",
                 "address": "Istanbul",
+                "google_place_id": google_place_id,
                 "lat": lat,
                 "lng": lng,
             },
@@ -1785,6 +1830,121 @@ def test_map_data_carries_only_entries_with_coordinates(
     assert second["color"] == CATEGORY_STYLES["food"].pin
 
 
+def _map_payload(response: Any) -> list[dict[str, Any]]:
+    """Parse the entries out of the page's share-map-data block."""
+    block = re.search(
+        r'<script type="application/json" id="share-map-data"[^>]*>(.*?)</script>',
+        response.text,
+        re.DOTALL,
+    )
+    assert block, "the page has no share-map-data block"
+    return json.loads(block.group(1))["entries"]
+
+
+def test_map_list_rows_carry_the_ordinal_that_joins_them_to_a_pin(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """`data-ordinal` is the only tie between a place row and its marker.
+
+    share-map.js looks pins up by this value, so a row whose ordinal drifts from
+    the payload's silently stops responding to taps -- with nothing in the
+    console, because the lookup just misses.
+    """
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [
+            _entry_row(0, lat=41.0082, lng=28.9784),
+            _entry_row(1),  # no coordinates: absent from both list and map
+            _entry_row(2, entry_type="food", lat=41.03, lng=28.97),
+        ],
+    )
+
+    rows = re.findall(
+        r'<li class="share-map-list-item" data-ordinal="(\d+)"', response.text
+    )
+    assert rows == ["1", "3"]
+    assert [str(entry["ordinal"]) for entry in _map_payload(response)] == rows
+
+
+def test_map_payload_carries_the_info_card_fields(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A tapped pin renders category, place, note and a Maps link from this."""
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, entry_type="food", lat=41.0082, lng=28.9784)],
+    )
+
+    entry = _map_payload(response)[0]
+    assert entry["type"] == "food"
+    assert entry["category"] == CATEGORY_STYLES["food"].label
+    assert entry["place"] == "Place 0"
+    assert entry["note"] == "Note 0"
+    assert entry["mapsUrl"] == (
+        "https://www.google.com/maps/search/?api=1&query=41.0082%2C28.9784"
+    )
+
+
+def test_map_payload_maps_url_prefers_the_place_id(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """With a place id Maps resolves the venue, not just a dropped pin."""
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, lat=41.0, lng=28.9, google_place_id="ChIJ_abc123")],
+    )
+
+    maps_url = _map_payload(response)[0]["mapsUrl"]
+    assert "query_place_id=ChIJ_abc123" in maps_url
+    # Google requires `query` alongside the id and falls back to it if the id
+    # stops resolving, so both must be present.
+    assert "query=41.0%2C28.9" in maps_url
+
+
+def test_map_payload_truncates_long_notes(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The card is a glance. The full note is already in the feed row below.
+
+    This blob sits inline in the HTML of a page that renders up to 50 entries,
+    so an uncapped note is 50x page weight for text nobody reads on a pin.
+    """
+    long_note = "word " * 200
+    response = _list_page_with_maps_configured(
+        client,
+        mock_supabase_client,
+        [_entry_row(0, lat=41.0, lng=28.9, notes=long_note)],
+    )
+
+    note = _map_payload(response)[0]["note"]
+    assert len(note) <= MAP_NOTE_LIMIT + 1  # +1 for the ellipsis
+    assert note.endswith("…")
+    # The feed row below still carries the whole thing -- the cap is about the
+    # inline JSON blob, not about withholding content.
+    assert long_note.strip() in response.text
+
+
+def test_map_payload_carries_no_photo_url(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """R5 guard, extended: photo URLs embed the server-side Places key.
+
+    The info card is text-only partly for weight and partly for this: adding a
+    `place_photo_url` to the payload would put a keyed Google URL into public
+    HTML, which `test_map_never_leaks_the_server_side_places_key` would catch
+    only for the one key spelling it knows about.
+    """
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+
+    entry = _map_payload(response)[0]
+    assert "photo" not in " ".join(entry.keys()).lower()
+
+
 def test_map_data_script_carries_the_csp_nonce(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
@@ -1798,6 +1958,30 @@ def test_map_data_script_carries_the_csp_nonce(
     )
     assert tag
     assert "nonce=" in tag.group(1)
+
+
+def test_style_nonce_donor_is_in_head_before_the_map_boots(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The donor must be the first style[nonce], and must precede the map.
+
+    Two ordering facts make this load-bearing: Maps reads the *first* matching
+    element in document order, and it reads it at the moment it injects, which is
+    after `share-map.js` boots. A donor added late (or after another nonced
+    <style>) silently stops covering the InfoWindow.
+    """
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+    nonce = _style_src_nonce(response.headers[CSP_HEADER])
+
+    donors = [m.start() for m in re.finditer(r"<style\b[^>]*\bnonce=", response.text)]
+    assert len(donors) == 1, "a second nonced <style> would shadow the donor"
+
+    head_end = response.text.index("</head>")
+    assert donors[0] < head_end, "the donor must be in <head>, before Maps boots"
+    assert f'<style nonce="{nonce}"' in response.text
+    assert donors[0] < response.text.index("share-map-data")
 
 
 def test_map_never_leaks_the_server_side_places_key(
@@ -1886,3 +2070,464 @@ def test_filter_script_loads_even_without_a_map(
 
     assert 'id="share-map"' not in response.text  # no map...
     assert "js/share-map.js" in response.text  # ...but the filter still loads
+
+
+# ============================================================================
+# Map export: "get this map" (KML for Google My Maps)
+#
+# Nothing can write into a visitor's Google Maps saved places -- no API exists.
+# The download is the honest ceiling, so these tests care as much about the
+# instructions being present as about the file being correct.
+# ============================================================================
+
+KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
+
+
+def _kml_document(response: Any) -> ET.Element:
+    document = ET.fromstring(response.text).find("kml:Document", KML_NS)
+    assert document is not None
+    return document
+
+
+def test_map_section_offers_the_download_and_says_how_to_use_it(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A bare download link would imply Google Maps imports it directly.
+
+    It does not -- My Maps does, on desktop, by hand. The instructions are part
+    of the feature, and they sit in a <details> so they survive with JS off.
+    """
+    response = _list_page_with_maps_configured(
+        client, mock_supabase_client, [_entry_row(0, lat=41.0, lng=28.9)]
+    )
+
+    assert "/l/istanbul-abc123/map.kml" in response.text
+    assert "Download for Google My Maps" in response.text
+    assert "mymaps.google.com" in response.text
+    assert "<details" in response.text
+
+
+def test_map_export_absent_when_the_map_does_not_render(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The export lives inside the map section, so it shares its gate."""
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+
+    assert "Download for Google My Maps" not in response.text
+
+
+def _kml_entry(
+    title: str = "Hagia Sophia",
+    *,
+    entry_type: str = "place",
+    lat: float | None = 41.0086,
+    lng: float | None = 28.9802,
+    notes: str | None = "Go at opening",
+    place_name: str | None = "Hagia Sophia",
+    address: str | None = "Sultanahmet, Istanbul",
+    google_place_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "type": entry_type,
+        "notes": notes,
+        "place": {
+            "place_name": place_name,
+            "address": address,
+            "google_place_id": google_place_id,
+            "lat": lat,
+            "lng": lng,
+        },
+    }
+
+
+class _KmlTable:
+    """A seeded table that applies the endpoint's own PostgREST filters.
+
+    `supabase_tables` hands the query params to a seed only when that seed is
+    *callable* -- a static list is returned whole, whatever was asked for. So a
+    static seed cannot notice a dropped `limit` or `deleted_at`: the export
+    silently changes shape and the suite stays green.
+
+    This mirrors what PostgREST would do with the filters the endpoint actually
+    sent, so a missing filter changes the rows and the outcome assertion fails
+    on its own. It also records the params, for the two things that have no
+    observable effect on the file: an *absent* limit, and the sort order.
+    """
+
+    def __init__(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        wrap_in: str | None = None,
+        seen: dict[str, Any] | None = None,
+    ) -> None:
+        self.rows = rows
+        self.wrap_in = wrap_in
+        self.seen = {} if seen is None else seen
+
+    def __call__(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        self.seen.clear()
+        self.seen.update(params)
+
+        rows = self.rows
+        if params.get("deleted_at") == "is.null":
+            rows = [row for row in rows if row.get("deleted_at") is None]
+        if params.get("limit") is not None:
+            rows = rows[: int(params["limit"])]
+
+        if self.wrap_in is None:
+            return rows
+        return [{self.wrap_in: row} for row in rows]
+
+
+def _list_kml(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    entries: list[dict[str, Any]],
+    *,
+    seen: dict[str, Any] | None = None,
+) -> Any:
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{"id": TEST_LIST_ID, "name": "Istanbul", "description": "Two trips"}],
+        list_entries=_KmlTable(entries, wrap_in="entry", seen=seen),
+    )
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        return client.get("/l/istanbul-abc123/map.kml")
+
+
+def _trip_kml(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    entries: list[dict[str, Any]],
+    *,
+    seen: dict[str, Any] | None = None,
+) -> Any:
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[{"id": TEST_TRIP_ID, "name": "Summer Vacation"}],
+        entry=_KmlTable(entries, seen=seen),
+    )
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        return client.get(f"/t/{TRIP_SLUG}/map.kml")
+
+
+def test_list_kml_downloads_as_a_file(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Content type and disposition are what make browsers save it."""
+    response = _list_kml(client, mock_supabase_client, [_kml_entry()])
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.google-earth.kml+xml"
+    )
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="istanbul-abc123.kml"'
+    )
+
+
+def test_list_kml_carries_each_place_with_its_details(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Name, place, address, note and the Maps link all survive the export."""
+    response = _list_kml(client, mock_supabase_client, [_kml_entry()])
+
+    placemark = _kml_document(response).find(".//kml:Placemark", KML_NS)
+    assert placemark.find("kml:name", KML_NS).text == "01. Hagia Sophia"
+
+    description = placemark.find("kml:description", KML_NS).text
+    assert "Sultanahmet, Istanbul" in description
+    assert "Go at opening" in description
+    assert "google.com/maps" in description
+
+    # Longitude first -- the reverse of every other pair in this codebase.
+    assert placemark.find(".//kml:coordinates", KML_NS).text == "28.9802,41.0086,0"
+
+
+def test_list_kml_groups_categories_in_the_canonical_order(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Folders become My Maps layers, so their order should match the legend."""
+    response = _list_kml(
+        client,
+        mock_supabase_client,
+        [
+            _kml_entry("Lokanta", entry_type="food"),
+            _kml_entry("Hagia Sophia", entry_type="place"),
+        ],
+    )
+
+    folders = _kml_document(response).findall("kml:Folder", KML_NS)
+    labels = [folder.find("kml:name", KML_NS).text for folder in folders]
+    # Places precedes Food in CATEGORY_STYLES even though Food came first here.
+    assert labels == [CATEGORY_STYLES["place"].label, CATEGORY_STYLES["food"].label]
+
+
+def test_list_kml_skips_entries_without_coordinates(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A placemark with no point is meaningless to My Maps.
+
+    The ordinals still count the skipped entry, so a downloaded pin's number
+    matches the page it came from.
+    """
+    response = _list_kml(
+        client,
+        mock_supabase_client,
+        [
+            _kml_entry("Hagia Sophia"),
+            _kml_entry("A dream", lat=None, lng=None),
+            _kml_entry("Lokanta", lat=41.02, lng=28.97),
+        ],
+    )
+
+    names = [
+        mark.find("kml:name", KML_NS).text
+        for mark in _kml_document(response).findall(".//kml:Placemark", KML_NS)
+    ]
+    assert names == ["01. Hagia Sophia", "03. Lokanta"]
+
+
+def test_list_kml_escapes_hostile_titles(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Titles are user input and reach the file as text, never as markup."""
+    response = _list_kml(
+        client,
+        mock_supabase_client,
+        [
+            _kml_entry(
+                "Ali & Sons </name><Placemark><name>x",
+                notes="<script>alert(1)</script>",
+            )
+        ],
+    )
+
+    assert "<script>" not in response.text
+    assert len(_kml_document(response).findall(".//kml:Placemark", KML_NS)) == 1
+
+
+def test_list_kml_uses_the_place_id_when_there_is_one(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Same precedence as the on-page link, so the two cannot disagree."""
+    response = _list_kml(
+        client, mock_supabase_client, [_kml_entry(google_place_id="ChIJ_xyz789")]
+    )
+
+    description = (
+        _kml_document(response).find(".//kml:Placemark/kml:description", KML_NS).text
+    )
+    assert "query_place_id=ChIJ_xyz789" in description
+
+
+def test_list_kml_404s_for_an_unknown_slug(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/l/nope-123/map.kml")
+
+    assert response.status_code == 404
+
+
+def test_list_kml_rejects_a_malformed_slug(client: TestClient) -> None:
+    """Same slug constraint as the page it hangs off."""
+    assert client.get("/l/Bad_Slug!/map.kml").status_code == 422
+
+
+def test_trip_kml_downloads_the_trip_places(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The trip page gets the same export; /t/ and /l/ must not drift."""
+    response = _trip_kml(client, mock_supabase_client, [_kml_entry("Hagia Sophia")])
+
+    assert response.status_code == 200
+    document = _kml_document(response)
+    assert document.find("kml:name", KML_NS).text == "Summer Vacation"
+    assert document.find(".//kml:Placemark/kml:name", KML_NS).text == "01. Hagia Sophia"
+
+
+def _kml_names(response: Any) -> list[str]:
+    return [
+        mark.find("kml:name", KML_NS).text
+        for mark in _kml_document(response).findall(".//kml:Placemark", KML_NS)
+    ]
+
+
+def test_trip_kml_exports_every_place_the_page_shows(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The trip page is uncapped, so its export has to be too.
+
+    A capped export sitting under a heading that reads "All 60 places, mapped"
+    hands the visitor a silent subset of what they were just promised -- and
+    unlimited entries per trip is a paid feature, so this is a customer path.
+    """
+    entries = [_kml_entry(f"Place {index:02d}") for index in range(1, 61)]
+    seen: dict[str, Any] = {}
+
+    response = _trip_kml(client, mock_supabase_client, entries, seen=seen)
+
+    names = _kml_names(response)
+    assert len(names) == 60
+    assert names[0] == "01. Place 01"
+    assert names[-1] == "60. Place 60"
+
+    assert seen, "the export never queried the entry table"
+    # No limit at all, matching `view_public_trip`'s own query. A row budget
+    # here would not show up in the file until a trip crossed it.
+    assert "limit" not in seen
+    assert seen["order"] == "created_at.desc"
+
+
+def test_trip_kml_keeps_places_the_newest_entries_would_have_pushed_out(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Coordinates are filtered after the fetch, not by the query.
+
+    A trip whose newest entries are all coordinate-less used to export an empty
+    file while the page below still rendered pins.
+    """
+    entries = [_kml_entry(f"Dream {index}", lat=None, lng=None) for index in range(50)]
+    entries.append(_kml_entry("Hagia Sophia"))
+
+    response = _trip_kml(client, mock_supabase_client, entries)
+
+    assert _kml_names(response) == ["51. Hagia Sophia"]
+
+
+def test_trip_kml_excludes_soft_deleted_entries(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Same `deleted_at` filter the trip page applies -- deleting means deleted."""
+    deleted = _kml_entry("Removed")
+    deleted["deleted_at"] = "2026-01-01T00:00:00Z"
+
+    response = _trip_kml(
+        client, mock_supabase_client, [deleted, _kml_entry("Hagia Sophia")]
+    )
+
+    assert _kml_names(response) == ["01. Hagia Sophia"]
+
+
+def test_list_kml_stops_where_the_list_page_stops(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Unlike the trip, the list page *is* capped -- and both must use one cap."""
+    entries = [_kml_entry(f"Place {index:02d}") for index in range(1, 61)]
+    seen: dict[str, Any] = {}
+
+    response = _list_kml(client, mock_supabase_client, entries, seen=seen)
+
+    assert len(_kml_names(response)) == public_module.PUBLIC_LIST_ENTRY_LIMIT
+    assert seen, "the export never queried the list_entries table"
+    assert seen["limit"] == public_module.PUBLIC_LIST_ENTRY_LIMIT
+    assert seen["order"] == "position.asc"
+
+
+def test_trip_kml_404s_for_an_unknown_slug(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/t/nope-123/map.kml")
+
+    assert response.status_code == 404
+
+
+def test_kml_routes_do_not_shadow_the_share_pages(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """`/l/{slug}` and `/l/{slug}/map.kml` must both keep resolving.
+
+    The slug pattern excludes `/`, which is what keeps these apart -- worth
+    pinning, because a looser pattern would silently swallow the page route.
+    """
+    response = _list_page(client, mock_supabase_client, [_entry_row(0)])
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+
+
+# ============================================================================
+# Blog integration: sitemap, canonical URLs, og:type
+# ============================================================================
+
+
+def test_sitemap_includes_blog_and_static_pages(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{"slug": "best-tacos-abc123"}],
+        trip=[{"share_slug": "summer-trip-xyz"}],
+    )
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    root = ET.fromstring(response.text)
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = [el.text for el in root.findall(".//sm:loc", ns)]
+
+    assert any(loc.endswith("/blog") for loc in locs)
+    assert any(loc.endswith("/blog/category/guides") for loc in locs)
+    for page in ("/privacy", "/terms", "/contact"):
+        assert any(loc.endswith(page) for loc in locs), page
+
+    registry = blog_registry()
+    for post in registry.posts:
+        assert any(loc.endswith(f"/blog/{post.slug}") for loc in locs), post.slug
+
+
+def test_sitemap_blog_entries_carry_lastmod(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    root = ET.fromstring(response.text)
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    for url_el in root.findall("sm:url", ns):
+        loc = url_el.find("sm:loc", ns).text
+        if "/blog/" in loc:
+            assert url_el.find("sm:lastmod", ns) is not None, loc
+
+
+def test_sitemap_adds_no_database_calls_for_blog(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Blog URLs come from the in-memory registry.
+
+    Pins the guarantee that adding posts never adds query load to the sitemap.
+    """
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        client.get("/sitemap.xml")
+    assert mock_supabase_client.get.call_count == 2
+
+
+@pytest.mark.parametrize("page", ["privacy", "terms", "contact"])
+def test_static_pages_now_emit_canonical(client: TestClient, page: str) -> None:
+    """These pages previously had OG tags but no canonical URL."""
+    response = client.get(f"/{page}")
+    assert response.status_code == 200
+    assert f'rel="canonical" href="http://localhost:8000/{page}"' in response.text
+
+
+def test_landing_og_type_is_website(client: TestClient) -> None:
+    assert 'og:type" content="website"' in client.get("/").text
+
+
+def test_header_nav_anchors_are_rooted(client: TestClient) -> None:
+    """Bare `#features` anchors dead-end on every page except the landing page."""
+    text = client.get("/privacy").text
+    assert 'href="#features"' not in text
+
+
+def test_blog_is_linked_from_the_footer(client: TestClient) -> None:
+    assert 'href="/blog"' in client.get("/privacy").text

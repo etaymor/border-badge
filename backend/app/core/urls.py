@@ -1,6 +1,8 @@
 """URL utilities shared across the backend."""
 
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+GOOGLE_MAPS_SEARCH_URL = "https://www.google.com/maps/search/"
 
 ALLOWED_EXTERNAL_URL_SCHEMES = frozenset({"http", "https"})
 MAX_URL_LENGTH = 2048
@@ -87,6 +89,38 @@ def safe_google_photo_url(url: str | None) -> str | None:
         return None
 
     return validated
+
+
+def google_maps_place_url(
+    latitude: float | None,
+    longitude: float | None,
+    google_place_id: str | None = None,
+) -> str | None:
+    """Build the canonical Google Maps URL for a place.
+
+    Coordinates put the visitor in the right spot; a place id makes Maps resolve
+    the actual venue rather than a dropped pin, so we send both when we have
+    both. Google's URL API treats `query` as required even when `query_place_id`
+    is present, and falls back to `query` when the id no longer resolves.
+
+    Returns `None` when there is nothing to point at, which is the signal for
+    callers to omit the link rather than render a dead one.
+    """
+    params: dict[str, str] = {"api": "1"}
+
+    if latitude is not None and longitude is not None:
+        params["query"] = f"{latitude},{longitude}"
+    elif google_place_id:
+        # No coordinates: the id has to carry `query` as well, since Maps
+        # rejects the URL outright without it.
+        params["query"] = google_place_id
+    else:
+        return None
+
+    if google_place_id:
+        params["query_place_id"] = google_place_id
+
+    return f"{GOOGLE_MAPS_SEARCH_URL}?{urlencode(params)}"
 
 
 def _validate_query_params(query_string: str) -> bool:

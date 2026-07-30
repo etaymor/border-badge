@@ -3,6 +3,11 @@
 {% block title %}Unsubscribe - Atlasi{% endblock %}
 {% block description %}Unsubscribe from Atlasi emails{% endblock %}
 
+{# Single-use tokenised URLs must never be indexed. #}
+{% block robots %}
+<meta name="robots" content="noindex, nofollow" />
+{% endblock %}
+
 {% block nav_links %}
 <nav class="nav-links">
   <a href="/" class="cta-button">Back to Home</a>

@@ -89,6 +89,17 @@
     grid-template-columns: 1fr;
   }
 
+  /* Full-width tap target for the download, and a card that fits a phone
+     without Google's bubble having to scroll it. */
+  .share-map-export-button {
+    display: block;
+    text-align: center;
+  }
+
+  .share-iw {
+    max-width: 220px;
+  }
+
   .share-map-title,
   .share-cta-title {
     font-size: 1.75rem;

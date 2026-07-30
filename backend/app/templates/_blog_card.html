@@ -1,0 +1,21 @@
+{# Post card, shared by the index, category pages, the related module and the
+   404 page. Imported as a macro the same way list_public.html imports
+   _share_page.html, so the markup cannot drift between those four places. #}
+{% macro blog_card(post, heading_level='h2') %}
+<article class="blog-card">
+  <a class="blog-card-link" href="{{ post.url_path }}">
+    <div class="blog-card-body">
+      <span class="blog-card-category">{{ post.category_label }}</span>
+      <{{ heading_level }} class="blog-card-title">{{ post.title }}</{{ heading_level }}>
+      <p class="blog-card-excerpt">{{ post.description }}</p>
+      <p class="blog-card-meta">
+        <time datetime="{{ post.published.isoformat() }}">
+          {{ post.published.strftime('%B %-d, %Y') }}
+        </time>
+        <span aria-hidden="true">&middot;</span>
+        <span>{{ post.reading_minutes }} min read</span>
+      </p>
+    </div>
+  </a>
+</article>
+{% endmacro %}

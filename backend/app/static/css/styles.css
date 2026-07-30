@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-07-15T00:25:16.883Z
+   Generated: 2026-07-30T16:57:15.374Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -1005,19 +1005,23 @@ body.has-hero .header .cta-button {
   color: var(--color-category-experience);
 }
 
-.share-chip.is-place {
+.share-chip.is-place,
+.share-iw-chip.is-place {
   background: var(--color-tint-blue);
   color: var(--color-category-place);
 }
-.share-chip.is-food {
+.share-chip.is-food,
+.share-iw-chip.is-food {
   background: var(--color-tint-rose);
   color: var(--color-category-food);
 }
-.share-chip.is-stay {
+.share-chip.is-stay,
+.share-iw-chip.is-stay {
   background: var(--color-tint-sage);
   color: var(--color-category-stay);
 }
-.share-chip.is-experience {
+.share-chip.is-experience,
+.share-iw-chip.is-experience {
   background: var(--color-tint-butter);
   color: var(--color-category-experience);
 }
@@ -1519,6 +1523,38 @@ body.has-hero .header .cta-button {
   gap: 12px;
   padding: 9px 4px;
   border-bottom: 1px solid rgba(23, 42, 58, 0.06);
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  transition:
+    background-color 0.15s ease,
+    border-left-color 0.15s ease;
+}
+
+/* `is-interactive` is added by share-map.js, and only once the map has actually
+   rendered. Keeping the affordance out of the server-rendered HTML is what stops
+   a page with no Map ID (or no JS) from showing rows that look tappable and
+   aren't. */
+.share-map-list-item.is-interactive {
+  cursor: pointer;
+  padding-left: 8px;
+}
+
+.share-map-list-item.is-interactive:hover {
+  background: rgba(47, 102, 144, 0.07);
+}
+
+.share-map-list-item.is-interactive:focus-visible {
+  outline: 2px solid var(--color-category-place);
+  outline-offset: 2px;
+}
+
+.share-map-list-item.is-active {
+  background: rgba(47, 102, 144, 0.1);
+  border-left-color: var(--color-category-place);
+}
+
+.share-map-list-item.is-active .share-map-list-name {
+  color: var(--color-midnight-navy);
 }
 
 .share-map-list-num {
@@ -1545,6 +1581,158 @@ body.has-hero .header .cta-button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- Map info card --------------------------------------------------------
+   The card share-map.js builds inside Google's InfoWindow when a pin or a place
+   row is tapped. We own the contents; Google owns the bubble, its tail, and the
+   close button.
+
+   Note the two .gm-* overrides at the end. Those class names are Maps
+   internals, not a public API -- they are here only to stop the bubble's own
+   padding from double-padding our card, and they are deliberately the minimum
+   that achieves that. If a Maps release renames them, the card gets roomier;
+   nothing breaks. */
+
+.share-iw {
+  font-family: var(--font-family-body);
+  padding: 4px 6px 6px;
+  max-width: 264px;
+}
+
+/* share-map.js focuses the card when a place row opens it, because the card
+   sits *before* the list in the document and Tab alone walks away from it. Only
+   the keyboard path should see a ring: a programmatic focus that follows a
+   mouse click does not match :focus-visible. */
+.share-iw:focus {
+  outline: none;
+}
+
+.share-iw:focus-visible {
+  outline: 2px solid var(--color-category-place);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.share-iw-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.share-iw-ordinal {
+  font-family: var(--font-family-title);
+  font-style: italic;
+  font-size: 0.8125rem;
+  color: #8a929c;
+}
+
+.share-iw-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.share-iw-title {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--color-midnight-navy);
+}
+
+.share-iw-place {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: #5a6470;
+}
+
+.share-iw-note {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-hairline);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #4a5560;
+}
+
+.share-iw-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-category-place);
+  text-decoration: none;
+  border-bottom: 1px solid currentcolor;
+}
+
+.share-iw-link:hover {
+  color: var(--color-midnight-navy);
+}
+
+.share-page .gm-style-iw-c {
+  padding: 8px;
+  border-radius: 14px;
+}
+
+.share-page .gm-style-iw-d {
+  overflow: auto hidden;
+}
+
+/* --- "Get this map" export -----------------------------------------------
+   Google has no API for writing into a visitor's saved places, so this is a
+   file download plus honest instructions rather than a one-tap button. */
+
+.share-map-export {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.share-map-export-button {
+  display: inline-block;
+  padding: 11px 22px;
+  border-radius: 999px;
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.share-map-export-button:hover {
+  background: var(--color-adobe-brick);
+}
+
+.share-map-export-help {
+  margin-top: 14px;
+  font-size: 0.8125rem;
+  color: #5a6470;
+}
+
+.share-map-export-help > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-category-place);
+}
+
+.share-map-export-steps {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.share-map-export-note {
+  margin: 10px 0 0;
+  color: #6b747f;
 }
 
 /* --- CTA ------------------------------------------------------------------
@@ -2693,6 +2881,468 @@ body.has-hero .footer-copyright {
 }
 
 
+/* Source: pages/blog.css */
+/* ==============================================
+   BLOG (index, category, post)
+   ============================================== */
+
+/* .header is position:absolute, so a page with no hero must supply its own top
+   padding -- same 140px the legal pages use. */
+.blog-page {
+  padding: 140px var(--spacing-lg) var(--spacing-2xl);
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.blog-post {
+  max-width: 760px;
+}
+
+/* ---------- Hero / heading ---------- */
+
+.blog-hero {
+  margin-bottom: var(--spacing-xl);
+}
+
+.blog-hero h1,
+.post-header h1 {
+  font-family: var(--font-family-title);
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--color-text-main);
+  margin-bottom: var(--spacing-sm);
+}
+
+.blog-hero-subtitle {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  max-width: 60ch;
+}
+
+.blog-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-md);
+}
+
+.blog-breadcrumb a {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.blog-breadcrumb a:hover {
+  color: var(--color-adobe-brick);
+  text-decoration: underline;
+}
+
+/* ---------- Category chips ---------- */
+
+.blog-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
+.category-chip {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(23, 42, 58, 0.12);
+  background: var(--color-cloud-white);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.category-chip:hover {
+  border-color: var(--color-sunset-gold);
+  color: var(--color-text-main);
+}
+
+.category-chip.is-active {
+  background: var(--color-midnight-navy);
+  border-color: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+}
+
+/* ---------- Card grid ---------- */
+
+.blog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.blog-card {
+  background: var(--color-cloud-white);
+  border: 1px solid rgba(23, 42, 58, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.blog-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(23, 42, 58, 0.1);
+}
+
+.blog-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  height: 100%;
+}
+
+.blog-card-body {
+  padding: var(--spacing-lg);
+}
+
+.blog-card-category {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent-blue);
+  margin-bottom: var(--spacing-sm);
+}
+
+.blog-card-title {
+  font-family: var(--font-family-title);
+  font-size: 1.25rem;
+  line-height: 1.3;
+  color: var(--color-text-main);
+  margin-bottom: var(--spacing-sm);
+}
+
+.blog-card-excerpt {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-md);
+}
+
+.blog-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.blog-empty {
+  color: var(--color-text-secondary);
+}
+
+/* ---------- Post header ---------- */
+
+.post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-lg);
+}
+
+.post-cover {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+/* ---------- Table of contents ---------- */
+
+.article-toc {
+  background: var(--color-paper-beige);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.article-toc-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.article-toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.article-toc a {
+  color: var(--color-text-main);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.article-toc a:hover {
+  color: var(--color-adobe-brick);
+  text-decoration: underline;
+}
+
+/* ---------- Article body ----------
+   Rendered markdown arrives class-less (<h2>, <p>, <ul>, <table>...), so every
+   rule here is descendant-scoped under .article-body to keep it from leaking
+   into the rest of the site. */
+
+.article-body {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--color-text-main);
+}
+
+.article-body > * + * {
+  margin-top: var(--spacing-md);
+}
+
+.article-body h2,
+.article-body h3 {
+  font-family: var(--font-family-title);
+  color: var(--color-text-main);
+  line-height: 1.25;
+  /* The header is absolutely positioned over the page, so a TOC jump would
+     otherwise land with the heading hidden underneath it. */
+  scroll-margin-top: 120px;
+}
+
+.article-body h2 {
+  font-size: 1.625rem;
+  margin-top: var(--spacing-xl);
+}
+
+.article-body h3 {
+  font-size: 1.25rem;
+  margin-top: var(--spacing-lg);
+}
+
+.article-body p {
+  max-width: 68ch;
+}
+
+.article-body a {
+  color: var(--color-adobe-brick);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.article-body a:hover {
+  color: var(--color-text-main);
+}
+
+.article-body ul,
+.article-body ol {
+  padding-left: var(--spacing-lg);
+}
+
+.article-body li + li {
+  margin-top: var(--spacing-xs);
+}
+
+.article-body strong {
+  font-weight: 700;
+}
+
+.article-body hr {
+  border: 0;
+  border-top: 1px solid rgba(23, 42, 58, 0.12);
+  margin: var(--spacing-xl) 0;
+}
+
+.article-body blockquote {
+  border-left: 3px solid var(--color-sunset-gold);
+  padding-left: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.article-body em {
+  color: var(--color-text-secondary);
+}
+
+.article-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+.article-body code {
+  background: var(--color-paper-beige);
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  font-size: 0.9em;
+}
+
+/* ---------- Tables ----------
+   The renderer wraps every table in .table-scroll. min-width plus the scroll
+   container is what keeps a 4-column comparison table readable on a 375px
+   phone instead of crushing each cell to two characters. */
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: var(--spacing-lg);
+}
+
+.article-body table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.article-body th,
+.article-body td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid rgba(23, 42, 58, 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.article-body th {
+  background: var(--color-paper-beige);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Alignment comes from classes, not inline styles: a style attribute cannot
+   carry a CSP nonce, so the browser would strip it. See render_table_cell in
+   app/core/markdown.py. */
+.article-body .align-left {
+  text-align: left;
+}
+
+.article-body .align-center {
+  text-align: center;
+}
+
+.article-body .align-right {
+  text-align: right;
+}
+
+/* ---------- FAQ, CTA, pager, related ---------- */
+
+.post-faq,
+.article-related {
+  margin-top: var(--spacing-2xl);
+}
+
+.post-faq h2,
+.article-related h2 {
+  font-family: var(--font-family-title);
+  font-size: 1.5rem;
+  margin-bottom: var(--spacing-lg);
+}
+
+.post-cta {
+  margin-top: var(--spacing-2xl);
+  padding: var(--spacing-xl);
+  background: var(--color-paper-beige);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.post-cta p {
+  font-family: var(--font-family-title);
+  font-size: 1.25rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.article-pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-2xl);
+}
+
+.article-pager-link {
+  display: block;
+  padding: var(--spacing-md);
+  border: 1px solid rgba(23, 42, 58, 0.1);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--color-text-main);
+  transition: border-color 0.15s ease;
+}
+
+.article-pager-link:hover {
+  border-color: var(--color-sunset-gold);
+}
+
+.article-pager-link--next {
+  text-align: right;
+}
+
+.article-pager-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.article-pager-title {
+  display: block;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
+.blog-recent-heading {
+  font-family: var(--font-family-title);
+  font-size: 1.5rem;
+  margin-bottom: var(--spacing-lg);
+}
+
+/* ---------- Responsive ----------
+   Kept here rather than in responsive.css, following the legal.css precedent:
+   co-located with the rules it overrides, and no cross-file ordering to reason
+   about. */
+
+@media (max-width: 768px) {
+  .blog-page {
+    padding: 110px var(--spacing-md) var(--spacing-xl);
+  }
+
+  .blog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .article-pager {
+    grid-template-columns: 1fr;
+  }
+
+  .article-pager-link--next {
+    text-align: left;
+  }
+
+  .article-body h2 {
+    font-size: 1.4rem;
+  }
+}
+
+
 /* Source: responsive.css */
 /* ==============================================
    RESPONSIVE STYLES
@@ -2783,6 +3433,17 @@ body.has-hero .footer-copyright {
 
   .share-map-list {
     grid-template-columns: 1fr;
+  }
+
+  /* Full-width tap target for the download, and a card that fits a phone
+     without Google's bubble having to scroll it. */
+  .share-map-export-button {
+    display: block;
+    text-align: center;
+  }
+
+  .share-iw {
+    max-width: 220px;
   }
 
   .share-map-title,

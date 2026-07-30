@@ -12,6 +12,27 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+# How much of an entry's note reaches a map pin's info card. The card is a
+# glance, not the whole story -- the full note is in the feed row below it.
+MAP_NOTE_LIMIT = 220
+
+
+def _truncate(text: str | None, limit: int) -> str | None:
+    """Shorten `text` to `limit` characters, breaking on a word where possible."""
+    if text is None:
+        return None
+
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+
+    clipped = collapsed[:limit].rstrip()
+    # Prefer a word boundary, but not at the cost of gutting a long single word.
+    boundary = clipped.rfind(" ")
+    if boundary > limit // 2:
+        clipped = clipped[:boundary]
+    return f"{clipped}…"
+
 
 class CategoryStyle(BaseModel):
     """Styling for one entry type, shared across every surface that colors it.
@@ -52,6 +73,13 @@ class ShareEntry(BaseModel):
     `ordinal` is assigned by the builder rather than the template so the map
     pins and the numbered feed rows share one numbering scheme without either
     surface recomputing it.
+
+    `redirect_url` and `maps_url` are not interchangeable. The first is the
+    affiliate-tracked destination and points at the entry's own link when it has
+    one (an Instagram post, a restaurant's site), so it cannot be labelled "open
+    in Google Maps". The second always resolves to Google Maps and is untracked:
+    it costs no database write, which matters because these pages build
+    `redirect_url` one serial insert at a time.
     """
 
     ordinal: int
@@ -61,10 +89,12 @@ class ShareEntry(BaseModel):
     style: CategoryStyle
     note: str | None = None
     place_name: str | None = None
+    address: str | None = None
     photo_url: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     redirect_url: str | None = None
+    maps_url: str | None = None
 
     @property
     def has_coordinates(self) -> bool:
@@ -122,7 +152,13 @@ class ShareView(BaseModel):
 
         Kept here rather than assembled in Jinja so the contract between the
         server and the map script is typed, unit-tested, and changes in one
-        place. Carries only what a pin needs — never the whole entry.
+        place. Carries only what a pin's info card needs — never the whole
+        entry, and notably no photo URL: a Google Places photo URL embeds the
+        server-side API key, and this blob is public HTML.
+
+        Notes are truncated because this sits inline in the initial HTML of a
+        page that renders up to 50 entries and is cached for five minutes. The
+        full note is already in the feed row below.
         """
         return [
             {
@@ -132,6 +168,10 @@ class ShareView(BaseModel):
                 "lng": entry.longitude,
                 "color": entry.style.pin,
                 "category": entry.style.label,
+                "type": entry.style.key,
+                "place": entry.place_name,
+                "note": _truncate(entry.note, MAP_NOTE_LIMIT),
+                "mapsUrl": entry.maps_url,
             }
             for entry in self.map_entries
         ]
