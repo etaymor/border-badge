@@ -68,6 +68,24 @@
     <link rel="preload" as="style" href="{{ url_for('static', path=stylesheet) }}" />
     <link rel="stylesheet" href="{{ url_for('static', path=stylesheet) }}" />
 
+    {# Nonce donor for the Google Maps JS API.
+
+       Maps installs its own chrome -- the InfoWindow bubble, its tail and
+       shadow, the control hover states -- through a <style> element it creates
+       at runtime, and it stamps a nonce on that element only when
+       `document.querySelector("style[nonce]")` matches. A nonced <link> or
+       <script> does not match; it has to be a <style>. Our style-src is
+       nonce-only with no 'unsafe-inline' on purpose, so with no donor those
+       stylesheets are refused and the map's popups render unstyled.
+
+       Two invariants, both covered by tests: it must live in <head> (Maps reads
+       the nonce at inject time, after share-map.js boots), and it must stay the
+       *only* style[nonce] on the page, because Maps takes the first match in
+       document order.
+
+       https://developers.google.com/maps/documentation/javascript/content-security-policy #}
+    <style nonce="{{ request.state.csp_nonce }}">/* Google Maps CSP nonce donor. */</style>
+
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
     {# The nonce is what keeps this loading on the share pages, whose CSP uses

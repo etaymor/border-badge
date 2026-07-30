@@ -11,6 +11,7 @@ models for the same concepts — into the one `ShareView` shape the shared
 editorial template renders.
 """
 
+from app.core.urls import google_maps_place_url
 from app.schemas.entries import EntryType
 from app.schemas.lists import PublicListEntry, PublicListView
 from app.schemas.public import PublicTripEntry, PublicTripView
@@ -93,10 +94,14 @@ def _build_entry(entry: PublicListEntry | PublicTripEntry, ordinal: int) -> Shar
         style=style,
         note=entry.notes,
         place_name=entry.place_name,
+        address=entry.address,
         photo_url=_photo_url(entry),
         latitude=entry.latitude,
         longitude=entry.longitude,
         redirect_url=entry.redirect_url,
+        maps_url=google_maps_place_url(
+            entry.latitude, entry.longitude, entry.google_place_id
+        ),
     )
 
 

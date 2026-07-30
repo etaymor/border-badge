@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-07-15T00:25:16.883Z
+   Generated: 2026-07-30T15:44:06.099Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -1005,19 +1005,23 @@ body.has-hero .header .cta-button {
   color: var(--color-category-experience);
 }
 
-.share-chip.is-place {
+.share-chip.is-place,
+.share-iw-chip.is-place {
   background: var(--color-tint-blue);
   color: var(--color-category-place);
 }
-.share-chip.is-food {
+.share-chip.is-food,
+.share-iw-chip.is-food {
   background: var(--color-tint-rose);
   color: var(--color-category-food);
 }
-.share-chip.is-stay {
+.share-chip.is-stay,
+.share-iw-chip.is-stay {
   background: var(--color-tint-sage);
   color: var(--color-category-stay);
 }
-.share-chip.is-experience {
+.share-chip.is-experience,
+.share-iw-chip.is-experience {
   background: var(--color-tint-butter);
   color: var(--color-category-experience);
 }
@@ -1519,6 +1523,38 @@ body.has-hero .header .cta-button {
   gap: 12px;
   padding: 9px 4px;
   border-bottom: 1px solid rgba(23, 42, 58, 0.06);
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  transition:
+    background-color 0.15s ease,
+    border-left-color 0.15s ease;
+}
+
+/* `is-interactive` is added by share-map.js, and only once the map has actually
+   rendered. Keeping the affordance out of the server-rendered HTML is what stops
+   a page with no Map ID (or no JS) from showing rows that look tappable and
+   aren't. */
+.share-map-list-item.is-interactive {
+  cursor: pointer;
+  padding-left: 8px;
+}
+
+.share-map-list-item.is-interactive:hover {
+  background: rgba(47, 102, 144, 0.07);
+}
+
+.share-map-list-item.is-interactive:focus-visible {
+  outline: 2px solid var(--color-category-place);
+  outline-offset: 2px;
+}
+
+.share-map-list-item.is-active {
+  background: rgba(47, 102, 144, 0.1);
+  border-left-color: var(--color-category-place);
+}
+
+.share-map-list-item.is-active .share-map-list-name {
+  color: var(--color-midnight-navy);
 }
 
 .share-map-list-num {
@@ -1545,6 +1581,158 @@ body.has-hero .header .cta-button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- Map info card --------------------------------------------------------
+   The card share-map.js builds inside Google's InfoWindow when a pin or a place
+   row is tapped. We own the contents; Google owns the bubble, its tail, and the
+   close button.
+
+   Note the two .gm-* overrides at the end. Those class names are Maps
+   internals, not a public API -- they are here only to stop the bubble's own
+   padding from double-padding our card, and they are deliberately the minimum
+   that achieves that. If a Maps release renames them, the card gets roomier;
+   nothing breaks. */
+
+.share-iw {
+  font-family: var(--font-family-body);
+  padding: 4px 6px 6px;
+  max-width: 264px;
+}
+
+/* share-map.js focuses the card when a place row opens it, because the card
+   sits *before* the list in the document and Tab alone walks away from it. Only
+   the keyboard path should see a ring: a programmatic focus that follows a
+   mouse click does not match :focus-visible. */
+.share-iw:focus {
+  outline: none;
+}
+
+.share-iw:focus-visible {
+  outline: 2px solid var(--color-category-place);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.share-iw-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.share-iw-ordinal {
+  font-family: var(--font-family-title);
+  font-style: italic;
+  font-size: 0.8125rem;
+  color: #8a929c;
+}
+
+.share-iw-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.share-iw-title {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--color-midnight-navy);
+}
+
+.share-iw-place {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: #5a6470;
+}
+
+.share-iw-note {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-hairline);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #4a5560;
+}
+
+.share-iw-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-category-place);
+  text-decoration: none;
+  border-bottom: 1px solid currentcolor;
+}
+
+.share-iw-link:hover {
+  color: var(--color-midnight-navy);
+}
+
+.share-page .gm-style-iw-c {
+  padding: 8px;
+  border-radius: 14px;
+}
+
+.share-page .gm-style-iw-d {
+  overflow: auto hidden;
+}
+
+/* --- "Get this map" export -----------------------------------------------
+   Google has no API for writing into a visitor's saved places, so this is a
+   file download plus honest instructions rather than a one-tap button. */
+
+.share-map-export {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.share-map-export-button {
+  display: inline-block;
+  padding: 11px 22px;
+  border-radius: 999px;
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.share-map-export-button:hover {
+  background: var(--color-adobe-brick);
+}
+
+.share-map-export-help {
+  margin-top: 14px;
+  font-size: 0.8125rem;
+  color: #5a6470;
+}
+
+.share-map-export-help > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-category-place);
+}
+
+.share-map-export-steps {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.share-map-export-note {
+  margin: 10px 0 0;
+  color: #6b747f;
 }
 
 /* --- CTA ------------------------------------------------------------------
@@ -2783,6 +2971,17 @@ body.has-hero .footer-copyright {
 
   .share-map-list {
     grid-template-columns: 1fr;
+  }
+
+  /* Full-width tap target for the download, and a card that fits a phone
+     without Google's bubble having to scroll it. */
+  .share-map-export-button {
+    display: block;
+    text-align: center;
+  }
+
+  .share-iw {
+    max-width: 220px;
   }
 
   .share-map-title,

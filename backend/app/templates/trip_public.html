@@ -8,7 +8,7 @@
 <nav class="header-nav share-nav">
   <div class="nav-links">
     {% if share.entries %}<a href="#places">Places</a>{% endif %}
-    {% if share_page_macros.map_visible(share, google_maps_browser_api_key, google_maps_map_id) | trim %}<a href="#map">Map</a>{% endif %}
+    {% if share_page_macros.map_visible(share=share, maps_key=google_maps_browser_api_key, map_id=google_maps_map_id) | trim %}<a href="#map">Map</a>{% endif %}
   </div>
   <a
     href="{{ app_store_url | safe_external_url or '#download' }}"
@@ -28,13 +28,14 @@
 
 <div class="share-page">
   {{ share_page_macros.share_page(
-       share,
-       app_store_url,
-       google_maps_browser_api_key,
-       google_maps_map_id,
-       request.state.csp_nonce,
-       url_for('static', path='js/share-map.js'),
-       url_for('static', path='js/share-reveal.js')
+       share=share,
+       app_store_url=app_store_url,
+       maps_key=google_maps_browser_api_key,
+       map_id=google_maps_map_id,
+       nonce=request.state.csp_nonce,
+       script_url=url_for('static', path='js/share-map.js'),
+       reveal_script_url=url_for('static', path='js/share-reveal.js'),
+       map_download_url=map_download_url
      ) }}
 </div>
 {% endblock %}

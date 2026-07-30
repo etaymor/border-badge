@@ -368,3 +368,134 @@ def test_share_entry_fields_are_normalized_from_list_entry() -> None:
     assert entry.place_name == "Toyosu"
     assert entry.redirect_url == "https://go/1"
     assert entry.style.pin == CATEGORY_STYLES["food"].pin
+
+
+# ---------------------------------------------------------------------------
+# map_payload: the typed contract between the server and share-map.js
+# ---------------------------------------------------------------------------
+
+
+def _mapped_list(**entry_overrides) -> ShareView:
+    """A one-entry list whose entry sits on the map."""
+    defaults: dict = {
+        "id": uuid4(),
+        "title": "Karakoy Lokantasi",
+        "type": "food",
+        "notes": "Breakfast, not dinner",
+        "place_name": "Karakoy",
+        "address": "Kemankes Karamustafa Pasa, Istanbul",
+        "latitude": 41.0082,
+        "longitude": 28.9784,
+    }
+    defaults.update(entry_overrides)
+    return _build(
+        PublicListView(
+            id=uuid4(),
+            name="Istanbul",
+            slug="istanbul",
+            created_at=CREATED_AT,
+            entries=[PublicListEntry(**defaults)],
+        )
+    )
+
+
+def test_map_payload_carries_everything_the_info_card_renders() -> None:
+    """share-map.js reads these keys by name; renaming one blanks the card."""
+    pin = _mapped_list().map_payload[0]
+
+    assert pin["ordinal"] == 1
+    assert pin["title"] == "Karakoy Lokantasi"
+    assert pin["lat"] == 41.0082
+    assert pin["lng"] == 28.9784
+    assert pin["type"] == "food"
+    assert pin["category"] == CATEGORY_STYLES["food"].label
+    assert pin["color"] == CATEGORY_STYLES["food"].pin
+    assert pin["place"] == "Karakoy"
+    assert pin["note"] == "Breakfast, not dinner"
+    assert pin["mapsUrl"].startswith("https://www.google.com/maps/search/")
+
+
+def test_map_payload_never_carries_a_photo_url() -> None:
+    """A Google Places photo URL embeds the server-side key. This blob is public."""
+    pin = _mapped_list().map_payload[0]
+
+    assert not [key for key in pin if "photo" in key.lower()]
+
+
+def test_map_payload_truncates_a_long_note_on_a_word_boundary() -> None:
+    """The card is a glance; the feed row below keeps the full note."""
+    from app.schemas.share import MAP_NOTE_LIMIT
+
+    note = "Genuinely excellent " * 40
+    pin = _mapped_list(notes=note).map_payload[0]
+
+    assert len(pin["note"]) <= MAP_NOTE_LIMIT + 1
+    assert pin["note"].endswith("…")
+    assert not pin["note"].rstrip("…").endswith(" ")
+
+
+def test_map_payload_leaves_a_short_note_alone() -> None:
+    pin = _mapped_list(notes="Short.").map_payload[0]
+
+    assert pin["note"] == "Short."
+
+
+def test_map_payload_collapses_whitespace_in_notes() -> None:
+    """Multi-line notes would otherwise wreck the card's layout."""
+    pin = _mapped_list(notes="First line.\n\n  Second line.").map_payload[0]
+
+    assert pin["note"] == "First line. Second line."
+
+
+def test_entry_without_a_note_keeps_a_null_note() -> None:
+    """The card omits the note block entirely rather than rendering "None"."""
+    pin = _mapped_list(notes=None).map_payload[0]
+
+    assert pin["note"] is None
+
+
+def test_maps_url_prefers_the_place_id_but_keeps_coordinates() -> None:
+    """Google needs `query` alongside `query_place_id` and falls back to it."""
+    entry = _mapped_list(google_place_id="ChIJ_abc").entries[0]
+
+    assert "query_place_id=ChIJ_abc" in entry.maps_url
+    assert "query=41.0082%2C28.9784" in entry.maps_url
+
+
+def test_maps_url_is_none_without_coordinates_or_a_place_id() -> None:
+    """A null URL is the signal to omit the link rather than render a dead one."""
+    entry = _mapped_list(latitude=None, longitude=None).entries[0]
+
+    assert entry.maps_url is None
+
+
+def test_address_reaches_the_share_entry() -> None:
+    """Both routes fetch it; it used to be dropped in the builder."""
+    entry = _mapped_list().entries[0]
+
+    assert entry.address == "Kemankes Karamustafa Pasa, Istanbul"
+
+
+def test_trip_entries_get_a_maps_url_too() -> None:
+    """The trip model carries `google_place_id` so /t/ links are as precise as /l/."""
+    view = PublicTripView(
+        id=uuid4(),
+        name="Turkey",
+        share_slug="turkey",
+        country_name="Turkey",
+        country_code="TR",
+        created_at=CREATED_AT,
+        entries=[
+            PublicTripEntry(
+                id=uuid4(),
+                type="place",
+                title="Hagia Sophia",
+                latitude=41.0086,
+                longitude=28.9802,
+                google_place_id="ChIJ_hagia",
+            )
+        ],
+    )
+
+    entry = _build(view).entries[0]
+    assert "query_place_id=ChIJ_hagia" in entry.maps_url

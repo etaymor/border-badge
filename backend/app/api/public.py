@@ -9,11 +9,17 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Path, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 
 from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.config import get_settings
+from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
     ENTRY_IMAGE_WIDTH,
@@ -30,8 +36,12 @@ from app.core.seo import (
     build_share_structured_data,
     build_trip_seo,
 )
-from app.core.share_view import build_share_view_model
-from app.core.urls import safe_external_url, safe_google_photo_url
+from app.core.share_view import CATEGORY_STYLES, build_share_view_model, category_style
+from app.core.urls import (
+    google_maps_place_url,
+    safe_external_url,
+    safe_google_photo_url,
+)
 from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter, templates
 from app.schemas.lists import PublicListEntry, PublicListView
@@ -53,6 +63,12 @@ def get_current_year() -> int:
 
 
 router = APIRouter(tags=["public"])
+
+# How many entries a public list surfaces. Shared by the page and the KML export
+# so the download can never be a silent subset of what the visitor just saw --
+# the two are separate queries against separate caches, and only a shared
+# constant keeps them honest. Public *trips* are capped on neither surface.
+PUBLIC_LIST_ENTRY_LIMIT = 50
 
 
 async def _generate_entry_redirect_url(
@@ -93,6 +109,21 @@ async def _generate_entry_redirect_url(
         # Log but don't fail - graceful degradation to original URL
         logger.warning(f"Failed to generate redirect URL for entry {entry_id}: {e}")
         return None
+
+
+def _entry_place(entry: dict[str, Any]) -> dict[str, Any]:
+    """Read an entry row's embedded `place` as a dict.
+
+    PostgREST returns an embedded relationship as an object or as a
+    single-element array depending on how it resolves the foreign key, and both
+    shapes reach us. Missing, null and empty-array all mean "no place", which
+    callers handle by `.get()`ing their way to `None` -- so an empty dict is the
+    right answer rather than `None`.
+    """
+    place = entry.get("place")
+    if isinstance(place, list):
+        return place[0] if place else {}
+    return place or {}
 
 
 def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
@@ -277,7 +308,7 @@ async def view_public_list(
             "list_id": f"eq.{lst['id']}",
             "select": "*, entry:entry_id(id, title, type, notes, link, place:place(place_name, address, google_place_id, lat, lng, extra_data), media_files(file_path, thumbnail_path, status))",
             "order": "position.asc",
-            "limit": 50,  # Limit entries for public view
+            "limit": PUBLIC_LIST_ENTRY_LIMIT,
         },
     )
 
@@ -288,30 +319,18 @@ async def view_public_list(
     for row in entry_rows:
         entry = row.get("entry", {})
         if entry:
-            place_raw = entry.get("place")
-            # PostgREST may return place as array or dict
-            if isinstance(place_raw, list):
-                place = place_raw[0] if place_raw else {}
-            else:
-                place = place_raw if place_raw else {}
+            place = _entry_place(entry)
             entry_id = entry.get("id")
 
-            # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id
+            # Build destination URL: the entry's own link wins, else Google Maps.
             entry_link = entry.get("link")
             lat = place.get("lat")
             lng = place.get("lng")
             google_place_id = place.get("google_place_id")
 
-            if entry_link:
-                destination_url = entry_link
-            elif lat and lng:
-                destination_url = (
-                    f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
-                )
-            elif google_place_id:
-                destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
-            else:
-                destination_url = None
+            destination_url = entry_link or google_maps_place_url(
+                lat, lng, google_place_id
+            )
 
             # Generate signed redirect URL for affiliate tracking
             redirect_url = await _generate_entry_redirect_url(
@@ -386,6 +405,9 @@ async def view_public_list(
             ),
             "google_maps_browser_api_key": settings.google_maps_browser_api_key,
             "google_maps_map_id": settings.google_maps_map_id,
+            "map_download_url": request.url_for(
+                "download_list_kml", slug=list_view.slug
+            ),
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
@@ -445,30 +467,16 @@ async def view_public_trip(
 
     entries: list[PublicTripEntry] = []
     for entry in entry_rows:
-        place_raw = entry.get("place")
-        # PostgREST may return place as array or dict
-        if isinstance(place_raw, list):
-            place = place_raw[0] if place_raw else {}
-        else:
-            place = place_raw if place_raw else {}
+        place = _entry_place(entry)
         entry_id = entry.get("id")
 
-        # Build destination URL: entry.link → Google Maps with coords → Google Maps with place_id
+        # Build destination URL: the entry's own link wins, else Google Maps.
         entry_link = entry.get("link")
         lat = place.get("lat")
         lng = place.get("lng")
         google_place_id = place.get("google_place_id")
 
-        if entry_link:
-            destination_url = entry_link
-        elif lat and lng:
-            destination_url = (
-                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
-            )
-        elif google_place_id:
-            destination_url = f"https://www.google.com/maps/search/?api=1&query_place_id={google_place_id}"
-        else:
-            destination_url = None
+        destination_url = entry_link or google_maps_place_url(lat, lng, google_place_id)
 
         # Generate signed redirect URL for affiliate tracking
         redirect_url = await _generate_entry_redirect_url(
@@ -486,6 +494,7 @@ async def view_public_trip(
                 notes=entry.get("notes"),
                 place_name=place.get("place_name"),
                 address=place.get("address"),
+                google_place_id=google_place_id,
                 latitude=lat,
                 longitude=lng,
                 media_urls=extract_media_urls(
@@ -536,6 +545,9 @@ async def view_public_trip(
             ),
             "google_maps_browser_api_key": settings.google_maps_browser_api_key,
             "google_maps_map_id": settings.google_maps_map_id,
+            "map_download_url": request.url_for(
+                "download_trip_kml", slug=trip_view.share_slug
+            ),
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "og_title": seo.og_title,
@@ -549,6 +561,178 @@ async def view_public_trip(
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
     return response
+
+
+# ============================================================================
+# KML export
+#
+# The honest ceiling on "put this collection in my Google Maps": no API can
+# write to a visitor's saved places, but Google My Maps imports KML, so we hand
+# them a file. Deliberately much cheaper than the page it hangs off -- a lean
+# select, no media, no author lookup, and crucially no affiliate redirect rows,
+# which the pages create one serial insert at a time.
+# ============================================================================
+
+KML_ENTRY_SELECT = (
+    "title, type, notes, place:place(place_name, address, google_place_id, lat, lng)"
+)
+
+
+def _kml_placemarks(entry_rows: list[dict[str, Any]]) -> list[Placemark]:
+    """Turn entry rows into placemarks, grouped in canonical category order.
+
+    Entries with no coordinates are dropped: a KML placemark without a point is
+    meaningless to My Maps. Ordinals follow the feed's numbering *before* that
+    drop, so a downloaded pin's number matches the page it came from.
+    """
+    placemarks: list[Placemark] = []
+
+    for ordinal, row in enumerate(entry_rows, start=1):
+        place = _entry_place(row)
+
+        lat = place.get("lat")
+        lng = place.get("lng")
+        if lat is None or lng is None:
+            continue
+
+        style = category_style(row.get("type"))
+        maps_url = google_maps_place_url(lat, lng, place.get("google_place_id"))
+
+        placemarks.append(
+            Placemark(
+                name=f"{ordinal:02d}. {row.get('title') or 'Untitled'}",
+                latitude=lat,
+                longitude=lng,
+                category=style.label,
+                description_lines=[
+                    place.get("place_name") or "",
+                    place.get("address") or "",
+                    row.get("notes") or "",
+                    maps_url or "",
+                ],
+            )
+        )
+
+    # Canonical category order, then feed order within a category, so My Maps'
+    # layer list reads the same way the legend does.
+    order = {style.label: index for index, style in enumerate(CATEGORY_STYLES.values())}
+    placemarks.sort(key=lambda mark: order.get(mark.category, len(order)))
+    return placemarks
+
+
+def _kml_response(
+    *,
+    document_name: str,
+    description: str | None,
+    slug: str,
+    placemarks: list[Placemark],
+) -> Response:
+    """Serve a KML document as a download."""
+    body = build_kml(
+        document_name=document_name,
+        document_description=description,
+        placemarks=placemarks,
+    )
+    return Response(
+        content=body,
+        media_type=KML_MEDIA_TYPE,
+        headers={
+            # The slug is already constrained to [a-z0-9-], so it is safe to
+            # interpolate into the header without quoting games.
+            "Content-Disposition": f'attachment; filename="{slug}.kml"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@router.get("/l/{slug}/map.kml", name="download_list_kml")
+@limiter.limit("60/minute")
+async def download_list_kml(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """Export a public list's places as KML for Google My Maps."""
+    db = get_supabase_client()
+
+    lists = await db.get(
+        "list",
+        {
+            "slug": f"eq.{slug}",
+            "deleted_at": "is.null",
+            "select": "id, name, description",
+        },
+    )
+    if not lists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="List not found",
+        )
+
+    lst = lists[0]
+    entry_rows = await db.get(
+        "list_entries",
+        {
+            "list_id": f"eq.{lst['id']}",
+            "select": f"entry:entry_id({KML_ENTRY_SELECT})",
+            "order": "position.asc",
+            # Same limit the list page applies, so the file and the page agree.
+            "limit": PUBLIC_LIST_ENTRY_LIMIT,
+        },
+    )
+
+    entries = [row["entry"] for row in entry_rows if row.get("entry")]
+    return _kml_response(
+        document_name=lst["name"],
+        description=lst.get("description"),
+        slug=slug,
+        placemarks=_kml_placemarks(entries),
+    )
+
+
+@router.get("/t/{slug}/map.kml", name="download_trip_kml")
+@limiter.limit("60/minute")
+async def download_trip_kml(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """Export a public trip's places as KML for Google My Maps."""
+    db = get_supabase_client()
+
+    trips = await db.get(
+        "trip",
+        {
+            "share_slug": f"eq.{slug}",
+            "deleted_at": "is.null",
+            "select": "id, name",
+        },
+    )
+    if not trips:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found",
+        )
+
+    trip = trips[0]
+    entry_rows = await db.get(
+        "entry",
+        {
+            "trip_id": f"eq.{trip['id']}",
+            "deleted_at": "is.null",
+            "select": KML_ENTRY_SELECT,
+            "order": "created_at.desc",
+            # Deliberately unlimited, mirroring the trip page's own query. The
+            # page renders every entry under a heading that reads "All N places,
+            # mapped"; a capped export sitting under that claim would hand a
+            # visitor a silent subset of what they were just promised.
+        },
+    )
+
+    return _kml_response(
+        document_name=trip["name"],
+        description=None,
+        slug=slug,
+        placemarks=_kml_placemarks(entry_rows),
+    )
 
 
 @router.get("/privacy", response_class=HTMLResponse)

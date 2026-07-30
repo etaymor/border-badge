@@ -253,7 +253,7 @@
 {{ 'yes' if (share.has_map and maps_key and map_id) else '' }}
 {%- endmacro %}
 
-{% macro share_map(share, maps_key, map_id, nonce) %}
+{% macro share_map(share, maps_key, map_id, nonce, map_download_url=None) %}
 {% if share.has_map and maps_key and map_id %}
 <section class="share-map-section reveal" id="map">
   <div class="share-map-inner">
@@ -282,15 +282,43 @@
       <div id="share-map" class="share-map" role="img" aria-label="Map of the places in this collection"></div>
     </div>
 
+    {# `data-ordinal` is the only tie between a row and its pin. share-map.js
+       upgrades these rows into buttons (role, tabindex, handlers) once the map
+       has actually rendered -- rendering them as <button> here would leave a
+       dead control on every page with no Map ID and every page with JS off. #}
     <ol class="share-map-list">
       {% for entry in share.map_entries %}
-      <li class="share-map-list-item">
+      <li class="share-map-list-item" data-ordinal="{{ entry.ordinal }}">
         <span class="share-map-list-num">{{ '%02d' | format(entry.ordinal) }}</span>
         <span class="share-map-list-dot is-{{ entry.type }}" aria-hidden="true"></span>
         <span class="share-map-list-name">{{ entry.title }}</span>
       </li>
       {% endfor %}
     </ol>
+
+    {# Taking the collection with you. Nothing can write into a visitor's Google
+       Maps saved places -- no API exists -- so this is deliberately explicit
+       about being a manual import rather than implying one tap. <details> needs
+       no JS, so the instructions survive a script-blocked page. #}
+    {% if map_download_url %}
+    <div class="share-map-export">
+      <a class="share-map-export-button" href="{{ map_download_url }}" download>
+        Download for Google My Maps
+      </a>
+      <details class="share-map-export-help">
+        <summary>How to add these to Google Maps</summary>
+        <ol class="share-map-export-steps">
+          <li>On a computer, open <strong>mymaps.google.com</strong>.</li>
+          <li>Choose <strong>Create a new map</strong>, then <strong>Import</strong>.</li>
+          <li>Pick the file you just downloaded. Each category arrives as its own layer.</li>
+        </ol>
+        <p class="share-map-export-note">
+          To save just one spot to the Google Maps app instead, tap its pin above
+          and use &ldquo;Open in Google Maps&rdquo;.
+        </p>
+      </details>
+    </div>
+    {% endif %}
   </div>
 </section>
 
@@ -323,12 +351,14 @@
 
 
 {# --- The whole page ---------------------------------------------------- #}
-{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url, reveal_script_url) %}
+{# Callers pass these by keyword. Eight positional arguments of mostly-strings
+   is a silent-breakage machine: swap two and the page still renders. #}
+{% macro share_page(share, app_store_url, maps_key, map_id, nonce, script_url, reveal_script_url, map_download_url=None) %}
 {{ share_hero(share) }}
 {{ share_byline(share.author) }}
 {{ share_filters(share) }}
 {{ share_feed(share) }}
-{{ share_map(share, maps_key, map_id, nonce) }}
+{{ share_map(share=share, maps_key=maps_key, map_id=map_id, nonce=nonce, map_download_url=map_download_url) }}
 {{ share_cta(app_store_url) }}
 {# One script for the whole page. It drives the category filter, which must
    work whether or not a map is configured -- so it is loaded here rather than
