@@ -3,17 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {# Blocks default to the route-supplied SEO context, so a template can
+       either override the block (as the older pages do) or simply pass
+       page_title/page_description via seo_context(). Both work; the block
+       wins where present. #}
     {% block meta %}
-    <title>{% block title %}Atlasi{% endblock %}</title>
+    <title>{% block title %}{{ page_title | default('Atlasi') }}{% endblock %}</title>
     <meta
       name="description"
-      content="{% block description %}Track your travels, share your adventures{% endblock %}"
+      content="{% block description %}{{ page_description | default('Track your travels, share your adventures') }}{% endblock %}"
     />
     {% endblock %}
 
+    {% block robots %}{% endblock %}
+
     <!-- Open Graph / Social -->
     {% block og_tags %}
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content="{{ og_type | default('website') }}" />
     <meta
       property="og:title"
       content="{{ og_title | default('Atlasi') }}"
@@ -108,11 +114,18 @@
         </a>
         {% block header_nav %}
         <nav class="header-nav">
+          {# Anchors are rooted (/#features, not #features) so they resolve from
+             any page. As bare fragments they silently dead-ended on every URL
+             except the landing page. The inner nav_links block is what four
+             templates were already trying to override -- it did not exist in
+             this file until now, so those overrides were inert. #}
+          {% block nav_links %}
           <div class="nav-links">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How It Works</a>
-            <a href="#faq">FAQ</a>
+            <a href="/#features">Features</a>
+            <a href="/#how-it-works">How It Works</a>
+            <a href="/blog">Blog</a>
           </div>
+          {% endblock %}
           <a
             href="{{ app_store_url | safe_external_url or '#download' }}"
             class="cta-button header-cta"
@@ -146,6 +159,7 @@
           </a>
           <nav class="footer-links">
             <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link">Download App</a>
+            <a href="/blog" class="footer-link">Blog</a>
             <a href="/privacy" class="footer-link">Privacy</a>
             <a href="/terms" class="footer-link">Terms</a>
             <a href="/contact" class="footer-link">Contact</a>

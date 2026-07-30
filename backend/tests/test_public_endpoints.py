@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.public as public_module
+from app.core.blog import get_registry as blog_registry
 from app.core.config import Settings, get_settings
 from app.core.media import AVATAR_WIDTH
 from app.core.security import AuthUser, get_current_user
@@ -2447,3 +2448,86 @@ def test_kml_routes_do_not_shadow_the_share_pages(
     response = _list_page(client, mock_supabase_client, [_entry_row(0)])
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+# ============================================================================
+# Blog integration: sitemap, canonical URLs, og:type
+# ============================================================================
+
+
+def test_sitemap_includes_blog_and_static_pages(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables(
+        list=[{"slug": "best-tacos-abc123"}],
+        trip=[{"share_slug": "summer-trip-xyz"}],
+    )
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    root = ET.fromstring(response.text)
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = [el.text for el in root.findall(".//sm:loc", ns)]
+
+    assert any(loc.endswith("/blog") for loc in locs)
+    assert any(loc.endswith("/blog/category/guides") for loc in locs)
+    for page in ("/privacy", "/terms", "/contact"):
+        assert any(loc.endswith(page) for loc in locs), page
+
+    registry = blog_registry()
+    for post in registry.posts:
+        assert any(loc.endswith(f"/blog/{post.slug}") for loc in locs), post.slug
+
+
+def test_sitemap_blog_entries_carry_lastmod(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/sitemap.xml")
+
+    root = ET.fromstring(response.text)
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    for url_el in root.findall("sm:url", ns):
+        loc = url_el.find("sm:loc", ns).text
+        if "/blog/" in loc:
+            assert url_el.find("sm:lastmod", ns) is not None, loc
+
+
+def test_sitemap_adds_no_database_calls_for_blog(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Blog URLs come from the in-memory registry.
+
+    Pins the guarantee that adding posts never adds query load to the sitemap.
+    """
+    mock_supabase_client.get.side_effect = supabase_tables()
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        client.get("/sitemap.xml")
+    assert mock_supabase_client.get.call_count == 2
+
+
+@pytest.mark.parametrize("page", ["privacy", "terms", "contact"])
+def test_static_pages_now_emit_canonical(client: TestClient, page: str) -> None:
+    """These pages previously had OG tags but no canonical URL."""
+    response = client.get(f"/{page}")
+    assert response.status_code == 200
+    assert f'rel="canonical" href="http://localhost:8000/{page}"' in response.text
+
+
+def test_landing_og_type_is_website(client: TestClient) -> None:
+    assert 'og:type" content="website"' in client.get("/").text
+
+
+def test_header_nav_anchors_are_rooted(client: TestClient) -> None:
+    """Bare `#features` anchors dead-end on every page except the landing page."""
+    text = client.get("/privacy").text
+    assert 'href="#features"' not in text
+
+
+def test_blog_is_linked_from_the_footer(client: TestClient) -> None:
+    assert 'href="/blog"' in client.get("/privacy").text

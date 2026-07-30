@@ -18,6 +18,7 @@ from fastapi.responses import (
 
 from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
+from app.core.blog import get_registry
 from app.core.config import get_settings
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
@@ -34,7 +35,9 @@ from app.core.seo import (
     build_landing_structured_data,
     build_list_seo,
     build_share_structured_data,
+    build_static_page_seo,
     build_trip_seo,
+    seo_context,
 )
 from app.core.share_view import CATEGORY_STYLES, build_share_view_model, category_style
 from app.core.urls import (
@@ -747,9 +750,8 @@ async def privacy_policy(request: Request) -> HTMLResponse:
         context={
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": "Privacy Policy - Atlasi",
-            "og_description": "Privacy Policy for the Atlasi travel tracking application",
             "current_year": get_current_year(),
+            **seo_context(build_static_page_seo("privacy", settings.base_url)),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=86400"
@@ -768,9 +770,8 @@ async def terms_conditions(request: Request) -> HTMLResponse:
         context={
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": "Terms & Conditions - Atlasi",
-            "og_description": "Terms and Conditions for the Atlasi travel tracking application",
             "current_year": get_current_year(),
+            **seo_context(build_static_page_seo("terms", settings.base_url)),
         },
     )
     response.headers["Cache-Control"] = "public, max-age=86400"
@@ -903,14 +904,38 @@ async def unsubscribe_email(
 async def robots_txt() -> PlainTextResponse:
     """Return robots.txt for search engines."""
     settings = get_settings()
+    # `Allow: /` already permits everything, so the Allow lines are
+    # documentation. The Disallow lines are the substantive part: /o/ is the
+    # affiliate redirect endpoint (a crawlable redirect chain off every list and
+    # blog page), and /unsubscribe/ exposes single-use tokenised URLs.
     content = f"""User-agent: *
 Allow: /
+Allow: /blog
 Allow: /l/
 Allow: /t/
+Disallow: /o/
+Disallow: /unsubscribe/
 
 Sitemap: {settings.base_url}/sitemap.xml
 """
     return PlainTextResponse(content=content, media_type="text/plain")
+
+
+def _sitemap_entry(
+    loc: str,
+    lastmod: datetime.date | None = None,
+    changefreq: str | None = None,
+    priority: str | None = None,
+) -> str:
+    """One <url> element. Optional fields are omitted rather than faked."""
+    parts = [f"<loc>{html.escape(loc)}</loc>"]
+    if lastmod:
+        parts.append(f"<lastmod>{lastmod.isoformat()}</lastmod>")
+    if changefreq:
+        parts.append(f"<changefreq>{changefreq}</changefreq>")
+    if priority:
+        parts.append(f"<priority>{priority}</priority>")
+    return "  <url>" + "".join(parts) + "</url>"
 
 
 @router.get("/sitemap.xml", response_class=PlainTextResponse)
@@ -919,7 +944,47 @@ async def sitemap_xml() -> PlainTextResponse:
     settings = get_settings()
     db = get_supabase_client()
 
-    urls = [f"  <url><loc>{settings.base_url}</loc></url>"]
+    base = settings.base_url
+    urls = [_sitemap_entry(base, changefreq="weekly", priority="1.0")]
+
+    # Blog entries come from the in-memory registry, so this adds no database
+    # round-trip. lastmod is real here because posts carry an `updated` date;
+    # lists and trips do not select one, and a fabricated lastmod is worse than
+    # none -- Google discounts sitemaps whose lastmod is always "today".
+    registry = get_registry()
+    blog_posts = list(registry.posts)
+    if blog_posts:
+        urls.append(
+            _sitemap_entry(
+                f"{base}/blog",
+                lastmod=max(p.updated for p in blog_posts),
+                changefreq="weekly",
+                priority="0.8",
+            )
+        )
+        for blog_category in registry.categories():
+            urls.append(
+                _sitemap_entry(
+                    f"{base}{blog_category.url_path}",
+                    lastmod=blog_category.last_modified,
+                    changefreq="weekly",
+                    priority="0.5",
+                )
+            )
+        for post in blog_posts:
+            urls.append(
+                _sitemap_entry(
+                    f"{base}/blog/{post.slug}",
+                    lastmod=post.updated,
+                    changefreq="monthly",
+                    priority="0.7",
+                )
+            )
+
+    for page in ("privacy", "terms", "contact"):
+        urls.append(
+            _sitemap_entry(f"{base}/{page}", changefreq="yearly", priority="0.3")
+        )
 
     # All lists (all lists are public)
     lists = await db.get(
@@ -930,8 +995,11 @@ async def sitemap_xml() -> PlainTextResponse:
         },
     )
     for lst in lists:
-        escaped_slug = html.escape(lst["slug"])
-        urls.append(f"  <url><loc>{settings.base_url}/l/{escaped_slug}</loc></url>")
+        urls.append(
+            _sitemap_entry(
+                f"{base}/l/{lst['slug']}", changefreq="weekly", priority="0.6"
+            )
+        )
 
     # Public trips
     trips = await db.get(
@@ -943,8 +1011,13 @@ async def sitemap_xml() -> PlainTextResponse:
         },
     )
     for trip in trips:
-        escaped_slug = html.escape(trip["share_slug"])
-        urls.append(f"  <url><loc>{settings.base_url}/t/{escaped_slug}</loc></url>")
+        urls.append(
+            _sitemap_entry(
+                f"{base}/t/{trip['share_slug']}",
+                changefreq="weekly",
+                priority="0.6",
+            )
+        )
 
     content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -999,8 +1072,7 @@ async def contact_page(
         context={
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": "Contact Us - Atlasi",
-            "og_description": "Get in touch with the Atlasi team",
+            **seo_context(build_static_page_seo("contact", settings.base_url)),
             "turnstile_site_key": settings.turnstile_site_key,
             "categories": CONTACT_CATEGORIES,
             "success": success,

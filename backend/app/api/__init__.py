@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api import (
     ad_events,
     admin,
+    blog,
     classification,
     countries,
     entries,
@@ -27,6 +28,10 @@ router = APIRouter()
 # Public routes first so unauthenticated landing/list/trip pages resolve before
 # authenticated API routers.
 router.include_router(public.router, tags=["public"])
+# Blog sits with the other public HTML pages. Every path is under a literal
+# /blog segment, so it cannot collide with an authenticated router regardless of
+# order, but grouping it here keeps the "public pages first" invariant legible.
+router.include_router(blog.router, tags=["blog"])
 router.include_router(outbound.router, tags=["outbound"])
 router.include_router(countries.router, prefix="/countries", tags=["countries"])
 router.include_router(profile.router, prefix="/profile", tags=["profile"])
