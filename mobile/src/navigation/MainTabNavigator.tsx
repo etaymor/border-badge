@@ -99,7 +99,7 @@ export function MainTabNavigator() {
 }
 
 function MainTabNavigatorImpl() {
-  // U12: a fresh signup that accepted the first-quiz offer arrives here with
+  // A fresh signup that accepted the first-quiz offer arrives here with
   // pendingFirstQuizLaunch armed; push QuizCreation on top of Main (back
   // lands on home). No-op for everyone else.
   useFirstQuizLaunch();

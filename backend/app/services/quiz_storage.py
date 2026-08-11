@@ -1,4 +1,4 @@
-"""Physical deletion of quiz-owned storage objects (U10, R15).
+"""Physical deletion of quiz-owned storage objects (R15).
 
 Quiz photos are quiz-owned copies under `quiz/{quiz_id}/` in the public
 `media` bucket with NO media_files rows -- nothing else garbage-collects
@@ -15,6 +15,7 @@ empties the prefix or it fails loudly for the caller's reconciliation
 surface.
 """
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -70,6 +71,24 @@ async def _list_object_paths(
     return [f"{prefix}/{name}" for name in names]
 
 
+async def _delete_object(
+    client: httpx.AsyncClient, settings: Settings, path: str
+) -> None:
+    """Delete one storage object; 404 tolerated (idempotent retry)."""
+    try:
+        response = await client.delete(
+            f"{settings.supabase_url}/storage/v1/object/media/{path}",
+            headers=_storage_headers(settings),
+        )
+    except httpx.HTTPError as exc:
+        raise QuizStorageDeletionError(f"deleting {path} failed: {exc}") from exc
+    # 404 tolerated: a previous or concurrent sweep already removed it.
+    if response.status_code not in (200, 204, 404):
+        raise QuizStorageDeletionError(
+            f"deleting {path} failed with status {response.status_code}"
+        )
+
+
 async def delete_quiz_storage_objects(quiz_id: UUID | str) -> None:
     """Empty the quiz/{quiz_id}/ storage prefix and verify it is empty.
 
@@ -82,19 +101,16 @@ async def delete_quiz_storage_objects(quiz_id: UUID | str) -> None:
         raise QuizStorageDeletionError("Supabase storage is not configured")
     client = get_http_client()
 
-    for path in await _list_object_paths(client, settings, quiz_id):
-        try:
-            response = await client.delete(
-                f"{settings.supabase_url}/storage/v1/object/media/{path}",
-                headers=_storage_headers(settings),
-            )
-        except httpx.HTTPError as exc:
-            raise QuizStorageDeletionError(f"deleting {path} failed: {exc}") from exc
-        # 404 tolerated: a previous or concurrent sweep already removed it.
-        if response.status_code not in (200, 204, 404):
-            raise QuizStorageDeletionError(
-                f"deleting {path} failed with status {response.status_code}"
-            )
+    # Deletes run concurrently (a prefix holds at most ~a dozen objects);
+    # every delete is attempted, and any real failure still fails the sweep.
+    paths = await _list_object_paths(client, settings, quiz_id)
+    results = await asyncio.gather(
+        *(_delete_object(client, settings, path) for path in paths),
+        return_exceptions=True,
+    )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
 
     remaining = await _list_object_paths(client, settings, quiz_id)
     if remaining:

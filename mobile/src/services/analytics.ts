@@ -484,7 +484,7 @@ export const Analytics = {
       plan: props.plan ?? null,
     }),
 
-  // Travel Photo Quiz Events (U12 funnel: created -> shared -> plays are
+  // Travel Photo Quiz Events (funnel: created -> shared -> plays are
   // server-side -> install-CTA taps are server-side)
   quizCreated: (props: { quizId: string; photoCount: number }) =>
     track('quiz_created', { quiz_id: props.quizId, photo_count: props.photoCount }),

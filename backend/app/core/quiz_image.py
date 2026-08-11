@@ -1,4 +1,4 @@
-"""Pillow-rendered challenge card for quiz unfurls (U9, R13).
+"""Pillow-rendered challenge card for quiz unfurls (R13).
 
 The unfurl preview for /q/{slug} is a fully generated 1200x630 PNG carrying
 only the challenge framing: owner display name, score-to-beat, and Atlasi

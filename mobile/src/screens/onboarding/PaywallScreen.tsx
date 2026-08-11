@@ -38,7 +38,7 @@ export function PaywallScreen({ navigation }: Props) {
       Analytics.paywallDismissed({ location: 'onboarding' });
     }
 
-    // U12: the post-signup flow ends at the first-quiz offer, which owns the
+    // The post-signup flow ends at the first-quiz offer, which owns the
     // finish (useFinishOnboarding) — needsPostSignupFlow stays true until the
     // offer is answered, so the settled order is untouched.
     navigation.navigate('FirstQuizOffer');

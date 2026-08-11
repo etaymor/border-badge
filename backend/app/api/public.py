@@ -8,7 +8,15 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Path, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Form,
+    HTTPException,
+    Path,
+    Request,
+    status,
+)
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -58,6 +66,7 @@ from app.services.affiliate_links import (
 )
 from app.services.email import cancel_scheduled_emails, send_contact_email
 from app.services.quiz_funnel import record_quiz_funnel_event
+from app.services.quiz_lookup import fetch_shared_quiz_by_slug
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -742,7 +751,7 @@ async def download_trip_kml(
 
 
 # ============================================================================
-# Playable quiz page (U7: R9/R10/R12/R13)
+# Playable quiz page (R9/R10/R12/R13)
 #
 # The anonymous play surface for a shared travel photo quiz. Three invariants:
 #
@@ -752,7 +761,8 @@ async def download_trip_kml(
 #   the page must never outlive its own images).
 # * Ground truth (correct_index, capture_year, year_options) never reaches the
 #   page. The JSON island carries only what the player may see: image URLs and
-#   the four options per question. Grading happens server-side (U8 routes).
+#   the four options per question. Grading happens server-side (the
+#   /q/{slug}/* JSON routes in app/api/public_quiz.py).
 # * Every /q/ response -- 200, 404, and the revoked "gone" page -- is noindex
 #   via BOTH the meta robots tag and the X-Robots-Tag header, and /q/ URLs are
 #   never emitted into sitemap.xml. robots.txt deliberately does NOT Disallow
@@ -820,40 +830,36 @@ async def _fetch_quiz_owner_name(db: SupabaseClient, owner_id: str) -> str | Non
 @limiter.limit("60/minute")
 async def view_quiz_page(
     request: Request,
+    background_tasks: BackgroundTasks,
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> HTMLResponse:
     """Render the playable quiz page for a shared quiz slug (R9, R10)."""
     settings = get_settings()
     db = get_supabase_client()  # service role: quiz tables are backend-only
 
-    quizzes = await db.get(
-        "quiz",
-        {
-            "slug": f"eq.{slug}",
-            "select": "id,owner_id,state,slug,score_to_beat_correct,score_to_beat_total",
-        },
-    )
-    quiz = quizzes[0] if quizzes else None
-
-    # Only 'shared' serves. Unknown slugs, pre-share states (which cannot hold
-    # a slug today, but the check is deliberately positive), and revoked
-    # quizzes are indistinguishable 404s -- a revoked slug must not confirm
-    # that a quiz ever existed.
-    if quiz is None or quiz.get("state") != "shared":
+    # Only 'shared' serves: unknown, pre-share, and revoked slugs are
+    # indistinguishable 404s.
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
         return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
 
-    # U12 funnel: one page_view per render (reloads count; 404s never do).
-    await record_quiz_funnel_event(db, quiz["id"], "page_view", slug)
-
-    question_rows = await db.get(
-        "quiz_question",
-        {
-            "quiz_id": f"eq.{quiz['id']}",
-            "select": "id,position,storage_path,options",
-            "order": "position.asc",
-        },
+    # Funnel: one page_view per render (reloads count; 404s never do).
+    # Best-effort analytics, recorded off the response path.
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "page_view", slug
     )
-    owner_name = await _fetch_quiz_owner_name(db, quiz.get("owner_id"))
+
+    question_rows, owner_name = await asyncio.gather(
+        db.get(
+            "quiz_question",
+            {
+                "quiz_id": f"eq.{quiz['id']}",
+                "select": "id,position,storage_path,options",
+                "order": "position.asc",
+            },
+        ),
+        _fetch_quiz_owner_name(db, quiz.get("owner_id")),
+    )
 
     # Everything the game JS needs, and NOTHING it must not have. The
     # score-to-beat pair is exposed as {score, total} -- deliberately not
@@ -938,7 +944,7 @@ async def view_quiz_card_image(
     request: Request,
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
-    """The unfurl challenge-card PNG for a shared quiz (U9, R13).
+    """The unfurl challenge-card PNG for a shared quiz (R13).
 
     A fully generated 1200x630 card -- owner name, score-to-beat, challenge
     framing, Atlasi branding -- and never a quiz photo (KTD11: unfurl CDNs
@@ -956,18 +962,10 @@ async def view_quiz_card_image(
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
 
-    quizzes = await db.get(
-        "quiz",
-        {
-            "slug": f"eq.{slug}",
-            "select": "id,owner_id,state,score_to_beat_correct,score_to_beat_total",
-        },
-    )
-    quiz = quizzes[0] if quizzes else None
-
     # Mirrors the page route: only 'shared' serves; unknown, pre-share, and
     # revoked slugs are indistinguishable no-store 404s.
-    if quiz is None or quiz.get("state") != "shared":
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
         return Response(
             status_code=status.HTTP_404_NOT_FOUND,
             headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
@@ -997,9 +995,10 @@ async def view_quiz_card_image(
 @limiter.limit("30/minute")
 async def quiz_install_redirect(
     request: Request,
+    background_tasks: BackgroundTasks,
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
-    """Logged App Store redirect for the quiz install CTA (U12: R12/R16).
+    """Logged App Store redirect for the quiz install CTA (R12/R16).
 
     The results-page CTA points here instead of straight at the store, so
     each tap lands in the per-quiz funnel before the 302 hands the visitor
@@ -1013,15 +1012,14 @@ async def quiz_install_redirect(
     settings = get_settings()
     db = get_supabase_client()  # service role: quiz tables are backend-only
 
-    quizzes = await db.get(
-        "quiz",
-        {"slug": f"eq.{slug}", "select": "id,state"},
-    )
-    quiz = quizzes[0] if quizzes else None
-    if quiz is None or quiz.get("state") != "shared":
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
         return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
 
-    await record_quiz_funnel_event(db, quiz["id"], "install_cta_tap", slug)
+    # Best-effort funnel write, recorded off the response path.
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "install_cta_tap", slug
+    )
 
     response = RedirectResponse(
         url=settings.app_store_url or "/",

@@ -1,4 +1,4 @@
-"""Per-quiz funnel counters for the public quiz surface (U12: R12/R16).
+"""Per-quiz funnel counters for the public quiz surface (R12/R16).
 
 Four steps, recorded server-side and persisted as one counter row per
 (quiz, event) in quiz_funnel:
@@ -23,21 +23,14 @@ logged and swallowed -- analytics must never take down the play surface.
 import logging
 from typing import Any
 
-from app.core.analytics import log_quiz_funnel_event
+from app.core.analytics import QuizFunnelEvent, log_quiz_funnel_event
 from app.db.session import SupabaseClient
 
 logger = logging.getLogger(__name__)
 
-QUIZ_FUNNEL_EVENTS = (
-    "page_view",
-    "session_started",
-    "session_completed",
-    "install_cta_tap",
-)
-
 
 async def record_quiz_funnel_event(
-    db: SupabaseClient, quiz_id: Any, event: str, slug: str
+    db: SupabaseClient, quiz_id: Any, event: QuizFunnelEvent, slug: str
 ) -> None:
     """Log and persist one funnel step for one quiz. Never raises."""
     log_quiz_funnel_event(event, slug)

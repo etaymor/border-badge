@@ -1,7 +1,7 @@
 """Server-side quiz answer grading (KTD4).
 
 This is the ONE grading code path for the travel photo quiz: the owner's
-authenticated play (U3) and the anonymous public play (U8) both grade through
+authenticated play and the anonymous public play both grade through
 `grade_answer`. It takes an already-authorized session + question pair -- the
 caller is responsible for loading them with the appropriate ownership/state
 filters -- and performs the grade server-side:
@@ -36,6 +36,9 @@ class GradedAnswer:
     correct_year: int | None
     # The session's updated running score (count of place-correct answers).
     score: int
+    # How many questions the session has answered, this one included --
+    # derived from the same recorded-answers read that computes the score.
+    answered_count: int
 
 
 async def grade_answer(
@@ -103,4 +106,5 @@ async def grade_answer(
         correct_option=options[correct_index],
         correct_year=capture_year,
         score=score,
+        answered_count=len(answers),
     )

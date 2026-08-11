@@ -10,9 +10,9 @@ import { useAuthStore } from '@stores/authStore';
  * the passport data caches, and flip the auth flags so RootNavigator switches
  * to Main.
  *
- * Extracted from PaywallScreen (U12): the post-paywall FirstQuizOffer screen
- * is now the LAST post-signup step, so it -- not the paywall -- owns the
- * finish. The settled order (account creation before paywall, guarded by
+ * Extracted from PaywallScreen: the post-paywall FirstQuizOffer screen is
+ * the LAST post-signup step, so it -- not the paywall -- owns the finish.
+ * The settled order (account creation before paywall, guarded by
  * needsPostSignupFlow; see docs/ONBOARDING_PAYWALL_FIX.md) is unchanged.
  */
 export function useFinishOnboarding() {

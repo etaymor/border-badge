@@ -1,8 +1,20 @@
 """Analytics event logging for public pages."""
 
 import logging
+from typing import Literal
 
 logger = logging.getLogger("analytics")
+
+# The four public quiz funnel steps. The single source of truth for the event
+# vocabulary shared with app.services.quiz_funnel (which persists the
+# counters); it lives here so the persistence layer can import it without a
+# circular dependency.
+QuizFunnelEvent = Literal[
+    "page_view",
+    "session_started",
+    "session_completed",
+    "install_cta_tap",
+]
 
 
 def log_page_view(page_type: str, identifier: str | None = None) -> None:
@@ -33,8 +45,8 @@ def log_trip_viewed(slug: str) -> None:
     log_page_view("trip", slug)
 
 
-def log_quiz_funnel_event(event: str, slug: str) -> None:
-    """Log one public quiz funnel step (U12).
+def log_quiz_funnel_event(event: QuizFunnelEvent, slug: str) -> None:
+    """Log one public quiz funnel step.
 
     Args:
         event: Funnel step (page_view, session_started, session_completed,

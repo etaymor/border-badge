@@ -1,5 +1,5 @@
 /**
- * FirstQuizOfferScreen - post-paywall "make your first quiz" offer (U12).
+ * FirstQuizOfferScreen - post-paywall "make your first quiz" offer.
  *
  * The final post-signup step for every new user, shown after the paywall
  * resolves (purchase, cancel, or error alike). Skippable by design:

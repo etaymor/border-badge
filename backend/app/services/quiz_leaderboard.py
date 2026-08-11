@@ -1,7 +1,7 @@
 """Read-time quiz leaderboard aggregation (KTD9) — the ONE implementation.
 
 Shared by the anonymous public surface (``app/api/public_quiz.py``) and the
-owner-facing board (``app/api/quiz.py``, U11/R14): best score + attempt count
+owner-facing board (``app/api/quiz.py``, R14): best score + attempt count
 per canonicalized display name (trim, Unicode NFKC, casefold — AE4), a
 distinct-name cap claimed in first-completion order, sorted best score first
 with earliest first completion breaking ties.

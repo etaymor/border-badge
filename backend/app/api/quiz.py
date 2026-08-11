@@ -1,13 +1,14 @@
 """Travel photo quiz API endpoints.
 
-U2: the authenticated draft-creation anchor and the vision eligibility gate.
-U3: the authenticated quiz lifecycle -- signed quiz-owned uploads (KTD5),
-finalize with server-generated options (KTD6), server-graded owner play with
-one-time score-to-beat seeding, pre-share swap/remove, share-time slug minting
-(KTD8), revoke, and draft deletion. Lifecycle transitions (KTD7) are all
-conditional writes against the expected prior state: zero rows updated means a
-concurrent transition won, surfaced as 409. The public anonymous play surface
-is U8; it reuses `app.services.quiz_grading.grade_answer` (KTD4).
+The authenticated owner surface: the draft-creation anchor, the vision
+eligibility gate, and the full quiz lifecycle -- signed quiz-owned uploads
+(KTD5), finalize with server-generated options (KTD6), server-graded owner
+play with one-time score-to-beat seeding, pre-share swap/remove, share-time
+slug minting (KTD8), revoke, and draft deletion. Lifecycle transitions (KTD7)
+are all conditional writes against the expected prior state: zero rows updated
+means a concurrent transition won, surfaced as 409. The public anonymous play
+surface lives in app/api/public_quiz.py; it reuses
+`app.services.quiz_grading.grade_answer` (KTD4).
 
 The quiz tables are backend-only (RLS enabled with no user policies), so every
 route uses the service-role Supabase client and enforces ownership explicitly
@@ -100,7 +101,7 @@ async def create_quiz_draft(
     """Create an empty draft quiz in state 'building' owned by the caller.
 
     Deliberately minimal: state and classified_count come from column
-    defaults. The U3 creation flow builds the full quiz around this anchor.
+    defaults. The creation flow builds the full quiz around this anchor.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     rows = await db.post("quiz", {"owner_id": user.id})
@@ -114,7 +115,7 @@ async def create_quiz_draft(
 
 @router.get("", response_model=QuizListResponse)
 async def list_quizzes(user: CurrentUser) -> QuizListResponse:
-    """Every quiz the caller owns, newest first (U11).
+    """Every quiz the caller owns, newest first.
 
     The management-surface list: lifecycle state, question count, the seeded
     score-to-beat pair, and the share link while (and only while) the quiz is
@@ -325,7 +326,7 @@ async def check_photo_eligibility(
 
 
 # ============================================================================
-# U3: lifecycle constants and helpers
+# Lifecycle constants and helpers
 # ============================================================================
 
 MIN_QUIZ_PHOTOS = 5
@@ -670,7 +671,7 @@ async def _sweep_revoked_quiz_objects(db: SupabaseClient, quiz: dict[str, Any]) 
 
 
 # ============================================================================
-# U3: creation -- signed uploads (KTD5) and finalize (KTD6)
+# Creation -- signed uploads (KTD5) and finalize (KTD6)
 # ============================================================================
 
 
@@ -814,7 +815,7 @@ async def finalize_quiz(
 
 
 # ============================================================================
-# U3: owner-facing detail and play (server-graded, one grading path -- KTD4)
+# Owner-facing detail and play (server-graded, one grading path -- KTD4)
 # ============================================================================
 
 
@@ -825,7 +826,7 @@ async def get_quiz(quiz_id: UUID, user: CurrentUser) -> QuizDetailResponse:
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
     if quiz.get("revoked_at") is not None and quiz.get("objects_deleted_at") is None:
         # Passive reconciliation retry trigger: any owner detail read of a
-        # revoked-but-pending quiz re-runs the U10 cleanup sweep.
+        # revoked-but-pending quiz re-runs the revocation cleanup sweep.
         await _null_session_display_names(db, quiz_id)
         if await _sweep_revoked_quiz_objects(db, quiz):
             quiz = await _get_owned_quiz(db, quiz_id, user.id)
@@ -1046,7 +1047,7 @@ async def complete_owner_play(
 
 
 # ============================================================================
-# U3: pre-share editing -- swap and remove (KTD7)
+# Pre-share editing -- swap and remove (KTD7)
 # ============================================================================
 
 
@@ -1172,7 +1173,7 @@ async def remove_quiz_question(
 
 
 # ============================================================================
-# U3: share (KTD8), revoke, and draft deletion
+# Share (KTD8), revoke, and draft deletion
 # ============================================================================
 
 
@@ -1276,7 +1277,7 @@ async def hide_quiz_session(
     session_id: UUID,
     user: CurrentUser,
 ) -> QuizSessionHideResponse:
-    """Hide a play session from the public leaderboard (U8 moderation).
+    """Hide a play session from the public leaderboard (owner moderation).
 
     Owner-only: the ownership check 404s for anyone else, exactly like every
     other quiz route (no existence leak). Hiding is a flag, not a delete --

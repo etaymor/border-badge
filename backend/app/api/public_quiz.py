@@ -1,6 +1,6 @@
-"""Anonymous public quiz play API (U8): the /q/{slug}/* JSON endpoints.
+"""Anonymous public quiz play API: the /q/{slug}/* JSON endpoints.
 
-The server side of the contract `quiz-play.js` (U7) codes against. Design
+The server side of the contract `quiz-play.js` codes against. Design
 invariants:
 
 - Every endpoint resolves the slug UNCACHED and serves only state 'shared';
@@ -26,12 +26,21 @@ Quiz tables are backend-only (RLS with no user policies), so everything uses
 the service-role client; authorization is the slug + token pair.
 """
 
+import asyncio
 import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Path,
+    Request,
+    Response,
+    status,
+)
 
 from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter
@@ -52,9 +61,9 @@ from app.services.quiz_funnel import record_quiz_funnel_event
 from app.services.quiz_grading import grade_answer
 
 # The aggregation implementation lives in app/services/quiz_leaderboard.py —
-# ONE implementation shared with the owner-facing board (U11). The size
-# constants are re-imported here as module attributes (monkeypatchable in
-# tests) and passed explicitly at each call site.
+# ONE implementation shared with the owner-facing board. The size constants
+# are re-imported here as module attributes (monkeypatchable in tests) and
+# passed explicitly at each call site.
 from app.services.quiz_leaderboard import (
     QUIZ_LEADERBOARD_MAX_NAMES,
     QUIZ_LEADERBOARD_TOP_N,
@@ -64,13 +73,14 @@ from app.services.quiz_leaderboard import (
     is_public_session,
     top_entries,
 )
+from app.services.quiz_lookup import fetch_shared_quiz_by_slug
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["public-quiz"])
 
 _SESSION_TOKEN_MINT_ATTEMPTS = 3
 
-# Mirrors the /q/{slug} page route's slug handling (U7): minted slugs are
+# Mirrors the /q/{slug} page route's slug handling: minted slugs are
 # lowercase hex, and nothing outside this alphabet ever reaches the DB.
 SlugPath = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
 
@@ -86,15 +96,8 @@ async def _get_shared_quiz(db: SupabaseClient, slug: str) -> dict[str, Any]:
     slug must not confirm that a quiz ever existed, and a revocation must cut
     off running sessions at their very next request.
     """
-    rows = await db.get(
-        "quiz",
-        {
-            "slug": f"eq.{slug}",
-            "select": "id,owner_id,state,slug,score_to_beat_correct,score_to_beat_total",
-        },
-    )
-    quiz = rows[0] if rows else None
-    if quiz is None or quiz.get("state") != "shared":
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Quiz not found"
         )
@@ -146,6 +149,7 @@ def _score_to_beat(quiz: dict[str, Any]) -> ScoreToBeat | None:
 async def start_public_quiz_session(
     request: Request,  # Required for rate limiter
     data: PublicQuizSessionRequest,
+    background_tasks: BackgroundTasks,
     slug: str = SlugPath,
 ) -> PublicQuizSessionResponse:
     """Start a fresh session, or resume the one a stored token names.
@@ -176,10 +180,13 @@ async def start_public_quiz_session(
                 continue  # token collision (astronomically rare): re-mint
             raise
         if rows:
-            # U12 funnel: started counts at the session INSERT -- resumes above
+            # Funnel: started counts at the session INSERT -- resumes above
             # return early, so one session is one count no matter how many
-            # times the player reloads.
-            await record_quiz_funnel_event(db, quiz["id"], "session_started", slug)
+            # times the player reloads. Best-effort analytics, recorded off
+            # the response path.
+            background_tasks.add_task(
+                record_quiz_funnel_event, db, quiz["id"], "session_started", slug
+            )
             return PublicQuizSessionResponse(
                 token=token, answered=[], completed=False, score=None
             )
@@ -194,9 +201,11 @@ async def _session_snapshot(
 ) -> PublicQuizSessionResponse:
     """What a resuming client needs: its recorded answers, in question order,
     each with the ground truth that answering already revealed."""
-    questions = await _get_questions(db, quiz["id"])
+    questions, answers = await asyncio.gather(
+        _get_questions(db, quiz["id"]),
+        db.get("quiz_answer", {"session_id": f"eq.{session['id']}"}),
+    )
     by_id = {str(q["id"]): q for q in questions}
-    answers = await db.get("quiz_answer", {"session_id": f"eq.{session['id']}"})
     answered: list[PublicAnsweredQuestion] = []
     for a in answers:
         question = by_id.get(str(a["question_id"]))
@@ -258,13 +267,10 @@ async def answer_public_quiz_question(
         question=questions[0],
         selected_option_index=data.selected_option_index,
     )
-    recorded = await db.get(
-        "quiz_answer", {"session_id": f"eq.{session['id']}", "select": "id"}
-    )
     return PublicQuizAnswerResponse(
         correct=graded.place_correct,
         correct_country=graded.correct_option,
-        answered_count=len(recorded),
+        answered_count=graded.answered_count,
     )
 
 
@@ -278,6 +284,7 @@ async def answer_public_quiz_question(
 async def complete_public_quiz_session(
     request: Request,  # Required for rate limiter
     data: PublicQuizCompleteRequest,
+    background_tasks: BackgroundTasks,
     slug: str = SlugPath,
 ) -> PublicQuizCompleteResponse:
     """Finish the session, bind the display name, and return the board.
@@ -293,8 +300,10 @@ async def complete_public_quiz_session(
     quiz = await _get_shared_quiz(db, slug)
     session = await _require_public_session(db, quiz, data.token)
 
-    questions = await _get_questions(db, quiz["id"])
-    answers = await db.get("quiz_answer", {"session_id": f"eq.{session['id']}"})
+    questions, answers = await asyncio.gather(
+        _get_questions(db, quiz["id"]),
+        db.get("quiz_answer", {"session_id": f"eq.{session['id']}"}),
+    )
     by_question = {str(a["question_id"]): a for a in answers}
     missing = [q for q in questions if str(q["id"]) not in by_question]
     if missing:
@@ -328,10 +337,13 @@ async def complete_public_quiz_session(
         )
         if claimed:
             session = claimed[0]
-            # U12 funnel: completed counts at the FIRST completion only --
-            # this branch is exactly the conditional write that claimed it,
-            # so replayed complete calls can never double count.
-            await record_quiz_funnel_event(db, quiz["id"], "session_completed", slug)
+            # Funnel: completed counts at the FIRST completion only -- this
+            # branch is exactly the conditional write that claimed it, so
+            # replayed complete calls can never double count. Best-effort
+            # analytics, recorded off the response path.
+            background_tasks.add_task(
+                record_quiz_funnel_event, db, quiz["id"], "session_completed", slug
+            )
         else:
             already_completed = True
             refreshed = await db.get("quiz_session", {"id": f"eq.{session['id']}"})

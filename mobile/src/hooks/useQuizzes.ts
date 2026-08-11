@@ -7,6 +7,8 @@
  * every outcome surface (decline, retry, resume) itself.
  */
 
+import { Alert } from 'react-native';
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Analytics } from '@services/analytics';
@@ -45,9 +47,9 @@ export interface QuizDetail {
 }
 
 const QUIZZES_QUERY_KEY = ['quizzes'];
-// The management-surface list (U11). Lives under the quizzes namespace but
-// with its own segment so per-quiz invalidations (['quizzes', quizId]) never
-// have to refetch the whole list, and vice versa.
+// The management-surface list. Lives under the quizzes namespace but with its
+// own segment so per-quiz invalidations (['quizzes', quizId]) never have to
+// refetch the whole list, and vice versa.
 const QUIZ_LIST_QUERY_KEY = [...QUIZZES_QUERY_KEY, 'list'];
 
 // One owned quiz in the management list; matches backend QuizSummary.
@@ -62,7 +64,7 @@ export interface QuizSummary {
   revoked_at?: string | null;
 }
 
-// Every quiz the owner has, newest first (U11 management surface).
+// Every quiz the owner has, newest first (the management surface).
 export function useMyQuizzes() {
   return useQuery({
     queryKey: QUIZ_LIST_QUERY_KEY,
@@ -103,7 +105,7 @@ export function useCreateQuiz() {
       createQuizFromLibrary(options),
     onSuccess: (outcome) => {
       if (outcome.status === 'created') {
-        // U12 funnel: quiz created (the top of the viral loop).
+        // Funnel: quiz created (the top of the viral loop).
         Analytics.quizCreated({ quizId: outcome.quizId, photoCount: outcome.photoCount });
         // Scoped invalidation: only the newly created quiz's detail query,
         // plus the management list it now appears on.
@@ -248,7 +250,7 @@ export function useShareQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // U12 funnel: quiz shared (the link now exists in the wild).
+      // Funnel: quiz shared (the link now exists in the wild).
       Analytics.quizShared({ quizId });
       // State moved to 'shared': the detail drives the edit affordances, the
       // list shows the new state, and the leaderboard (keyed under the quiz)
@@ -269,6 +271,26 @@ export interface QuizRevokeResult {
 }
 
 /**
+ * The shared revoke confirmation (R15): the honest disclosure -- the link and
+ * photos stop serving within about a minute (60s object TTL on the photo
+ * edges), but link previews already delivered to messaging apps live in those
+ * apps' caches and may persist there. `onConfirm` runs only when the owner
+ * confirms.
+ */
+export function confirmRevokeQuiz(onConfirm: () => void): void {
+  Alert.alert(
+    'Revoke share link?',
+    'The link stops working and your quiz photos are deleted from our servers. ' +
+      'Photos already loaded elsewhere expire within about a minute, but link ' +
+      'previews already delivered to messaging apps may persist in those apps.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Revoke Link', style: 'destructive', onPress: onConfirm },
+    ]
+  );
+}
+
+/**
  * Revoke a shared quiz (R15). The share link, public API, and card image
  * stop serving the moment the call commits; photo deletion at the origin is
  * verified server-side. Calling revoke again on an already-revoked quiz is
@@ -283,7 +305,7 @@ export function useRevokeQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // U12 funnel: quiz revoked (the loop closed early for this link).
+      // Funnel: quiz revoked (the loop closed early for this link).
       Analytics.quizRevoked({ quizId });
       // State moved to 'revoked': the detail drives the share affordances,
       // and the list + leaderboard (both under the quizzes namespace) follow.
@@ -310,7 +332,7 @@ export function useDeleteQuiz() {
 }
 
 // ---------------------------------------------------------------------------
-// Owner leaderboard (U11 / R14)
+// Owner leaderboard (R14)
 // ---------------------------------------------------------------------------
 
 // Matches backend QuizOwnerLeaderboardEntry: one aggregated row per name
@@ -350,18 +372,19 @@ export function useQuizLeaderboard(quizId: string | undefined) {
 }
 
 /**
- * Hide a leaderboard entry (U8 moderation, owner-only): the backend hide
- * endpoint is per-session, so hiding an entry means hiding every session
- * folded into it. Hidden sessions stay visible to the owner, marked.
+ * Hide a leaderboard entry (owner moderation): the backend hide endpoint is
+ * per-session, so hiding an entry means hiding every session folded into it.
+ * Hidden sessions stay visible to the owner, marked.
  */
 export function useHideQuizSessions(quizId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (sessionIds: string[]): Promise<void> => {
-      for (const sessionId of sessionIds) {
-        await api.post(`/quiz/${quizId}/sessions/${sessionId}/hide`);
-      }
+      // Idempotent, order-independent flag writes: hide them all in parallel.
+      await Promise.all(
+        sessionIds.map((sessionId) => api.post(`/quiz/${quizId}/sessions/${sessionId}/hide`))
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

@@ -1,19 +1,19 @@
 """Pydantic schemas for the travel photo quiz.
 
-U2: the draft-creation response and the vision eligibility request/response.
-Caps mirror ``app/schemas/photos.py`` (same 768px JPEG base64 convention,
-<=50 images per request, 200k chars per image). Unlike the photos endpoint --
-where vision payloads are optional garnish and get truncated -- the images
-here ARE the request, so oversized requests are REJECTED with a validation
-error rather than silently trimmed.
+Eligibility: the draft-creation response and the vision eligibility
+request/response. Caps mirror ``app/schemas/photos.py`` (same 768px JPEG
+base64 convention, <=50 images per request, 200k chars per image). Unlike the
+photos endpoint -- where vision payloads are optional garnish and get
+truncated -- the images here ARE the request, so oversized requests are
+REJECTED with a validation error rather than silently trimmed.
 
-U3: the authenticated lifecycle -- signed uploads, finalize, owner play
-(sanitized question payloads with NO ground truth), grading, share, revoke.
+Owner lifecycle: signed uploads, finalize, owner play (sanitized question
+payloads with NO ground truth), grading, share, revoke.
 
-U8: the anonymous public play surface -- opaque-token sessions, per-question
-grading verdicts, idempotent completion, and the read-time leaderboard.
-Completion deliberately accepts NO score field: extras are ignored and the
-score is always recomputed server-side from recorded answers.
+Anonymous public play: opaque-token sessions, per-question grading verdicts,
+idempotent completion, and the read-time leaderboard. Completion deliberately
+accepts NO score field: extras are ignored and the score is always recomputed
+server-side from recorded answers.
 """
 
 import base64
@@ -104,7 +104,7 @@ class QuizEligibilityResponse(BaseModel):
 
 
 # ============================================================================
-# U3: creation (uploads + finalize)
+# Creation (uploads + finalize)
 # ============================================================================
 
 
@@ -158,7 +158,7 @@ class QuizSwapRequest(QuizFinalizePhoto):
 
 
 # ============================================================================
-# U3: play payloads (NO ground truth) and grading
+# Play payloads (NO ground truth) and grading
 # ============================================================================
 
 
@@ -237,7 +237,7 @@ class QuizCompleteResponse(BaseModel):
 
 
 # ============================================================================
-# U3: share / revoke
+# Share / revoke
 # ============================================================================
 
 
@@ -250,13 +250,13 @@ class QuizShareResponse(BaseModel):
 class QuizRevokeResponse(BaseModel):
     state: str
     revoked_at: str
-    # U10: True only once the quiz/{id}/ storage prefix has been verifiably
+    # True only once the quiz/{id}/ storage prefix has been verifiably
     # emptied. False = revoked-but-pending; re-calling revoke retries.
     objects_deleted: bool
 
 
 # ============================================================================
-# U8: anonymous public play (/q/{slug}/* JSON endpoints)
+# Anonymous public play (/q/{slug}/* JSON endpoints)
 # ============================================================================
 
 # Mirrors the app-wide display-name rule (see
@@ -384,7 +384,7 @@ class QuizSessionHideResponse(BaseModel):
 
 
 # ============================================================================
-# U11: the owner's management surface (list + owner leaderboard)
+# The owner's management surface (list + owner leaderboard)
 # ============================================================================
 
 

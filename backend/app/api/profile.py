@@ -104,7 +104,7 @@ async def delete_account(
     Supabase Storage cleanup requires a separate process (e.g., scheduled job or
     storage lifecycle policy) to remove orphaned files.
 
-    Exception (U10): quiz photos live under quiz-owned storage prefixes with
+    Exception: quiz photos live under quiz-owned storage prefixes with
     no media_files rows, so nothing else can ever collect them. Every owned
     quiz's prefix -- drafts included -- is emptied and verified BEFORE the
     auth-admin delete; a storage failure aborts the whole account deletion

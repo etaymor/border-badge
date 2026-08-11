@@ -1,5 +1,5 @@
 /**
- * MyQuizzesScreen - the owner's quiz management surface (U11).
+ * MyQuizzesScreen - the owner's quiz management surface.
  *
  * Lists every quiz the owner has with its lifecycle state and the actions
  * that state allows:
@@ -19,7 +19,13 @@ import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useDeleteQuiz, useMyQuizzes, useRevokeQuiz, type QuizSummary } from '@hooks/useQuizzes';
+import {
+  confirmRevokeQuiz,
+  useDeleteQuiz,
+  useMyQuizzes,
+  useRevokeQuiz,
+  type QuizSummary,
+} from '@hooks/useQuizzes';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
@@ -90,29 +96,17 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
     );
   });
 
-  // Same honest disclosure as the results screen's revoke (R15).
+  // Same honest disclosure as the results screen's revoke (R15), via the
+  // shared confirmation.
   const handleRevoke = useStableCallback(() => {
     if (revokeMutation.isPending) return;
-    Alert.alert(
-      'Revoke share link?',
-      'The link stops working and your quiz photos are deleted from our servers. ' +
-        'Photos already loaded elsewhere expire within about a minute, but link ' +
-        'previews already delivered to messaging apps may persist in those apps.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Revoke Link',
-          style: 'destructive',
-          onPress: () => {
-            revokeMutation.mutate(undefined, {
-              onError: () => {
-                Alert.alert('Error', 'Could not revoke the link. Please try again.');
-              },
-            });
-          },
+    confirmRevokeQuiz(() => {
+      revokeMutation.mutate(undefined, {
+        onError: () => {
+          Alert.alert('Error', 'Could not revoke the link. Please try again.');
         },
-      ]
-    );
+      });
+    });
   });
 
   const createdAt = formatCreatedAt(quiz.created_at);

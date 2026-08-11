@@ -39,6 +39,7 @@ import { Screen } from '@components/ui/Screen';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import {
+  confirmRevokeQuiz,
   useQuiz,
   useRemoveQuizQuestion,
   useRevokeQuiz,
@@ -175,31 +176,16 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     }
   });
 
-  // Revoke (R15): confirmation carries the honest disclosure -- the link and
-  // photos stop serving within about a minute (60s object TTL on the photo
-  // edges), but link previews already delivered to messaging apps live in
-  // those apps' caches and may persist there.
+  // Revoke (R15): the shared confirmation carries the honest disclosure
+  // about the link, photo TTLs, and messaging-app preview caches.
   const handleRevoke = useStableCallback(() => {
-    Alert.alert(
-      'Revoke share link?',
-      'The link stops working and your quiz photos are deleted from our servers. ' +
-        'Photos already loaded elsewhere expire within about a minute, but link ' +
-        'previews already delivered to messaging apps may persist in those apps.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Revoke Link',
-          style: 'destructive',
-          onPress: () => {
-            revokeMutation.mutate(undefined, {
-              onError: () => {
-                Alert.alert('Error', 'Could not revoke the link. Please try again.');
-              },
-            });
-          },
+    confirmRevokeQuiz(() => {
+      revokeMutation.mutate(undefined, {
+        onError: () => {
+          Alert.alert('Error', 'Could not revoke the link. Please try again.');
         },
-      ]
-    );
+      });
+    });
   });
 
   const handleDone = useStableCallback(() => {

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {# ============================================================================
-   Public playable quiz page (/q/{slug}) -- U7.
+   Public playable quiz page (/q/{slug}).
 
    Two modes, one template:
      mode == "play": the shared quiz's challenge intro + game scaffolding. The
@@ -129,7 +129,7 @@
         Think your own trips could stump your friends? Build your quiz from
         your camera roll with Atlasi.
       </p>
-      {# U12: the results CTA routes through the logged /install redirect so
+      {# Funnel: the results CTA routes through the logged /install redirect so
          each tap lands in the per-quiz funnel before reaching the store. The
          gone-state CTAs below deliberately do NOT: by the time they render,
          the quiz no longer serves and /install would 404 the tap away. #}

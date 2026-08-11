@@ -1,8 +1,9 @@
 /*
- * Public quiz play (/q/{slug}) -- U7.
+ * Public quiz play (/q/{slug}).
  *
  * The page is server-rendered down to the challenge intro; this script runs
- * the game against the U8 JSON endpoints. Design constraints it must honor:
+ * the game against the /q/{slug}/* JSON endpoints. Design constraints it
+ * must honor:
  *
  *   1. Ground truth never exists client-side. The data island carries image
  *      URLs and four options per question; whether an answer is right comes
@@ -16,7 +17,7 @@
  *   4. A 404/410 from any call means the quiz was revoked (or never shared):
  *      the game surrenders to the "gone" view, mid-run included.
  *
- * API contract (implemented server-side in U8):
+ * API contract (implemented server-side in app/api/public_quiz.py):
  *   POST /q/{slug}/session  {token?} -> {token, answered: [{question_id,
  *        selected_option_index, correct, correct_country}], completed, score?}
  *   POST /q/{slug}/answer   {token, question_id, selected_option_index}

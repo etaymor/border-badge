@@ -5,7 +5,7 @@ import { useAuthStore } from '@stores/authStore';
 
 /**
  * Consume the one-shot pendingFirstQuizLaunch flag armed by the post-signup
- * FirstQuizOffer accept (U12).
+ * FirstQuizOffer accept.
  *
  * Called from inside MainTabNavigator -- i.e. from the root stack's 'Main'
  * screen -- so QuizCreation is pushed ON TOP of Main and backing out of the

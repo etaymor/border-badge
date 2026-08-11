@@ -145,8 +145,8 @@ export function OnboardingNavigator() {
       {/* FunctionalHook → Paywall: Show subscription options (user is now authenticated) */}
       <Stack.Screen name="Paywall" component={PaywallScreen} />
 
-      {/* Paywall → FirstQuizOffer: post-paywall "make your first quiz" offer
-          (U12). The offer owns finishing the post-signup flow; accept arms
+      {/* Paywall → FirstQuizOffer: post-paywall "make your first quiz" offer.
+          The offer owns finishing the post-signup flow; accept arms
           pendingFirstQuizLaunch so Main opens QuizCreation on arrival. */}
       <Stack.Screen name="FirstQuizOffer" component={FirstQuizOfferScreen} />
     </Stack.Navigator>
