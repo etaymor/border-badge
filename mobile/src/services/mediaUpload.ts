@@ -117,7 +117,7 @@ function toJpegName(name: string): string {
 /**
  * Read the pixel dimensions of an image URI.
  */
-function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
+export function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     Image.getSize(
       uri,

@@ -1,5 +1,5 @@
 /**
- * QuizCreationScreen - one tap from the entry point to a built quiz (U4).
+ * QuizCreationScreen - one tap from the entry point to a built quiz.
  *
  * Owns every state of the creation flow:
  * - permission request / denied (Settings link) / limited-access awareness
@@ -10,8 +10,7 @@
  * - interrupted upload with resume/abandon (abandon keeps the resumable
  *   draft - KTD7)
  *
- * On success navigates to QuizPlay (U5 owns that screen; a placeholder is
- * registered so the route exists).
+ * On success navigates to QuizPlay for the owner play-through.
  */
 
 import { useEffect, useRef, useState } from 'react';

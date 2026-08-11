@@ -2,7 +2,7 @@
  * Quiz candidate selection - pure logic for choosing which library photos to
  * send through the eligibility gate and which eligible photos become the quiz.
  *
- * Responsibilities (Travel Photo Quiz U4):
+ * Responsibilities:
  * - KTD2: border/no-fix exclusion. A photo is geo-ineligible when the cached
  *   country code is null (ocean / no GPS fix), when its code does not map to
  *   the app's country table, or when a cheap 4-point probe at
@@ -20,6 +20,8 @@
  * accessor from `@services/photoImport/countryCoder` - never a top-level
  * `@rapideditor/country-coder` import (kept off the boot path deliberately).
  */
+
+import type { CachedPhoto } from '@services/photoImport/types';
 
 /** country-coder's iso1A2Code call shape (the subset we use). */
 export type CountryCoderFn = (
@@ -42,6 +44,18 @@ export interface QuizPhotoCandidate {
 /** A candidate that passed the geo gate; countryCode is resolved and valid. */
 export interface GeoEligibleCandidate extends QuizPhotoCandidate {
   countryCode: string;
+}
+
+/** Map a cached library photo to the candidate shape used for selection. */
+export function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
+  return {
+    id: cached.id,
+    uri: cached.uri,
+    creationTime: cached.creationTime,
+    latitude: cached.latitude,
+    longitude: cached.longitude,
+    countryCode: cached.countryCode,
+  };
 }
 
 export type GeoExclusionReason = 'no-country' | 'unmapped-territory' | 'border-ambiguous';
@@ -114,9 +128,10 @@ export function resolveCandidateCountry(
 /**
  * Round-robin candidates across countries, newest first within a country.
  * Country order within each cycle is deterministic (largest pool first, then
- * code) so tests and retries behave identically.
+ * code) so tests and retries behave identically. Yields lazily so consumers
+ * that stop at a limit never materialize the full interleaving.
  */
-function roundRobinByCountry(candidates: GeoEligibleCandidate[]): GeoEligibleCandidate[] {
+function* roundRobinByCountry(candidates: GeoEligibleCandidate[]): Generator<GeoEligibleCandidate> {
   const byCountry = new Map<string, GeoEligibleCandidate[]>();
   for (const candidate of candidates) {
     const list = byCountry.get(candidate.countryCode);
@@ -134,31 +149,31 @@ function roundRobinByCountry(candidates: GeoEligibleCandidate[]): GeoEligibleCan
     return sizeDiff !== 0 ? sizeDiff : a.localeCompare(b);
   });
 
-  const ordered: GeoEligibleCandidate[] = [];
-  for (let index = 0; ordered.length < candidates.length; index++) {
+  let yielded = 0;
+  for (let index = 0; yielded < candidates.length; index++) {
     for (const country of countries) {
       const list = byCountry.get(country)!;
       if (index < list.length) {
-        ordered.push(list[index]);
+        yield list[index];
+        yielded += 1;
       }
     }
   }
-  return ordered;
 }
 
 /**
- * Order candidates by country spread with freshness segments:
+ * Lazily iterate candidates by country spread with freshness segments:
  * 1. fresh photos in preferred countries
  * 2. fresh photos in deprioritized countries
  * 3. previously used photos in preferred countries (KTD12: only after ALL fresh)
  * 4. previously used photos in deprioritized countries
  * Each segment is independently round-robined across countries.
  */
-export function orderByCountrySpread(
+function* iterateCountrySpread(
   candidates: GeoEligibleCandidate[],
-  usedAssetIds: Set<string> = new Set(),
-  deprioritizedCountries: Set<string> = new Set()
-): GeoEligibleCandidate[] {
+  usedAssetIds: Set<string>,
+  deprioritizedCountries: Set<string>
+): Generator<GeoEligibleCandidate> {
   const segments: [
     GeoEligibleCandidate[],
     GeoEligibleCandidate[],
@@ -170,7 +185,29 @@ export function orderByCountrySpread(
     const deprioritizedOffset = deprioritizedCountries.has(candidate.countryCode) ? 1 : 0;
     segments[usedOffset + deprioritizedOffset].push(candidate);
   }
-  return segments.flatMap(roundRobinByCountry);
+  for (const segment of segments) {
+    yield* roundRobinByCountry(segment);
+  }
+}
+
+/**
+ * Order candidates by country spread (see `iterateCountrySpread` for the
+ * segment rules). `limit` caps the result: accumulation stops once the limit
+ * is reached, and the output is always the identical prefix of the unlimited
+ * ordering.
+ */
+export function orderByCountrySpread(
+  candidates: GeoEligibleCandidate[],
+  usedAssetIds: Set<string> = new Set(),
+  deprioritizedCountries: Set<string> = new Set(),
+  limit: number = Infinity
+): GeoEligibleCandidate[] {
+  const ordered: GeoEligibleCandidate[] = [];
+  for (const candidate of iterateCountrySpread(candidates, usedAssetIds, deprioritizedCountries)) {
+    if (ordered.length >= limit) break;
+    ordered.push(candidate);
+  }
+  return ordered;
 }
 
 export interface SelectEligibilityBatchOptions {
@@ -214,10 +251,15 @@ export function selectEligibilityBatch(
     cheapEligible.push({ ...photo, countryCode: code });
   }
 
-  const ordered = orderByCountrySpread(cheapEligible, usedAssetIds, deprioritizedCountries);
-
+  // Walk the spread ordering lazily: border-ambiguous candidates are skipped
+  // and replaced by the next in line, so this may consume more than `limit`
+  // ordered entries - but never materializes the full interleaving.
   const batch: GeoEligibleCandidate[] = [];
-  for (const candidate of ordered) {
+  for (const candidate of iterateCountrySpread(
+    cheapEligible,
+    usedAssetIds ?? new Set(),
+    deprioritizedCountries ?? new Set()
+  )) {
     if (batch.length >= limit) break;
     if (isBorderAmbiguous(candidate, coder)) continue;
     batch.push(candidate);
@@ -235,5 +277,5 @@ export function pickQuizPhotos(
   usedAssetIds: Set<string> = new Set(),
   max: number = QUIZ_MAX_PHOTOS
 ): GeoEligibleCandidate[] {
-  return orderByCountrySpread(eligible, usedAssetIds).slice(0, max);
+  return orderByCountrySpread(eligible, usedAssetIds, new Set(), max);
 }

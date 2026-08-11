@@ -1,10 +1,10 @@
 /**
- * Owner play-session persistence and swap machinery (Travel Photo Quiz U5).
+ * Owner play-session persistence and swap machinery for the travel photo quiz.
  *
  * Resume (R4): the backend grades each answer server-side but exposes no
  * endpoint to read a session's recorded answers back, so the owner's play
  * session (session id + every graded verdict) is persisted locally alongside
- * the photo-cache metadata - the same store the U4 draft state uses. Killing
+ * the photo-cache metadata - the same store the creation draft uses. Killing
  * the app mid-play resumes from the last graded question by replaying this
  * state, not by re-grading anything.
  *
@@ -21,9 +21,12 @@ import { api } from '@services/api';
 import { getAllCountries } from '@services/countriesDb';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
-import type { CachedPhoto } from '@services/photoImport/types';
 
-import { selectEligibilityBatch, type GeoEligibleCandidate } from './candidateSelection';
+import {
+  selectEligibilityBatch,
+  toCandidate,
+  type GeoEligibleCandidate,
+} from './candidateSelection';
 import { getUsedAssetIds, markAssetsUsed, prepareQuizUploadImage } from './quizCreation';
 
 // ---------------------------------------------------------------------------
@@ -120,20 +123,9 @@ export async function clearStoredAnswer(quizId: string, questionId: string): Pro
 /** Picker size cap: plenty of choice without walking the whole library. */
 export const SWAP_CANDIDATE_LIMIT = 30;
 
-function toCandidate(cached: CachedPhoto) {
-  return {
-    id: cached.id,
-    uri: cached.uri,
-    creationTime: cached.creationTime,
-    latitude: cached.latitude,
-    longitude: cached.longitude,
-    countryCode: cached.countryCode,
-  };
-}
-
 /**
- * Geo-eligible swap candidates from the photo cache, reusing the U4 selection
- * machinery: country spread, border-ambiguity exclusion, and used-photo
+ * Geo-eligible swap candidates from the photo cache, reusing the creation
+ * selection machinery: country spread, border-ambiguity exclusion, and used-photo
  * deprioritization (already-used assets sort strictly after fresh ones -
  * which also pushes this quiz's own photos to the back of the picker).
  *

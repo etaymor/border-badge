@@ -1,5 +1,5 @@
 /**
- * Quiz creation orchestration (Travel Photo Quiz U4).
+ * Quiz creation orchestration for the travel photo quiz.
  *
  * One tap from the entry point to a built quiz awaiting owner play:
  *   draft -> refresh photo cache -> select candidates -> vision eligibility
@@ -31,12 +31,12 @@
  * require - mirroring the photo-import modules.
  */
 
-import { Image } from 'react-native';
 import { File as ExpoFile } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 
 import { api } from '@services/api';
 import { getAllCountries } from '@services/countriesDb';
+import { getImageDimensions } from '@services/mediaUpload';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { isBackgroundSyncInProgress } from '@services/photoImport/photoBackgroundSync';
 import {
@@ -60,8 +60,8 @@ import {
   RESAMPLE_BATCH_MAX,
   pickQuizPhotos,
   selectEligibilityBatch,
+  toCandidate,
   type GeoEligibleCandidate,
-  type QuizPhotoCandidate,
 } from './candidateSelection';
 
 // ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ export async function getUsedAssetIds(): Promise<Set<string>> {
   }
 }
 
-/** Record asset ids as quiz-used (KTD12). Exported for the U5 swap flow. */
+/** Record asset ids as quiz-used (KTD12). Exported for the swap flow. */
 export async function markAssetsUsed(assetIds: string[]): Promise<void> {
   const existing = await getUsedAssetIds();
   for (const id of assetIds) existing.add(id);
@@ -204,17 +204,6 @@ async function refreshPhotoCache(
   await setLastImportTime(newestTime);
 }
 
-function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
-  return {
-    id: cached.id,
-    uri: cached.uri,
-    creationTime: cached.creationTime,
-    latitude: cached.latitude,
-    longitude: cached.longitude,
-    countryCode: cached.countryCode,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Eligibility classification (R2)
 // ---------------------------------------------------------------------------
@@ -234,6 +223,9 @@ interface EligibilityResponse {
 
 type ClassifyBatchResult = { budgetRemaining: number } | 'unavailable';
 
+/** Bounded concurrency for local thumbnail preparation (I/O + native resize). */
+const PREPARE_CONCURRENCY = 6;
+
 /**
  * Send one batch through POST /quiz/eligibility.
  *
@@ -252,17 +244,22 @@ async function classifyBatch(
   const byId = new Map(batch.map((candidate) => [candidate.id, candidate]));
   const images: Array<{ id: string; image_base64: string }> = [];
   let checked = 0;
-  for (const candidate of batch) {
+  for (let start = 0; start < batch.length; start += PREPARE_CONCURRENCY) {
     onProgress?.({ step: 'checking', current: checked, total: batch.length });
-    // 768px JPEG thumbnails via the existing vision pipeline (KTD5).
-    const base64 = await prepareVisionImage(candidate.uri);
-    checked += 1;
-    if (base64) {
-      images.push({ id: candidate.id, image_base64: base64 });
-    } else {
-      // Unreadable locally - never send, never retry within this creation.
-      classifiedIds.add(candidate.id);
-    }
+    // 768px JPEG thumbnails via the existing vision pipeline (KTD5), prepared
+    // a bounded chunk at a time; results keep the batch's candidate order.
+    const chunk = batch.slice(start, start + PREPARE_CONCURRENCY);
+    const prepared = await Promise.all(chunk.map((candidate) => prepareVisionImage(candidate.uri)));
+    checked += chunk.length;
+    prepared.forEach((base64, index) => {
+      const candidate = chunk[index];
+      if (base64) {
+        images.push({ id: candidate.id, image_base64: base64 });
+      } else {
+        // Unreadable locally - never send, never retry within this creation.
+        classifiedIds.add(candidate.id);
+      }
+    });
   }
   if (images.length === 0) {
     return 'unavailable';
@@ -304,16 +301,6 @@ async function classifyBatch(
 
 const QUIZ_UPLOAD_MAX_DIMENSION = 2048;
 const QUIZ_UPLOAD_JPEG_QUALITY = 0.8;
-
-function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    Image.getSize(
-      uri,
-      (width, height) => resolve({ width, height }),
-      () => reject(new Error('Failed to get image size'))
-    );
-  });
-}
 
 /**
  * Prepare a final quiz photo for upload.

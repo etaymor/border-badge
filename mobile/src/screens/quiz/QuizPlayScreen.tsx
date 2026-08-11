@@ -1,5 +1,5 @@
 /**
- * QuizPlayScreen - the owner plays their own quiz (U5, R4).
+ * QuizPlayScreen - the owner plays their own quiz (R4).
  *
  * Per photo: the four country options first, then (when the photo has a
  * usable capture date) the year memory question - both picks are graded in a

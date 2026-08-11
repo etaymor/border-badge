@@ -11,10 +11,12 @@ import {
   FIRST_BATCH_MAX,
   QUIZ_MAX_PHOTOS,
   isBorderAmbiguous,
+  orderByCountrySpread,
   pickQuizPhotos,
   resolveCandidateCountry,
   selectEligibilityBatch,
   type CountryCoderFn,
+  type GeoEligibleCandidate,
   type QuizPhotoCandidate,
 } from '@services/quiz/candidateSelection';
 
@@ -250,6 +252,30 @@ describe('selectEligibilityBatch', () => {
     });
 
     expect(batch.map((c) => c.id)).toEqual([good.id]);
+  });
+});
+
+describe('orderByCountrySpread', () => {
+  it('produces the identical prefix of the full ordering when limited', () => {
+    // Representative pool: uneven country sizes, used photos, and a
+    // deprioritized country, so all four freshness segments are exercised.
+    const pool = [
+      ...Array.from({ length: 7 }, () => makePhoto({ countryCode: 'FR' })),
+      ...Array.from({ length: 4 }, () => makePhoto({ countryCode: 'IT' })),
+      ...Array.from({ length: 5 }, () => makePhoto({ countryCode: 'JP' })),
+      ...Array.from({ length: 3 }, () => makePhoto({ countryCode: 'DE' })),
+    ] as GeoEligibleCandidate[];
+    const usedAssetIds = new Set(pool.filter((_, index) => index % 3 === 0).map((p) => p.id));
+    const deprioritizedCountries = new Set(['JP']);
+
+    const full = orderByCountrySpread(pool, usedAssetIds, deprioritizedCountries);
+
+    expect(full).toHaveLength(pool.length);
+    for (const limit of [0, 1, 3, 6, 10, pool.length, pool.length + 5]) {
+      expect(orderByCountrySpread(pool, usedAssetIds, deprioritizedCountries, limit)).toEqual(
+        full.slice(0, limit)
+      );
+    }
   });
 });
 

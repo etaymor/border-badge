@@ -2,6 +2,18 @@
 export const CARD_WIDTH = 375;
 export const CARD_HEIGHT = Math.round((CARD_WIDTH * 16) / 9); // 667
 
+/**
+ * ViewShot capture options for share cards: a story-sized PNG written to a
+ * tmpfile the share sheet can attach.
+ */
+export const CARD_CAPTURE_OPTIONS = {
+  format: 'png',
+  quality: 0.95,
+  width: 1080,
+  height: 1920,
+  result: 'tmpfile',
+} as const;
+
 // Scale factor for consistent sizing
 export const SCALE = 1;
 

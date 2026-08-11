@@ -1,5 +1,5 @@
 /**
- * QuizResultsScreen - owner results, pre-share editing, and share (U5).
+ * QuizResultsScreen - owner results, pre-share editing, and share.
  *
  * - The country score is the score-to-beat (R4): always rendered from the
  *   freshest quiz detail (the backend rescales it after swap/remove).
@@ -27,6 +27,7 @@ import {
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
+import { CARD_CAPTURE_OPTIONS } from '@components/share/constants';
 import {
   OnboardingShareCard,
   ONBOARDING_SHARE_CARD_HEIGHT,
@@ -50,16 +51,6 @@ import { Share } from '@utils/share';
 import type { RootStackScreenProps } from '@navigation/types';
 
 type Props = RootStackScreenProps<'QuizResults'>;
-
-// Established share-card capture options (mirrors OnboardingShareOverlay):
-// story-sized PNG written to a tmpfile the share sheet can attach.
-const CARD_CAPTURE_OPTIONS = {
-  format: 'png',
-  quality: 0.95,
-  width: 1080,
-  height: 1920,
-  result: 'tmpfile',
-} as const;
 
 export function QuizResultsScreen({ navigation, route }: Props) {
   const { quizId, results } = route.params;
@@ -272,7 +263,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
-      {/* Off-screen host for the shareable challenge card (U6). Mounted
+      {/* Off-screen host for the shareable challenge card. Mounted
           permanently (never hidden via opacity, which would capture blank)
           so capture() always has a laid-out view at share time. */}
       <View style={styles.shareCardHost} pointerEvents="none">

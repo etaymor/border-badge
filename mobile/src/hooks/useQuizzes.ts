@@ -1,5 +1,5 @@
 /**
- * Quiz hooks (Travel Photo Quiz U4).
+ * Travel photo quiz hooks.
  *
  * Follows the useTrips conventions: module-level query key, STALE_TIMES for
  * staleness, scoped invalidation targeting only the affected quiz. Unlike the
@@ -81,7 +81,7 @@ export function useCreateQuiz() {
 }
 
 // ---------------------------------------------------------------------------
-// U5: owner play, pre-share editing, and share
+// Owner play, pre-share editing, and share
 // ---------------------------------------------------------------------------
 
 // Matches backend QuizAnswerResponse (the ground truth revealed by grading).

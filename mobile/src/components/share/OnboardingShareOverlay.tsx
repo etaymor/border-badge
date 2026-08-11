@@ -28,6 +28,7 @@ import { fonts } from '@constants/typography';
 import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
 
+import { CARD_CAPTURE_OPTIONS } from './constants';
 import {
   OnboardingShareCard,
   ONBOARDING_SHARE_CARD_WIDTH,
@@ -223,13 +224,7 @@ function OnboardingShareOverlayComponent({
                 ref={(ref) => {
                   viewShotRefs.current[currentIndex] = ref;
                 }}
-                options={{
-                  format: 'png',
-                  quality: 0.95,
-                  width: 1080,
-                  height: 1920,
-                  result: 'tmpfile',
-                }}
+                options={CARD_CAPTURE_OPTIONS}
                 style={styles.cardInner}
               >
                 <OnboardingShareCard variant={CARD_VARIANTS[currentIndex]} context={context} />
