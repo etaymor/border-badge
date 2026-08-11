@@ -149,7 +149,8 @@ export async function getUsedAssetIds(): Promise<Set<string>> {
   }
 }
 
-async function markAssetsUsed(assetIds: string[]): Promise<void> {
+/** Record asset ids as quiz-used (KTD12). Exported for the U5 swap flow. */
+export async function markAssetsUsed(assetIds: string[]): Promise<void> {
   const existing = await getUsedAssetIds();
   for (const id of assetIds) existing.add(id);
   await setMetadata(USED_ASSET_IDS_KEY, JSON.stringify([...existing]));

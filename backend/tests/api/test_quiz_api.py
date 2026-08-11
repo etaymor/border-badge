@@ -492,6 +492,22 @@ class TestUploadUrls:
         )
         assert resp.status_code == 409
 
+    def test_upload_urls_allowed_pre_share_for_swap(self, client: TestClient) -> None:
+        # Swap (R5) uploads a replacement photo in awaiting_owner_play or
+        # playable, so the gate must admit every pre-share editable state.
+        for state in ("awaiting_owner_play", "playable"):
+            db = FakeDB()
+            quiz_id = db.seed_quiz(state=state)
+            resp = call(
+                client,
+                db,
+                "POST",
+                f"/quiz/{quiz_id}/upload-urls",
+                json={"count": 1},
+                http=sign_http(),
+            )
+            assert resp.status_code == 200, f"{state}: {resp.text}"
+
 
 # ============================================================================
 # Creation: finalize (photo bounds AE2, path guard, options KTD6)

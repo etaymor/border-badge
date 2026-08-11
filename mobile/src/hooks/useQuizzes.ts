@@ -10,11 +10,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@services/api';
+import { clearStoredAnswer, uploadSwapPhoto } from '@services/quiz/quizPlay';
 import {
   createQuizFromLibrary,
   type CreateQuizOptions,
   type QuizCreationOutcome,
 } from '@services/quiz/quizCreation';
+import type { GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import { STALE_TIMES } from '../queryClient';
 
 // Question payload matching backend QuizQuestionPayload (no ground truth).
@@ -74,6 +76,144 @@ export function useCreateQuiz() {
         // Scoped invalidation: only the newly created quiz's detail query.
         queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, outcome.quizId] });
       }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// U5: owner play, pre-share editing, and share
+// ---------------------------------------------------------------------------
+
+// Matches backend QuizAnswerResponse (the ground truth revealed by grading).
+export interface QuizAnswerResult {
+  place_correct: boolean;
+  year_correct?: boolean | null;
+  correct_option_index: number;
+  correct_option: string;
+  correct_year?: number | null;
+  score: number;
+}
+
+// Matches backend QuizCompleteResponse. The memory (year) score exists ONLY
+// in this owner-facing payload - it is never stored nor served publicly (AE3).
+export interface QuizCompleteResult {
+  correct: number;
+  total: number;
+  memory_correct: number;
+  memory_total: number;
+  score_to_beat: QuizScoreToBeat;
+  state: string;
+}
+
+// Matches backend QuizShareResponse.
+export interface QuizShareResult {
+  slug: string;
+  share_url: string;
+  state: string;
+}
+
+export interface QuizAnswerInput {
+  sessionId: string;
+  questionId: string;
+  selectedOptionIndex: number;
+  /** null when the question has no year sub-question or none was picked. */
+  selectedYear: number | null;
+}
+
+/**
+ * Grade one owner answer (country + year in a SINGLE call - the backend
+ * grades each question at most once per session, so both picks travel
+ * together). The screen persists the verdict via `recordAnswer`.
+ */
+export function useAnswerQuizQuestion(quizId: string) {
+  return useMutation({
+    mutationFn: async (input: QuizAnswerInput): Promise<QuizAnswerResult> => {
+      const response = await api.post(`/quiz/${quizId}/answer`, {
+        session_id: input.sessionId,
+        question_id: input.questionId,
+        selected_option_index: input.selectedOptionIndex,
+        selected_year: input.selectedYear,
+      });
+      return response.data;
+    },
+  });
+}
+
+/**
+ * Complete the owner play-through. The first completion seeds the
+ * score-to-beat server-side; the response carries the owner-only memory score.
+ */
+export function useCompleteQuizPlay(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string): Promise<QuizCompleteResult> => {
+      const response = await api.post(`/quiz/${quizId}/complete`, { session_id: sessionId });
+      return response.data;
+    },
+    onSuccess: () => {
+      // The quiz row changed (state + seeded pair): refresh the detail.
+      queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+    },
+  });
+}
+
+/**
+ * Swap a question's photo pre-share (R5): upload the replacement through the
+ * quiz signed-upload flow, call the swap endpoint, and drop the local stored
+ * answer so play resumes at the new photo (share stays blocked until then).
+ */
+export function useSwapQuizQuestion(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      questionId: string;
+      candidate: GeoEligibleCandidate;
+    }): Promise<QuizDetail> => {
+      const upload = await uploadSwapPhoto(quizId, input.candidate);
+      const response = await api.post(`/quiz/${quizId}/questions/${input.questionId}/swap`, {
+        storage_path: upload.storagePath,
+        country_code: upload.countryCode,
+        capture_year: upload.captureYear,
+      });
+      await clearStoredAnswer(quizId, input.questionId);
+      return response.data;
+    },
+    onSuccess: (detail) => {
+      queryClient.setQueryData([...QUIZZES_QUERY_KEY, quizId], detail);
+    },
+  });
+}
+
+/** Remove a question pre-share (R5); the backend rescales the seeded pair. */
+export function useRemoveQuizQuestion(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (questionId: string): Promise<QuizDetail> => {
+      const response = await api.delete(`/quiz/${quizId}/questions/${questionId}`);
+      await clearStoredAnswer(quizId, questionId);
+      return response.data;
+    },
+    onSuccess: (detail) => {
+      queryClient.setQueryData([...QUIZZES_QUERY_KEY, quizId], detail);
+    },
+  });
+}
+
+/** Mint the share slug (R6). Idempotent for an already-shared quiz. */
+export function useShareQuiz(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (): Promise<QuizShareResult> => {
+      const response = await api.post(`/quiz/${quizId}/share`);
+      return response.data;
+    },
+    onSuccess: () => {
+      // State moved to 'shared': the detail drives the edit affordances.
+      queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
     },
   });
 }

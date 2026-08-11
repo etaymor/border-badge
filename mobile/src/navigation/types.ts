@@ -16,7 +16,20 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   PaywallModal: { feature?: GatedFeature };
   QuizCreation: undefined;
-  QuizPlay: { quizId: string }; // U5 owns the real screen; placeholder registered in U4
+  QuizPlay: { quizId: string };
+  QuizResults: {
+    quizId: string;
+    /** Owner completion payload (backend QuizCompleteResponse). The memory
+     * score exists only here - it is never stored nor served publicly. */
+    results: {
+      correct: number;
+      total: number;
+      memory_correct: number;
+      memory_total: number;
+      score_to_beat: { correct: number; total: number };
+      state: string;
+    };
+  };
 };
 
 // Auth stack screens

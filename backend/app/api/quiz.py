@@ -612,10 +612,12 @@ async def create_quiz_upload_urls(
 
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
-    if quiz["state"] != "building":
+    # 'building' covers initial creation; the pre-share editable states cover
+    # swap (R5), which uploads a replacement photo after the first play.
+    if quiz["state"] != "building" and quiz["state"] not in PRE_SHARE_EDITABLE_STATES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Photos can only be uploaded while the quiz is being built.",
+            detail="Photos can only be uploaded before the quiz is shared.",
         )
 
     client = get_http_client()
