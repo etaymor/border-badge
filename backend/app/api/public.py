@@ -30,6 +30,7 @@ from app.core.media import (
     media_url,
     resize_stored_url,
 )
+from app.core.quiz_image import card_etag, render_challenge_card
 from app.core.seo import (
     LANDING_FAQS,
     build_landing_seo,
@@ -909,6 +910,83 @@ async def view_quiz_page(
     response.headers["Cache-Control"] = "public, max-age=60"
     response.headers["X-Robots-Tag"] = "noindex"
     return response
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """Whether an If-None-Match header matches a strong ETag.
+
+    Handles the comma-separated list form, weak validators (W/ prefix -- a
+    weak match suffices for a cache revalidation GET), and the `*` wildcard.
+    """
+    if not if_none_match:
+        return False
+    if if_none_match.strip() == "*":
+        return True
+    candidates = {
+        value.strip().removeprefix("W/") for value in if_none_match.split(",")
+    }
+    return etag in candidates
+
+
+@router.get("/q/{slug}/card.png")
+@limiter.limit("30/minute")
+async def view_quiz_card_image(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """The unfurl challenge-card PNG for a shared quiz (U9, R13).
+
+    A fully generated 1200x630 card -- owner name, score-to-beat, challenge
+    framing, Atlasi branding -- and never a quiz photo (KTD11: unfurl CDNs
+    cache forever; a real photo here would outlive revocation). Rendering is
+    entirely local (Pillow), with no outbound fetches.
+
+    Ordering matters: the slug resolves UNCACHED and revocation 404s BEFORE
+    any conditional/ETag handling, so a validator cached pre-revoke can never
+    turn into a 304 that resurrects the card. The ETag covers the full
+    rendered tuple (quiz id, owner name, score-to-beat) and nothing else --
+    query parameters are ignored entirely.
+
+    Rate limited at 30/minute -- deliberately stricter than the page's
+    60/minute, since each miss is a Pillow render rather than a template fill.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    quizzes = await db.get(
+        "quiz",
+        {
+            "slug": f"eq.{slug}",
+            "select": "id,owner_id,state,score_to_beat_correct,score_to_beat_total",
+        },
+    )
+    quiz = quizzes[0] if quizzes else None
+
+    # Mirrors the page route: only 'shared' serves; unknown, pre-share, and
+    # revoked slugs are indistinguishable no-store 404s.
+    if quiz is None or quiz.get("state") != "shared":
+        return Response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+        )
+
+    owner_name = await _fetch_quiz_owner_name(db, quiz.get("owner_id"))
+    score_correct = quiz.get("score_to_beat_correct")
+    score_total = quiz.get("score_to_beat_total")
+
+    etag = card_etag(quiz["id"], owner_name, score_correct, score_total)
+    headers = {
+        "ETag": etag,
+        # Modest: revocation still wins within a minute everywhere except the
+        # unfurl CDNs, whose indefinite caching is the accepted disclosure the
+        # photo-free card design exists to survive (KTD11).
+        "Cache-Control": "public, max-age=60",
+        "X-Robots-Tag": "noindex",
+    }
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    png = render_challenge_card(owner_name, score_correct, score_total)
+    return Response(content=png, media_type="image/png", headers=headers)
 
 
 @router.get("/privacy", response_class=HTMLResponse)
