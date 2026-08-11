@@ -10,6 +10,7 @@ import {
 } from '@stores/authStore';
 
 import { PaywallModalScreen } from '@screens/paywall';
+import { QuizCreationScreen, QuizPlayScreen } from '@screens/quiz';
 
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
@@ -69,6 +70,8 @@ export function RootNavigator() {
           <>
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="PaywallModal" component={PaywallModalScreen} />
+            <Stack.Screen name="QuizCreation" component={QuizCreationScreen} />
+            <Stack.Screen name="QuizPlay" component={QuizPlayScreen} />
           </>
         )}
       </Stack.Navigator>

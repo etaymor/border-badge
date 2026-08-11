@@ -1,0 +1,239 @@
+/**
+ * Quiz candidate selection - pure logic for choosing which library photos to
+ * send through the eligibility gate and which eligible photos become the quiz.
+ *
+ * Responsibilities (Travel Photo Quiz U4):
+ * - KTD2: border/no-fix exclusion. A photo is geo-ineligible when the cached
+ *   country code is null (ocean / no GPS fix), when its code does not map to
+ *   the app's country table, or when a cheap 4-point probe at
+ *   +/-BORDER_PROBE_DELTA_DEG around the coordinate resolves to more than one
+ *   country (border-ambiguous ground truth).
+ * - KTD3: sampling budget. Candidates are stratified by country (round-robin,
+ *   newest first within a country) so a single photo-dense country cannot
+ *   monopolize the vision budget.
+ * - KTD12/R17: freshness. Asset ids already used by the owner's existing
+ *   quizzes sort strictly after every fresh candidate, so repeats only happen
+ *   once the fresh pool is exhausted.
+ *
+ * Everything here is pure and synchronous; the country coder is injected so
+ * tests never touch the ~2.2MB country-coder dataset. Callers pass the LAZY
+ * accessor from `@services/photoImport/countryCoder` - never a top-level
+ * `@rapideditor/country-coder` import (kept off the boot path deliberately).
+ */
+
+/** country-coder's iso1A2Code call shape (the subset we use). */
+export type CountryCoderFn = (
+  coordinate: [number, number],
+  options?: { level?: string }
+) => string | null;
+
+/** Minimal shape of a cached library photo considered for a quiz. */
+export interface QuizPhotoCandidate {
+  id: string;
+  uri: string;
+  /** Unix timestamp (ms). */
+  creationTime: number;
+  latitude: number;
+  longitude: number;
+  /** Precomputed country code from the photo cache; null = no fix. */
+  countryCode: string | null;
+}
+
+/** A candidate that passed the geo gate; countryCode is resolved and valid. */
+export interface GeoEligibleCandidate extends QuizPhotoCandidate {
+  countryCode: string;
+}
+
+export type GeoExclusionReason = 'no-country' | 'unmapped-territory' | 'border-ambiguous';
+
+export type CandidateCountryResolution =
+  | { eligible: true; countryCode: string }
+  | { eligible: false; reason: GeoExclusionReason };
+
+/** First vision batch cap (matches the server's per-request image cap). */
+export const FIRST_BATCH_MAX = 50;
+/** Single resample pass cap (KTD3). */
+export const RESAMPLE_BATCH_MAX = 20;
+/** Client-side mirror of the server's ~70-image per-draft budget (KTD3). */
+export const CLASSIFICATION_BUDGET_PER_QUIZ = 70;
+/** Quiz size bounds (mirror the backend finalize bounds). */
+export const QUIZ_MIN_PHOTOS = 5;
+export const QUIZ_MAX_PHOTOS = 10;
+/** ~2km probe offset used for the border-ambiguity check (KTD2). */
+export const BORDER_PROBE_DELTA_DEG = 0.02;
+
+/**
+ * 4-point probe around the coordinate: north, south, east, west at
+ * +/-BORDER_PROBE_DELTA_DEG. Ambiguous when any probe resolves to a DIFFERENT
+ * country. Null probes are ignored - open water next to a coastal photo is
+ * not a competing country.
+ */
+export function isBorderAmbiguous(candidate: GeoEligibleCandidate, coder: CountryCoderFn): boolean {
+  const { latitude, longitude, countryCode } = candidate;
+  const probes: Array<[number, number]> = [
+    [longitude, latitude + BORDER_PROBE_DELTA_DEG],
+    [longitude, latitude - BORDER_PROBE_DELTA_DEG],
+    [longitude + BORDER_PROBE_DELTA_DEG, latitude],
+    [longitude - BORDER_PROBE_DELTA_DEG, latitude],
+  ];
+  for (const probe of probes) {
+    const code = coder(probe, { level: 'territory' });
+    if (code && code !== countryCode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Full geo-eligibility resolution for one photo (KTD2).
+ *
+ * Uses the cached country code when present (the scan precomputed it); falls
+ * back to the coder only when the cache carries no verdict at all.
+ */
+export function resolveCandidateCountry(
+  candidate: QuizPhotoCandidate,
+  coder: CountryCoderFn,
+  validCodes: Set<string>
+): CandidateCountryResolution {
+  const code =
+    candidate.countryCode ??
+    coder([candidate.longitude, candidate.latitude], { level: 'territory' });
+  if (!code) {
+    return { eligible: false, reason: 'no-country' };
+  }
+  if (!validCodes.has(code)) {
+    return { eligible: false, reason: 'unmapped-territory' };
+  }
+  if (isBorderAmbiguous({ ...candidate, countryCode: code }, coder)) {
+    return { eligible: false, reason: 'border-ambiguous' };
+  }
+  return { eligible: true, countryCode: code };
+}
+
+/**
+ * Round-robin candidates across countries, newest first within a country.
+ * Country order within each cycle is deterministic (largest pool first, then
+ * code) so tests and retries behave identically.
+ */
+function roundRobinByCountry(candidates: GeoEligibleCandidate[]): GeoEligibleCandidate[] {
+  const byCountry = new Map<string, GeoEligibleCandidate[]>();
+  for (const candidate of candidates) {
+    const list = byCountry.get(candidate.countryCode);
+    if (list) {
+      list.push(candidate);
+    } else {
+      byCountry.set(candidate.countryCode, [candidate]);
+    }
+  }
+  for (const list of byCountry.values()) {
+    list.sort((a, b) => b.creationTime - a.creationTime);
+  }
+  const countries = [...byCountry.keys()].sort((a, b) => {
+    const sizeDiff = byCountry.get(b)!.length - byCountry.get(a)!.length;
+    return sizeDiff !== 0 ? sizeDiff : a.localeCompare(b);
+  });
+
+  const ordered: GeoEligibleCandidate[] = [];
+  for (let index = 0; ordered.length < candidates.length; index++) {
+    for (const country of countries) {
+      const list = byCountry.get(country)!;
+      if (index < list.length) {
+        ordered.push(list[index]);
+      }
+    }
+  }
+  return ordered;
+}
+
+/**
+ * Order candidates by country spread with freshness segments:
+ * 1. fresh photos in preferred countries
+ * 2. fresh photos in deprioritized countries
+ * 3. previously used photos in preferred countries (KTD12: only after ALL fresh)
+ * 4. previously used photos in deprioritized countries
+ * Each segment is independently round-robined across countries.
+ */
+export function orderByCountrySpread(
+  candidates: GeoEligibleCandidate[],
+  usedAssetIds: Set<string> = new Set(),
+  deprioritizedCountries: Set<string> = new Set()
+): GeoEligibleCandidate[] {
+  const segments: [
+    GeoEligibleCandidate[],
+    GeoEligibleCandidate[],
+    GeoEligibleCandidate[],
+    GeoEligibleCandidate[],
+  ] = [[], [], [], []];
+  for (const candidate of candidates) {
+    const usedOffset = usedAssetIds.has(candidate.id) ? 2 : 0;
+    const deprioritizedOffset = deprioritizedCountries.has(candidate.countryCode) ? 1 : 0;
+    segments[usedOffset + deprioritizedOffset].push(candidate);
+  }
+  return segments.flatMap(roundRobinByCountry);
+}
+
+export interface SelectEligibilityBatchOptions {
+  /** All cached photos not yet ruled out (may include null country codes). */
+  pool: QuizPhotoCandidate[];
+  /** Codes present in the app's country table (KTD2 mapping check). */
+  validCodes: Set<string>;
+  /** Injected lazy country coder (border probe). */
+  coder: CountryCoderFn;
+  /** Batch cap: FIRST_BATCH_MAX or RESAMPLE_BATCH_MAX (KTD3). */
+  limit: number;
+  /** Asset ids already used in the owner's existing quizzes (KTD12). */
+  usedAssetIds?: Set<string>;
+  /** Photos already sent to the classifier this creation (never re-send). */
+  excludeIds?: Set<string>;
+  /** Countries already classified - resample prefers unclassified ones. */
+  deprioritizedCountries?: Set<string>;
+}
+
+/**
+ * Select the next batch of photos to send through the vision eligibility gate.
+ *
+ * Cheap checks (cached code present + mapped) run over the whole pool; the
+ * 4-point border probe only runs while walking the ordered list, so coder
+ * work is bounded by ~limit + rejected candidates rather than the library
+ * size.
+ */
+export function selectEligibilityBatch(
+  options: SelectEligibilityBatchOptions
+): GeoEligibleCandidate[] {
+  const { pool, validCodes, coder, limit, usedAssetIds, excludeIds, deprioritizedCountries } =
+    options;
+
+  const cheapEligible: GeoEligibleCandidate[] = [];
+  for (const photo of pool) {
+    if (excludeIds?.has(photo.id)) continue;
+    // Cached verdicts are authoritative: null means the scan already coded
+    // this photo as no-fix/ocean - do not spend coder work re-checking it.
+    const code = photo.countryCode;
+    if (!code || !validCodes.has(code)) continue;
+    cheapEligible.push({ ...photo, countryCode: code });
+  }
+
+  const ordered = orderByCountrySpread(cheapEligible, usedAssetIds, deprioritizedCountries);
+
+  const batch: GeoEligibleCandidate[] = [];
+  for (const candidate of ordered) {
+    if (batch.length >= limit) break;
+    if (isBorderAmbiguous(candidate, coder)) continue;
+    batch.push(candidate);
+  }
+  return batch;
+}
+
+/**
+ * Pick the final quiz photos from the vision-eligible set: country spread
+ * first (R1), fresh before used (KTD12), capped at QUIZ_MAX_PHOTOS. Callers
+ * decline the creation when fewer than QUIZ_MIN_PHOTOS come back (AE2).
+ */
+export function pickQuizPhotos(
+  eligible: GeoEligibleCandidate[],
+  usedAssetIds: Set<string> = new Set(),
+  max: number = QUIZ_MAX_PHOTOS
+): GeoEligibleCandidate[] {
+  return orderByCountrySpread(eligible, usedAssetIds).slice(0, max);
+}

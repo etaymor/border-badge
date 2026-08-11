@@ -15,6 +15,8 @@ export type RootStackParamList = {
   Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
   PaywallModal: { feature?: GatedFeature };
+  QuizCreation: undefined;
+  QuizPlay: { quizId: string }; // U5 owns the real screen; placeholder registered in U4
 };
 
 // Auth stack screens
