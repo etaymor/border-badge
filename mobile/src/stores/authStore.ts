@@ -7,6 +7,9 @@ interface AuthState {
   isLoading: boolean;
   isMigrating: boolean;
   needsPostSignupFlow: boolean;
+  /** One-shot flag armed by the post-signup FirstQuizOffer accept; consumed
+   * (and cleared) by useFirstQuizLaunch inside Main to open QuizCreation. */
+  pendingFirstQuizLaunch: boolean;
 
   // Actions
   setSession: (session: Session | null) => void;
@@ -14,6 +17,7 @@ interface AuthState {
   setIsLoading: (loading: boolean) => void;
   setIsMigrating: (migrating: boolean) => void;
   setNeedsPostSignupFlow: (needs: boolean) => void;
+  setPendingFirstQuizLaunch: (pending: boolean) => void;
   signOut: () => void;
 }
 
@@ -23,18 +27,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
   isMigrating: false,
   needsPostSignupFlow: false,
+  pendingFirstQuizLaunch: false,
 
   setSession: (session) => set({ session }),
   setHasCompletedOnboarding: (completed) => set({ hasCompletedOnboarding: completed }),
   setIsLoading: (loading) => set({ isLoading: loading }),
   setIsMigrating: (migrating) => set({ isMigrating: migrating }),
   setNeedsPostSignupFlow: (needs) => set({ needsPostSignupFlow: needs }),
+  setPendingFirstQuizLaunch: (pending) => set({ pendingFirstQuizLaunch: pending }),
   signOut: () =>
     set({
       session: null,
       hasCompletedOnboarding: false,
       isMigrating: false,
       needsPostSignupFlow: false,
+      pendingFirstQuizLaunch: false,
     }),
 }));
 

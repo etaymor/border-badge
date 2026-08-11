@@ -143,6 +143,12 @@ def leaderboard(client, db, slug):
     return public(client, db, "GET", f"/q/{slug}/leaderboard")
 
 
+def page(client: TestClient, db: FakeDB, url: str, **kwargs):
+    """Anonymous request against the /q/{slug} PAGE routes (app.api.public)."""
+    with patch("app.api.public.get_supabase_client", return_value=db):
+        return client.get(url, **kwargs)
+
+
 # ============================================================================
 # Core flow: session -> graded answers -> completion -> leaderboard
 # ============================================================================
@@ -709,6 +715,123 @@ class TestTokenIsolation:
 
 
 # ============================================================================
+# U12: logged install CTA redirect (GET /q/{slug}/install)
+# ============================================================================
+
+
+class TestInstallRedirect:
+    def test_tap_logs_and_redirects_to_the_app_store(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+
+        resp = page(client, db, f"/q/{slug}/install", follow_redirects=False)
+        assert resp.status_code == 302
+        assert resp.headers["location"] == get_settings().app_store_url
+        # A logged redirect must never be cached (a cached 302 loses taps).
+        assert resp.headers["Cache-Control"] == "no-store"
+        assert resp.headers["X-Robots-Tag"] == "noindex"
+        assert db.funnel(quiz_id).get("install_cta_tap") == 1
+
+        page(client, db, f"/q/{slug}/install", follow_redirects=False)
+        assert db.funnel(quiz_id).get("install_cta_tap") == 2
+
+    def test_unknown_slug_404s_without_redirecting(self, client: TestClient) -> None:
+        db = FakeDB()
+        shared_quiz(client, db)  # a real quiz exists, under a different slug
+
+        resp = page(client, db, "/q/deadbeef/install", follow_redirects=False)
+        assert resp.status_code == 404
+        assert "location" not in resp.headers
+        assert db.rows("quiz_funnel") == []
+
+    def test_revoked_slug_404s_without_redirecting(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        assert call(client, db, "POST", f"/quiz/{quiz_id}/revoke").status_code == 200
+
+        resp = page(client, db, f"/q/{slug}/install", follow_redirects=False)
+        assert resp.status_code == 404
+        assert "location" not in resp.headers
+        assert db.funnel(quiz_id).get("install_cta_tap") is None
+
+
+# ============================================================================
+# U12: per-quiz funnel counters (page view / session started / completed)
+# ============================================================================
+
+
+class TestFunnelCounters:
+    def test_page_view_increments_once_per_render(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+
+        assert page(client, db, f"/q/{slug}").status_code == 200
+        assert db.funnel(quiz_id).get("page_view") == 1
+        # A reload is a second view.
+        assert page(client, db, f"/q/{slug}").status_code == 200
+        assert db.funnel(quiz_id).get("page_view") == 2
+
+    def test_unavailable_page_records_nothing(self, client: TestClient) -> None:
+        db = FakeDB()
+        shared_quiz(client, db)
+        assert page(client, db, "/q/deadbeef").status_code == 404
+        assert db.rows("quiz_funnel") == []
+
+    def test_session_started_counts_once_per_session(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+
+        token = start_session(client, db, slug).json()["token"]
+        assert db.funnel(quiz_id).get("session_started") == 1
+
+        # Resuming the SAME session (page reload) must not double count.
+        assert start_session(client, db, slug, token=token).status_code == 200
+        assert db.funnel(quiz_id).get("session_started") == 1
+
+        # A genuinely new session does.
+        start_session(client, db, slug)
+        assert db.funnel(quiz_id).get("session_started") == 2
+
+    def test_session_completed_counts_once_per_session(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through(client, db, slug, quiz_id, "Priya")
+        assert db.funnel(quiz_id).get("session_completed") == 1
+
+        # Refresh-after-completion re-calls complete; the counter holds.
+        assert finish(client, db, slug, token, "Priya").status_code == 200
+        assert db.funnel(quiz_id).get("session_completed") == 1
+
+        run_through(client, db, slug, quiz_id, "Maya")
+        assert db.funnel(quiz_id).get("session_completed") == 2
+
+    def test_started_vs_completed_are_one_query_per_quiz(
+        self, client: TestClient
+    ) -> None:
+        """KTD9: the harvest-pattern signal — started and completed live in the
+        same per-quiz rowset, so one filtered read answers both."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        run_through(client, db, slug, quiz_id, "Priya")  # started + completed
+        start_session(client, db, slug)  # started, never finished
+
+        counters = db.funnel(quiz_id)  # one lookup keyed by quiz_id alone
+        assert counters["session_started"] == 2
+        assert counters["session_completed"] == 1
+
+    def test_funnel_write_failure_never_breaks_play(self, client: TestClient) -> None:
+        """Analytics are best-effort: a failing counter write must not take
+        down the session endpoint."""
+        db = FakeDB()
+        _, slug = shared_quiz(client, db)
+        with patch.object(db, "rpc", new=AsyncMock(side_effect=Exception("boom"))):
+            resp = start_session(client, db, slug)
+        assert resp.status_code == 200
+
+
+# ============================================================================
 # Rate limiting
 # ============================================================================
 
@@ -728,6 +851,7 @@ class TestRateLimits:
             "answer_public_quiz_question",
             "complete_public_quiz_session",
             "get_public_quiz_leaderboard",
+            "quiz_install_redirect",
         ):
             assert any(
                 handler in key for key in limiter._route_limits

@@ -58,6 +58,7 @@ export type OnboardingStackParamList = {
   EmotionalHook: undefined;
   FunctionalHook: undefined;
   Paywall: undefined;
+  FirstQuizOffer: undefined;
   AccountCreation: undefined;
 };
 

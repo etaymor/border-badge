@@ -318,6 +318,7 @@ jest.mock('@services/api', () => ({
   storeTokens: jest.fn(),
   clearTokens: jest.fn(),
   setSignOutCallback: jest.fn(),
+  storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock Alert - define the mock functions on global first so they can be accessed in tests

@@ -11,40 +11,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQueryClient } from '@tanstack/react-query';
 
 import { colors } from '@constants/colors';
-import { invalidateCountriesCache } from '@hooks/useCountries';
 import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
 import type { OnboardingStackScreenProps } from '@navigation/types';
-import { storeOnboardingComplete } from '@services/api';
 import { Analytics } from '@services/analytics';
-import { useAuthStore } from '@stores/authStore';
 
 type Props = OnboardingStackScreenProps<'Paywall'>;
 
-export function PaywallScreen(_props: Props) {
+export function PaywallScreen({ navigation }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const hasPresented = useRef(false);
-  const queryClient = useQueryClient();
   const { presentPaywall } = usePaywallPresentation('onboarding');
-  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
-  const setNeedsPostSignupFlow = useAuthStore((s) => s.setNeedsPostSignupFlow);
-
-  const finishOnboarding = useCallback(async () => {
-    try {
-      await storeOnboardingComplete();
-    } catch (e) {
-      console.warn('Failed to persist onboarding complete flag:', e);
-    }
-    // Force passport screen to mount with fresh data: useCountries (SQLite-backed)
-    // can otherwise still be loading on the first frame, leaving the stamps row empty
-    // even though stats are populated from the migration-seeded user-countries cache.
-    invalidateCountriesCache();
-    await queryClient.invalidateQueries({ queryKey: ['user-countries'] });
-    setHasCompletedOnboarding(true);
-    setNeedsPostSignupFlow(false);
-  }, [queryClient, setHasCompletedOnboarding, setNeedsPostSignupFlow]);
 
   const handlePresentPaywall = useCallback(async () => {
     // Prevent double presentation
@@ -60,9 +38,11 @@ export function PaywallScreen(_props: Props) {
       Analytics.paywallDismissed({ location: 'onboarding' });
     }
 
-    // Finish onboarding — RootNavigator will switch to Main
-    await finishOnboarding();
-  }, [presentPaywall, finishOnboarding]);
+    // U12: the post-signup flow ends at the first-quiz offer, which owns the
+    // finish (useFinishOnboarding) — needsPostSignupFlow stays true until the
+    // offer is answered, so the settled order is untouched.
+    navigation.navigate('FirstQuizOffer');
+  }, [presentPaywall, navigation]);
 
   useEffect(() => {
     // Small delay to ensure screen is mounted before presenting modal

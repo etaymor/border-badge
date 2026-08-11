@@ -57,6 +57,7 @@ from app.services.affiliate_links import (
     get_or_create_link_for_entry,
 )
 from app.services.email import cancel_scheduled_emails, send_contact_email
+from app.services.quiz_funnel import record_quiz_funnel_event
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -841,6 +842,9 @@ async def view_quiz_page(
     if quiz is None or quiz.get("state") != "shared":
         return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
 
+    # U12 funnel: one page_view per render (reloads count; 404s never do).
+    await record_quiz_funnel_event(db, quiz["id"], "page_view", slug)
+
     question_rows = await db.get(
         "quiz_question",
         {
@@ -987,6 +991,45 @@ async def view_quiz_card_image(
 
     png = render_challenge_card(owner_name, score_correct, score_total)
     return Response(content=png, media_type="image/png", headers=headers)
+
+
+@router.get("/q/{slug}/install")
+@limiter.limit("30/minute")
+async def quiz_install_redirect(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """Logged App Store redirect for the quiz install CTA (U12: R12/R16).
+
+    The results-page CTA points here instead of straight at the store, so
+    each tap lands in the per-quiz funnel before the 302 hands the visitor
+    to Apple (KTD10: no universal links, no attribution SDK -- the tap IS
+    the funnel proxy). Mirrors the page route's gating: only 'shared'
+    serves, and unknown/pre-share/revoked slugs get the indistinguishable
+    404 gone page rather than a redirect -- a revoked quiz must not keep
+    functioning as a store link, and an unlogged redirect would poison the
+    tap counts anyway. The 302 is no-store: a cached redirect loses taps.
+    """
+    settings = get_settings()
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    quizzes = await db.get(
+        "quiz",
+        {"slug": f"eq.{slug}", "select": "id,state"},
+    )
+    quiz = quizzes[0] if quizzes else None
+    if quiz is None or quiz.get("state") != "shared":
+        return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
+
+    await record_quiz_funnel_event(db, quiz["id"], "install_cta_tap", slug)
+
+    response = RedirectResponse(
+        url=settings.app_store_url or "/",
+        status_code=status.HTTP_302_FOUND,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @router.get("/privacy", response_class=HTMLResponse)

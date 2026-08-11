@@ -484,6 +484,20 @@ export const Analytics = {
       plan: props.plan ?? null,
     }),
 
+  // Travel Photo Quiz Events (U12 funnel: created -> shared -> plays are
+  // server-side -> install-CTA taps are server-side)
+  quizCreated: (props: { quizId: string; photoCount: number }) =>
+    track('quiz_created', { quiz_id: props.quizId, photo_count: props.photoCount }),
+
+  quizShared: (props: { quizId: string }) => track('quiz_shared', { quiz_id: props.quizId }),
+
+  quizRevoked: (props: { quizId: string }) => track('quiz_revoked', { quiz_id: props.quizId }),
+
+  // Post-paywall "make your first quiz" offer
+  firstQuizOfferShown: () => track('first_quiz_offer_shown'),
+  firstQuizOfferAccepted: () => track('first_quiz_offer_accepted'),
+  firstQuizOfferSkipped: () => track('first_quiz_offer_skipped'),
+
   // Review Request Events
   reviewSatisfactionShown: (
     trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'

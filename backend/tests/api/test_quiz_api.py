@@ -106,6 +106,7 @@ class FakeDB:
             "quiz_question": [],
             "quiz_session": [],
             "quiz_answer": [],
+            "quiz_funnel": [],
             "country": [dict(c) for c in COUNTRIES],
         }
 
@@ -128,6 +129,13 @@ class FakeDB:
         return sorted(
             self.find("quiz_question", quiz_id=quiz_id), key=lambda r: r["position"]
         )
+
+    def funnel(self, quiz_id: str) -> dict[str, int]:
+        """All funnel counters for one quiz in one lookup (KTD9: started vs
+        completed must be queryable together)."""
+        return {
+            r["event"]: r["count"] for r in self.find("quiz_funnel", quiz_id=quiz_id)
+        }
 
     def seed_quiz(self, state: str = "building", owner_id: str = TEST_USER_ID, **extra):
         row = {
@@ -261,6 +269,20 @@ class FakeDB:
                 updated.append(copy.deepcopy(r))
         return updated
 
+    async def rpc(self, function, params=None):
+        # Emulates the increment_quiz_funnel() upsert from migration 0060.
+        assert function == "increment_quiz_funnel", f"unsupported rpc {function}"
+        quiz_id = str((params or {})["p_quiz_id"])
+        event = (params or {})["p_event"]
+        for row in self.tables["quiz_funnel"]:
+            if str(row["quiz_id"]) == quiz_id and row["event"] == event:
+                row["count"] += 1
+                return None
+        self.tables["quiz_funnel"].append(
+            {"quiz_id": quiz_id, "event": event, "count": 1}
+        )
+        return None
+
     async def delete(self, table, params):
         removed = [r for r in self.tables[table] if self._matches(r, params)]
         self.tables[table] = [r for r in self.tables[table] if r not in removed]
@@ -269,6 +291,7 @@ class FakeDB:
             for r in removed:
                 await self.delete("quiz_question", {"quiz_id": f"eq.{r['id']}"})
                 await self.delete("quiz_session", {"quiz_id": f"eq.{r['id']}"})
+                await self.delete("quiz_funnel", {"quiz_id": f"eq.{r['id']}"})
         if table == "quiz_question":
             for r in removed:
                 await self.delete("quiz_answer", {"question_id": f"eq.{r['id']}"})

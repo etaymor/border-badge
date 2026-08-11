@@ -9,6 +9,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { Analytics } from '@services/analytics';
 import { api } from '@services/api';
 import { clearStoredAnswer, uploadSwapPhoto } from '@services/quiz/quizPlay';
 import {
@@ -102,6 +103,8 @@ export function useCreateQuiz() {
       createQuizFromLibrary(options),
     onSuccess: (outcome) => {
       if (outcome.status === 'created') {
+        // U12 funnel: quiz created (the top of the viral loop).
+        Analytics.quizCreated({ quizId: outcome.quizId, photoCount: outcome.photoCount });
         // Scoped invalidation: only the newly created quiz's detail query,
         // plus the management list it now appears on.
         queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, outcome.quizId] });
@@ -245,6 +248,8 @@ export function useShareQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
+      // U12 funnel: quiz shared (the link now exists in the wild).
+      Analytics.quizShared({ quizId });
       // State moved to 'shared': the detail drives the edit affordances, the
       // list shows the new state, and the leaderboard (keyed under the quiz)
       // refetches with the live board.
@@ -278,6 +283,8 @@ export function useRevokeQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
+      // U12 funnel: quiz revoked (the loop closed early for this link).
+      Analytics.quizRevoked({ quizId });
       // State moved to 'revoked': the detail drives the share affordances,
       // and the list + leaderboard (both under the quizzes namespace) follow.
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });

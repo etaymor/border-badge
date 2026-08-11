@@ -24,7 +24,14 @@ MIGRATION_PATH = (
     / "0060_travel_photo_quiz.sql"
 )
 
-QUIZ_TABLES = ["quiz", "quiz_question", "quiz_session", "quiz_answer"]
+QUIZ_TABLES = ["quiz", "quiz_question", "quiz_session", "quiz_answer", "quiz_funnel"]
+
+FUNNEL_EVENTS = {
+    "page_view",
+    "session_started",
+    "session_completed",
+    "install_cta_tap",
+}
 
 LIFECYCLE_STATES = {
     "building",
@@ -57,13 +64,13 @@ def test_wrapped_in_do_migration_block(sql: str):
     assert "$migration$;" in sql
 
 
-def test_creates_all_four_tables_idempotently(sql: str):
+def test_creates_all_quiz_tables_idempotently(sql: str):
     for table in QUIZ_TABLES:
         pattern = rf"CREATE TABLE IF NOT EXISTS public\.{table}\s*\("
         assert re.search(pattern, sql), f"missing idempotent CREATE for {table}"
 
 
-def test_rls_enabled_on_all_four_tables(sql: str):
+def test_rls_enabled_on_all_quiz_tables(sql: str):
     for table in QUIZ_TABLES:
         pattern = rf"ALTER TABLE public\.{table}\s+ENABLE ROW LEVEL SECURITY"
         assert re.search(pattern, sql), f"RLS not enabled on {table}"
@@ -161,6 +168,57 @@ def test_classified_count_column_added_idempotently(sql: str):
         r"ADD COLUMN IF NOT EXISTS classified_count INTEGER NOT NULL DEFAULT 0",
         sql,
     ), "quiz needs an idempotent classified_count INTEGER NOT NULL DEFAULT 0"
+
+
+def test_funnel_counters_keyed_by_quiz_and_event(sql: str):
+    """U12: one counter row per (quiz, event) so started-vs-completed per quiz
+    is a single filtered read (KTD9: also the leaderboard harvest signal)."""
+    assert re.search(
+        r"PRIMARY KEY\s*\(\s*quiz_id\s*,\s*event\s*\)", sql
+    ), "quiz_funnel needs PRIMARY KEY (quiz_id, event)"
+
+
+def test_funnel_event_check_lists_exactly_the_four_events(sql: str):
+    match = re.search(
+        r"event\s+TEXT[^,]*CHECK\s*\(\s*event\s+IN\s*\(([^)]*)\)", sql, re.IGNORECASE
+    )
+    assert match, "quiz_funnel.event must be TEXT with an IN (...) CHECK constraint"
+    events = set(re.findall(r"'([^']+)'", match.group(1)))
+    assert events == FUNNEL_EVENTS
+
+
+def test_funnel_increment_function_is_an_atomic_upsert(sql: str):
+    """The API increments through ONE SQL function (insert-or-bump) so
+    concurrent taps never lose counts to read-modify-write races."""
+    assert re.search(
+        r"CREATE OR REPLACE FUNCTION public\.increment_quiz_funnel\s*"
+        r"\(\s*p_quiz_id\s+UUID\s*,\s*p_event\s+TEXT\s*\)",
+        sql,
+        re.IGNORECASE,
+    ), "missing increment_quiz_funnel(p_quiz_id UUID, p_event TEXT)"
+    assert re.search(
+        r"ON CONFLICT\s*\(\s*quiz_id\s*,\s*event\s*\)\s*"
+        r"DO UPDATE SET\s+count\s*=\s*(public\.)?quiz_funnel\.count\s*\+\s*1",
+        sql,
+        re.IGNORECASE,
+    ), "increment_quiz_funnel must upsert via ON CONFLICT ... count + 1"
+
+
+def test_funnel_increment_function_is_service_role_only(sql: str):
+    """PostgREST exposes /rpc/ functions to anon by default; the counter bump
+    must be callable only through the backend's service role."""
+    assert re.search(
+        r"REVOKE\s+(EXECUTE\s+)?(ALL\s+)?ON FUNCTION public\.increment_quiz_funnel"
+        r"[^;]*FROM\s+PUBLIC",
+        sql,
+        re.IGNORECASE,
+    ), "increment_quiz_funnel must revoke EXECUTE from PUBLIC"
+    assert re.search(
+        r"GRANT\s+EXECUTE\s+ON FUNCTION public\.increment_quiz_funnel"
+        r"[^;]*TO\s+service_role",
+        sql,
+        re.IGNORECASE,
+    ), "increment_quiz_funnel must grant EXECUTE to service_role"
 
 
 def test_all_indexes_are_idempotent(sql: str):

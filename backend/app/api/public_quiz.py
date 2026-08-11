@@ -48,6 +48,7 @@ from app.schemas.quiz import (
     PublicQuizSessionResponse,
     ScoreToBeat,
 )
+from app.services.quiz_funnel import record_quiz_funnel_event
 from app.services.quiz_grading import grade_answer
 
 # The aggregation implementation lives in app/services/quiz_leaderboard.py —
@@ -175,6 +176,10 @@ async def start_public_quiz_session(
                 continue  # token collision (astronomically rare): re-mint
             raise
         if rows:
+            # U12 funnel: started counts at the session INSERT -- resumes above
+            # return early, so one session is one count no matter how many
+            # times the player reloads.
+            await record_quiz_funnel_event(db, quiz["id"], "session_started", slug)
             return PublicQuizSessionResponse(
                 token=token, answered=[], completed=False, score=None
             )
@@ -323,6 +328,10 @@ async def complete_public_quiz_session(
         )
         if claimed:
             session = claimed[0]
+            # U12 funnel: completed counts at the FIRST completion only --
+            # this branch is exactly the conditional write that claimed it,
+            # so replayed complete calls can never double count.
+            await record_quiz_funnel_event(db, quiz["id"], "session_completed", slug)
         else:
             already_completed = True
             refreshed = await db.get("quiz_session", {"id": f"eq.{session['id']}"})

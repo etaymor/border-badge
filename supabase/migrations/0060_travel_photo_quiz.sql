@@ -190,6 +190,64 @@ BEGIN
     'Backend-only (service role).';
 
   ----------------------------------------------------------------------------
+  -- 5. Funnel counters (U12: R12/R16 + KTD9)
+  --
+  -- One row per (quiz, event) with a running count, so "started vs completed
+  -- per quiz" -- which is ALSO the leaderboard harvest-pattern signal (KTD9)
+  -- -- is a single filtered read. Appended inside this DO block (precedent:
+  -- the classified_count ALTER above) because 0060 is still unapplied in
+  -- production; everything here is idempotent.
+  --
+  -- The API increments through increment_quiz_funnel() below: an atomic
+  -- insert-or-bump, never a read-modify-write from the backend.
+  ----------------------------------------------------------------------------
+  CREATE TABLE IF NOT EXISTS public.quiz_funnel (
+    quiz_id     UUID NOT NULL REFERENCES public.quiz(id) ON DELETE CASCADE,
+    event       TEXT NOT NULL
+                  CHECK (event IN (
+                    'page_view',
+                    'session_started',
+                    'session_completed',
+                    'install_cta_tap'
+                  )),
+    count       BIGINT NOT NULL DEFAULT 0 CHECK (count >= 0),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (quiz_id, event)
+  );
+
+  COMMENT ON TABLE public.quiz_funnel IS
+    'Per-quiz funnel counters (page views, sessions started/completed, '
+    'install-CTA taps). Backend-only (service role); incremented exclusively '
+    'via increment_quiz_funnel().';
+  COMMENT ON COLUMN public.quiz_funnel.event IS
+    'Funnel step: page_view increments per render; session_started at '
+    'session insert; session_completed at first completion; install_cta_tap '
+    'per /q/{slug}/install redirect.';
+
+  -- Atomic counter bump. LANGUAGE sql (single statement) with a distinct
+  -- dollar-quote tag so it nests inside this DO block.
+  CREATE OR REPLACE FUNCTION public.increment_quiz_funnel(
+    p_quiz_id UUID,
+    p_event   TEXT
+  )
+  RETURNS VOID
+  LANGUAGE sql
+  AS $increment_quiz_funnel$
+    INSERT INTO public.quiz_funnel (quiz_id, event, count)
+    VALUES (p_quiz_id, p_event, 1)
+    ON CONFLICT (quiz_id, event)
+    DO UPDATE SET count = public.quiz_funnel.count + 1, updated_at = now();
+  $increment_quiz_funnel$;
+
+  -- PostgREST exposes /rpc/ functions to anon by default (EXECUTE is granted
+  -- to PUBLIC on creation). Counter bumps are backend-only: revoke from
+  -- everyone, grant back to the service role alone.
+  REVOKE EXECUTE ON FUNCTION public.increment_quiz_funnel(UUID, TEXT)
+    FROM PUBLIC, anon, authenticated;
+  GRANT EXECUTE ON FUNCTION public.increment_quiz_funnel(UUID, TEXT)
+    TO service_role;
+
+  ----------------------------------------------------------------------------
   -- RLS: backend-only tables, no user-facing policies (mirrors 0057 caches).
   -- Anon/authenticated selects return zero rows; all access via service role.
   ----------------------------------------------------------------------------
@@ -197,5 +255,6 @@ BEGIN
   ALTER TABLE public.quiz_question ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.quiz_session  ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.quiz_answer   ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE public.quiz_funnel   ENABLE ROW LEVEL SECURITY;
 END;
 $migration$;

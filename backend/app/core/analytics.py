@@ -31,3 +31,14 @@ def log_list_viewed(slug: str) -> None:
 def log_trip_viewed(slug: str) -> None:
     """Log public trip page view."""
     log_page_view("trip", slug)
+
+
+def log_quiz_funnel_event(event: str, slug: str) -> None:
+    """Log one public quiz funnel step (U12).
+
+    Args:
+        event: Funnel step (page_view, session_started, session_completed,
+            install_cta_tap)
+        slug: The quiz's share slug
+    """
+    logger.info(f"quiz_funnel: {event} slug={slug}")
