@@ -1,0 +1,106 @@
+"""Server-side quiz answer grading (KTD4).
+
+This is the ONE grading code path for the travel photo quiz: the owner's
+authenticated play (U3) and the anonymous public play (U8) both grade through
+`grade_answer`. It takes an already-authorized session + question pair -- the
+caller is responsible for loading them with the appropriate ownership/state
+filters -- and performs the grade server-side:
+
+- rejects double-grading (pre-check here, DB unique constraint as backstop),
+- records the graded `quiz_answer` row,
+- recomputes the session's server-computed running score from its recorded
+  answers (clients never submit scores),
+- returns the verdict along with the ground truth revealed by answering.
+
+Ground truth (correct index/country/year) exists only in this return value and
+in backend-only tables; question payloads served to players never contain it.
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import HTTPException, status
+
+from app.db.session import SupabaseClient
+
+
+@dataclass
+class GradedAnswer:
+    """The server's verdict for one answered question."""
+
+    place_correct: bool
+    # None when the question has no year sub-question (no usable capture date).
+    year_correct: bool | None
+    correct_option_index: int
+    correct_option: str
+    correct_year: int | None
+    # The session's updated running score (count of place-correct answers).
+    score: int
+
+
+async def grade_answer(
+    db: SupabaseClient,
+    *,
+    session: dict[str, Any],
+    question: dict[str, Any],
+    selected_option_index: int,
+    selected_year: int | None = None,
+) -> GradedAnswer:
+    """Grade one (session, question, choice) server-side and record it.
+
+    Raises 409 if the session already answered this question -- each question
+    grades at most once per session (DB-guaranteed by the unique constraint on
+    (session_id, question_id); this pre-check just gives a clean message).
+    """
+    existing = await db.get(
+        "quiz_answer",
+        {
+            "session_id": f"eq.{session['id']}",
+            "question_id": f"eq.{question['id']}",
+            "select": "id",
+        },
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This question has already been answered in this session.",
+        )
+
+    correct_index = int(question["correct_index"])
+    place_correct = selected_option_index == correct_index
+
+    capture_year = question.get("capture_year")
+    year_correct: bool | None = None
+    if capture_year is not None:
+        year_correct = selected_year == capture_year
+
+    await db.post(
+        "quiz_answer",
+        {
+            "session_id": str(session["id"]),
+            "question_id": str(question["id"]),
+            "selected_option_index": selected_option_index,
+            "selected_year": selected_year,
+            "place_correct": place_correct,
+            "year_correct": bool(year_correct),
+        },
+    )
+
+    # Derive the running score from recorded answers rather than incrementing
+    # in place -- concurrent answers converge on the recorded truth.
+    answers = await db.get(
+        "quiz_answer",
+        {"session_id": f"eq.{session['id']}", "select": "place_correct"},
+    )
+    score = sum(1 for a in answers if a.get("place_correct"))
+    await db.patch("quiz_session", {"score": score}, {"id": f"eq.{session['id']}"})
+
+    options = list(question["options"])
+    return GradedAnswer(
+        place_correct=place_correct,
+        year_correct=year_correct,
+        correct_option_index=correct_index,
+        correct_option=options[correct_index],
+        correct_year=capture_year,
+        score=score,
+    )
