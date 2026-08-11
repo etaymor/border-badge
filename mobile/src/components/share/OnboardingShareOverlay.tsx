@@ -32,15 +32,15 @@ import {
   OnboardingShareCard,
   ONBOARDING_SHARE_CARD_WIDTH,
   ONBOARDING_SHARE_CARD_HEIGHT,
+  type OnboardingPagerVariant,
   type OnboardingShareContext,
-  type OnboardingShareVariant,
 } from './OnboardingShareCard';
 
 const CARD_HORIZONTAL_PADDING = 24;
 const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
 const ACTION_AREA_HEIGHT = 200; // Accounts for pagination + actions + margins
 const MIN_TOP_SPACING = 60;
-const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'vibe'];
+const CARD_VARIANTS: OnboardingPagerVariant[] = ['stamps', 'stats', 'vibe'];
 
 interface OnboardingShareOverlayProps {
   visible: boolean;

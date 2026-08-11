@@ -1,16 +1,18 @@
 /**
- * Share card component for onboarding completion.
- * Three variants: stamps, stats, and vibe - all optimized for 9:16 social sharing.
+ * Share card component for onboarding completion and the travel photo quiz.
+ * Variants: stamps, stats, vibe (onboarding trio) and quizChallenge - all
+ * optimized for 9:16 social sharing.
  */
 
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { colors } from '@constants/colors';
 
 import { CARD_HEIGHT, CARD_WIDTH } from './constants';
-import type { OnboardingShareContext, OnboardingShareVariant } from './types';
+import type { OnboardingPagerVariant, OnboardingShareContext, QuizChallengeContext } from './types';
 import { MapVariant } from './variants/MapVariant';
+import { QuizChallengeVariant } from './variants/QuizChallengeVariant';
 import { StampsVariant } from './variants/StampsVariant';
 import StatsVariant from './variants/StatsVariant';
 
@@ -20,26 +22,32 @@ export {
   CARD_WIDTH as ONBOARDING_SHARE_CARD_WIDTH,
 } from './constants';
 
-interface OnboardingShareCardProps {
-  variant: OnboardingShareVariant;
-  context: OnboardingShareContext;
-}
+// Discriminated on `variant`: the quiz challenge card renders from quiz data,
+// not the onboarding context, so each branch demands its matching context.
+type OnboardingShareCardProps =
+  | { variant: OnboardingPagerVariant; context: OnboardingShareContext }
+  | { variant: 'quizChallenge'; context: QuizChallengeContext };
 
-function OnboardingShareCardComponent({ variant, context }: OnboardingShareCardProps) {
-  const VariantComponent = useMemo(() => {
-    switch (variant) {
-      case 'stamps':
-        return StampsVariant;
-      case 'stats':
-        return StatsVariant;
-      case 'vibe':
-        return MapVariant;
-    }
-  }, [variant]);
+function OnboardingShareCardComponent(props: OnboardingShareCardProps) {
+  let variantNode;
+  switch (props.variant) {
+    case 'stamps':
+      variantNode = <StampsVariant context={props.context} />;
+      break;
+    case 'stats':
+      variantNode = <StatsVariant context={props.context} />;
+      break;
+    case 'vibe':
+      variantNode = <MapVariant context={props.context} />;
+      break;
+    case 'quizChallenge':
+      variantNode = <QuizChallengeVariant context={props.context} />;
+      break;
+  }
 
   return (
     <View style={styles.card} collapsable={false}>
-      <VariantComponent context={context} />
+      {variantNode}
     </View>
   );
 }

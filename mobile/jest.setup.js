@@ -246,6 +246,21 @@ jest.mock('react-native-screens', () => {
   };
 });
 
+// Mock react-native-view-shot: there is no native module in jest, so the real
+// capture() never settles and any code awaiting it hangs. Suites that need to
+// inspect capture calls/options re-mock this per-file (which takes precedence).
+jest.mock('react-native-view-shot', () => {
+  const mockReact = require('react');
+  const MockViewShot = mockReact.forwardRef(({ children }, ref) => {
+    mockReact.useImperativeHandle(ref, () => ({
+      capture: () => Promise.resolve('file:///mock/view-shot.png'),
+    }));
+    return mockReact.createElement(mockReact.Fragment, null, children);
+  });
+  MockViewShot.displayName = 'ViewShot';
+  return { __esModule: true, default: MockViewShot };
+});
+
 // Mock expo-secure-store
 jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(),

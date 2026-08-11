@@ -13,7 +13,7 @@
  *   challenge-framed message carrying the link and the score to beat.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -25,7 +25,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import ViewShot from 'react-native-view-shot';
 
+import {
+  OnboardingShareCard,
+  ONBOARDING_SHARE_CARD_HEIGHT,
+  ONBOARDING_SHARE_CARD_WIDTH,
+} from '@components/share/OnboardingShareCard';
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
 import { colors } from '@constants/colors';
@@ -36,6 +42,7 @@ import {
   useShareQuiz,
   useSwapQuizQuestion,
 } from '@hooks/useQuizzes';
+import { useProfile } from '@hooks/useProfile';
 import { useStableCallback } from '@hooks/useStableCallback';
 import { QUIZ_MIN_PHOTOS, type GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import { loadPlayState, loadSwapCandidates, type QuizPlayState } from '@services/quiz/quizPlay';
@@ -44,13 +51,27 @@ import type { RootStackScreenProps } from '@navigation/types';
 
 type Props = RootStackScreenProps<'QuizResults'>;
 
+// Established share-card capture options (mirrors OnboardingShareOverlay):
+// story-sized PNG written to a tmpfile the share sheet can attach.
+const CARD_CAPTURE_OPTIONS = {
+  format: 'png',
+  quality: 0.95,
+  width: 1080,
+  height: 1920,
+  result: 'tmpfile',
+} as const;
+
 export function QuizResultsScreen({ navigation, route }: Props) {
   const { quizId, results } = route.params;
 
   const { data: quiz } = useQuiz(quizId);
+  const { data: profile } = useProfile();
   const swapMutation = useSwapQuizQuestion(quizId);
   const removeMutation = useRemoveQuizQuestion(quizId);
   const shareMutation = useShareQuiz(quizId);
+
+  // Off-screen host for the shareable challenge card (see the JSX below).
+  const shareCardRef = useRef<ViewShot | null>(null);
 
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
   const [swapTargetId, setSwapTargetId] = useState<string | null>(null);
@@ -130,9 +151,28 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         `I scored ${scoreToBeat.correct} of ${scoreToBeat.total} guessing where my own ` +
         `travel photos were taken. Think you know the world better? Beat my score: ` +
         `${shared.share_url}`;
-      // U6 seam: the shareable results-card image is generated and attached
-      // HERE, joining this same Share payload (message + card image URI).
-      await Share.share(Platform.OS === 'ios' ? { message, url: shared.share_url } : { message });
+      // Capture the challenge results card (R6) so the story/message-sized
+      // image joins this same Share payload. A capture failure never blocks
+      // sharing the link itself.
+      let cardImageUri: string | null = null;
+      try {
+        cardImageUri = (await shareCardRef.current?.capture?.()) ?? null;
+      } catch (captureError) {
+        console.warn(
+          '[QuizResults] Card capture failed:',
+          captureError instanceof Error ? captureError.message : captureError
+        );
+      }
+      if (Platform.OS === 'ios') {
+        // iOS shares message and url as separate activity items: the challenge
+        // link rides inside the message, while the url slot carries the card
+        // image (falling back to the link when capture failed).
+        await Share.share({ message, url: cardImageUri ?? shared.share_url });
+      } else {
+        // Android's Share.share cannot attach a local file; the link-carrying
+        // challenge message is the whole payload there.
+        await Share.share({ message });
+      }
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
     }
@@ -231,6 +271,21 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           <Button title="Done" variant="ghost" onPress={handleDone} testID="quiz-done" />
         </View>
       </ScrollView>
+
+      {/* Off-screen host for the shareable challenge card (U6). Mounted
+          permanently (never hidden via opacity, which would capture blank)
+          so capture() always has a laid-out view at share time. */}
+      <View style={styles.shareCardHost} pointerEvents="none">
+        <ViewShot ref={shareCardRef} options={CARD_CAPTURE_OPTIONS}>
+          <OnboardingShareCard
+            variant="quizChallenge"
+            context={{
+              ownerDisplayName: profile?.display_name ?? null,
+              scoreToBeat,
+            }}
+          />
+        </ViewShot>
+      </View>
 
       <Modal visible={swapTargetId !== null} animationType="slide" onRequestClose={closeSwapPicker}>
         <Screen>
@@ -369,6 +424,13 @@ const styles = StyleSheet.create({
   footer: {
     gap: 8,
     marginTop: 16,
+  },
+  shareCardHost: {
+    position: 'absolute',
+    top: 0,
+    left: -ONBOARDING_SHARE_CARD_WIDTH * 2,
+    width: ONBOARDING_SHARE_CARD_WIDTH,
+    height: ONBOARDING_SHARE_CARD_HEIGHT,
   },
   pickerContainer: {
     flex: 1,
