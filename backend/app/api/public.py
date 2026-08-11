@@ -25,6 +25,7 @@ from app.core.media import (
     AVATAR_WIDTH,
     ENTRY_IMAGE_WIDTH,
     HERO_COVER_WIDTH,
+    build_media_url,
     extract_media_urls,
     media_url,
     resize_stored_url,
@@ -736,6 +737,178 @@ async def download_trip_kml(
         slug=slug,
         placemarks=_kml_placemarks(entry_rows),
     )
+
+
+# ============================================================================
+# Playable quiz page (U7: R9/R10/R12/R13)
+#
+# The anonymous play surface for a shared travel photo quiz. Three invariants:
+#
+# * The slug resolves UNCACHED on every request -- revocation must gate serving
+#   the moment it commits, so there is no in-process slug cache and 200s carry
+#   at most a 60s shared-cache TTL (KTD5: quiz photos have a 60s object TTL;
+#   the page must never outlive its own images).
+# * Ground truth (correct_index, capture_year, year_options) never reaches the
+#   page. The JSON island carries only what the player may see: image URLs and
+#   the four options per question. Grading happens server-side (U8 routes).
+# * Every /q/ response -- 200, 404, and the revoked "gone" page -- is noindex
+#   via BOTH the meta robots tag and the X-Robots-Tag header, and /q/ URLs are
+#   never emitted into sitemap.xml. robots.txt deliberately does NOT Disallow
+#   /q/: a Disallow line would advertise the URL space while also blocking
+#   crawlers from ever *seeing* the noindex.
+# ============================================================================
+
+
+def _quiz_unavailable_response(request: Request, status_code: int) -> HTMLResponse:
+    """The content-free unavailable/gone page (AE5).
+
+    Served for unknown slugs, pre-share states, and revoked quizzes -- all
+    404, so a revoked slug is indistinguishable from one that never existed.
+    Renders no photos, no names, no scores -- just the message and the
+    install CTA -- and is never cached: a revocation must not live on in any
+    shared cache.
+    """
+    settings = get_settings()
+    response = templates.TemplateResponse(
+        request=request,
+        name="quiz.html",
+        context={
+            "mode": "gone",
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            "page_title": "Quiz unavailable - Atlasi",
+            "og_title": "This quiz is no longer available",
+            "og_description": "The link may have been revoked by its owner.",
+        },
+        status_code=status_code,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
+async def _fetch_quiz_owner_name(db: SupabaseClient, owner_id: str) -> str | None:
+    """The quiz owner's display name, or None.
+
+    Like the share byline, this is framing rather than content: a missing
+    profile (or a failed lookup) degrades to an anonymous challenge instead of
+    taking the page down.
+    """
+    if not owner_id:
+        return None
+    try:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "user_id": f"eq.{owner_id}",
+                "select": "display_name",
+                "limit": 1,
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch quiz owner name for %s: %s", owner_id, e)
+        return None
+    if not profiles:
+        return None
+    return (profiles[0].get("display_name") or "").strip() or None
+
+
+@router.get("/q/{slug}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def view_quiz_page(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> HTMLResponse:
+    """Render the playable quiz page for a shared quiz slug (R9, R10)."""
+    settings = get_settings()
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    quizzes = await db.get(
+        "quiz",
+        {
+            "slug": f"eq.{slug}",
+            "select": "id,owner_id,state,slug,score_to_beat_correct,score_to_beat_total",
+        },
+    )
+    quiz = quizzes[0] if quizzes else None
+
+    # Only 'shared' serves. Unknown slugs, pre-share states (which cannot hold
+    # a slug today, but the check is deliberately positive), and revoked
+    # quizzes are indistinguishable 404s -- a revoked slug must not confirm
+    # that a quiz ever existed.
+    if quiz is None or quiz.get("state") != "shared":
+        return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
+
+    question_rows = await db.get(
+        "quiz_question",
+        {
+            "quiz_id": f"eq.{quiz['id']}",
+            "select": "id,position,storage_path,options",
+            "order": "position.asc",
+        },
+    )
+    owner_name = await _fetch_quiz_owner_name(db, quiz.get("owner_id"))
+
+    # Everything the game JS needs, and NOTHING it must not have. The
+    # score-to-beat pair is exposed as {score, total} -- deliberately not
+    # {correct, total} -- so no key named "correct" ever appears in the page.
+    questions = [
+        {
+            "id": str(q["id"]),
+            "position": q["position"],
+            "image_url": build_media_url(q["storage_path"]),
+            "options": list(q["options"]),
+        }
+        for q in sorted(question_rows, key=lambda r: r["position"])
+    ]
+    score_to_beat = None
+    if quiz.get("score_to_beat_correct") is not None:
+        score_to_beat = {
+            "score": quiz["score_to_beat_correct"],
+            "total": quiz["score_to_beat_total"],
+        }
+    quiz_payload = {
+        "slug": slug,
+        "owner_name": owner_name,
+        "score_to_beat": score_to_beat,
+        "question_count": len(questions),
+        "questions": questions,
+    }
+
+    challenger = owner_name or "A friend"
+    og_title = f"Can you beat {challenger}'s travel photo quiz?"
+    og_description = f"Guess the country in {len(questions)} photos."
+    if score_to_beat:
+        og_description += (
+            f" The score to beat: {score_to_beat['score']}/{score_to_beat['total']}."
+        )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="quiz.html",
+        context={
+            "mode": "play",
+            "owner_name": owner_name,
+            "score_to_beat": score_to_beat,
+            "question_count": len(questions),
+            "quiz_payload": quiz_payload,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            "page_title": f"{challenger}'s travel photo quiz - Atlasi",
+            "og_title": og_title,
+            "og_description": og_description,
+            # R13: the unfurl card image route ships in a later unit; the meta
+            # tags point at its stable URL now.
+            "og_image": f"{settings.base_url}/q/{slug}/card.png",
+            "og_url": f"{settings.base_url}/q/{slug}",
+        },
+    )
+    # KTD5: never cache the page longer than its photos' 60s object TTL.
+    response.headers["Cache-Control"] = "public, max-age=60"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @router.get("/privacy", response_class=HTMLResponse)

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{# ============================================================================
+   Public playable quiz page (/q/{slug}) -- U7.
+
+   Two modes, one template:
+     mode == "play": the shared quiz's challenge intro + game scaffolding. The
+       game itself runs in static, nonce'd JS (quiz-play.js) against the JSON
+       data island below; the server-rendered HTML carries only the intro so
+       the page is meaningful before (and without) hydration.
+     mode == "gone": the content-free unavailable page (404). No photos,
+       no names, no scores (AE5).
+
+   Strict default CSP: no inline handlers, no inline styles; all dynamic text
+   is inserted via textContent in quiz-play.js. Ground truth (correct answers,
+   capture years) never appears anywhere in this document.
+   ============================================================================ #}
+
+{% block robots %}
+<meta name="robots" content="noindex" />
+{% endblock %}
+
+{% block header_nav %}
+<nav class="header-nav share-nav">
+  <a
+    href="{{ app_store_url | safe_external_url or '#download' }}"
+    class="cta-button header-cta"
+    data-track-location="header"
+  >
+    {% include "_apple_icon.svg" %}
+    <span>Download</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% if mode == 'gone' %}
+<div class="quiz-page">
+  <section class="quiz-card quiz-gone">
+    <p class="quiz-eyebrow">Travel photo quiz</p>
+    <h1 class="quiz-title">This quiz is no longer available</h1>
+    <p class="quiz-copy">
+      The link may have been revoked by the person who shared it, or it may
+      never have existed.
+    </p>
+    <a
+      href="{{ app_store_url | safe_external_url or '#download' }}"
+      class="quiz-button quiz-button-primary quiz-cta-link"
+      data-track-location="quiz_gone"
+      >Make your own with Atlasi</a
+    >
+  </section>
+</div>
+{% else %}
+<div class="quiz-page" id="quiz-root">
+  {# --- Challenge intro (server-rendered, visible pre-hydration) --------- #}
+  <section class="quiz-card quiz-view" id="quiz-intro">
+    <p class="quiz-eyebrow">Travel photo quiz</p>
+    <h1 class="quiz-title">
+      {% if owner_name %}{{ owner_name }} challenges you{% else %}A friend challenges you{% endif %}
+    </h1>
+    <p class="quiz-copy">
+      Guess which country each of {{ question_count }} travel photos was taken in.
+    </p>
+    {% if score_to_beat %}
+    <p class="quiz-score-to-beat">
+      The score to beat:
+      <strong>{{ score_to_beat.score }}/{{ score_to_beat.total }}</strong>
+    </p>
+    {% endif %}
+    <button class="quiz-button quiz-button-primary" id="quiz-start" type="button">
+      Play
+    </button>
+    <noscript>
+      <p class="quiz-copy">Playing the quiz requires JavaScript.</p>
+    </noscript>
+  </section>
+
+  {# --- Question view (filled by quiz-play.js) --------------------------- #}
+  <section class="quiz-card quiz-view" id="quiz-question" hidden>
+    <p class="quiz-progress" id="quiz-progress"></p>
+    <div class="quiz-photo-frame">
+      <img
+        class="quiz-photo"
+        id="quiz-photo"
+        alt="A travel photo. Which country was it taken in?"
+        decoding="async"
+      />
+    </div>
+    <div class="quiz-options" id="quiz-options"></div>
+    <p class="quiz-feedback" id="quiz-feedback" hidden></p>
+    <button class="quiz-button quiz-button-primary" id="quiz-next" type="button" hidden>
+      Next
+    </button>
+  </section>
+
+  {# --- Display-name entry ----------------------------------------------- #}
+  <section class="quiz-card quiz-view" id="quiz-name" hidden>
+    <h2 class="quiz-title quiz-title-small">That's all {{ question_count }}</h2>
+    <p class="quiz-copy" id="quiz-name-score"></p>
+    <form id="quiz-name-form" class="quiz-name-form">
+      <label class="quiz-label" for="quiz-display-name">Add your name to the leaderboard</label>
+      <input
+        class="quiz-input"
+        id="quiz-display-name"
+        name="display_name"
+        type="text"
+        maxlength="40"
+        autocomplete="nickname"
+        required
+      />
+      <button class="quiz-button quiz-button-primary" type="submit">
+        See results
+      </button>
+    </form>
+  </section>
+
+  {# --- Results + leaderboard + install CTA (R12) ------------------------ #}
+  <section class="quiz-card quiz-view" id="quiz-results" hidden>
+    <p class="quiz-eyebrow">Results</p>
+    <h2 class="quiz-title quiz-title-small" id="quiz-result-headline"></h2>
+    <p class="quiz-result-score" id="quiz-result-score"></p>
+    <p class="quiz-copy" id="quiz-result-compare"></p>
+    <div class="quiz-leaderboard">
+      <h3 class="quiz-leaderboard-title">Leaderboard</h3>
+      <ol class="quiz-leaderboard-list" id="quiz-leaderboard-list"></ol>
+    </div>
+    <div class="quiz-install">
+      <p class="quiz-copy">
+        Think your own trips could stump your friends? Build your quiz from
+        your camera roll with Atlasi.
+      </p>
+      <a
+        href="{{ app_store_url | safe_external_url or '#download' }}"
+        class="quiz-button quiz-button-primary quiz-cta-link"
+        data-track-location="quiz_results"
+        >Get Atlasi</a
+      >
+    </div>
+  </section>
+
+  {# --- Mid-run gone state (quiz revoked while playing) ------------------ #}
+  <section class="quiz-card quiz-view" id="quiz-gone" hidden>
+    <h2 class="quiz-title quiz-title-small">This quiz is no longer available</h2>
+    <p class="quiz-copy">The link was revoked by the person who shared it.</p>
+    <a
+      href="{{ app_store_url | safe_external_url or '#download' }}"
+      class="quiz-button quiz-button-primary quiz-cta-link"
+      data-track-location="quiz_gone"
+      >Make your own with Atlasi</a
+    >
+  </section>
+
+  <p class="quiz-error" id="quiz-error" hidden></p>
+</div>
+
+{# The game's data island: image URLs and the four options per question --
+   and no ground truth of any kind. Jinja's tojson escapes <, > and & so a
+   hostile display name cannot break out of this script element. #}
+<script type="application/json" id="quiz-data" nonce="{{ request.state.csp_nonce }}">
+{{ quiz_payload | tojson }}
+</script>
+<script src="{{ url_for('static', path='js/quiz-play.js') }}" defer nonce="{{ request.state.csp_nonce }}"></script>
+{% endif %}
+{% endblock %}
+
+{% block footer_cta %}{% endblock %}
+
+{% block footer_main %}
+<div class="footer-main">
+  <a href="/">
+    <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+  </a>
+  <nav class="footer-links">
+    <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
+       data-track-location="footer">Download App</a>
+    <a href="/privacy" class="footer-link">Privacy</a>
+    <a href="/terms" class="footer-link">Terms</a>
+  </nav>
+</div>
+{% endblock %}
