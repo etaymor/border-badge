@@ -69,6 +69,10 @@ from app.services.photo_vision.quiz_classifier import (
     classify_quiz_images,
 )
 from app.services.quiz_grading import grade_answer
+from app.services.quiz_storage import (
+    QuizStorageDeletionError,
+    delete_quiz_storage_objects,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/quiz", tags=["quiz"])
@@ -570,17 +574,47 @@ async def _recompute_score_to_beat_if_seeded(
     )
 
 
-async def schedule_quiz_object_deletion(quiz: dict[str, Any]) -> None:
-    """U10 seam: delete the storage objects under quiz/{id}/ and set
-    objects_deleted_at once the prefix is verified empty.
+async def _null_session_display_names(db: SupabaseClient, quiz_id: UUID) -> None:
+    """AE5: revocation removes third-party player identity server-side.
 
-    Deliberately a no-op in U3 -- revocation gates public serving immediately
-    via state/revoked_at; physical object deletion is wired in U10.
+    Display names are the only player-supplied data on a session row; the
+    score/attempt counters survive (the funnel needs them). Idempotent --
+    the filter matches only rows that still carry a name.
     """
-    logger.info(
-        "Quiz %s storage object deletion deferred to the U10 cleanup worker",
-        quiz.get("id"),
+    await db.patch(
+        "quiz_session",
+        {"display_name": None},
+        {"quiz_id": f"eq.{quiz_id}", "display_name": "not.is.null"},
     )
+
+
+async def _sweep_revoked_quiz_objects(db: SupabaseClient, quiz: dict[str, Any]) -> bool:
+    """Phase two of the two-phase revoke (KTD7): physically empty the
+    quiz/{id}/ storage prefix, and set objects_deleted_at only after the
+    prefix has been re-listed and verified empty.
+
+    Returns True when the objects are verifiably gone. On failure the quiz
+    stays revoked-but-pending (revoked_at set, objects_deleted_at null) --
+    the loud reconciliation surface, retried on the next owner action
+    (an explicit revoke re-call or an owner detail read).
+    """
+    quiz_id = quiz["id"]
+    try:
+        await delete_quiz_storage_objects(quiz_id)
+    except QuizStorageDeletionError as exc:
+        logger.error(
+            "Quiz %s revoke: storage sweep failed; objects_deleted_at stays "
+            "null for reconciliation retry: %s",
+            quiz_id,
+            exc,
+        )
+        return False
+    await db.patch(
+        "quiz",
+        {"objects_deleted_at": _now_iso(), "updated_at": _now_iso()},
+        {"id": f"eq.{quiz_id}", "objects_deleted_at": "is.null"},
+    )
+    return True
 
 
 # ============================================================================
@@ -737,6 +771,12 @@ async def get_quiz(quiz_id: UUID, user: CurrentUser) -> QuizDetailResponse:
     """Owner detail view. Question payloads carry NO ground truth."""
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
+    if quiz.get("revoked_at") is not None and quiz.get("objects_deleted_at") is None:
+        # Passive reconciliation retry trigger: any owner detail read of a
+        # revoked-but-pending quiz re-runs the U10 cleanup sweep.
+        await _null_session_display_names(db, quiz_id)
+        if await _sweep_revoked_quiz_objects(db, quiz):
+            quiz = await _get_owned_quiz(db, quiz_id, user.id)
     questions = await _get_questions(db, quiz_id)
     return _detail_response(quiz, questions)
 
@@ -1163,12 +1203,18 @@ async def hide_quiz_session(
 
 @router.post("/{quiz_id}/revoke", response_model=QuizRevokeResponse)
 async def revoke_quiz(quiz_id: UUID, user: CurrentUser) -> QuizRevokeResponse:
-    """Revoke a shared quiz (shared -> revoked, conditional write).
+    """Revoke a shared quiz (R15) -- two-phase (KTD7).
 
-    Public serving is gated on state/revoked_at the moment this commits;
-    storage object deletion is asynchronous (U10 seam)."""
+    Phase one is the conditional shared -> revoked write: page, public API,
+    and card image are all gated on state the moment it commits. Phase two
+    nulls player display names (AE5) and physically empties the quiz/{id}/
+    storage prefix, setting objects_deleted_at only after verification. A
+    failed sweep leaves the quiz revoked-but-pending (`objects_deleted`
+    false in the response); calling revoke again on the already-revoked
+    quiz is the explicit reconciliation retry trigger.
+    """
     db = get_supabase_client()  # service role: quiz tables are backend-only
-    await _get_owned_quiz(db, quiz_id, user.id)
+    quiz = await _get_owned_quiz(db, quiz_id, user.id)
     rows = await db.patch(
         "quiz",
         {"state": "revoked", "revoked_at": _now_iso(), "updated_at": _now_iso()},
@@ -1178,13 +1224,23 @@ async def revoke_quiz(quiz_id: UUID, user: CurrentUser) -> QuizRevokeResponse:
             "state": "eq.shared",
         },
     )
-    if not rows:
+    if rows:
+        quiz = rows[0]
+    elif quiz["state"] != "revoked":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Only a shared quiz can be revoked.",
         )
-    await schedule_quiz_object_deletion(rows[0])
-    return QuizRevokeResponse(state="revoked", revoked_at=rows[0]["revoked_at"])
+    # Already-revoked falls through: idempotent retry of the cleanup phase.
+    await _null_session_display_names(db, quiz_id)
+    objects_deleted = quiz.get(
+        "objects_deleted_at"
+    ) is not None or await _sweep_revoked_quiz_objects(db, quiz)
+    return QuizRevokeResponse(
+        state="revoked",
+        revoked_at=quiz["revoked_at"],
+        objects_deleted=objects_deleted,
+    )
 
 
 @router.delete("/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1192,8 +1248,11 @@ async def delete_quiz(quiz_id: UUID, user: CurrentUser) -> None:
     """Delete a quiz that is not currently shared (drafts included).
 
     A shared quiz must be revoked first -- deletion must never silently take
-    a live share link down a different path than revocation. DB cascades
-    remove questions, sessions, and answers; storage cleanup is the U10 seam.
+    a live share link down a different path than revocation. The storage
+    prefix is emptied (and verified empty) BEFORE the rows go: a storage
+    failure aborts loudly with the quiz row intact as the natural retry
+    surface, never leaving silently orphaned objects. DB cascades then
+    remove questions, sessions, and answers.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
@@ -1202,6 +1261,18 @@ async def delete_quiz(quiz_id: UUID, user: CurrentUser) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Revoke the share link before deleting this quiz.",
         )
+    try:
+        await delete_quiz_storage_objects(quiz_id)
+    except QuizStorageDeletionError as exc:
+        logger.error(
+            "Quiz %s delete: storage sweep failed; rows kept for retry: %s",
+            quiz_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not remove this quiz's photos. Please try again.",
+        ) from exc
     removed = await db.delete(
         "quiz",
         {
@@ -1215,4 +1286,3 @@ async def delete_quiz(quiz_id: UUID, user: CurrentUser) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="The quiz changed while deleting. Please retry.",
         )
-    await schedule_quiz_object_deletion(quiz)

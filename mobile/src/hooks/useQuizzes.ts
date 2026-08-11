@@ -218,6 +218,36 @@ export function useShareQuiz(quizId: string) {
   });
 }
 
+// Matches backend QuizRevokeResponse. `objects_deleted` is true only once
+// the quiz's storage prefix has been verifiably emptied server-side; false
+// means revoked-but-pending (the backend retries on the next owner action).
+export interface QuizRevokeResult {
+  state: string;
+  revoked_at: string;
+  objects_deleted: boolean;
+}
+
+/**
+ * Revoke a shared quiz (R15). The share link, public API, and card image
+ * stop serving the moment the call commits; photo deletion at the origin is
+ * verified server-side. Calling revoke again on an already-revoked quiz is
+ * the explicit retry for a pending photo sweep.
+ */
+export function useRevokeQuiz(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (): Promise<QuizRevokeResult> => {
+      const response = await api.post(`/quiz/${quizId}/revoke`);
+      return response.data;
+    },
+    onSuccess: () => {
+      // State moved to 'revoked': the detail drives the share affordances.
+      queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+    },
+  });
+}
+
 // Delete a quiz draft (used when the owner explicitly discards a creation).
 export function useDeleteQuiz() {
   const queryClient = useQueryClient();

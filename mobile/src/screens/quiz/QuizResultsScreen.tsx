@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Platform,
@@ -40,6 +41,7 @@ import { fonts } from '@constants/typography';
 import {
   useQuiz,
   useRemoveQuizQuestion,
+  useRevokeQuiz,
   useShareQuiz,
   useSwapQuizQuestion,
 } from '@hooks/useQuizzes';
@@ -60,6 +62,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const swapMutation = useSwapQuizQuestion(quizId);
   const removeMutation = useRemoveQuizQuestion(quizId);
   const shareMutation = useShareQuiz(quizId);
+  const revokeMutation = useRevokeQuiz(quizId);
 
   // Off-screen host for the shareable challenge card (see the JSX below).
   const shareCardRef = useRef<ViewShot | null>(null);
@@ -169,6 +172,33 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     }
   });
 
+  // Revoke (R15): confirmation carries the honest disclosure -- the link and
+  // photos stop serving within about a minute (60s object TTL on the photo
+  // edges), but link previews already delivered to messaging apps live in
+  // those apps' caches and may persist there.
+  const handleRevoke = useStableCallback(() => {
+    Alert.alert(
+      'Revoke share link?',
+      'The link stops working and your quiz photos are deleted from our servers. ' +
+        'Photos already loaded elsewhere expire within about a minute, but link ' +
+        'previews already delivered to messaging apps may persist in those apps.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revoke Link',
+          style: 'destructive',
+          onPress: () => {
+            revokeMutation.mutate(undefined, {
+              onError: () => {
+                Alert.alert('Error', 'Could not revoke the link. Please try again.');
+              },
+            });
+          },
+        },
+      ]
+    );
+  });
+
   const handleDone = useStableCallback(() => {
     navigation.popToTop();
   });
@@ -249,7 +279,12 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         })}
 
         <View style={styles.footer}>
-          {needsAnswers ? (
+          {state === 'revoked' ? (
+            <Text style={styles.revokedNote} testID="quiz-revoked-note">
+              Link revoked. Friends can no longer open this quiz, and its photos are removed from
+              our servers.
+            </Text>
+          ) : needsAnswers ? (
             <Button title="Answer New Photo" onPress={handleAnswerNew} testID="quiz-answer-new" />
           ) : (
             <Button
@@ -257,6 +292,15 @@ export function QuizResultsScreen({ navigation, route }: Props) {
               onPress={handleShare}
               loading={shareMutation.isPending}
               testID="quiz-share"
+            />
+          )}
+          {state === 'shared' && (
+            <Button
+              title="Revoke Link"
+              variant="ghost"
+              onPress={handleRevoke}
+              loading={revokeMutation.isPending}
+              testID="quiz-revoke"
             />
           )}
           <Button title="Done" variant="ghost" onPress={handleDone} testID="quiz-done" />
@@ -415,6 +459,13 @@ const styles = StyleSheet.create({
   footer: {
     gap: 8,
     marginTop: 16,
+  },
+  revokedNote: {
+    fontFamily: fonts.body.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   shareCardHost: {
     position: 'absolute',

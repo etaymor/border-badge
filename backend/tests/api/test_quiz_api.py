@@ -77,6 +77,20 @@ def quiz_settings(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def stub_quiz_storage_sweep():
+    """U10 wired physical storage deletion into revoke/delete. These
+    lifecycle tests stub the sweep as an instant success (nothing to
+    delete); the real list-delete-verify sweep, its failure modes, and the
+    reconciliation retries are exercised in tests/api/test_quiz_revoke.py.
+    """
+    with patch(
+        "app.api.quiz.delete_quiz_storage_objects",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
 # ============================================================================
 # In-memory Supabase stand-in
 # ============================================================================
@@ -1001,11 +1015,12 @@ class TestRevokeAndDelete:
         assert share(client, db, quiz_id).status_code == 200
         resp = call(client, db, "POST", f"/quiz/{quiz_id}/revoke")
         assert resp.status_code == 200
+        assert resp.json()["objects_deleted"] is True
         quiz = db.quiz(quiz_id)
         assert quiz["state"] == "revoked"
         assert quiz["revoked_at"] is not None
-        # Object deletion is U10's job; nothing pretends it already happened.
-        assert quiz["objects_deleted_at"] is None
+        # U10: the (stubbed-successful) sweep verified the prefix empty.
+        assert quiz["objects_deleted_at"] is not None
 
     def test_revoke_unshared_quiz_conflicts(self, client: TestClient) -> None:
         db = FakeDB()

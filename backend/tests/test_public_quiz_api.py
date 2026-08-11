@@ -22,7 +22,7 @@ hidden owner session already in the sessions table.
 """
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -38,6 +38,18 @@ from tests.conftest import OTHER_USER_ID
 def reset_rate_limiter():
     limiter.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def stub_quiz_storage_sweep():
+    """The revoke endpoint (used by the mid-session cutoff test) now runs
+    the U10 storage sweep; stub it as an instant success here. The real
+    sweep is exercised in tests/api/test_quiz_revoke.py."""
+    with patch(
+        "app.api.quiz.delete_quiz_storage_objects",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)

@@ -11,10 +11,22 @@
  *   remove rescales the displayed score to X of N
  * - after sharing, the swap and remove affordances are gone
  * - share invokes the share sheet with a URL containing the minted slug
+ * - revoke (U10) confirms with the honest disclosure (cached previews may
+ *   persist; photo edges expire within about a minute) before calling the
+ *   revoke mutation
  */
 
 import { fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
+
+// Access the mock Alert from global (set in jest.setup.js).
+declare global {
+  // eslint-disable-next-line no-var
+  var __mockAlert: {
+    alert: jest.Mock;
+  };
+}
+const mockAlert = global.__mockAlert.alert;
 
 import { api } from '@services/api';
 import * as ShareModule from '@utils/share';
@@ -449,5 +461,60 @@ describe('QuizResultsScreen', () => {
     // Challenge framing carries the score to beat.
     expect(content.message).toMatch(/3 of 5/);
     shareSpy.mockRestore();
+  });
+
+  it('revoke confirms with the disclosure, then calls the revoke mutation', async () => {
+    mockQuizDetail(
+      makeDetail({
+        state: 'shared',
+        score_to_beat: { correct: 3, total: 5 },
+        slug: 'abc123slug',
+        share_url: 'https://borderbadge.app/q/abc123slug',
+      })
+    );
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/revoke`]: {
+        state: 'revoked',
+        revoked_at: '2026-08-11T00:00:00+00:00',
+        objects_deleted: true,
+      },
+    });
+
+    renderResultsScreen({ ...COMPLETE_RESULTS, state: 'shared' });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-revoke')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-revoke'));
+
+    // The confirmation dialog carries the honest disclosure: already-delivered
+    // previews cached by messaging apps may persist, and the photo edges only
+    // expire within about a minute. Nothing is revoked yet.
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+    const [title, message, buttons] = mockAlert.mock.calls[0];
+    expect(title).toMatch(/revoke/i);
+    expect(message).toMatch(/previews already delivered/i);
+    expect(message).toMatch(/may persist/i);
+    expect(message).toMatch(/about a minute/i);
+    expect(mockApiPost).not.toHaveBeenCalled();
+
+    // Cancel stays put; the destructive confirm fires the mutation.
+    const confirm = (buttons as { text: string; style?: string; onPress?: () => void }[]).find(
+      (b) => b.style === 'destructive'
+    );
+    expect(confirm).toBeTruthy();
+    confirm?.onPress?.();
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(`/quiz/${QUIZ_ID}/revoke`));
+  });
+
+  it('shows the revoked note (no share, no revoke) once the quiz is revoked', async () => {
+    mockQuizDetail(makeDetail({ state: 'revoked', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+
+    renderResultsScreen({ ...COMPLETE_RESULTS, state: 'revoked' });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-revoked-note')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-share')).toBeNull();
+    expect(screen.queryByTestId('quiz-revoke')).toBeNull();
   });
 });

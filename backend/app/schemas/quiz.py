@@ -250,6 +250,9 @@ class QuizShareResponse(BaseModel):
 class QuizRevokeResponse(BaseModel):
     state: str
     revoked_at: str
+    # U10: True only once the quiz/{id}/ storage prefix has been verifiably
+    # emptied. False = revoked-but-pending; re-calling revoke retries.
+    objects_deleted: bool
 
 
 # ============================================================================

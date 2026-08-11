@@ -383,6 +383,15 @@ def test_get_profile_with_tracking_preference(
 # ============================================================================
 
 
+def no_quiz_db() -> AsyncMock:
+    """Service-role DB stub for the U10 pre-delete quiz sweep: the user owns
+    no quizzes, so no storage calls happen. The sweep itself is exercised in
+    tests/api/test_quiz_revoke.py."""
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=[])
+    return db
+
+
 def test_delete_account_requires_auth(client: TestClient) -> None:
     """Test that deleting account requires authentication."""
     response = client.delete("/profile")
@@ -405,7 +414,10 @@ def test_delete_account_success(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+        with (
+            patch("app.api.profile.get_http_client", return_value=mock_http_client),
+            patch("app.api.profile.get_supabase_client", return_value=no_quiz_db()),
+        ):
             response = client.delete("/profile", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -439,7 +451,10 @@ def test_delete_account_http_error(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+        with (
+            patch("app.api.profile.get_http_client", return_value=mock_http_client),
+            patch("app.api.profile.get_supabase_client", return_value=no_quiz_db()),
+        ):
             response = client.delete("/profile", headers=auth_headers)
         assert response.status_code == 500
         data = response.json()
@@ -462,7 +477,10 @@ def test_delete_account_network_error(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+        with (
+            patch("app.api.profile.get_http_client", return_value=mock_http_client),
+            patch("app.api.profile.get_supabase_client", return_value=no_quiz_db()),
+        ):
             response = client.delete("/profile", headers=auth_headers)
         assert response.status_code == 503
         data = response.json()
@@ -490,7 +508,10 @@ def test_delete_account_rate_limiting(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch("app.api.profile.get_http_client", return_value=mock_http_client):
+        with (
+            patch("app.api.profile.get_http_client", return_value=mock_http_client),
+            patch("app.api.profile.get_supabase_client", return_value=no_quiz_db()),
+        ):
             # Make 6 requests - 6th should be rate limited
             responses = []
             for _ in range(6):
