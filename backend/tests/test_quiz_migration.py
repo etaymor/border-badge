@@ -152,6 +152,17 @@ def test_revocation_timestamps_present(sql: str):
     )
 
 
+def test_classified_count_column_added_idempotently(sql: str):
+    """U2: the per-draft classification budget anchor. Added via an
+    idempotent ALTER so pre-U2 local applies of this unreleased migration
+    converge; NOT NULL DEFAULT 0 keeps budget math simple in the API."""
+    assert re.search(
+        r"ALTER TABLE public\.quiz\s+"
+        r"ADD COLUMN IF NOT EXISTS classified_count INTEGER NOT NULL DEFAULT 0",
+        sql,
+    ), "quiz needs an idempotent classified_count INTEGER NOT NULL DEFAULT 0"
+
+
 def test_all_indexes_are_idempotent(sql: str):
     bare = re.findall(r"CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)", sql)
     assert not bare, "every CREATE INDEX must use IF NOT EXISTS"

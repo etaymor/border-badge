@@ -86,6 +86,20 @@ BEGIN
   COMMENT ON COLUMN public.quiz.objects_deleted_at IS
     'Set only after post-revocation storage deletion verified the prefix empty.';
 
+  -- U2 (vision eligibility gate): server-side per-draft classification
+  -- budget. Accumulates the number of images this draft has sent to the
+  -- vision model; the API rejects batches that would exceed
+  -- QUIZ_CLASSIFICATION_BUDGET_PER_QUIZ and derives the global daily
+  -- circuit breaker from these counts. Idempotent ALTER (not part of the
+  -- CREATE above) so environments that applied an earlier revision of this
+  -- unreleased migration converge on the same schema.
+  ALTER TABLE public.quiz
+    ADD COLUMN IF NOT EXISTS classified_count INTEGER NOT NULL DEFAULT 0;
+
+  COMMENT ON COLUMN public.quiz.classified_count IS
+    'Images sent to the vision eligibility classifier for this draft; the '
+    'API enforces the per-quiz budget and daily circuit breaker against it.';
+
   ----------------------------------------------------------------------------
   -- 2. Quiz questions (photo + pre-shuffled options, server-only answer key)
   ----------------------------------------------------------------------------

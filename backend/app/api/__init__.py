@@ -17,6 +17,7 @@ from app.api import (
     places,
     profile,
     public,
+    quiz,
     subscriptions,
     trips,
     webhooks,
@@ -47,6 +48,7 @@ router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
 router.include_router(welcome.router, tags=["welcome"])
 router.include_router(photos.router, tags=["photos"])
+router.include_router(quiz.router, tags=["quiz"])
 router.include_router(
     subscriptions.router, prefix="/subscriptions", tags=["subscriptions"]
 )

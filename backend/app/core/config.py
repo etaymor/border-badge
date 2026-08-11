@@ -292,6 +292,31 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
+    # shareable surface (farmable across signups), so classification spend is
+    # bounded twice: per draft (hard cap on images one quiz creation may
+    # classify, anchored on quiz.classified_count) and globally per day
+    # (circuit breaker derived from DB state so it holds across workers).
+    quiz_classification_budget_per_quiz: int = Field(
+        default=70,
+        ge=1,
+        le=500,
+        description=(
+            "Hard cap on vision-classified images per draft quiz, enforced "
+            "server-side against the quiz row's classified_count."
+        ),
+    )
+    quiz_classification_daily_cap: int = Field(
+        default=2000,
+        ge=0,
+        le=1_000_000,
+        description=(
+            "Global daily circuit breaker on quiz eligibility classifications "
+            "(sum of classified_count over quizzes created today). 0 disables "
+            "the eligibility endpoint entirely (emergency stop)."
+        ),
+    )
+
     # Email (Resend) - marked as secret to prevent logging exposure
     resend_api_key: str = Field(default="", repr=False)
     welcome_email_from: str = "hello@atlasi.app"
